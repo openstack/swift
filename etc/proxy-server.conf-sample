@@ -499,6 +499,12 @@ use = egg:swift#cname_lookup
 # Note: Put staticweb just after your auth filter(s) in the pipeline
 [filter:staticweb]
 use = egg:swift#staticweb
+# You can override the default log routing for this filter here:
+# set log_name = staticweb
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = false
+# set log_address = /dev/log
 
 # Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
 [filter:tempurl]

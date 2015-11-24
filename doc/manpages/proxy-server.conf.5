@@ -56,8 +56,21 @@ IP address the proxy server should bind to. The default is 0.0.0.0 which will ma
 it bind to all available addresses.
 .IP "\fBbind_port\fR"
 TCP port the proxy server should bind to. The default is 80.
+.IP "\fBbind_timeout\fR"
+Timeout to bind socket. The default is 30.
 .IP \fBbacklog\fR
 TCP backlog.  Maximum number of allowed pending connections. The default value is 4096.
+.IP \fBadmin_key\fR
+Key to use for admin calls that are HMAC signed.  Default is empty,
+which will disable admin calls to /info.
+.IP \fBdisallowed_sections\fR
+Allows the ability to withhold sections from showing up in the public calls
+to /info.  You can withhold subsections by separating the dict level with a
+".".  The following would cause the sections 'container_quotas' and 'tempurl'
+to not be listed, and the key max_failed_deletes would be removed from
+bulk_delete.  Default value is 'swift.valid_api_versions' which allows all
+registered features to be listed via HTTP GET /info except
+swift.valid_api_versions information
 .IP \fBworkers\fR
 The number of pre-forked processes that will accept connections.  Zero means
 no fork.  The default is auto which will make the server try to match the
@@ -71,6 +84,8 @@ actually accept(2) N + 1). Setting this to one (1) will only handle one request
 at a time, without accepting another request concurrently.  The default is 1024.
 .IP \fBuser\fR
 The system user that the proxy server will run as. The default is swift.
+.IP \fBexpose_info\fR
+Enables exposing configuration settings via HTTP GET /info. The default is true.
 .IP \fBswift_dir\fR
 Swift configuration directory. The default is /etc/swift.
 .IP \fBcert_file\fR
@@ -79,6 +94,10 @@ disabled by default.
 .IP \fBkey_file\fR
 Location of the SSL certificate key file. The default path is /etc/swift/proxy.key. This is
 disabled by default.
+.IP \fBexpiring_objects_container_divisor\fR
+The default is 86400.
+.IP \fBexpiring_objects_account_name\fR
+The default is 'expiring_objects'.
 .IP \fBlog_name\fR
 Label used when logging. The default is swift.
 .IP \fBlog_facility\fR
@@ -87,10 +106,41 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
+.IP \fBlog_max_line_length\fR
+To cap the length of log lines to the value given. No limit if set to 0, the default.
+.IP \fBlog_headers\fR
+The default is false.
+.IP \fBlog_custom_handlers\fR
+Comma separated list of functions to call to setup custom log handlers.
+functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+adapted_logger. The default is empty.
+.IP \fBlog_udp_host\fR
+If set, log_udp_host will override log_address.
+.IP "\fBlog_udp_port\fR
+UDP log port, the default is 514.
+.IP \fBlog_statsd_host\fR = localhost
+log_statsd_*  enable StatsD logging.
+.IP \fBlog_statsd_port\fR
+The default is 8125.
+.IP \fBlog_statsd_default_sample_rate\fR
+The default is 1.
+.IP \fBlog_statsd_sample_rate_factor\fR
+The default is 1.
+.IP \fBlog_statsd_metric_prefix\fR
+The default is empty.
+.IP \fBclient_timeout\fR
+Time to wait while receiving each chunk of data from a client or another
+backend node. The default is 60.
+.IP \fBeventlet_debug\fR
+Debug mode for eventlet library. The default is false.
 .IP \fBtrans_id_suffix\fR
 This optional suffix (default is empty) that would be appended to the swift transaction
 id allows one to easily figure out from which cluster that X-Trans-Id belongs to.
 This is very useful when one is managing more than one swift cluster.
+.IP \fBcors_allow_origin\fR
+Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
+.IP \fBstrict_cors_mode\fR
+The default is true.
 .RE
 .PD
 
@@ -104,8 +154,13 @@ are acceptable within this section.
 
 .IP "\fBpipeline\fR"
 It is used when you need apply a number of filters. It is a list of filters
-ended by an application. The normal pipeline is "catch_errors healthcheck
-cache ratelimit tempauth proxy-logging proxy-server".
+ended by an application. The normal pipeline is "catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server".
+
+Note: The double proxy-logging in the pipeline is not a mistake. The
+left-most proxy-logging is there to log requests that were handled in
+middleware and never made it through to the right-most middleware (and
+proxy server). Double logging is prevented for normal requests. See
+proxy-logging docs.
 .RE
 .PD
 
@@ -127,6 +182,7 @@ This is normally \fBegg:swift#healthcheck\fR.
 An optional filesystem path which, if present, will cause the healthcheck
 URL to return "503 Service Unavailable" with a body of "DISABLED BY FILE".
 .RE
+.PD
 
 
 .RS 0
@@ -154,11 +210,28 @@ systems are in use for one Swift cluster. The default is AUTH.
 .IP \fBauth_prefix\fR
 The auth prefix will cause requests beginning with this prefix to be routed
 to the auth subsystem, for granting tokens, etc. The default is /auth/.
+.IP \fBrequire_group\fR
+The require_group parameter names a group that must be presented by
+either X-Auth-Token or X-Service-Token. Usually this parameter is
+used only with multiple reseller prefixes (e.g., SERVICE_require_group=blah).
+By default, no group is needed. Do not use .admin.
 .IP \fBtoken_life\fR
 This is the time in seconds before the token expires. The default is 86400.
+.IP \fBallow_overrides\fR
+This allows middleware higher in the WSGI pipeline to override auth
+processing, useful for middleware such as tempurl and formpost. If you know
+you're not going to use such middleware and you want a bit of extra security,
+you can set this to false. The default is true.
+.IP \fBstorage_url_scheme\fR
+This specifies what scheme to return with storage urls:
+http, https, or default (chooses based on what the server is running as)
+This can be useful with an SSL load balancer in front of a non-SSL server.
 .IP \fBuser_<account>_<user>\fR
 Lastly, you need to list all the accounts/users you want here. The format is:
 user_<account>_<user> = <key> [group] [group] [...] [storage_url]
+or if you want underscores in <account> or <user>, you can base64 encode them
+(with no equal signs) and use this format:
+user64_<account_b64>_<user_b64> = <key> [group] [group] [...] [storage_url]
 
 There are special groups of: \fI.reseller_admin\fR who can do anything to any account for this auth
 and also \fI.admin\fR who can do anything within the account.
@@ -185,6 +258,107 @@ Here are example entries, required for running the tests:
 .PD
 
 .RS 0
+.IP "\fB[filter:authtoken]\fR"
+.RE
+
+To enable Keystone authentication you need to have the auth token
+middleware first to be configured. Here is an example below, please
+refer to the keystone's documentation for details about the
+different settings.
+
+You'll need to have as well the keystoneauth middleware enabled
+and have it in your main pipeline so instead of having tempauth in
+there you can change it to: authtoken keystoneauth
+
+.PD 0
+.RS 10
+.IP "paste.filter_factory = keystonemiddleware.auth_token:filter_factory"
+.IP "identity_uri = http://keystonehost:35357/"
+.IP "auth_uri = http://keystonehost:5000/"
+.IP "admin_tenant_name = service"
+.IP "admin_user = swift"
+.IP "admin_password = password"
+.IP ""
+.IP "# delay_auth_decision defaults to False, but leaving it as false will"
+.IP "# prevent other auth systems, staticweb, tempurl, formpost, and ACLs from"
+.IP "# working. This value must be explicitly set to True."
+.IP "delay_auth_decision = False"
+.IP
+.IP "cache = swift.cache"
+.IP "include_service_catalog = False"
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:keystoneauth]\fR"
+.RE
+
+Keystone authentication middleware.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the keystoneauth middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#keystoneauth\fR.
+.IP \fBreseller_prefix\fR
+The reseller_prefix option lists account namespaces that this middleware is
+responsible for. The prefix is placed before the Keystone project id.
+For example, for project 12345678, and prefix AUTH, the account is
+named AUTH_12345678 (i.e., path is /v1/AUTH_12345678/...).
+Several prefixes are allowed by specifying a comma-separated list
+as in: "reseller_prefix = AUTH, SERVICE". The empty string indicates a
+single blank/empty prefix. If an empty prefix is required in a list of
+prefixes, a value of '' (two single quote characters) indicates a
+blank/empty prefix. Except for the blank/empty prefix, an underscore ('_')
+character is appended to the value unless already present.
+.IP \fBoperator_roles\fR
+The user must have at least one role named by operator_roles on a
+project in order to create, delete and modify containers and objects
+and to set and read privileged headers such as ACLs.
+If there are several reseller prefix items, you can prefix the
+parameter so it applies only to those accounts (for example
+the parameter SERVICE_operator_roles applies to the /v1/SERVICE_<project>
+path). If you omit the prefix, the option applies to all reseller
+prefix items. For the blank/empty prefix, prefix with '' (do not put
+underscore after the two single quote characters).
+.IP \fBreseller_admin_role\fR
+The reseller admin role has the ability to create and delete accounts.
+.IP \fBallow_overrides\fR
+This allows middleware higher in the WSGI pipeline to override auth
+processing, useful for middleware such as tempurl and formpost. If you know
+you're not going to use such middleware and you want a bit of extra security,
+you can set this to false.
+.IP \fBis_admin [DEPRECATED]\fR
+If is_admin is true, a user whose username is the same as the project name
+and who has any role on the project will have access rights elevated to be
+the same as if the user had an operator role. Note that the condition
+compares names rather than UUIDs. This option is deprecated.
+.IP \fBservice_roles\fR
+If the service_roles parameter is present, an X-Service-Token must be
+present in the request that when validated, grants at least one role listed
+in the parameter. The X-Service-Token may be scoped to any project.
+If there are several reseller prefix items, you can prefix the
+parameter so it applies only to those accounts (for example
+the parameter SERVICE_service_roles applies to the /v1/SERVICE_<project>
+path). If you omit the prefix, the option applies to all reseller
+prefix items. For the blank/empty prefix, prefix with '' (do not put
+underscore after the two single quote characters).
+By default, no service_roles are required.
+.IP \fBdefault_domain_id\fR
+For backwards compatibility, keystoneauth will match names in cross-tenant
+access control lists (ACLs) when both the requesting user and the tenant
+are in the default domain i.e the domain to which existing tenants are
+migrated. The default_domain_id value configured here should be the same as
+the value used during migration of tenants to keystone domains.
+.IP \fBallow_names_in_acls\fR
+For a new installation, or an installation in which keystone projects may
+move between domains, you should disable backwards compatible name matching
+in ACLs by setting allow_names_in_acls to false:
+.RE
+.PD
+
+
+.RS 0
 .IP "\fB[filter:cache]\fR"
 .RE
 
@@ -202,8 +376,10 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP "\fBset log_address\fR"
 Logging address. The default is /dev/log.
-.IP "\fBset log_headers\fR "
+.IP "\fBset log_headers\fR"
 Enables the ability to log request headers. The default is False.
+.IP \fBmemcache_max_connections\fR
+Sets the maximum number of connections to each memcached server per worker.
 .IP \fBmemcache_servers\fR
 If not set in the configuration file, the value for memcache_servers will be
 read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that
@@ -225,7 +401,7 @@ To avoid an instant full cache flush, existing installations should upgrade with
 
 If not set in the configuration file, the value for memcache_serialization_support will be read from /etc/swift/memcache.conf if it exists (see memcache.conf-sample). Otherwise, the default value as indicated above will be used.
 .RE
-
+.PD
 
 
 .RS 0
@@ -268,14 +444,20 @@ in requests per second. If set to 0 means disabled. The default is 0.
 .IP \fBcontainer_ratelimit_size\fR
 When set with container_limit_x = r: for containers of size x, limit requests per second
 to r. Will limit PUT, DELETE, and POST requests to /a/c/o. The default is ''.
+.IP \fBcontainer_listing_ratelimit_size\fR
+Similarly to the above container-level write limits, the following will limit
+container GET (listing) requests.
 .RE
+.PD
+
 
 
 .RS 0
 .IP "\fB[filter:domain_remap]\fR"
 .RE
 
-Middleware that translates container and account parts of a domain to path parameters that the proxy server understands. The container.account.storageurl/object gets translated to container.account.storageurl/path_root/account/container/object and account.storageurl/path_root/container/object gets translated to account.storageurl/path_root/account/container/object
+Middleware that translates container and account parts of a domain to path parameters that the proxy server understands.
+The container.account.storageurl/object gets translated to container.account.storageurl/path_root/account/container/object and account.storageurl/path_root/container/object gets translated to account.storageurl/path_root/account/container/object
 
 .RS 3
 .IP \fBuse\fR
@@ -283,9 +465,13 @@ Entry point for paste.deploy for the domain_remap middleware. This is the refere
 This is normally \fBegg:swift#domain_remap\fR.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is domain_remap.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
 .IP "\fBset log_address\fR"
 Logging address. The default is /dev/log.
-.IP "\fBset log_headers\fR"
+.IP "\fBset log_headers\fR "
 Enables the ability to log request headers. The default is False.
 .IP \fBstorage_domain\fR
 The domain to be used by the middleware.
@@ -304,7 +490,7 @@ Defaults to 'AUTH'.
 The default reseller prefix. This is used when none of the configured
 reseller_prefixes match. When not set, no reseller prefix is added.
 .RE
-
+.PD
 
 
 .RS 0
@@ -325,7 +511,7 @@ Logging address. The default is /dev/log.
 .IP "\fBset log_headers\fR"
 Enables the ability to log request headers. The default is False.
 .RE
-
+.PD
 
 
 .RS 0
@@ -354,7 +540,7 @@ The domain to be used by the middleware.
 How deep in the CNAME chain to look for something that matches the storage domain.
 The default is 1.
 .RE
-
+.PD
 
 
 .RS 0
@@ -367,8 +553,6 @@ Note: Put staticweb just after your auth filter(s) in the pipeline
 .IP \fBuse\fR
 Entry point for paste.deploy for the staticweb middleware. This is the reference to the installed python egg.
 This is normally \fBegg:swift#staticweb\fR.
-.IP \fBcache_timeout\fR
-Seconds to cache container x-container-meta-web-* header values. The default is 300 seconds.
 .IP "\fBset log_name\fR"
 Label used when logging. The default is staticweb.
 .IP "\fBset log_facility\fR"
@@ -379,14 +563,8 @@ Logging level. The default is INFO.
 Logging address. The default is /dev/log.
 .IP "\fBset log_headers\fR"
 Enables the ability to log request headers. The default is False.
-.IP "\fBset access_log_name\fR"
-Label used when logging. The default is staticweb.
-.IP "\fBset access_log_facility\fR"
-Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fBset access_log_level\fR "
-Logging level. The default is INFO.
 .RE
-
+.PD
 
 
 .RS 0
@@ -396,6 +574,11 @@ Logging level. The default is INFO.
 Note: Put tempurl before slo, dlo, and your auth filter(s) in the pipeline
 
 .RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the tempurl middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#tempurl\fR.
+.IP \fBmethods\fR
+The methods allowed with Temp URLs. The default is 'GET HEAD PUT POST DELETE'.
 .IP \fBincoming_remove_headers\fR
 The headers to remove from incoming requests. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match. incoming_allow_headers is a list of exceptions to these removals.
 .IP \fBincoming_allow_headers\fR
@@ -404,9 +587,8 @@ The headers allowed as exceptions to incoming_remove_headers. Simply a whitespac
 The headers to remove from outgoing responses. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match. outgoing_allow_headers is a list of exceptions to these removals.
 .IP "\fBoutgoing_allow_headers\fR"
 The headers allowed as exceptions to outgoing_remove_headers. Simply a whitespace delimited list of header names and names can optionally end with '*' to indicate a prefix match.
-.IP "\fBset log_level\fR "
 .RE
-
+.PD
 
 
 .RS 0
@@ -420,6 +602,7 @@ Note: Put formpost just before your auth filter(s) in the pipeline
 Entry point for paste.deploy for the formpost middleware. This is the reference to the installed python egg.
 This is normally \fBegg:swift#formpost\fR.
 .RE
+.PD
 
 
 
@@ -434,12 +617,25 @@ Note: Just needs to be placed before the proxy-server in the pipeline.
 Entry point for paste.deploy for the name_check middleware. This is the reference to the installed python egg.
 This is normally \fBegg:swift#name_check\fR.
 .IP \fBforbidden_chars\fR
-Characters that will not be allowed in a name.
+Characters that will not be allowed in a name. The default is '"`<>.
 .IP \fBmaximum_length\fR
-Maximum number of characters that can be in the name.
+Maximum number of characters that can be in the name. The default is 255.
 .IP \fBforbidden_regexp\fR
-Python regular expressions of substrings that will not be allowed in a name.
+Python regular expressions of substrings that will not be allowed in a name. The default is /\./|/\.\./|/\.$|/\.\.$.
 .RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:list-endpoints]\fR"
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the list_endpoints middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#list_endpoints\fR.
+.IP \fBlist_endpoints_path\fR
+The default is '/endpoints/'.
+.RE
+.PD
 
 
 .RS 0
@@ -474,20 +670,249 @@ Default is localhost.
 Default is 8125.
 .IP \fBaccess_log_statsd_default_sample_rate\fR
 Default is 1.
+.IP \fBaccess_log_statsd_sample_rate_factor\fR
+The default is 1.
 .IP \fBaccess_log_statsd_metric_prefix\fR
 Default is "" (empty-string)
 .IP \fBaccess_log_headers\fR
 Default is False.
+.IP \fBaccess_log_headers_only\fR
+If access_log_headers is True and access_log_headers_only is set only
+these headers are logged. Multiple headers can be defined as comma separated
+list like this: access_log_headers_only = Host, X-Object-Meta-Mtime
+.IP \fBreveal_sensitive_prefix\fR
+By default, the X-Auth-Token is logged. To obscure the value,
+set reveal_sensitive_prefix to the number of characters to log.
+For example, if set to 12, only the first 12 characters of the
+token appear in the log. An unauthorized access of the log file
+won't allow unauthorized usage of the token. However, the first
+12 or so characters is unique enough that you can trace/debug
+token usage. Set to 0 to suppress the token completely (replaced
+by '...' in the log). The default is 16 chars.
+Note: reveal_sensitive_prefix will not affect the value logged with access_log_headers=True.
 .IP \fBlog_statsd_valid_http_methods\fR
 What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
 Default is "GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS".
 .RE
-
-
 .PD
 
 
+.RS 0
+.IP "\fB[filter:bulk]\fR"
+.RE
+
+Note: Put before both ratelimit and auth in the pipeline.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the bulk middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#bulk\fR.
+.IP \fBmax_containers_per_extraction\fR
+The default is 10000.
+.IP \fBmax_failed_extractions\fR
+The default is 1000.
+.IP \fBmax_deletes_per_request\fR
+The default is 10000.
+.IP \fBmax_failed_deletes\fR
+The default is 1000.
+
+In order to keep a connection active during a potentially long bulk request,
+Swift may return whitespace prepended to the actual response body. This
+whitespace will be yielded no more than every yield_frequency seconds.
+The default is 10.
+.IP \fByield_frequency\fR
+
+.IP \fBdelete_container_retry_count\fR
+Note: This parameter is used during a bulk delete of objects and
+their container. This would frequently fail because it is very likely
+that all replicated objects have not been deleted by the time the middleware got a
+successful response. It can be configured the number of retries. And the
+number of seconds to wait between each retry will be 1.5**retry
+The default is 0.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:slo]\fR"
+.RE
+
+Note: Put after auth and staticweb in the pipeline.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the slo middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#slo\fR.
+.IP \fBmax_manifest_segments\fR
+The default is 1000.
+.IP \fBmax_manifest_size\fR
+The default is 2097152.
+.IP \fBmin_segment_size\fR
+The default is 1048576
+.IP \fBrate_limit_after_segment\fR
+Start rate-limiting object segments after the Nth segment of a segmented
+object. The default is 10 segments.
+.IP \fBrate_limit_segments_per_sec\fR
+Once segment rate-limiting kicks in for an object, limit segments served to N
+per second. The default is 1.
+.IP \fBmax_get_time\fR
+Time limit on GET requests (seconds). The default is 86400.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:dlo]\fR"
+.RE
+
+Note: Put after auth and staticweb in the pipeline.
+If you don't put it in the pipeline, it will be inserted for you.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the dlo middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#dlo\fR.
+.IP \fBrate_limit_after_segment\fR
+Start rate-limiting object segments after the Nth segment of a segmented
+object. The default is 10 segments.
+.IP \fBrate_limit_segments_per_sec\fR
+Once segment rate-limiting kicks in for an object, limit segments served to N
+per second. The default is 1.
+.IP \fBmax_get_time\fR
+Time limit on GET requests (seconds). The default is 86400.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:container-quotas]\fR"
+.RE
+
+Note: Put after auth in the pipeline.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the container_quotas middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#container_quotas\fR.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:account-quotas]\fR"
+.RE
+
+Note: Put after auth in the pipeline.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the account_quotas middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#account_quotas\fR.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:gatekeeper]\fR"
+.RE
+
+Note: this middleware requires python-dnspython
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the gatekeeper middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#gatekeeper\fR.
+.IP "\fBset log_name\fR"
+Label used when logging. The default is gatekeeper.
+.IP "\fBset log_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBset log_level\fR "
+Logging level. The default is INFO.
+.IP "\fBset log_address\fR"
+Logging address. The default is /dev/log.
+.IP "\fBset log_headers\fR"
+Enables the ability to log request headers. The default is False.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:container_sync]\fR"
+.RE
+
+Note: this middleware requires python-dnspython
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the container_sync middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#container_sync\fR.
+.IP \fBallow_full_urls\fR
+Set this to false if you want to disallow any full url values to be set for
+any new X-Container-Sync-To headers. This will keep any new full urls from
+coming in, but won't change any existing values already in the cluster.
+Updating those will have to be done manually, as knowing what the true realm
+endpoint should be cannot always be guessed. The default is true.
+.IP \fBcurrent\fR
+Set this to specify this clusters //realm/cluster as "current" in /info
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:xprofile]\fR"
+.RE
+
+Note: Put it at the beginning of the pipeline to profile all middleware. But it is safer to put this after healthcheck.
+
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy for the xprofile middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#xprofile\fR.
+.IP "\fBprofile_module\fR"
+This option enable you to switch profilers which should inherit from python
+standard profiler. Currently the supported value can be 'cProfile', 'eventlet.green.profile' etc.
+.IP "\fBlog_filename_prefix\fR"
+This prefix will be used to combine process ID and timestamp to name the
+profile data file.  Make sure the executing user has permission to write
+into this path (missing path segments will be created, if necessary).
+If you enable profiling in more than one type of daemon, you must override
+it with an unique value like, the default is /var/log/swift/profile/account.profile.
+.IP "\fBdump_interval\fR"
+The profile data will be dumped to local disk based on above naming rule
+in this interval. The default is 5.0.
+.IP "\fBdump_timestamp\fR"
+Be careful, this option will enable profiler to dump data into the file with
+time stamp which means there will be lots of files piled up in the directory.
+The default is false
+.IP "\fBpath\fR"
+This is the path of the URL to access the mini web UI. The default is __profile__.
+.IP "\fBflush_at_shutdown\fR"
+Clear the data when the wsgi server shutdown. The default is false.
+.IP "\fBunwind\fR"
+Unwind the iterator of applications. Default is false.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:versioned_writes]\fR"
+.RE
+
+Note: Put after slo, dlo in the pipeline.
+If you don't put it in the pipeline, it will be inserted automatically.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the versioned_writes middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#versioned_writes\fR.
+.IP \fBallow_versioned_writes\fR
+Enables using versioned writes middleware and exposing configuration settings via HTTP GET /info.
+WARNING: Setting this option bypasses the "allow_versions" option
+in the container configuration file, which will be eventually
+deprecated. See documentation for more details.
+.RE
+.PD
 
 
 .SH APP SECTION
@@ -518,10 +943,19 @@ Chunk size to read from object servers. The default is 8192.
 Chunk size to read from clients. The default is 8192.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 10 seconds.
-.IP \fBclient_timeout\fR
-Timeout to read one chunk from a client. The default is 60 seconds.
+.IP \fBrecoverable_node_timeout\fR
+How long the proxy server will wait for an initial response and to read a
+chunk of data from the object servers while serving GET / HEAD requests.
+Timeouts from these requests can be recovered from so setting this to
+something lower than node_timeout would provide quicker error recovery
+while allowing for a longer timeout for non-recoverable requests (PUTs).
+Defaults to node_timeout, should be overriden if node_timeout is set to a
+high number to prevent client timeouts from firing before the proxy server
+has a chance to retry.
 .IP \fBconn_timeout\fR
 Connection timeout to external services. The default is 0.5 seconds.
+.IP \fBpost_quorum_timeout\fR
+How long to wait for requests to finish after a quorum has been established. The default is 0.5 seconds.
 .IP \fBerror_suppression_interval\fR
 Time in seconds that must elapse since the last error for a node to
 be considered no longer error limited. The default is 60 seconds.
@@ -539,12 +973,63 @@ container sync won't be able to sync posts. The default is True.
 .IP \fBaccount_autocreate\fR
 If set to 'true' authorized accounts that do not yet exist within the Swift cluster
 will be automatically created. The default is set to false.
-.IP \fBrate_limit_after_segment\fR
-Start rate-limiting object segments after the Nth segment of a segmented
-object.  The default is 10 segments.
-.IP \fBrate_limit_segments_per_sec\fR
-Once segment rate-limiting kicks in for an object, limit segments served to N
-per second.  The default is 1.
+.IP \fBauto_create_account_prefix\fR
+Prefix used when automatically creating accounts. The default is '.'.
+.IP \fBmax_containers_per_account\fR
+If set to a positive value, trying to create a container when the account
+already has at least this maximum containers will result in a 403 Forbidden.
+Note: This is a soft limit, meaning a user might exceed the cap for
+recheck_account_existence before the 403s kick in.
+.IP \fBmax_containers_whitelist\fR
+This is a comma separated list of account hashes that ignore the max_containers_per_account cap.
+.IP \fBdeny_host_headers\fR
+Comma separated list of Host headers to which the proxy will deny requests. The default is empty.
+.IP \fBput_queue_depth\fR
+Depth of the proxy put queue. The default is 10.
+.IP \fBsorting_method\fR
+Storage nodes can be chosen at random (shuffle - default), by using timing
+measurements (timing), or by using an explicit match (affinity).
+Using timing measurements may allow for lower overall latency, while
+using affinity allows for finer control. In both the timing and
+affinity cases, equally-sorting nodes are still randomly chosen to
+spread load.
+The valid values for sorting_method are "affinity", "shuffle", and "timing".
+.IP \fBtiming_expiry\fR
+If the "timing" sorting_method is used, the timings will only be valid for
+the number of seconds configured by timing_expiry. The default is 300.
+.IP \fBmax_large_object_get_time\fR
+The maximum time (seconds) that a large object connection is allowed to last. The default is 86400.
+.IP \fBrequest_node_count\fR
+Set to the number of nodes to contact for a normal request. You can use
+'* replicas' at the end to have it use the number given times the number of
+replicas for the ring being used for the request. The default is '2 * replicas'.
+.IP \fBread_affinity\fR
+Which backend servers to prefer on reads. Format is r<N> for region
+N or r<N>z<M> for region N, zone M. The value after the equals is
+the priority; lower numbers are higher priority.
+Default is empty, meaning no preference.
+Example: first read from region 1 zone 1, then region 1 zone 2, then anything in region 2, then everything else:
+read_affinity = r1z1=100, r1z2=200, r2=300
+.IP \fBwrite_affinity\fR
+Which backend servers to prefer on writes. Format is r<N> for region
+N or r<N>z<M> for region N, zone M. If this is set, then when
+handling an object PUT request, some number (see setting
+write_affinity_node_count) of local backend servers will be tried
+before any nonlocal ones. Default is empty, meaning no preference.
+Example: try to write to regions 1 and 2 before writing to any other
+nodes:
+write_affinity = r1, r2
+.IP \fBwrite_affinity_node_count\fR
+The number of local (as governed by the write_affinity setting)
+nodes to attempt to contact first, before any non-local ones. You
+can use '* replicas' at the end to have it use the number given
+times the number of replicas for the ring being used for the
+request. The default is '2 * replicas'.
+.IP \fBswift_owner_headers\fR
+These are the headers whose values will only be shown to swift_owners. The
+exact definition of a swift_owner is up to the auth system in use, but
+usually indicates administrative responsibilities.
+The default is 'x-container-read, x-container-write, x-container-sync-key, x-container-sync-to, x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, x-container-meta-temp-url-key, x-container-meta-temp-url-key-2, x-account-access-control'.
 .RE
 .PD
 
