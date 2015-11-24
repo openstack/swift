@@ -2,7 +2,6 @@
 # of appearance. Changing the order has an impact on the overall integration
 # process, which may cause wedges in the gate later.
 
-pbr>=1.6
 dnspython>=1.12.0;python_version<'3.0'
 dnspython3>=1.12.0;python_version>='3.0'
 eventlet>=0.16.1,!=0.17.0
