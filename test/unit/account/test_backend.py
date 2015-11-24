@@ -619,6 +619,27 @@ class TestAccountBroker(unittest.TestCase):
                     'topdir1-subdir1,',
                 ],
             },
+            {
+                'containers': [
+                    '1',
+                    '2',
+                    '3:1',
+                    '3:2:1',
+                    '3:2:2',
+                    '3:3',
+                    '4',
+                ],
+                'params': {
+                    'prefix': '3:',
+                    'delimiter': ':',
+                    'reverse': True,
+                },
+                'expected': [
+                    '3:3',
+                    '3:2:',
+                    '3:1',
+                ],
+            },
         ]
         ts = make_timestamp_iter()
         default_listing_params = {

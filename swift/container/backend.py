@@ -660,7 +660,7 @@ class ContainerBroker(DatabaseBroker):
                     else:
                         marker = name
 
-                    if len(results) >= limit or not name.startswith(prefix):
+                    if len(results) >= limit:
                         curs.close()
                         return results
                     end = name.find(delimiter, len(prefix))

@@ -962,6 +962,47 @@ class TestContainerBroker(unittest.TestCase):
                     'topdir1/subdir1.0/',
                 ],
             },
+            {
+                'objects': [
+                    '1',
+                    '2',
+                    '3/1',
+                    '3/2.2',
+                    '3/2/1',
+                    '3/2/2',
+                    '3/3',
+                    '4',
+                ],
+                'params': {
+                    'path': '3/',
+                },
+                'expected': [
+                    '3/1',
+                    '3/2.2',
+                    '3/3',
+                ],
+            },
+            {
+                'objects': [
+                    '1',
+                    '2',
+                    '3/1',
+                    '3/2.2',
+                    '3/2/1',
+                    '3/2/2',
+                    '3/3',
+                    '4',
+                ],
+                'params': {
+                    'path': '3/',
+                    'reverse': True,
+                },
+                'expected': [
+                    '3/3',
+                    '3/2.2',
+                    '3/1',
+                ],
+            },
         ]
         ts = make_timestamp_iter()
         default_listing_params = {
