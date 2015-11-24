@@ -71,14 +71,14 @@ def get_response_headers(broker):
 
 def account_listing_response(account, req, response_content_type, broker=None,
                              limit='', marker='', end_marker='', prefix='',
-                             delimiter=''):
+                             delimiter='', reverse=False):
     if broker is None:
         broker = FakeAccountBroker()
 
     resp_headers = get_response_headers(broker)
 
     account_list = broker.list_containers_iter(limit, marker, end_marker,
-                                               prefix, delimiter)
+                                               prefix, delimiter, reverse)
     if response_content_type == 'application/json':
         data = []
         for (name, object_count, bytes_used, is_subdir) in account_list:

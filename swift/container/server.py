@@ -453,6 +453,7 @@ class ContainerController(BaseStorageServer):
         end_marker = get_param(req, 'end_marker')
         limit = constraints.CONTAINER_LISTING_LIMIT
         given_limit = get_param(req, 'limit')
+        reverse = config_true_value(get_param(req, 'reverse'))
         if given_limit and given_limit.isdigit():
             limit = int(given_limit)
             if limit > constraints.CONTAINER_LISTING_LIMIT:
@@ -472,7 +473,7 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound(request=req, headers=resp_headers)
         container_list = broker.list_objects_iter(
             limit, marker, end_marker, prefix, delimiter, path,
-            storage_policy_index=info['storage_policy_index'])
+            storage_policy_index=info['storage_policy_index'], reverse=reverse)
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 
