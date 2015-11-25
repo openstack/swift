@@ -78,11 +78,12 @@ with this middleware enabled should not be open to an untrusted
 environment (everyone can query the locality data using this middleware).
 """
 
+import json
 
 from six.moves.urllib.parse import quote, unquote
 
 from swift.common.ring import Ring
-from swift.common.utils import json, get_logger, split_path
+from swift.common.utils import get_logger, split_path
 from swift.common.swob import Request, Response
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 from swift.common.storage_policy import POLICIES

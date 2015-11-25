@@ -113,10 +113,11 @@ Disable versioning from a container (x is any value except empty)::
 -H "X-Remove-Versions-Location: x" http://<storage_url>/container
 """
 
+import json
 import six
 from six.moves.urllib.parse import quote, unquote
 import time
-from swift.common.utils import get_logger, Timestamp, json, \
+from swift.common.utils import get_logger, Timestamp, \
     register_swift_info, config_true_value
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.wsgi import WSGIContext, make_pre_authed_request

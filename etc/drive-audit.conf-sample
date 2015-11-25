@@ -1,11 +1,15 @@
 [drive-audit]
 # device_dir = /srv/node
+#
+# You can specify default log routing here if you want:
+# log_name = drive-audit
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
 # The following caps the length of log lines to the value given; no limit if
 # set to 0, the default.
 # log_max_line_length = 0
+#
 # minutes = 60
 # error_limit = 1
 # recon_cache_path = /var/cache/swift

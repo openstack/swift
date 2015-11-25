@@ -17,6 +17,7 @@
 from __future__ import print_function
 import email.parser
 import logging
+import json
 import math
 import os
 import pickle
@@ -48,7 +49,7 @@ from six import StringIO
 from six.moves import range
 from six.moves.urllib.parse import quote
 
-from swift.common.utils import hash_path, json, storage_directory, \
+from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public
 

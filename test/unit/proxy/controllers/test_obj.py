@@ -535,6 +535,22 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
 
+    def test_PUT_empty_bad_etag(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
+        req.headers['Content-Length'] = '0'
+        req.headers['Etag'] = '"catbus"'
+
+        # The 2-tuple here makes getexpect() return 422, not 100. For
+        # objects that are >0 bytes, you get a 100 Continue and then a 422
+        # Unprocessable Entity after sending the body. For zero-byte
+        # objects, though, you get the 422 right away.
+        codes = [FakeStatus((422, 422))
+                 for _junk in range(self.replicas())]
+
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 422)
+
     def test_PUT_if_none_match(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         req.headers['if-none-match'] = '*'
@@ -615,7 +631,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
     def test_PUT_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.ChunkReadError(None)
+                raise exceptions.ChunkReadError('exception message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -630,7 +646,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
     def test_PUT_chunkreadtimeout_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.ChunkReadTimeout(None)
+                raise exceptions.ChunkReadTimeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -645,7 +661,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
     def test_PUT_timeout_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.Timeout(None)
+                raise Timeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -660,7 +676,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
     def test_PUT_exception_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise Exception
+                raise Exception('exception message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -1329,7 +1345,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     def test_PUT_ec_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.ChunkReadError(None)
+                raise exceptions.ChunkReadError('exception message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -1349,7 +1365,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     def test_PUT_ec_chunkreadtimeout_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.ChunkReadTimeout(None)
+                raise exceptions.ChunkReadTimeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -1369,7 +1385,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     def test_PUT_ec_timeout_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.Timeout(None)
+                raise exceptions.Timeout()
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -1389,7 +1405,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     def test_PUT_ec_exception_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise Exception(None)
+                raise Exception('exception message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')

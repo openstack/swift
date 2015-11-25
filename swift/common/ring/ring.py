@@ -16,6 +16,7 @@
 import array
 import six.moves.cPickle as pickle
 import inspect
+import json
 from collections import defaultdict
 from gzip import GzipFile
 from os.path import getmtime
@@ -29,7 +30,7 @@ from tempfile import NamedTemporaryFile
 
 from six.moves import range
 
-from swift.common.utils import hash_path, validate_configuration, json
+from swift.common.utils import hash_path, validate_configuration
 from swift.common.ring.utils import tiers_for_dev
 
 

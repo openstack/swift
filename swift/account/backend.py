@@ -366,7 +366,7 @@ class AccountBroker(DatabaseBroker):
             ''').fetchone())
 
     def list_containers_iter(self, limit, marker, end_marker, prefix,
-                             delimiter):
+                             delimiter, reverse=False):
         """
         Get a list of containers sorted by name starting at marker onward, up
         to limit entries. Entries will begin with the prefix and will not have
@@ -377,15 +377,21 @@ class AccountBroker(DatabaseBroker):
         :param end_marker: end marker query
         :param prefix: prefix query
         :param delimiter: delimiter for query
+        :param reverse: reverse the result order.
 
         :returns: list of tuples of (name, object_count, bytes_used, 0)
         """
         delim_force_gte = False
         (marker, end_marker, prefix, delimiter) = utf8encode(
             marker, end_marker, prefix, delimiter)
+        if reverse:
+            # Reverse the markers if we are reversing the listing.
+            marker, end_marker = end_marker, marker
         self._commit_puts_stale_ok()
         if delimiter and not prefix:
             prefix = ''
+        if prefix:
+            end_prefix = prefix[:-1] + chr(ord(prefix[-1]) + 1)
         orig_marker = marker
         with self.get() as conn:
             results = []
@@ -395,9 +401,13 @@ class AccountBroker(DatabaseBroker):
                     FROM container
                     WHERE """
                 query_args = []
-                if end_marker:
+                if end_marker and (not prefix or end_marker < end_prefix):
                     query += ' name < ? AND'
                     query_args.append(end_marker)
+                elif prefix:
+                    query += ' name < ? AND'
+                    query_args.append(end_prefix)
+
                 if delim_force_gte:
                     query += ' name >= ? AND'
                     query_args.append(marker)
@@ -413,38 +423,40 @@ class AccountBroker(DatabaseBroker):
                     query += ' +deleted = 0'
                 else:
                     query += ' deleted = 0'
-                query += ' ORDER BY name LIMIT ?'
+                query += ' ORDER BY name %s LIMIT ?' % \
+                         ('DESC' if reverse else '')
                 query_args.append(limit - len(results))
                 curs = conn.execute(query, query_args)
                 curs.row_factory = None
 
-                if prefix is None:
-                    # A delimiter without a specified prefix is ignored
+                # Delimiters without a prefix is ignored, further if there
+                # is no delimiter then we can simply return the result as
+                # prefixes are now handled in the SQL statement.
+                if prefix is None or not delimiter:
                     return [r for r in curs]
-                if not delimiter:
-                    if not prefix:
-                        # It is possible to have a delimiter but no prefix
-                        # specified. As above, the prefix will be set to the
-                        # empty string, so avoid performing the extra work to
-                        # check against an empty prefix.
-                        return [r for r in curs]
-                    else:
-                        return [r for r in curs if r[0].startswith(prefix)]
 
                 # We have a delimiter and a prefix (possibly empty string) to
                 # handle
                 rowcount = 0
                 for row in curs:
                     rowcount += 1
-                    marker = name = row[0]
-                    if len(results) >= limit or not name.startswith(prefix):
+                    name = row[0]
+                    if reverse:
+                        end_marker = name
+                    else:
+                        marker = name
+
+                    if len(results) >= limit:
                         curs.close()
                         return results
                     end = name.find(delimiter, len(prefix))
                     if end > 0:
-                        marker = name[:end] + chr(ord(delimiter) + 1)
-                        # we want result to be inclusive of delim+1
-                        delim_force_gte = True
+                        if reverse:
+                            end_marker = name[:end + 1]
+                        else:
+                            marker = name[:end] + chr(ord(delimiter) + 1)
+                            # we want result to be inclusive of delim+1
+                            delim_force_gte = True
                         dir_name = name[:end + 1]
                         if dir_name != orig_marker:
                             results.append([dir_name, 0, 0, 1])

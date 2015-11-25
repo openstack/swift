@@ -50,6 +50,16 @@ def main():
                       dest="run_dir", default=RUN_DIR,
                       help="alternative directory to store running pid files "
                       "default: %s" % RUN_DIR)
+    # Changing behaviour if missing config
+    parser.add_option('--strict', dest='strict', action='store_true',
+                      help="Return non-zero status code if some config is "
+                           "missing. Default mode if server is explicitly "
+                           "named.")
+    # a negative option for strict
+    parser.add_option('--non-strict', dest='strict', action='store_false',
+                      help="Return zero status code even if some config is "
+                           "missing. Default mode if server is one of aliases "
+                           "`all`, `main` or `rest`.")
 
     options, args = parser.parse_args()
 

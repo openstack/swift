@@ -18,6 +18,7 @@ Internal client library for making calls directly to the servers rather than
 through the proxy.
 """
 
+import json
 import os
 import socket
 from time import time
@@ -33,11 +34,6 @@ from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
 from swift.common.swob import HeaderKeyDict
 from swift.common.utils import quote
-
-try:
-    import simplejson as json
-except ImportError:
-    import json
 
 
 class DirectClientException(ClientException):

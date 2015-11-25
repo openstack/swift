@@ -40,7 +40,6 @@ from six.moves import range
 from textwrap import dedent
 
 import tempfile
-import threading
 import time
 import traceback
 import unittest
@@ -63,6 +62,8 @@ from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import Request, Response, HeaderKeyDict
 from test.unit import FakeLogger
+
+threading = eventlet.patcher.original('threading')
 
 
 class MockOs(object):

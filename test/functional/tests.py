@@ -327,6 +327,77 @@ class TestAccountNoContainersUTF8(Base2, TestAccountNoContainers):
     set_up = False
 
 
+class TestAccountSortingEnv(object):
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
+        cls.account.delete_containers()
+
+        postfix = Utils.create_name()
+        cls.cont_items = ('a1', 'a2', 'A3', 'b1', 'B2', 'a10', 'b10', 'zz')
+        cls.cont_items = ['%s%s' % (x, postfix) for x in cls.cont_items]
+
+        for container in cls.cont_items:
+            c = cls.account.container(container)
+            if not c.create():
+                raise ResponseError(cls.conn.response)
+
+
+class TestAccountSorting(Base):
+    env = TestAccountSortingEnv
+    set_up = False
+
+    def testAccountContainerListSorting(self):
+        # name (byte order) sorting.
+        cont_list = sorted(self.env.cont_items)
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={'reverse': 'on'})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByPrefix(self):
+        cont_list = sorted(c for c in self.env.cont_items if c.startswith('a'))
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'prefix': 'a'})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByMarkersExclusive(self):
+        first_item = self.env.cont_items[3]  # 'b1' + postfix
+        last_item = self.env.cont_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.cont_items
+                           if last_item < c < first_item)
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'marker': first_item, 'end_marker': last_item})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByMarkersInclusive(self):
+        first_item = self.env.cont_items[3]  # 'b1' + postfix
+        last_item = self.env.cont_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.cont_items
+                           if last_item <= c <= first_item)
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'marker': first_item + '\x00',
+            'end_marker': last_item[:-1] + chr(ord(last_item[-1]) - 1)})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByReversedMarkers(self):
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'marker': 'B', 'end_marker': 'b1'})
+        self.assert_status(204)
+        self.assertEqual([], cont_listing)
+
+
 class TestContainerEnv(object):
     @classmethod
     def setUp(cls):
@@ -645,6 +716,115 @@ class TestContainer(Base):
 
 class TestContainerUTF8(Base2, TestContainer):
     set_up = False
+
+
+class TestContainerSortingEnv(object):
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
+        cls.account.delete_containers()
+
+        cls.container = cls.account.container(Utils.create_name())
+        if not cls.container.create():
+            raise ResponseError(cls.conn.response)
+
+        cls.file_items = ('a1', 'a2', 'A3', 'b1', 'B2', 'a10', 'b10', 'zz')
+        cls.files = list()
+        cls.file_size = 128
+        for name in cls.file_items:
+            file_item = cls.container.file(name)
+            file_item.write_random(cls.file_size)
+            cls.files.append(file_item.name)
+
+
+class TestContainerSorting(Base):
+    env = TestContainerSortingEnv
+    set_up = False
+
+    def testContainerFileListSortingReversed(self):
+        file_list = list(sorted(self.env.file_items))
+        file_list.reverse()
+        cont_files = self.env.container.files(parms={'reverse': 'on'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+    def testContainerFileSortingByPrefixReversed(self):
+        cont_list = sorted(c for c in self.env.file_items if c.startswith('a'))
+        cont_list.reverse()
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'prefix': 'a'})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testContainerFileSortingByMarkersExclusiveReversed(self):
+        first_item = self.env.file_items[3]  # 'b1' + postfix
+        last_item = self.env.file_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.file_items
+                           if last_item < c < first_item)
+        cont_list.reverse()
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'marker': first_item, 'end_marker': last_item})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testContainerFileSortingByMarkersInclusiveReversed(self):
+        first_item = self.env.file_items[3]  # 'b1' + postfix
+        last_item = self.env.file_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.file_items
+                           if last_item <= c <= first_item)
+        cont_list.reverse()
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'marker': first_item + '\x00',
+            'end_marker': last_item[:-1] + chr(ord(last_item[-1]) - 1)})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testContainerFileSortingByReversedMarkersReversed(self):
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'marker': 'B', 'end_marker': 'b1'})
+        self.assert_status(204)
+        self.assertEqual([], cont_listing)
+
+    def testContainerFileListSorting(self):
+        file_list = list(sorted(self.env.file_items))
+        cont_files = self.env.container.files()
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        # Lets try again but with reverse is specifically turned off
+        cont_files = self.env.container.files(parms={'reverse': 'off'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'false'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'no'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': ''})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        # Lets try again but with a incorrect reverse values
+        cont_files = self.env.container.files(parms={'reverse': 'foo'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'hai'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'o=[]::::>'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
 
 
 class TestContainerPathsEnv(object):

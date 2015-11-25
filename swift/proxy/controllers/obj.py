@@ -29,6 +29,7 @@ from six.moves.urllib.parse import unquote, quote
 
 import collections
 import itertools
+import json
 import time
 import math
 import random
@@ -42,7 +43,7 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
-    GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
+    GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible)
@@ -59,7 +60,8 @@ from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
     HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT,
+    HTTP_UNPROCESSABLE_ENTITY)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -880,7 +882,9 @@ class ReplicatedObjectController(BaseObjectController):
                     conn.resp = None
                     conn.node = node
                     return conn
-                elif is_success(resp.status) or resp.status == HTTP_CONFLICT:
+                elif (is_success(resp.status)
+                      or resp.status in (HTTP_CONFLICT,
+                                         HTTP_UNPROCESSABLE_ENTITY)):
                     conn.resp = resp
                     conn.node = node
                     return conn
@@ -1415,6 +1419,7 @@ class ECAppIter(object):
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
+                frag_iter.close()
 
         with ContextPool(len(fragment_iters)) as pool:
             for frag_iter, queue in zip(fragment_iters, queues):

@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from time import time
 
-from swift.common.utils import public, get_hmac, get_swift_info, json, \
+from swift.common.utils import public, get_hmac, get_swift_info, \
     streq_const_time
 from swift.proxy.controllers.base import Controller, delay_denial
 from swift.common.swob import HTTPOk, HTTPForbidden, HTTPUnauthorized

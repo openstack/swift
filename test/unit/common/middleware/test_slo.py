@@ -17,6 +17,7 @@
 from six.moves import range
 
 import hashlib
+import json
 import time
 import unittest
 from mock import patch
@@ -25,17 +26,17 @@ from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
-from swift.common.utils import quote, json, closing_if_possible
+from swift.common.utils import quote, closing_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
 
 test_xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
 <static_large_object>
-<object_segment>
-<path>/cont/object</path>
-<etag>etagoftheobjectsegment</etag>
-<size_bytes>100</size_bytes>
-</object_segment>
+  <object_segment>
+    <path>/cont/object</path>
+    <etag>etagoftheobjectsegment</etag>
+    <size_bytes>100</size_bytes>
+  </object_segment>
 </static_large_object>
 '''
 test_json_data = json.dumps([{'path': '/cont/object',
@@ -1033,6 +1034,26 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Number Not Found'], 0)
         self.assertEqual(resp_data['Errors'],
                          [['/deltest-unauth/q_17', '401 Unauthorized']])
+
+    def test_handle_multipart_delete_client_content_type(self):
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE', 'CONTENT_TYPE': 'foo/bar'},
+            headers={'Accept': 'application/json'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        resp_data = json.loads(body)
+        self.assertEqual(resp_data["Number Deleted"], 3)
+
+        self.assertEqual(
+            self.app.calls,
+            [('GET',
+              '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get'),
+             ('DELETE', '/v1/AUTH_test/deltest/b_2?multipart-manifest=delete'),
+             ('DELETE', '/v1/AUTH_test/deltest/c_3?multipart-manifest=delete'),
+             ('DELETE', ('/v1/AUTH_test/deltest/' +
+                         'man-all-there?multipart-manifest=delete'))])
 
 
 class TestSloHeadManifest(SloTestCase):
