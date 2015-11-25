@@ -1184,7 +1184,7 @@ class Response(object):
         """
 
         content_size = self.content_length
-        content_type = self.content_type
+        content_type = self.headers.get('content-type')
         self.content_type = ''.join(['multipart/byteranges;',
                                      'boundary=', self.boundary])
 
