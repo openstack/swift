@@ -1228,21 +1228,21 @@ class TestResponse(unittest.TestCase):
         resp.conditional_response = True
         resp.content_length = 100
 
-        resp.content_type = 'text/plain'
+        resp.content_type = 'text/plain; charset=utf8'
         content = ''.join(resp._response_iter(None,
                                               ('0123456789112345678'
                                                '92123456789')))
 
         self.assertTrue(re.match(('--[a-f0-9]{32}\r\n'
-                                  'Content-Type: text/plain\r\n'
+                                  'Content-Type: text/plain; charset=utf8\r\n'
                                   'Content-Range: bytes '
                                   '0-9/100\r\n\r\n0123456789\r\n'
                                   '--[a-f0-9]{32}\r\n'
-                                  'Content-Type: text/plain\r\n'
+                                  'Content-Type: text/plain; charset=utf8\r\n'
                                   'Content-Range: bytes '
                                   '10-19/100\r\n\r\n1123456789\r\n'
                                   '--[a-f0-9]{32}\r\n'
-                                  'Content-Type: text/plain\r\n'
+                                  'Content-Type: text/plain; charset=utf8\r\n'
                                   'Content-Range: bytes '
                                   '20-29/100\r\n\r\n2123456789\r\n'
                                   '--[a-f0-9]{32}--'), content))
