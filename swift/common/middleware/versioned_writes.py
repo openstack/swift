@@ -139,11 +139,18 @@ class VersionedWritesContext(WSGIContext):
         WSGIContext.__init__(self, wsgi_app)
         self.logger = logger
 
-    def _listing_iter(self, account_name, lcontainer, lprefix, env):
-        for page in self._listing_pages_iter(account_name,
-                                             lcontainer, lprefix, env):
-            for item in page:
-                yield item
+    def _listing_iter(self, account_name, lcontainer, lprefix, req):
+        try:
+            for page in self._listing_pages_iter(account_name, lcontainer,
+                                                 lprefix, req.environ):
+                for item in page:
+                    yield item
+        except ListingIterNotFound:
+            pass
+        except HTTPPreconditionFailed:
+            raise HTTPPreconditionFailed(request=req)
+        except ListingIterError:
+            raise HTTPServerError(request=req)
 
     def _listing_pages_iter(self, account_name, lcontainer, lprefix, env):
         marker = ''
@@ -152,8 +159,8 @@ class VersionedWritesContext(WSGIContext):
                 env, method='GET', swift_source='VW',
                 path='/v1/%s/%s' % (account_name, lcontainer))
             lreq.environ['QUERY_STRING'] = \
-                'format=json&prefix=%s&marker=%s' % (quote(lprefix),
-                                                     quote(marker))
+                'format=json&prefix=%s&reverse=on&marker=%s' % (
+                    quote(lprefix), quote(marker))
             lresp = lreq.get_response(self.app)
             if not is_success(lresp.status_int):
                 if lresp.status_int == HTTP_NOT_FOUND:
@@ -245,31 +252,22 @@ class VersionedWritesContext(WSGIContext):
         lcontainer = object_versions.split('/')[0]
         prefix_len = '%03x' % len(object_name)
         lprefix = prefix_len + object_name + '/'
-        item_list = []
-        try:
-            for _item in self._listing_iter(account_name, lcontainer, lprefix,
-                                            req.environ):
-                item_list.append(_item)
-        except ListingIterNotFound:
-            pass
-        except HTTPPreconditionFailed:
-            return HTTPPreconditionFailed(request=req)
-        except ListingIterError:
-            return HTTPServerError(request=req)
 
-        if item_list:
-            # we're about to start making COPY requests - need to validate the
-            # write access to the versioned container
-            if 'swift.authorize' in req.environ:
-                container_info = get_container_info(
-                    req.environ, self.app)
-                req.acl = container_info.get('write_acl')
-                aresp = req.environ['swift.authorize'](req)
-                if aresp:
-                    return aresp
+        item_iter = self._listing_iter(account_name, lcontainer, lprefix, req)
 
-        while len(item_list) > 0:
-            previous_version = item_list.pop()
+        authed = False
+        for previous_version in item_iter:
+            if not authed:
+                # we're about to start making COPY requests - need to
+                # validate the write access to the versioned container
+                if 'swift.authorize' in req.environ:
+                    container_info = get_container_info(
+                        req.environ, self.app)
+                    req.acl = container_info.get('write_acl')
+                    aresp = req.environ['swift.authorize'](req)
+                    if aresp:
+                        return aresp
+                    authed = True
 
             # there are older versions so copy the previous version to the
             # current object and delete the previous version
