@@ -229,6 +229,45 @@ class TestAccount(Base):
 
             self.assertEqual(a, b)
 
+    def testListDelimiter(self):
+        delimiter = '-'
+        containers = ['test', delimiter.join(['test', 'bar']),
+                      delimiter.join(['test', 'foo'])]
+        for c in containers:
+            cont = self.env.account.container(c)
+            self.assertTrue(cont.create())
+
+        results = self.env.account.containers(parms={'delimiter': delimiter})
+        expected = ['test', 'test-']
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'reverse': 'yes'})
+        expected.reverse()
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+    def testListDelimiterAndPrefix(self):
+        delimiter = 'a'
+        containers = ['bar', 'bazar']
+        for c in containers:
+            cont = self.env.account.container(c)
+            self.assertTrue(cont.create())
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'prefix': 'ba'})
+        expected = ['bar', 'baza']
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'prefix': 'ba',
+                                                     'reverse': 'yes'})
+        expected.reverse()
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
     def testInvalidAuthToken(self):
         hdrs = {'X-Auth-Token': 'bogus_auth_token'}
         self.assertRaises(ResponseError, self.env.account.info, hdrs=hdrs)
@@ -353,10 +392,25 @@ class TestAccountSorting(Base):
     def testAccountContainerListSorting(self):
         # name (byte order) sorting.
         cont_list = sorted(self.env.cont_items)
+        for reverse in ('false', 'no', 'off', '', 'garbage'):
+            cont_listing = self.env.account.containers(
+                parms={'reverse': reverse})
+            self.assert_status(200)
+            self.assertEqual(cont_list, cont_listing,
+                             'Expected %s but got %s with reverse param %r'
+                             % (cont_list, cont_listing, reverse))
+
+    def testAccountContainerListSortingReverse(self):
+        # name (byte order) sorting.
+        cont_list = sorted(self.env.cont_items)
         cont_list.reverse()
-        cont_listing = self.env.account.containers(parms={'reverse': 'on'})
-        self.assert_status(200)
-        self.assertEqual(cont_list, cont_listing)
+        for reverse in ('true', '1', 'yes', 'on', 't', 'y'):
+            cont_listing = self.env.account.containers(
+                parms={'reverse': reverse})
+            self.assert_status(200)
+            self.assertEqual(cont_list, cont_listing,
+                             'Expected %s but got %s with reverse param %r'
+                             % (cont_list, cont_listing, reverse))
 
     def testAccountContainerListSortingByPrefix(self):
         cont_list = sorted(c for c in self.env.cont_items if c.startswith('a'))
@@ -526,6 +580,9 @@ class TestContainer(Base):
         results = cont.files(parms={'delimiter': delimiter})
         self.assertEqual(results, ['test', 'test-'])
 
+        results = cont.files(parms={'delimiter': delimiter, 'reverse': 'yes'})
+        self.assertEqual(results, ['test-', 'test'])
+
     def testListDelimiterAndPrefix(self):
         cont = self.env.account.container(Utils.create_name())
         self.assertTrue(cont.create())
@@ -538,6 +595,11 @@ class TestContainer(Base):
 
         results = cont.files(parms={'delimiter': delimiter, 'prefix': 'ba'})
         self.assertEqual(results, ['bar', 'baza'])
+
+        results = cont.files(parms={'delimiter': delimiter,
+                                    'prefix': 'ba',
+                                    'reverse': 'yes'})
+        self.assertEqual(results, ['baza', 'bar'])
 
     def testCreate(self):
         cont = self.env.account.container(Utils.create_name())
@@ -747,9 +809,12 @@ class TestContainerSorting(Base):
     def testContainerFileListSortingReversed(self):
         file_list = list(sorted(self.env.file_items))
         file_list.reverse()
-        cont_files = self.env.container.files(parms={'reverse': 'on'})
-        self.assert_status(200)
-        self.assertEqual(file_list, cont_files)
+        for reverse in ('true', '1', 'yes', 'on', 't', 'y'):
+            cont_files = self.env.container.files(parms={'reverse': reverse})
+            self.assert_status(200)
+            self.assertEqual(file_list, cont_files,
+                             'Expected %s but got %s with reverse param %r'
+                             % (file_list, cont_files, reverse))
 
     def testContainerFileSortingByPrefixReversed(self):
         cont_list = sorted(c for c in self.env.file_items if c.startswith('a'))
