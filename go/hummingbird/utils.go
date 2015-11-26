@@ -370,13 +370,17 @@ func ParseRange(rangeHeader string, fileSize int64) (reqRanges []httpRange, err 
 				continue
 			} else if begin > fileSize {
 				return nil, errors.New("Begin bigger than file") // 416 on begin bigger than file size
-			} else {
+			} else if fileSize == 0 {
+                                return nil, errors.New("Begin bigger than file") // 416 on 0-bytes files
+                        } else {
 				reqRanges = append(reqRanges, httpRange{begin, fileSize})
 			}
 		} else {
 			if beginErr != nil || endErr != nil || end < begin {
 				continue
 			} else if begin > fileSize {
+				return nil, errors.New("Begin bigger than file") // 416 on begin bigger than file size
+                        } else if end+1 > fileSize {
 				return nil, errors.New("Begin bigger than file") // 416 on begin bigger than file size
 			} else if end+1 < fileSize {
 				reqRanges = append(reqRanges, httpRange{begin, end + 1})

@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+        "github.com/cactus/go-statsd-client/statsd"
 	"github.com/justinas/alice"
 	"github.com/openstack/swift/go/hummingbird"
 	"github.com/openstack/swift/go/middleware"
@@ -57,6 +58,9 @@ type ObjectServer struct {
 	expiringDivisor  int64
 	updateClient     *http.Client
 	replicateTimeout time.Duration
+        statsdPort       int64
+        statsdHost       string
+        statsdPrefix     string
 }
 
 func (server *ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request) {
@@ -621,6 +625,14 @@ func (server *ObjectServer) LogRequest(next http.Handler) http.Handler {
 			if forceAcquire {
 				extraInfo = "FA"
 			}
+                        address := fmt.Sprintf("%s:%d", server.statsdHost, server.statsdPort)
+                        client, err := statsd.NewClient(address, server.statsdPrefix)
+                        if err != nil {
+                            server.logger.Info(fmt.Sprintf("Unable to connect to Statsd - %s", err))
+                        }
+                        defer client.Close()
+                        client.TimingDuration(fmt.Sprintf("%s.timing", request.Method), time.Duration(time.Since(start).Seconds()*1000*1000*1000), 1.0)
+
 			server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
 				request.RemoteAddr,
 				time.Now().Format("02/Jan/2006:15:04:05 -0700"),
@@ -633,6 +645,7 @@ func (server *ObjectServer) LogRequest(next http.Handler) http.Handler {
 				hummingbird.GetDefault(request.Header, "User-Agent", "-"),
 				time.Since(start).Seconds(),
 				extraInfo))
+                        
 		}
 	}
 	return http.HandlerFunc(fn)
@@ -749,11 +762,14 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 
 	statsdHost := serverconf.GetDefault("app:object-server", "log_statsd_host", "")
 	if statsdHost != "" {
+                server.statsdHost = statsdHost
 		statsdPort := serverconf.GetInt("app:object-server", "log_statsd_port", 8125)
+                server.statsdPort = statsdPort
 		// Go metrics collection pause interval in seconds
 		statsdPause := serverconf.GetInt("app:object-server", "statsd_collection_pause", 10)
 		basePrefix := serverconf.GetDefault("app:object-server", "log_statsd_metric_prefix", "")
 		prefix := basePrefix + ".go.objectserver"
+                server.statsdPrefix = prefix
 		go hummingbird.CollectRuntimeMetrics(statsdHost, statsdPort, statsdPause, prefix)
 	}
 
