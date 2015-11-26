@@ -2038,6 +2038,9 @@ def search_tree(root, glob_match, ext='', exts=None, dir_ext=None):
     :param glob_match: glob to match in root, matching dirs are traversed with
                        os.walk
     :param ext: only files that end in ext will be returned
+    :param exts: a list of file extensions; only files that end in one of these
+                 extensions will be returned; if set this list overrides any
+                 extension specified using the 'ext' param.
     :param dir_ext: if present directories that end with dir_ext will not be
                     traversed and instead will be returned as a matched path
 
