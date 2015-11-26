@@ -1656,7 +1656,8 @@ class TestFile(Base):
         subrange_size = range_size / 10
         file_item = self.env.container.file(Utils.create_name())
         data = file_item.write_random(
-            file_length, hdrs={"Content-Type": "lovecraft/rugose"})
+            file_length, hdrs={"Content-Type":
+                               "lovecraft/rugose; squamous=true"})
 
         for i in range(0, file_length, range_size):
             range_string = 'bytes=%d-%d,%d-%d,%d-%d' % (
@@ -1666,7 +1667,10 @@ class TestFile(Base):
             hdrs = {'Range': range_string}
 
             fetched = file_item.read(hdrs=hdrs)
+            self.assert_status(206)
             content_type = file_item.content_type
+            self.assertTrue(content_type.startswith("multipart/byteranges"))
+            self.assertIsNone(file_item.content_range)
 
             # email.parser.FeedParser wants a message with headers on the
             # front, then two CRLFs, and then a body (like emails have but
@@ -1682,7 +1686,8 @@ class TestFile(Base):
             byteranges = root_message.get_payload()
             self.assertEqual(len(byteranges), 3)
 
-            self.assertEqual(byteranges[0]['Content-Type'], "lovecraft/rugose")
+            self.assertEqual(byteranges[0]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
             self.assertEqual(
                 byteranges[0]['Content-Range'],
                 "bytes %d-%d/%d" % (i, i + subrange_size - 1, file_length))
@@ -1690,7 +1695,8 @@ class TestFile(Base):
                 byteranges[0].get_payload(),
                 data[i:(i + subrange_size)])
 
-            self.assertEqual(byteranges[1]['Content-Type'], "lovecraft/rugose")
+            self.assertEqual(byteranges[1]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
             self.assertEqual(
                 byteranges[1]['Content-Range'],
                 "bytes %d-%d/%d" % (i + 2 * subrange_size,
@@ -1699,7 +1705,8 @@ class TestFile(Base):
                 byteranges[1].get_payload(),
                 data[(i + 2 * subrange_size):(i + 3 * subrange_size)])
 
-            self.assertEqual(byteranges[2]['Content-Type'], "lovecraft/rugose")
+            self.assertEqual(byteranges[2]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
             self.assertEqual(
                 byteranges[2]['Content-Range'],
                 "bytes %d-%d/%d" % (i + 4 * subrange_size,
@@ -1717,7 +1724,10 @@ class TestFile(Base):
             file_length, file_length + subrange_size - 1)
         hdrs = {'Range': range_string}
         fetched = file_item.read(hdrs=hdrs)
+        self.assert_status(206)
         content_type = file_item.content_type
+        self.assertTrue(content_type.startswith("multipart/byteranges"))
+        self.assertIsNone(file_item.content_range)
 
         parser = email.parser.FeedParser()
         parser.feed("Content-Type: %s\r\n\r\n" % content_type)
@@ -1728,13 +1738,15 @@ class TestFile(Base):
         byteranges = root_message.get_payload()
         self.assertEqual(len(byteranges), 2)
 
-        self.assertEqual(byteranges[0]['Content-Type'], 'lovecraft/rugose')
+        self.assertEqual(byteranges[0]['Content-Type'],
+                         "lovecraft/rugose; squamous=true")
         self.assertEqual(
             byteranges[0]['Content-Range'],
             "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
         self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
 
-        self.assertEqual(byteranges[1]['Content-Type'], 'lovecraft/rugose')
+        self.assertEqual(byteranges[1]['Content-Type'],
+                         "lovecraft/rugose; squamous=true")
         self.assertEqual(
             byteranges[1]['Content-Range'],
             "bytes %d-%d/%d" % (2 * subrange_size, 3 * subrange_size - 1,
@@ -1751,8 +1763,10 @@ class TestFile(Base):
             file_length, file_length + subrange_size - 1)
         hdrs = {'Range': range_string}
         fetched = file_item.read(hdrs=hdrs)
+        self.assert_status(206)
         content_type = file_item.content_type
         if content_type.startswith("multipart/byteranges"):
+            self.assertIsNone(file_item.content_range)
             parser = email.parser.FeedParser()
             parser.feed("Content-Type: %s\r\n\r\n" % content_type)
             parser.feed(fetched)
@@ -1762,17 +1776,17 @@ class TestFile(Base):
             byteranges = root_message.get_payload()
             self.assertEqual(len(byteranges), 1)
 
-            self.assertEqual(byteranges[0]['Content-Type'], 'lovecraft/rugose')
+            self.assertEqual(byteranges[0]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
             self.assertEqual(
                 byteranges[0]['Content-Range'],
                 "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
             self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
         else:
-            headers = dict((h.title(), v)
-                           for h, v in self.env.conn.response.getheaders())
             self.assertEqual(
-                headers['Content-Range'],
+                file_item.content_range,
                 "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+            self.assertEqual(content_type, "lovecraft/rugose; squamous=true")
             self.assertEqual(fetched, data[:subrange_size])
 
         # No byterange is satisfiable, so we get a 416 response.
