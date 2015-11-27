@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from datetime import datetime
+import email.parser
 import hashlib
 import hmac
 import itertools
@@ -1649,8 +1650,141 @@ class TestFile(Base):
         hdrs = {'Range': range_string}
         self.assertTrue(file_item.read(hdrs=hdrs) == data, range_string)
 
+    def testMultiRangeGets(self):
+        file_length = 10000
+        range_size = file_length / 10
+        subrange_size = range_size / 10
+        file_item = self.env.container.file(Utils.create_name())
+        data = file_item.write_random(
+            file_length, hdrs={"Content-Type": "lovecraft/rugose"})
+
+        for i in range(0, file_length, range_size):
+            range_string = 'bytes=%d-%d,%d-%d,%d-%d' % (
+                i, i + subrange_size - 1,
+                i + 2 * subrange_size, i + 3 * subrange_size - 1,
+                i + 4 * subrange_size, i + 5 * subrange_size - 1)
+            hdrs = {'Range': range_string}
+
+            fetched = file_item.read(hdrs=hdrs)
+            content_type = file_item.content_type
+
+            # email.parser.FeedParser wants a message with headers on the
+            # front, then two CRLFs, and then a body (like emails have but
+            # HTTP response bodies don't). We fake it out by constructing a
+            # one-header preamble containing just the Content-Type, then
+            # feeding in the response body.
+            parser = email.parser.FeedParser()
+            parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+            parser.feed(fetched)
+            root_message = parser.close()
+            self.assertTrue(root_message.is_multipart())
+
+            byteranges = root_message.get_payload()
+            self.assertEqual(len(byteranges), 3)
+
+            self.assertEqual(byteranges[0]['Content-Type'], "lovecraft/rugose")
+            self.assertEqual(
+                byteranges[0]['Content-Range'],
+                "bytes %d-%d/%d" % (i, i + subrange_size - 1, file_length))
+            self.assertEqual(
+                byteranges[0].get_payload(),
+                data[i:(i + subrange_size)])
+
+            self.assertEqual(byteranges[1]['Content-Type'], "lovecraft/rugose")
+            self.assertEqual(
+                byteranges[1]['Content-Range'],
+                "bytes %d-%d/%d" % (i + 2 * subrange_size,
+                                    i + 3 * subrange_size - 1, file_length))
+            self.assertEqual(
+                byteranges[1].get_payload(),
+                data[(i + 2 * subrange_size):(i + 3 * subrange_size)])
+
+            self.assertEqual(byteranges[2]['Content-Type'], "lovecraft/rugose")
+            self.assertEqual(
+                byteranges[2]['Content-Range'],
+                "bytes %d-%d/%d" % (i + 4 * subrange_size,
+                                    i + 5 * subrange_size - 1, file_length))
+            self.assertEqual(
+                byteranges[2].get_payload(),
+                data[(i + 4 * subrange_size):(i + 5 * subrange_size)])
+
+        # The first two ranges are satisfiable but the third is not; the
+        # result is a multipart/byteranges response containing only the two
+        # satisfiable byteranges.
+        range_string = 'bytes=%d-%d,%d-%d,%d-%d' % (
+            0, subrange_size - 1,
+            2 * subrange_size, 3 * subrange_size - 1,
+            file_length, file_length + subrange_size - 1)
+        hdrs = {'Range': range_string}
+        fetched = file_item.read(hdrs=hdrs)
+        content_type = file_item.content_type
+
+        parser = email.parser.FeedParser()
+        parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+        parser.feed(fetched)
+        root_message = parser.close()
+
+        self.assertTrue(root_message.is_multipart())
+        byteranges = root_message.get_payload()
+        self.assertEqual(len(byteranges), 2)
+
+        self.assertEqual(byteranges[0]['Content-Type'], 'lovecraft/rugose')
+        self.assertEqual(
+            byteranges[0]['Content-Range'],
+            "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+        self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
+
+        self.assertEqual(byteranges[1]['Content-Type'], 'lovecraft/rugose')
+        self.assertEqual(
+            byteranges[1]['Content-Range'],
+            "bytes %d-%d/%d" % (2 * subrange_size, 3 * subrange_size - 1,
+                                file_length))
+        self.assertEqual(
+            byteranges[1].get_payload(),
+            data[(2 * subrange_size):(3 * subrange_size)])
+
+        # The first range is satisfiable but the second is not; the
+        # result is either a multipart/byteranges response containing one
+        # byterange or a normal, non-MIME 206 response.
+        range_string = 'bytes=%d-%d,%d-%d' % (
+            0, subrange_size - 1,
+            file_length, file_length + subrange_size - 1)
+        hdrs = {'Range': range_string}
+        fetched = file_item.read(hdrs=hdrs)
+        content_type = file_item.content_type
+        if content_type.startswith("multipart/byteranges"):
+            parser = email.parser.FeedParser()
+            parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+            parser.feed(fetched)
+            root_message = parser.close()
+
+            self.assertTrue(root_message.is_multipart())
+            byteranges = root_message.get_payload()
+            self.assertEqual(len(byteranges), 1)
+
+            self.assertEqual(byteranges[0]['Content-Type'], 'lovecraft/rugose')
+            self.assertEqual(
+                byteranges[0]['Content-Range'],
+                "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+            self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
+        else:
+            headers = dict((h.title(), v)
+                           for h, v in self.env.conn.response.getheaders())
+            self.assertEqual(
+                headers['Content-Range'],
+                "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+            self.assertEqual(fetched, data[:subrange_size])
+
+        # No byterange is satisfiable, so we get a 416 response.
+        range_string = 'bytes=%d-%d,%d-%d' % (
+            file_length, file_length + 2,
+            file_length + 100, file_length + 102)
+        hdrs = {'Range': range_string}
+
+        self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+        self.assert_status(416)
+
     def testRangedGetsWithLWSinHeader(self):
-        # Skip this test until webob 1.2 can tolerate LWS in Range header.
         file_length = 10000
         file_item = self.env.container.file(Utils.create_name())
         data = file_item.write_random(file_length)
