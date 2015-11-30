@@ -426,7 +426,8 @@ class VersionedWritesTestCase(unittest.TestCase):
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/&marker=',
+            'GET',
+            '/v1/a/ver_cont?format=json&prefix=001o/&reverse=on&marker=',
             swob.HTTPNotFound, {}, None)
 
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
@@ -443,22 +444,19 @@ class VersionedWritesTestCase(unittest.TestCase):
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/&marker=',
+            'GET',
+            '/v1/a/ver_cont?format=json&prefix=001o/&reverse=on&marker=',
             swob.HTTPOk, {},
-            '[{"hash": "x", '
-            '"last_modified": "2014-11-21T14:14:27.409100", '
-            '"bytes": 3, '
-            '"name": "001o/1", '
-            '"content_type": "text/plain"}, '
-            '{"hash": "y", '
+            '[{"hash": "y", '
             '"last_modified": "2014-11-21T14:23:02.206740", '
             '"bytes": 3, '
             '"name": "001o/2", '
+            '"content_type": "text/plain"}, '
+            '{"hash": "x", '
+            '"last_modified": "2014-11-21T14:14:27.409100", '
+            '"bytes": 3, '
+            '"name": "001o/1", '
             '"content_type": "text/plain"}]')
-        self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/'
-            '&marker=001o/2',
-            swob.HTTPNotFound, {}, None)
         self.app.register(
             'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPCreated,
             {}, None)
@@ -487,22 +485,19 @@ class VersionedWritesTestCase(unittest.TestCase):
 
     def test_DELETE_on_expired_versioned_object(self):
         self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/&marker=',
+            'GET',
+            '/v1/a/ver_cont?format=json&prefix=001o/&reverse=on&marker=',
             swob.HTTPOk, {},
-            '[{"hash": "x", '
-            '"last_modified": "2014-11-21T14:14:27.409100", '
-            '"bytes": 3, '
-            '"name": "001o/1", '
-            '"content_type": "text/plain"}, '
-            '{"hash": "y", '
+            '[{"hash": "y", '
             '"last_modified": "2014-11-21T14:23:02.206740", '
             '"bytes": 3, '
             '"name": "001o/2", '
+            '"content_type": "text/plain"}, '
+            '{"hash": "x", '
+            '"last_modified": "2014-11-21T14:14:27.409100", '
+            '"bytes": 3, '
+            '"name": "001o/1", '
             '"content_type": "text/plain"}]')
-        self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/'
-            '&marker=001o/2',
-            swob.HTTPNotFound, {}, None)
 
         # expired object
         self.app.register(
@@ -530,22 +525,19 @@ class VersionedWritesTestCase(unittest.TestCase):
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/&marker=',
+            'GET',
+            '/v1/a/ver_cont?format=json&prefix=001o/&reverse=on&marker=',
             swob.HTTPOk, {},
-            '[{"hash": "x", '
-            '"last_modified": "2014-11-21T14:14:27.409100", '
-            '"bytes": 3, '
-            '"name": "001o/1", '
-            '"content_type": "text/plain"}, '
-            '{"hash": "y", '
+            '[{"hash": "y", '
             '"last_modified": "2014-11-21T14:23:02.206740", '
             '"bytes": 3, '
             '"name": "001o/2", '
+            '"content_type": "text/plain"}, '
+            '{"hash": "x", '
+            '"last_modified": "2014-11-21T14:14:27.409100", '
+            '"bytes": 3, '
+            '"name": "001o/1", '
             '"content_type": "text/plain"}]')
-        self.app.register(
-            'GET', '/v1/a/ver_cont?format=json&prefix=001o/'
-            '&marker=001o/2',
-            swob.HTTPNotFound, {}, None)
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPForbidden,
             {}, None)
