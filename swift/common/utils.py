@@ -1312,13 +1312,10 @@ class LogAdapter(logging.LoggerAdapter, object):
         _junk, exc, _junk = sys.exc_info()
         call = self.error
         emsg = ''
-        if isinstance(exc, OSError):
+        if isinstance(exc, (OSError, socket.error)):
             if exc.errno in (errno.EIO, errno.ENOSPC):
                 emsg = str(exc)
-            else:
-                call = self._exception
-        elif isinstance(exc, socket.error):
-            if exc.errno == errno.ECONNREFUSED:
+            elif exc.errno == errno.ECONNREFUSED:
                 emsg = _('Connection refused')
             elif exc.errno == errno.EHOSTUNREACH:
                 emsg = _('Host unreachable')
@@ -2966,7 +2963,7 @@ class ThreadPool(object):
         # multiple instances instantiated. Since the object server uses one
         # pool per disk, we have to reimplement this stuff.
         _raw_rpipe, self.wpipe = os.pipe()
-        self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb', bufsize=0)
+        self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb')
 
         for _junk in range(nthreads):
             thr = stdlib_threading.Thread(

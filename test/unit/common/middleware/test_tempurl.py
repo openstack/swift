@@ -525,7 +525,7 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_post_when_forbidden_by_config(self):
-        self.tempurl.methods.remove('POST')
+        self.tempurl.conf['methods'].remove('POST')
         method = 'POST'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
@@ -543,7 +543,7 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_delete_when_forbidden_by_config(self):
-        self.tempurl.methods.remove('DELETE')
+        self.tempurl.conf['methods'].remove('DELETE')
         method = 'DELETE'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
@@ -1039,8 +1039,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_clean_incoming_headers(self):
-        irh = ''
-        iah = ''
+        irh = []
+        iah = []
         env = {'HTTP_TEST_HEADER': 'value'}
         tempurl.TempURL(
             None, {'incoming_remove_headers': irh,
@@ -1048,8 +1048,8 @@ class TestTempURL(unittest.TestCase):
         )._clean_incoming_headers(env)
         self.assertTrue('HTTP_TEST_HEADER' in env)
 
-        irh = 'test-header'
-        iah = ''
+        irh = ['test-header']
+        iah = []
         env = {'HTTP_TEST_HEADER': 'value'}
         tempurl.TempURL(
             None, {'incoming_remove_headers': irh,
@@ -1057,8 +1057,8 @@ class TestTempURL(unittest.TestCase):
         )._clean_incoming_headers(env)
         self.assertTrue('HTTP_TEST_HEADER' not in env)
 
-        irh = 'test-header-*'
-        iah = ''
+        irh = ['test-header-*']
+        iah = []
         env = {'HTTP_TEST_HEADER_ONE': 'value',
                'HTTP_TEST_HEADER_TWO': 'value'}
         tempurl.TempURL(
@@ -1068,8 +1068,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('HTTP_TEST_HEADER_ONE' not in env)
         self.assertTrue('HTTP_TEST_HEADER_TWO' not in env)
 
-        irh = 'test-header-*'
-        iah = 'test-header-two'
+        irh = ['test-header-*']
+        iah = ['test-header-two']
         env = {'HTTP_TEST_HEADER_ONE': 'value',
                'HTTP_TEST_HEADER_TWO': 'value'}
         tempurl.TempURL(
@@ -1079,8 +1079,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('HTTP_TEST_HEADER_ONE' not in env)
         self.assertTrue('HTTP_TEST_HEADER_TWO' in env)
 
-        irh = 'test-header-* test-other-header'
-        iah = 'test-header-two test-header-yes-*'
+        irh = ['test-header-*', 'test-other-header']
+        iah = ['test-header-two', 'test-header-yes-*']
         env = {'HTTP_TEST_HEADER_ONE': 'value',
                'HTTP_TEST_HEADER_TWO': 'value',
                'HTTP_TEST_OTHER_HEADER': 'value',
@@ -1097,8 +1097,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('HTTP_TEST_HEADER_YES_THIS' in env)
 
     def test_clean_outgoing_headers(self):
-        orh = ''
-        oah = ''
+        orh = []
+        oah = []
         hdrs = {'test-header': 'value'}
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
@@ -1106,8 +1106,8 @@ class TestTempURL(unittest.TestCase):
         )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header' in hdrs)
 
-        orh = 'test-header'
-        oah = ''
+        orh = ['test-header']
+        oah = []
         hdrs = {'test-header': 'value'}
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
@@ -1115,8 +1115,8 @@ class TestTempURL(unittest.TestCase):
         )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header' not in hdrs)
 
-        orh = 'test-header-*'
-        oah = ''
+        orh = ['test-header-*']
+        oah = []
         hdrs = {'test-header-one': 'value',
                 'test-header-two': 'value'}
         hdrs = HeaderKeyDict(tempurl.TempURL(
@@ -1126,8 +1126,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('test-header-one' not in hdrs)
         self.assertTrue('test-header-two' not in hdrs)
 
-        orh = 'test-header-*'
-        oah = 'test-header-two'
+        orh = ['test-header-*']
+        oah = ['test-header-two']
         hdrs = {'test-header-one': 'value',
                 'test-header-two': 'value'}
         hdrs = HeaderKeyDict(tempurl.TempURL(
@@ -1137,8 +1137,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('test-header-one' not in hdrs)
         self.assertTrue('test-header-two' in hdrs)
 
-        orh = 'test-header-* test-other-header'
-        oah = 'test-header-two test-header-yes-*'
+        orh = ['test-header-*', 'test-other-header']
+        oah = ['test-header-two', 'test-header-yes-*']
         hdrs = {'test-header-one': 'value',
                 'test-header-two': 'value',
                 'test-other-header': 'value',
@@ -1170,15 +1170,36 @@ class TestSwiftInfo(unittest.TestCase):
         tempurl.filter_factory({})
         swift_info = utils.get_swift_info()
         self.assertTrue('tempurl' in swift_info)
-        self.assertEqual(set(swift_info['tempurl']['methods']),
+        info = swift_info['tempurl']
+        self.assertEqual(set(info['methods']),
                          set(('GET', 'HEAD', 'PUT', 'POST', 'DELETE')))
+        self.assertEqual(set(info['incoming_remove_headers']),
+                         set(('x-timestamp',)))
+        self.assertEqual(set(info['incoming_allow_headers']), set())
+        self.assertEqual(set(info['outgoing_remove_headers']),
+                         set(('x-object-meta-*',)))
+        self.assertEqual(set(info['outgoing_allow_headers']),
+                         set(('x-object-meta-public-*',)))
 
     def test_non_default_methods(self):
-        tempurl.filter_factory({'methods': 'GET HEAD PUT DELETE BREW'})
+        tempurl.filter_factory({
+            'methods': 'GET HEAD PUT DELETE BREW',
+            'incoming_remove_headers': '',
+            'incoming_allow_headers': 'x-timestamp x-versions-location',
+            'outgoing_remove_headers': 'x-*',
+            'outgoing_allow_headers': 'x-object-meta-* content-type',
+        })
         swift_info = utils.get_swift_info()
         self.assertTrue('tempurl' in swift_info)
-        self.assertEqual(set(swift_info['tempurl']['methods']),
+        info = swift_info['tempurl']
+        self.assertEqual(set(info['methods']),
                          set(('GET', 'HEAD', 'PUT', 'DELETE', 'BREW')))
+        self.assertEqual(set(info['incoming_remove_headers']), set())
+        self.assertEqual(set(info['incoming_allow_headers']),
+                         set(('x-timestamp', 'x-versions-location')))
+        self.assertEqual(set(info['outgoing_remove_headers']), set(('x-*', )))
+        self.assertEqual(set(info['outgoing_allow_headers']),
+                         set(('x-object-meta-*', 'content-type')))
 
 
 if __name__ == '__main__':

@@ -1309,6 +1309,7 @@ class TestUtils(unittest.TestCase):
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
+            sio.seek(0)
             v = sio.getvalue()
             sio.truncate(0)
             return v
@@ -1402,6 +1403,7 @@ class TestUtils(unittest.TestCase):
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
+            sio.seek(0)
             v = sio.getvalue()
             sio.truncate(0)
             return v
@@ -1456,6 +1458,7 @@ class TestUtils(unittest.TestCase):
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
+            sio.seek(0)
             v = sio.getvalue()
             sio.truncate(0)
             return v
@@ -2585,6 +2588,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                                   fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             with utils.lock_file(nt.name, unlink=False, append=True) as f:
+                f.seek(0)
                 self.assertEqual(f.read(), "test string")
                 f.seek(0)
                 f.write("\nanother string")
