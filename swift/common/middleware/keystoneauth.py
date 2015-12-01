@@ -31,16 +31,16 @@ UNKNOWN_ID = '_unknown'
 class KeystoneAuth(object):
     """Swift middleware to Keystone authorization system.
 
-    In Swift's proxy-server.conf add this middleware to your pipeline::
-
-        [pipeline:main]
-        pipeline = catch_errors cache authtoken keystoneauth proxy-server
-
-    Make sure you have the authtoken middleware before the
-    keystoneauth middleware.
+    In Swift's proxy-server.conf add this keystoneauth middleware and the
+    authtoken middleware to your pipeline. Make sure you have the authtoken
+    middleware before the keystoneauth middleware.
 
     The authtoken middleware will take care of validating the user and
     keystoneauth will authorize access.
+
+    The sample proxy-server.conf shows a sample pipeline that uses keystone.
+
+    :download:`proxy-server.conf-sample </../../etc/proxy-server.conf-sample>`
 
     The authtoken middleware is shipped with keystonemiddleware - it
     does not have any other dependencies than itself so you can either
