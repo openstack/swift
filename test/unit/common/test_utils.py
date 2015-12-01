@@ -3902,6 +3902,26 @@ class TestRateLimitedIterator(unittest.TestCase):
         # first element.
         self.assertEqual(len(got), 11)
 
+    def test_rate_limiting_sometimes(self):
+
+        def testfunc():
+            limited_iterator = utils.RateLimitedIterator(
+                range(9999), 100,
+                ratelimit_if=lambda item: item % 23 != 0)
+            got = []
+            started_at = time.time()
+            try:
+                while time.time() - started_at < 0.5:
+                    got.append(next(limited_iterator))
+            except StopIteration:
+                pass
+            return got
+
+        got = self.run_under_pseudo_time(testfunc)
+        # we'd get 51 without the ratelimit_if, but because 0, 23 and 46
+        # weren't subject to ratelimiting, we get 54 instead
+        self.assertEqual(len(got), 54)
+
     def test_limit_after(self):
 
         def testfunc():

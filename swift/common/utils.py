@@ -1041,22 +1041,27 @@ class RateLimitedIterator(object):
                         this many elements; default is 0 (rate limit
                         immediately)
     """
-    def __init__(self, iterable, elements_per_second, limit_after=0):
+    def __init__(self, iterable, elements_per_second, limit_after=0,
+                 ratelimit_if=lambda _junk: True):
         self.iterator = iter(iterable)
         self.elements_per_second = elements_per_second
         self.limit_after = limit_after
         self.running_time = 0
+        self.ratelimit_if = ratelimit_if
 
     def __iter__(self):
         return self
 
     def next(self):
-        if self.limit_after > 0:
-            self.limit_after -= 1
-        else:
-            self.running_time = ratelimit_sleep(self.running_time,
-                                                self.elements_per_second)
-        return next(self.iterator)
+        next_value = next(self.iterator)
+
+        if self.ratelimit_if(next_value):
+            if self.limit_after > 0:
+                self.limit_after -= 1
+            else:
+                self.running_time = ratelimit_sleep(self.running_time,
+                                                    self.elements_per_second)
+        return next_value
 
 
 class GreenthreadSafeIterator(object):
