@@ -542,14 +542,15 @@ class Range(object):
 
     def __str__(self):
         string = 'bytes='
-        for start, end in self.ranges:
+        for i, (start, end) in enumerate(self.ranges):
             if start is not None:
                 string += str(start)
             string += '-'
             if end is not None:
                 string += str(end)
-            string += ','
-        return string.rstrip(',')
+            if i < len(self.ranges) - 1:
+                string += ','
+        return string
 
     def ranges_for_length(self, length):
         """

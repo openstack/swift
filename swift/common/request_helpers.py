@@ -307,8 +307,10 @@ class SegmentedIterable(object):
                         'ERROR: While processing manifest %s, '
                         'max LO GET time of %ds exceeded' %
                         (self.name, self.max_get_time))
-                # Make sure that the segment is a plain old object, not some
-                # flavor of large object, so that we can check its MD5.
+                # The "multipart-manifest=get" query param ensures that the
+                # segment is a plain old object, not some flavor of large
+                # object; therefore, its etag is its MD5sum and hence we can
+                # check it.
                 path = seg_path + '?multipart-manifest=get'
                 seg_req = make_subrequest(
                     self.req.environ, path=path, method='GET',
@@ -317,21 +319,35 @@ class SegmentedIterable(object):
                     agent=('%(orig)s ' + self.ua_suffix),
                     swift_source=self.swift_source)
 
+                seg_req_rangeval = None
                 if first_byte != 0 or not go_to_end:
-                    seg_req.headers['Range'] = "bytes=%s-%s" % (
+                    seg_req_rangeval = "%s-%s" % (
                         first_byte, '' if go_to_end else last_byte)
+                    seg_req.headers['Range'] = "bytes=" + seg_req_rangeval
 
                 # We can only coalesce if paths match and we know the segment
                 # size (so we can check that the ranges will be allowed)
                 if pending_req and pending_req.path == seg_req.path and \
                         seg_size is not None:
-                    new_range = '%s,%s' % (
-                        pending_req.headers.get('Range',
-                                                'bytes=0-%s' % (seg_size - 1)),
-                        seg_req.headers['Range'].split('bytes=')[1])
-                    if Range(new_range).ranges_for_length(seg_size):
+
+                    # Make a new Range object so that we don't goof up the
+                    # existing one in case of invalid ranges. Note that a
+                    # range set with too many individual byteranges is
+                    # invalid, so we can combine N valid byteranges and 1
+                    # valid byterange and get an invalid range set.
+                    if pending_req.range:
+                        new_range_str = str(pending_req.range)
+                    else:
+                        new_range_str = "bytes=0-%d" % (seg_size - 1)
+
+                    if seg_req.range:
+                        new_range_str += "," + seg_req_rangeval
+                    else:
+                        new_range_str += ",0-%d" % (seg_size - 1)
+
+                    if Range(new_range_str).ranges_for_length(seg_size):
                         # Good news! We can coalesce the requests
-                        pending_req.headers['Range'] = new_range
+                        pending_req.headers['Range'] = new_range_str
                         continue
                     # else, Too many ranges, or too much backtracking, or ...
 

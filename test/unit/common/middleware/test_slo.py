@@ -1306,6 +1306,61 @@ class TestSloGetManifest(SloTestCase):
         self.assertFalse(
             "SLO MultipartGET" in first_ua)
 
+    def test_get_manifest_repeated_segments(self):
+        _aabbccdd_manifest_json = json.dumps(
+            [{'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
+              'content_type': 'text/plain', 'bytes': '5'},
+             {'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
+              'content_type': 'text/plain', 'bytes': '5'},
+
+             {'name': '/gettest/b_10', 'hash': md5hex("b" * 10),
+              'content_type': 'text/plain', 'bytes': '10'},
+             {'name': '/gettest/b_10', 'hash': md5hex("b" * 10),
+              'content_type': 'text/plain', 'bytes': '10'},
+
+             {'name': '/gettest/c_15', 'hash': md5hex("c" * 15),
+              'content_type': 'text/plain', 'bytes': '15'},
+             {'name': '/gettest/c_15', 'hash': md5hex("c" * 15),
+              'content_type': 'text/plain', 'bytes': '15'},
+
+             {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
+              'content_type': 'text/plain', 'bytes': '20'},
+             {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
+              'content_type': 'text/plain', 'bytes': '20'}])
+
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-aabbccdd',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true',
+                          'Etag': md5(_aabbccdd_manifest_json).hexdigest()},
+            _aabbccdd_manifest_json)
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-aabbccdd',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(body, (
+            'aaaaaaaaaabbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccc'
+            'dddddddddddddddddddddddddddddddddddddddd'))
+
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/AUTH_test/gettest/manifest-aabbccdd'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
+
+        ranges = [c[2].get('Range') for c in self.app.calls_with_headers]
+        self.assertEqual(ranges, [
+            None,
+            'bytes=0-4,0-4',
+            'bytes=0-9,0-9',
+            'bytes=0-14,0-14',
+            'bytes=0-19,0-19'])
+
     def test_if_none_match_matches(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
