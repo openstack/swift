@@ -33,7 +33,7 @@ from six.moves import zip as izip
 from six.moves import input
 
 from swift.common import exceptions
-from swift.common.ring import RingBuilder, Ring
+from swift.common.ring import RingBuilder, Ring, RingData
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.ring.utils import validate_args, \
     validate_and_normalize_ip, build_dev_from_opts, \
@@ -450,6 +450,23 @@ swift-ring-builder <builder_file>
                   timedelta(seconds=builder.min_part_seconds_left)))
         print('The overload factor is %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
+
+        # compare ring file against builder file
+        if not exists(ring_file):
+            print('Ring file %s not found, '
+                  'probably it hasn\'t been written yet' % ring_file)
+        else:
+            builder_dict = builder.get_ring().to_dict()
+            try:
+                ring_dict = RingData.load(ring_file).to_dict()
+            except Exception as exc:
+                print('Ring file %s is invalid: %r' % (ring_file, exc))
+            else:
+                if builder_dict == ring_dict:
+                    print('Ring file %s is up-to-date' % ring_file)
+                else:
+                    print('Ring file %s is obsolete' % ring_file)
+
         if builder.devs:
             balance_per_dev = builder._build_balance_per_dev()
             print('Devices:    id  region  zone      ip address  port  '
