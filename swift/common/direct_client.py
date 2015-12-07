@@ -49,6 +49,30 @@ class DirectClientException(ClientException):
             http_reason=resp.reason, http_headers=headers)
 
 
+def _make_req(node, part, method, path, _headers, stype,
+              conn_timeout=5, response_timeout=15):
+    """
+    Make request to backend storage node.
+    (i.e. 'Account', 'Container', 'Object')
+    :param node: a node dict from a ring
+    :param part: an integer, the partion number
+    :param method: a string, the HTTP method (e.g. 'PUT', 'DELETE', etc)
+    :param path: a string, the request path
+    :param headers: a dict, header name => value
+    :param stype: a string, describing the type of service
+    :returns: an HTTPResponse object
+    """
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                            method, path, headers=_headers)
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+        resp.read()
+    if not is_success(resp.status):
+        raise DirectClientException(stype, method, node, part, path, resp)
+    return resp
+
+
 def _get_direct_account_container(path, stype, node, part,
                                   marker=None, limit=None,
                                   prefix=None, delimiter=None, conn_timeout=5,
@@ -76,6 +100,7 @@ def _get_direct_account_container(path, stype, node, part,
     if not is_success(resp.status):
         resp.read()
         raise DirectClientException(stype, 'GET', node, part, path, resp)
+
     resp_headers = HeaderKeyDict()
     for header, value in resp.getheaders():
         resp_headers[header] = value
@@ -126,16 +151,8 @@ def direct_delete_account(node, part, account, conn_timeout=5,
         headers = {}
 
     path = '/%s' % account
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'DELETE', path,
-                            headers=gen_headers(headers, True))
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Account', 'DELETE',
-                                    node, part, path, resp)
+    _make_req(node, part, 'DELETE', path, gen_headers(headers, True),
+              'Account', conn_timeout, response_timeout)
 
 
 def direct_head_container(node, part, account, container, conn_timeout=5,
@@ -153,15 +170,9 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
     :raises ClientException: HTTP HEAD request failed
     """
     path = '/%s/%s' % (account, container)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'HEAD', path, headers=gen_headers())
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Container', 'HEAD',
-                                    node, part, path, resp)
+    resp = _make_req(node, part, 'HEAD', path, gen_headers(),
+                     'Container', conn_timeout, response_timeout)
+
     resp_headers = HeaderKeyDict()
     for header, value in resp.getheaders():
         resp_headers[header] = value
@@ -215,16 +226,8 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
 
     path = '/%s/%s' % (account, container)
     add_timestamp = 'x-timestamp' not in (k.lower() for k in headers)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'DELETE', path,
-                            headers=gen_headers(headers, add_timestamp))
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Container', 'DELETE',
-                                    node, part, path, resp)
+    _make_req(node, part, 'DELETE', path, gen_headers(headers, add_timestamp),
+              'Container', conn_timeout, response_timeout)
 
 
 def direct_put_container_object(node, part, account, container, obj,
@@ -236,17 +239,9 @@ def direct_put_container_object(node, part, account, container, obj,
     have_x_timestamp = 'x-timestamp' in (k.lower() for k in headers)
 
     path = '/%s/%s/%s' % (account, container, obj)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'PUT', path,
-                            headers=gen_headers(headers,
-                                                add_ts=(not have_x_timestamp)))
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Container', 'PUT',
-                                    node, part, path, resp)
+    _make_req(node, part, 'PUT', path,
+              gen_headers(headers, add_ts=(not have_x_timestamp)),
+              'Container', conn_timeout, response_timeout)
 
 
 def direct_delete_container_object(node, part, account, container, obj,
@@ -259,16 +254,8 @@ def direct_delete_container_object(node, part, account, container, obj,
         k.lower() for k in headers))
 
     path = '/%s/%s/%s' % (account, container, obj)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'DELETE', path, headers=headers)
-
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Container', 'DELETE',
-                                    node, part, path, resp)
+    _make_req(node, part, 'DELETE', path, headers,
+              'Container', conn_timeout, response_timeout)
 
 
 def direct_head_object(node, part, account, container, obj, conn_timeout=5,
@@ -293,15 +280,9 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
     headers = gen_headers(headers)
 
     path = '/%s/%s/%s' % (account, container, obj)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'HEAD', path, headers=headers)
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Object', 'HEAD',
-                                    node, part, path, resp)
+    resp = _make_req(node, part, 'HEAD', path, headers,
+                     'Object', conn_timeout, response_timeout)
+
     resp_headers = HeaderKeyDict()
     for header, value in resp.getheaders():
         resp_headers[header] = value
@@ -337,8 +318,8 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
         resp = conn.getresponse()
     if not is_success(resp.status):
         resp.read()
-        raise DirectClientException('Object', 'GET',
-                                    node, part, path, resp)
+        raise DirectClientException('Object', 'GET', node, part, path, resp)
+
     if resp_chunk_size:
 
         def _object_body():
@@ -453,15 +434,8 @@ def direct_post_object(node, part, account, container, name, headers,
     :raises ClientException: HTTP POST request failed
     """
     path = '/%s/%s/%s' % (account, container, name)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'POST', path, headers=gen_headers(headers, True))
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Object', 'POST',
-                                    node, part, path, resp)
+    _make_req(node, part, 'POST', path, gen_headers(headers, True),
+              'Object', conn_timeout, response_timeout)
 
 
 def direct_delete_object(node, part, account, container, obj,
@@ -485,15 +459,8 @@ def direct_delete_object(node, part, account, container, obj,
         k.lower() for k in headers))
 
     path = '/%s/%s/%s' % (account, container, obj)
-    with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'DELETE', path, headers=headers)
-    with Timeout(response_timeout):
-        resp = conn.getresponse()
-        resp.read()
-    if not is_success(resp.status):
-        raise DirectClientException('Object', 'DELETE',
-                                    node, part, path, resp)
+    _make_req(node, part, 'DELETE', path, headers,
+              'Object', conn_timeout, response_timeout)
 
 
 def retry(func, *args, **kwargs):
