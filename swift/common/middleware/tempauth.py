@@ -177,9 +177,9 @@ class TempAuth(object):
                                 '"/auth/" (Non-empty auth prefix path '
                                 'is required)' % self.auth_prefix)
             self.auth_prefix = '/auth/'
-        if self.auth_prefix[0] != '/':
+        if not self.auth_prefix.startswith('/'):
             self.auth_prefix = '/' + self.auth_prefix
-        if self.auth_prefix[-1] != '/':
+        if not self.auth_prefix.endswith('/'):
             self.auth_prefix += '/'
         self.token_life = int(conf.get('token_life', 86400))
         self.allow_overrides = config_true_value(
