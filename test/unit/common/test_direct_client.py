@@ -70,10 +70,10 @@ class FakeConn(object):
         return self.resp_headers.items()
 
     def read(self, amt=None):
-        if amt is None:
-            return self.body
-        elif isinstance(self.body, six.StringIO):
+        if isinstance(self.body, six.StringIO):
             return self.body.read(amt)
+        elif amt is None:
+            return self.body
         else:
             return Exception('Not a StringIO entry')
 
@@ -508,7 +508,7 @@ class TestDirectClient(unittest.TestCase):
                 self.node, self.part, self.account, self.container, self.obj)
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.obj_path)
-        self.assertEqual(obj_body, contents)
+        self.assertEqual(obj_body, contents.getvalue())
 
     def test_direct_get_object_error(self):
         with mocked_http_conn(500) as conn:
