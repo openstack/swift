@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from contextlib import contextmanager
 from hashlib import md5
 import base64
 import json
@@ -21,7 +21,8 @@ from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import get_object_transient_sysmeta_prefix, \
     strip_user_meta_prefix, is_user_meta
-from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
+from swift.common.swob import Request, Match, HTTPException, \
+    HTTPUnprocessableEntity
 from swift.common.middleware.crypto import Crypto
 from swift.common.constraints import check_metadata
 
@@ -44,7 +45,8 @@ def _dump_crypto_meta(crypto_meta):
         for name, value in crypto_meta.items()}))
 
 
-def encrypt_header_val(crypto, value, key, append_crypto_meta=False):
+def encrypt_header_val(crypto, value, key, append_crypto_meta=False,
+                       iv_base=None):
     """
     Encrypt a value using the supplied key.
 
@@ -52,6 +54,7 @@ def encrypt_header_val(crypto, value, key, append_crypto_meta=False):
     :param key: crypto key to use
     :param crypto_meta: a crypto-meta dict of form returned by
         :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
+    :param iv_base: an optional string from which an iv will be derived
     :returns: a tuple of (encrypted value, crypto_meta) where crypto_meta is a
         dict of form returned by
         :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
@@ -59,9 +62,8 @@ def encrypt_header_val(crypto, value, key, append_crypto_meta=False):
     if not value:
         return '', None
 
-    crypto_meta = crypto.get_crypto_meta()
+    crypto_meta = crypto.get_crypto_meta(iv_base=iv_base)
     crypto_ctxt = crypto.create_encryption_ctxt(key, crypto_meta['iv'])
-
     enc_val = base64.b64encode(crypto_ctxt.update(value))
     crypto_meta = _dump_crypto_meta(crypto_meta)
     if append_crypto_meta:
@@ -75,6 +77,7 @@ class EncInputWrapper(object):
     def __init__(self, crypto, keys, req, logger):
         self.env = req.environ
         self.wsgi_input = req.environ['wsgi.input']
+        self.path = req.path
         self.crypto = crypto
         crypto_meta = self.crypto.get_crypto_meta()
         self.crypto_ctxt = crypto.create_encryption_ctxt(keys['object'],
@@ -102,7 +105,7 @@ class EncInputWrapper(object):
             # sysmeta along with the crypto parameters that were used.
             val, crypto_meta = encrypt_header_val(
                 self.crypto, self.plaintext_md5.hexdigest(),
-                self.keys['object'])
+                self.keys['object'], iv_base=self.path)
             footers['X-Object-Sysmeta-Crypto-Etag'] = val
             footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = crypto_meta
 
@@ -234,6 +237,45 @@ class EncrypterObjContext(CryptoWSGIContext):
         start_response(self._response_status, self._response_headers,
                        self._response_exc_info)
         return resp
+
+    @contextmanager
+    def _encrypt_conditional_etags(self, req, header_name):
+        old_etags = req.headers.get(header_name)
+        if old_etags:
+            keys = self.get_keys(req.environ)
+            new_etags = []
+            for etag in Match(old_etags).tags:
+                if etag == '*':
+                    new_etags.append(etag)
+                    continue
+                crypto_etag, meta = encrypt_header_val(self.crypto, etag,
+                                                       keys[self.server_type],
+                                                       iv_base=req.path)
+                new_etags.extend(('"%s"' % etag, '"%s"' % crypto_etag))
+
+            req.headers[header_name] = ', '.join(new_etags)
+            req.headers.setdefault(
+                'X-Backend-Etag-Is-At', 'X-Object-Sysmeta-Crypto-Etag')
+
+        try:
+            yield
+        finally:
+            if old_etags:
+                req.headers[header_name] = old_etags
+
+    def handle_get_or_head(self, req, start_response):
+        with self._encrypt_conditional_etags(req, 'If-Match'):
+            with self._encrypt_conditional_etags(req, 'If-None-Match'):
+                resp = self._app_call(req.environ)
+                start_response(self._response_status, self._response_headers,
+                               self._response_exc_info)
+        return resp
+
+    def HEAD(self, req, start_response):
+        return self.handle_get_or_head(req, start_response)
+
+    def GET(self, req, start_response):
+        return self.handle_get_or_head(req, start_response)
 
 
 class Encrypter(object):

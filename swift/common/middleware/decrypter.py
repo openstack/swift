@@ -136,10 +136,6 @@ class BaseDecrypterContext(CryptoWSGIContext):
         :param req: a Request object
         :returns: a dict if decryption keys
         """
-        # Only proceed processing if an error has not occurred
-        if not is_success(self._get_status_int()):
-            return None
-
         if config_true_value(req.environ.get('swift.crypto.override')):
             self.logger.debug('No decryption is necessary because of override')
             return None
@@ -151,7 +147,6 @@ class DecrypterObjContext(BaseDecrypterContext):
     def __init__(self, decrypter, logger):
         super(DecrypterObjContext, self).__init__(decrypter, logger)
         self.server_type = 'object'
-        self.body_crypto_ctxt = None
 
     def decrypt_user_metadata(self, keys):
         prefix = "%scrypto-meta-" % get_object_transient_sysmeta_prefix()
@@ -277,24 +272,29 @@ class DecrypterObjContext(BaseDecrypterContext):
         content_type, content_type_attrs = parse_content_type(ct)
 
         mod_resp_headers = self.decrypt_resp_headers(keys)
-        self.body_crypto_ctxt = self.make_decryption_context(keys)
 
         start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
 
-        if self.body_crypto_ctxt is None:
+        if not is_success(self._get_status_int()):
+            # don't decrypt body of non-2xx responses
             return app_resp
 
         if content_type == 'multipart/byteranges':
             boundary = dict(content_type_attrs)["boundary"]
             return self.multipart_resp(app_resp, boundary, keys)
 
+        body_crypto_ctxt = self.make_decryption_context(keys)
+        if body_crypto_ctxt is None:
+            # TODO: is this check necessary, can the context be None?
+            return app_resp
+
         def iter_response(iterable, crypto_ctxt):
             with closing_if_possible(iterable):
                 for chunk in iterable:
                     yield crypto_ctxt.update(chunk)
 
-        return iter_response(app_resp, self.body_crypto_ctxt)
+        return iter_response(app_resp, body_crypto_ctxt)
 
     def HEAD(self, req, start_response):
         app_resp = self._app_call(req.environ)

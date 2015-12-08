@@ -97,14 +97,18 @@ class KeyMasterContext(WSGIContext):
         return self._handle_get_or_head(req, start_response)
 
     def _handle_get_or_head(self, req, start_response):
+        # To get if-match requests working, we now need to provide the keys
+        # before we get a response from the object server. There might be
+        # a better way of doing this.
+        self.provide_keys_get_or_head(req, False)
         resp = self._app_call(req.environ)
-        self.provide_keys_get_or_head(req)
+        self.provide_keys_get_or_head(req, True)
         start_response(self._response_status, self._response_headers,
                        self._response_exc_info)
         return resp
 
-    def provide_keys_get_or_head(self, req):
-        if self.obj_path:
+    def provide_keys_get_or_head(self, req, rederive):
+        if rederive and self.obj_path:
             # TODO: re-examine need for this special handling once COPY has
             # been moved to middleware.
             # For object GET or HEAD we look for a key_id that may have been
@@ -146,6 +150,8 @@ class KeyMasterContext(WSGIContext):
         if not req.environ.get('swift.crypto.override'):
             req.environ['swift.crypto.fetch_crypto_keys'] = \
                 self.fetch_crypto_keys
+        else:
+            req.environ.pop('swift.crypto.fetch_crypto_keys', None)
 
     def fetch_crypto_keys(self):
         return self.keys

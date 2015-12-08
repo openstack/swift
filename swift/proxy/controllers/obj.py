@@ -2192,14 +2192,19 @@ class ECObjectController(BaseObjectController):
                 resp = self.best_response(
                     req, statuses, reasons, bodies, 'Object',
                     headers=headers)
-        self._fix_response(resp)
+        self._fix_response(req, resp)
         return resp
 
-    def _fix_response(self, resp):
+    def _fix_response(self, req, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
         # sysmeta, so we copy that here (if it exists) so the client gets it.
         resp.headers['Etag'] = resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+        # We're about to invoke conditional response checking so set the
+        # correct conditional etag from wherever X-Backend-Etag-Is-At points,
+        # if it exists at all.
+        resp._conditional_etag = resp.headers.get(
+            req.headers.get('X-Backend-Etag-Is-At'))
         if (is_success(resp.status_int) or is_redirection(resp.status_int) or
                 resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE):
             resp.accept_ranges = 'bytes'

@@ -140,7 +140,7 @@ class FakeSwift(object):
                          k.lower == 'content-type')))
             self.uploaded[path] = new_metadata, data
 
-        self._calls.append((method, path, req_headers))
+        self._calls.append((method, path, HeaderKeyDict(req_headers)))
 
         # range requests ought to work, hence conditional_response=True
         if isinstance(body, list):

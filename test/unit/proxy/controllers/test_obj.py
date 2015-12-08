@@ -1387,6 +1387,108 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
 
+    def _test_if_match(self, method):
+        num_responses = self.policy.ec_ndata if method == 'GET' else 1
+
+        def _do_test(match_value, backend_status,
+                     etag_is_at='X-Object-Sysmeta-Does-Not-Exist'):
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method=method,
+                headers={'If-Match': match_value,
+                         'X-Backend-Etag-Is-At': etag_is_at})
+            get_resp = [backend_status] * num_responses
+            resp_headers = {'Etag': 'frag_etag',
+                            'X-Object-Sysmeta-Ec-Etag': 'data_etag',
+                            'X-Object-Sysmeta-Alternate-Etag': 'alt_etag'}
+            with set_http_connect(*get_resp, headers=resp_headers):
+                resp = req.get_response(self.app)
+            self.assertEqual('data_etag', resp.headers['Etag'])
+            return resp
+
+        # wildcard
+        resp = _do_test('*', 200)
+        self.assertEqual(resp.status_int, 200)
+
+        # match
+        resp = _do_test('"data_etag"', 200)
+        self.assertEqual(resp.status_int, 200)
+
+        # no match
+        resp = _do_test('"frag_etag"', 412)
+        self.assertEqual(resp.status_int, 412)
+
+        # match wildcard against an alternate etag
+        resp = _do_test('*', 200,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 200)
+
+        # match against an alternate etag
+        resp = _do_test('"alt_etag"', 200,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 200)
+
+        # no match against an alternate etag
+        resp = _do_test('"data_etag"', 412,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 412)
+
+    def test_GET_if_match(self):
+        self._test_if_match('GET')
+
+    def test_HEAD_if_match(self):
+        self._test_if_match('HEAD')
+
+    def _test_if_none_match(self, method):
+        num_responses = self.policy.ec_ndata if method == 'GET' else 1
+
+        def _do_test(match_value, backend_status,
+                     etag_is_at='X-Object-Sysmeta-Does-Not-Exist'):
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method=method,
+                headers={'If-None-Match': match_value,
+                         'X-Backend-Etag-Is-At': etag_is_at})
+            get_resp = [backend_status] * num_responses
+            resp_headers = {'Etag': 'frag_etag',
+                            'X-Object-Sysmeta-Ec-Etag': 'data_etag',
+                            'X-Object-Sysmeta-Alternate-Etag': 'alt_etag'}
+            with set_http_connect(*get_resp, headers=resp_headers):
+                resp = req.get_response(self.app)
+            self.assertEqual('data_etag', resp.headers['Etag'])
+            return resp
+
+        # wildcard
+        resp = _do_test('*', 304)
+        self.assertEqual(resp.status_int, 304)
+
+        # match
+        resp = _do_test('"data_etag"', 304)
+        self.assertEqual(resp.status_int, 304)
+
+        # no match
+        resp = _do_test('"frag_etag"', 200)
+        self.assertEqual(resp.status_int, 200)
+
+        # match wildcard against an alternate etag
+        resp = _do_test('*', 304,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 304)
+
+        # match against an alternate etag
+        resp = _do_test('"alt_etag"', 304,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 304)
+
+        # no match against an alternate etag
+        resp = _do_test('"data_etag"', 200,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_GET_if_none_match(self):
+        self._test_if_none_match('GET')
+
+    def test_HEAD_if_none_match(self):
+        self._test_if_none_match('HEAD')
+
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
                                               headers={'X-Newest': 'true'})

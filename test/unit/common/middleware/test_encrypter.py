@@ -20,7 +20,8 @@ import unittest
 import mock
 
 from swift.common.middleware import encrypter
-from swift.common.swob import Request, HTTPException, HTTPCreated, HTTPAccepted
+from swift.common.swob import (
+    Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk)
 from swift.common.utils import FileLikeIter
 from swift.common.middleware.crypto import Crypto
 
@@ -30,11 +31,11 @@ from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.test_proxy_logging import FakeAppThatExcepts
 
 
-@mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
+@mock.patch('swift.common.middleware.crypto.Crypto._get_random_iv',
             lambda *args: fake_iv())
 class TestEncrypter(unittest.TestCase):
 
-    def test_basic_put_req(self):
+    def test_PUT_req(self):
         key = fetch_crypto_keys()['object']
         plaintext = 'FAKE APP'
         plaintext_etag = md5hex(plaintext)
@@ -62,15 +63,16 @@ class TestEncrypter(unittest.TestCase):
 
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
 
-        # encrypted version of plaintext etag
+        # verify encrypted version of plaintext etag
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
-        self.assertEqual(encrypt(plaintext_etag, key, fake_iv()), actual)
+        etag_iv = Crypto({}).create_iv(iv_base=req.path)
+        self.assertEqual(encrypt(plaintext_etag, key, etag_iv), actual)
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
         self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
-        self.assertEqual(fake_iv(), base64.b64decode(actual['iv']))
+        self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
-        # encrypted version of plaintext etag for container update
+        # verify plaintext etag for container update
         actual = req_hdrs['X-Backend-Container-Update-Override-Etag']
         self.assertEqual(plaintext_etag, actual)
 
@@ -96,7 +98,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(ciphertext, resp.body)
         self.assertEqual(ciphertext_etag, resp.headers['Etag'])
 
-    def test_basic_put_req_with_other_footers(self):
+    def test_PUT_with_other_footers(self):
         # verify handling of another middleware's footer callback
         key = fetch_crypto_keys()['object']
         plaintext = 'FAKE APP'
@@ -136,13 +138,14 @@ class TestEncrypter(unittest.TestCase):
         # verify encryption footers are ok
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
-        self.assertEqual(encrypt(plaintext_etag, key, fake_iv()), actual)
+        etag_iv = Crypto({}).create_iv(iv_base=req.path)
+        self.assertEqual(encrypt(plaintext_etag, key, etag_iv), actual)
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
         self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
-        self.assertEqual(fake_iv(), base64.b64decode(actual['iv']))
+        self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
-    def test_basic_post_req(self):
+    def test_POST_req(self):
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'POST',
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
@@ -174,7 +177,97 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('do not encrypt me',
                          req_hdrs['X-Object-Sysmeta-Test'])
 
-    def test_backend_response_etag_is_replaced(self):
+    def _test_if_match(self, method, match_header_name):
+        def do_test(method, plain_etags, expected_plain_etags=None):
+            env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+            match_header_value = ', '.join(plain_etags)
+            req = Request.blank(
+                '/v1/a/c/o', environ=env, method=method,
+                headers={match_header_name: match_header_value})
+            app = FakeSwift()
+            app.register(method, '/v1/a/c/o', HTTPOk, {})
+            resp = req.get_response(encrypter.Encrypter(app, {}))
+            self.assertEqual('200 OK', resp.status)
+
+            self.assertEqual(1, len(app.calls), app.calls)
+            self.assertEqual(method, app.calls[0][0])
+            actual_headers = app.headers[0]
+
+            # verify the alternate etag location has been specified
+            if match_header_value:
+                self.assertIn('X-Backend-Etag-Is-At', actual_headers)
+                self.assertEqual('X-Object-Sysmeta-Crypto-Etag',
+                                 actual_headers['X-Backend-Etag-Is-At'])
+
+            # verify etags have been supplemented with encrypted values
+            self.assertIn(match_header_name, actual_headers)
+            actual_etags = set(actual_headers[match_header_name].split(', '))
+            key = fetch_crypto_keys()['object']
+            iv = Crypto({}).create_iv(iv_base=req.path)
+            encrypted_etags = [
+                '"%s"' % base64.b64encode(encrypt(etag.strip('"'), key, iv))
+                for etag in plain_etags if etag not in ('*', '')]
+            expected_etags = set((expected_plain_etags or plain_etags) +
+                                 encrypted_etags)
+            self.assertEqual(expected_etags, actual_etags)
+            # check that the request environ was returned to original state
+            self.assertEqual(set(plain_etags),
+                             set(req.headers[match_header_name].split(', ')))
+
+        do_test(method, [''])
+        do_test(method, ['"an etag"'])
+        do_test(method, ['"an etag"', '"another_etag"'])
+        do_test(method, ['*'])
+        # rfc2616 does not allow wildcard *and* etag but test it anyway
+        do_test(method, ['*', '"an etag"'])
+        # etags should be quoted but check we can cope if they are not
+        do_test(
+            method, ['*', 'an etag', 'another_etag'],
+            expected_plain_etags=['*', '"an etag"', '"another_etag"'])
+
+    def test_GET_if_match(self):
+        self._test_if_match('GET', 'If-Match')
+
+    def test_HEAD_if_match(self):
+        self._test_if_match('HEAD', 'If-Match')
+
+    def test_GET_if_none_match(self):
+        self._test_if_match('GET', 'If-None-Match')
+
+    def test_HEAD_if_none_match(self):
+        self._test_if_match('HEAD', 'If-None-Match')
+
+    def _test_existing_etag_is_at_header(self, method, match_header_name):
+        # if another middleware has already set X-Backend-Etag-Is-At then
+        # encrypter should not override that value
+        env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, method=method,
+            headers={match_header_name: "an etag",
+                     'X-Backend-Etag-Is-At': 'X-Object-Sysmeta-Other-Etag'})
+        app = FakeSwift()
+        app.register(method, '/v1/a/c/o', HTTPOk, {})
+        resp = req.get_response(encrypter.Encrypter(app, {}))
+        self.assertEqual('200 OK', resp.status)
+
+        self.assertEqual(1, len(app.calls), app.calls)
+        self.assertEqual(method, app.calls[0][0])
+        actual_headers = app.headers[0]
+        self.assertIn('X-Backend-Etag-Is-At', actual_headers)
+        self.assertEqual('X-Object-Sysmeta-Other-Etag',
+                         actual_headers['X-Backend-Etag-Is-At'])
+        actual_etags = set(actual_headers[match_header_name].split(', '))
+        self.assertIn('"an etag"', actual_etags)
+
+    def test_GET_with_existing_etag_is_at_header(self):
+        self._test_existing_etag_is_at_header('GET', 'If-Match')
+        self._test_existing_etag_is_at_header('GET', 'If-None-Match')
+
+    def test_HEAD_with_existing_etag_is_at_header(self):
+        self._test_existing_etag_is_at_header('HEAD', 'If-Match')
+        self._test_existing_etag_is_at_header('HEAD', 'If-None-Match')
+
+    def test_PUT_backend_response_etag_is_replaced(self):
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
@@ -189,7 +282,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('201 Created', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
 
-    def test_multiseg_no_client_etag(self):
+    def test_PUT_multiseg_no_client_etag(self):
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
@@ -208,7 +301,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(encrypt(body, fetch_crypto_keys()['object'],
                                  fake_iv()), get_req.get_response(app).body)
 
-    def test_multiseg_good_client_etag(self):
+    def test_PUT_multiseg_good_client_etag(self):
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
@@ -228,7 +321,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(encrypt(body, fetch_crypto_keys()['object'],
                                  fake_iv()), get_req.get_response(app).body)
 
-    def test_multiseg_bad_client_etag(self):
+    def test_PUT_multiseg_bad_client_etag(self):
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
@@ -244,7 +337,7 @@ class TestEncrypter(unittest.TestCase):
         resp = req.get_response(encrypter.Encrypter(app, {}))
         self.assertEqual('422 Unprocessable Entity', resp.status)
 
-    def test_missing_key_callback(self):
+    def test_PUT_missing_key_callback(self):
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT'}
         hdrs = {'content-type': 'text/plain',
@@ -257,7 +350,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('swift.crypto.fetch_crypto_keys not in env',
                          resp.body)
 
-    def test_error_in_key_callback(self):
+    def test_PUT_error_in_key_callback(self):
         def raise_exc():
             raise Exception('Testing')
 
@@ -274,7 +367,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('swift.crypto.fetch_crypto_keys had exception:'
                          ' Testing', resp.body)
 
-    def test_encryption_override(self):
+    def test_PUT_encryption_override(self):
         # simulate another middleware wanting to set footers
         other_footers = {
             'Etag': 'other etag',
@@ -308,7 +401,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertTrue(callable(factory))
         self.assertIsInstance(factory({}), encrypter.Encrypter)
 
-    def test_app_exception(self):
+    def test_PUT_app_exception(self):
         app = encrypter.Encrypter(
             FakeAppThatExcepts(), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'PUT'})

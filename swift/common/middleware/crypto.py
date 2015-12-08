@@ -18,6 +18,7 @@ import os
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from hashlib import md5
 
 from swift.common.utils import get_logger
 
@@ -80,15 +81,38 @@ class Crypto(object):
         dec.update('*' * (offset % 16))
         return CryptoContext(dec, iv, offset)
 
-    def create_iv(self):
+    def get_block_size(self):
+        return algorithms.AES.block_size
+
+    def get_required_iv_length(self):
+        return self.get_block_size() / 8
+
+    def _get_derived_iv(self, base):
+        target_length = self.get_required_iv_length()
+        if len(base) < target_length:
+            return base.zfill(target_length)
+        elif len(base) > target_length:
+            hash = md5()
+            hash.update(base)
+            return hash.hexdigest()[-target_length:]
+        else:
+            return base
+
+    def _get_random_iv(self):
+        # here for tests to mock
         return os.urandom(16)
+
+    def create_iv(self, iv_base=None):
+        if iv_base:
+            return self._get_derived_iv(iv_base)
+        return self._get_random_iv()
 
     def get_cipher(self):
         return 'AES_CTR_256'
 
-    def get_crypto_meta(self):
+    def get_crypto_meta(self, iv_base=None):
         # create a set of parameters
-        return {'iv': self.create_iv(), 'cipher': self.get_cipher()}
+        return {'iv': self.create_iv(iv_base), 'cipher': self.get_cipher()}
 
 
 class CryptoContext(object):

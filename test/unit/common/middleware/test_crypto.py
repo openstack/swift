@@ -106,5 +106,29 @@ class TestCrypto(unittest.TestCase):
     def test_create_iv(self):
         self.assertEqual(16, len(self.crypto.create_iv()))
 
+    def test_shrink_iv_base(self):
+        base = 'base' * 5
+        target_length = self.crypto.get_required_iv_length()
+        self.assertGreater(len(base), target_length)
+
+        shrunk = self.crypto.create_iv(iv_base=base)
+        self.assertEqual(target_length, len(shrunk))
+
+    def test_pad_iv_base(self):
+        base = 'base'
+        target_length = self.crypto.get_required_iv_length()
+        self.assertLess(len(base), target_length)
+
+        padded = self.crypto.create_iv(iv_base=base)
+        self.assertEqual(target_length, len(padded))
+
+    def test_good_iv_base(self):
+        target_length = self.crypto.get_required_iv_length()
+        base = '1' * target_length
+        self.assertEqual(target_length, len(base))
+
+        same = self.crypto.create_iv(iv_base=base)
+        self.assertEqual(base, same)
+
 if __name__ == '__main__':
     unittest.main()

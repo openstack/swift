@@ -25,7 +25,8 @@ from test.unit.common.middleware.crypto_helpers import md5hex, \
 from swift.common.middleware.crypto import Crypto
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 from swift.common.middleware import decrypter
-from swift.common.swob import Request, HTTPException, HTTPOk
+from swift.common.swob import Request, HTTPException, HTTPOk, \
+    HTTPPreconditionFailed, HTTPNotFound
 
 
 def get_crypto_meta_header(crypto_meta=None):
@@ -47,7 +48,7 @@ def encrypt_and_append_meta(value, key, crypto_meta=None):
             lambda *args: fake_iv())
 class TestDecrypterObjectRequests(unittest.TestCase):
 
-    def test_basic_get_req(self):
+    def test_get_req_success(self):
         env = {'REQUEST_METHOD': 'GET',
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
@@ -76,6 +77,71 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
         self.assertEqual('do not encrypt me',
                          resp.headers['x-object-sysmeta-test'])
+
+    def _test_412_response(self, method):
+        # simulate a 412 response to a conditional GET which has an Etag header
+        data = 'the object content'
+        env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env, method=method)
+        resp_body = 'I am sorry, you have failed to meet a precondition'
+        key = fetch_crypto_keys()['object']
+        app = FakeSwift()
+        hdrs = {'Etag': 'hashOfCiphertext',
+                'content-type': 'text/plain',
+                'content-length': len(resp_body),
+                'X-Object-Sysmeta-Crypto-Etag':
+                    base64.b64encode(encrypt(md5hex(data), key, fake_iv())),
+                'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
+                'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
+                'x-object-meta-test':
+                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                'x-object-transient-sysmeta-crypto-meta-test':
+                    get_crypto_meta_header(),
+                'x-object-sysmeta-test': 'do not encrypt me'}
+        app.register(method, '/v1/a/c/o', HTTPPreconditionFailed,
+                     body=resp_body, headers=hdrs)
+        resp = req.get_response(decrypter.Decrypter(app, {}))
+
+        self.assertEqual('412 Precondition Failed', resp.status)
+        # the response body should not be decrypted, it is already plaintext
+        self.assertEqual(resp_body if method == 'GET' else '', resp.body)
+        # whereas the Etag and other headers should be decrypted
+        self.assertEqual(md5hex(data), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+        self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-sysmeta-test'])
+
+    def test_GET_412_response(self):
+        self._test_412_response('GET')
+
+    def test_HEAD_412_response(self):
+        self._test_412_response('HEAD')
+
+    def _test_404_response(self, method):
+        # simulate a 404 response, sanity check response headers
+        env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env, method=method)
+        resp_body = 'You still have not found what you are looking for'
+        app = FakeSwift()
+        hdrs = {'content-type': 'text/plain',
+                'content-length': len(resp_body)}
+        app.register(method, '/v1/a/c/o', HTTPNotFound,
+                     body=resp_body, headers=hdrs)
+        resp = req.get_response(decrypter.Decrypter(app, {}))
+
+        self.assertEqual('404 Not Found', resp.status)
+        # the response body should not be decrypted, it is already plaintext
+        self.assertEqual(resp_body if method == 'GET' else '', resp.body)
+        # there should be no etag header inserted by decrypter
+        self.assertNotIn('Etag', resp.headers)
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+
+    def test_GET_404_response(self):
+        self._test_404_response('GET')
+
+    def test_HEAD_404_response(self):
+        self._test_404_response('HEAD')
 
     def _test_bad_key(self, method):
         # use bad key
