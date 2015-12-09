@@ -23,6 +23,9 @@ Application Bindings
     * `SwiftBox <https://github.com/suniln/SwiftBox>`_ - C# library using RestSharp
     * `jclouds <http://jclouds.incubator.apache.org/documentation/quickstart/openstack/>`_ - Java library offering bindings for all OpenStack projects
     * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
+    * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
+    * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
+    * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple Openstack Swift storage client.
 
 Authentication
 --------------
