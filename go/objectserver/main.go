@@ -378,6 +378,9 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 				hummingbird.StandardResponse(writer, http.StatusPreconditionFailed)
 				return
 			}
+		} else {
+			hummingbird.StandardResponse(writer, http.StatusPreconditionFailed)
+			return
 		}
 	}
 

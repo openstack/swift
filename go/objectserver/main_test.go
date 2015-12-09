@@ -382,3 +382,62 @@ func TestEmptyObject(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 400, resp.StatusCode)
 }
+func TestBasicPutDeleteAt(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	timestamp := hummingbird.GetTimestamp()
+	time_unix := int(time.Now().Unix())
+	time_unix += 30
+	time_delete := strconv.Itoa(time_unix)
+
+	//put file with x-delete header
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), bytes.NewBuffer([]byte("SOME DATA")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "9")
+	req.Header.Set("X-Timestamp", timestamp)
+
+	req.Header.Set("X-Delete-At", time_delete)
+	resp, err := http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	timestamp = hummingbird.GetTimestamp()
+	req, err = http.NewRequest("DELETE", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), nil)
+	assert.Nil(t, err)
+	req.Header.Set("X-Timestamp", timestamp)
+	req.Header.Set("X-If-Delete-At", time_delete)
+	resp, err = http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 204, resp.StatusCode)
+
+	resp, err = ts.Do("GET", "/sda/0/a/c/o", nil)
+	assert.Nil(t, err)
+	assert.Equal(t, 404, resp.StatusCode)
+
+	//put file without x-delete header
+	timestamp = hummingbird.GetTimestamp()
+	req, err = http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), bytes.NewBuffer([]byte("SOME DATA")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "9")
+	req.Header.Set("X-Timestamp", timestamp)
+	resp, err = http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	timestamp = hummingbird.GetTimestamp()
+	req, err = http.NewRequest("DELETE", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), nil)
+	assert.Nil(t, err)
+	req.Header.Set("X-Timestamp", timestamp)
+	req.Header.Set("X-If-Delete-At", time_delete)
+	resp, err = http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 412, resp.StatusCode)
+
+	resp, err = ts.Do("GET", "/sda/0/a/c/o", nil)
+	assert.Nil(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+}
