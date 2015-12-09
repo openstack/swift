@@ -26,7 +26,7 @@ from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
-from swift.common.utils import quote, closing_if_possible
+from swift.common.utils import quote, closing_if_possible, close_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -1943,6 +1943,68 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(headers['Content-Length'], '0')
         self.assertEqual(headers['X-Object-Meta-Fish'], 'Bass')
         self.assertEqual(body, '')
+
+    def test_generator_closure(self):
+        # Test that the SLO WSGI iterable closes its internal .app_iter when
+        # it receives a close() message.
+        #
+        # This is sufficient to fix a memory leak. The memory leak arises
+        # due to cyclic references involving a running generator; a running
+        # generator sometimes preventes the GC from collecting it in the
+        # same way that an object with a defined __del__ does.
+        #
+        # There are other ways to break the cycle and fix the memory leak as
+        # well; calling .close() on the generator is sufficient, but not
+        # necessary. However, having this test is better than nothing for
+        # preventing regressions.
+        leaks = [0]
+
+        class LeakTracker(object):
+            def __init__(self, inner_iter):
+                leaks[0] += 1
+                self.inner_iter = iter(inner_iter)
+
+            def __iter__(self):
+                return self
+
+            def next(self):
+                return next(self.inner_iter)
+
+            def close(self):
+                leaks[0] -= 1
+                close_if_possible(self.inner_iter)
+
+        class LeakTrackingSegmentedIterable(slo.SegmentedIterable):
+            def _internal_iter(self, *a, **kw):
+                it = super(
+                    LeakTrackingSegmentedIterable, self)._internal_iter(
+                        *a, **kw)
+                return LeakTracker(it)
+
+        status = [None]
+        headers = [None]
+
+        def start_response(s, h, ei=None):
+            status[0] = s
+            headers[0] = h
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET',
+                     'HTTP_ACCEPT': 'application/json'})
+
+        # can't self.call_slo() here since we don't want to consume the
+        # whole body
+        with patch.object(slo, 'SegmentedIterable',
+                          LeakTrackingSegmentedIterable):
+            app_resp = self.slo(req.environ, start_response)
+        self.assertEqual(status[0], '200 OK')  # sanity check
+        body_iter = iter(app_resp)
+        chunk = next(body_iter)
+        self.assertEqual(chunk, 'aaaaa')  # sanity check
+
+        app_resp.close()
+        self.assertEqual(0, leaks[0])
 
     def test_head_manifest_is_efficient(self):
         req = Request.blank(
