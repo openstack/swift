@@ -20,8 +20,8 @@ import unittest2
 from unittest2 import SkipTest
 from uuid import uuid4
 
-from test.functional import check_response, retry, requires_acls, \
-    load_constraint, requires_policies
+from test.functional import check_response, cluster_info, retry, \
+    requires_acls, load_constraint, requires_policies
 import test.functional as tf
 
 from six.moves import range
@@ -1557,6 +1557,56 @@ class TestContainer(unittest2.TestCase):
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
         self.assertEqual(headers.get('x-storage-policy'),
                          policy['name'])
+
+    def test_container_quota_bytes(self):
+        if 'container_quotas' not in cluster_info:
+            raise SkipTest('Container quotas not enabled')
+
+        def post(url, token, parsed, conn, name, value):
+            conn.request('POST', parsed.path + '/' + self.name, '',
+                         {'X-Auth-Token': token, name: value})
+            return check_response(conn)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path + '/' + self.name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # set X-Container-Meta-Quota-Bytes is 10
+        resp = retry(post, 'X-Container-Meta-Quota-Bytes', '10')
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(head)
+        resp.read()
+        self.assertIn(resp.status, (200, 204))
+        # confirm X-Container-Meta-Quota-Bytes
+        self.assertEqual(resp.getheader('X-Container-Meta-Quota-Bytes'), '10')
+
+        def put(url, token, parsed, conn, data):
+            conn.request('PUT', parsed.path + '/' + self.name + '/object',
+                         data, {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # upload 11 bytes object
+        resp = retry(put, '01234567890')
+        resp.read()
+        self.assertEqual(resp.status, 413)
+
+        # upload 10 bytes object
+        resp = retry(put, '0123456789')
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', parsed.path + '/' + self.name + '/object',
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # download 10 bytes object
+        resp = retry(get)
+        body = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(body, '0123456789')
 
 
 class BaseTestContainerACLs(unittest2.TestCase):
