@@ -1204,6 +1204,12 @@ class TestObjectController(unittest.TestCase):
                 pass
             self.assertEqual(res.status_int, expected)
 
+    def _sleep_enough(self, condition):
+        for sleeptime in (0.1, 1.0):
+            sleep(sleeptime)
+            if condition():
+                break
+
     @unpatch_policies
     def test_policy_IO(self):
         def check_file(policy, cont, devs, check_val):
@@ -5625,7 +5631,9 @@ class TestObjectController(unittest.TestCase):
         # read most of the object, and disconnect
         fd.read(10)
         sock.fd._sock.close()
-        sleep(0.1)
+        condition = \
+            lambda: _test_servers[0].logger.get_lines_for_level('warning')
+        self._sleep_enough(condition)
 
         # check for disconnect message!
         expected = ['Client disconnected on read'] * 2
@@ -5665,7 +5673,9 @@ class TestObjectController(unittest.TestCase):
         fd.close()
         sock.close()
         # sleep to trampoline enough
-        sleep(0.1)
+        condition = \
+            lambda: _test_servers[0].logger.get_lines_for_level('warning')
+        self._sleep_enough(condition)
         expected = ['Client disconnected without sending enough data']
         warns = _test_servers[0].logger.get_lines_for_level('warning')
         self.assertEqual(expected, warns)
