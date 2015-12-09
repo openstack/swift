@@ -378,6 +378,9 @@ class SegmentedIterable(object):
             self.logger.exception(_('ERROR: An error occurred '
                                     'while retrieving segments'))
             raise
+        finally:
+            if self.current_resp:
+                close_if_possible(self.current_resp.app_iter)
 
     def app_iter_range(self, *a, **kw):
         """
@@ -420,5 +423,4 @@ class SegmentedIterable(object):
         Called when the client disconnect. Ensure that the connection to the
         backend server is closed.
         """
-        if self.current_resp:
-            close_if_possible(self.current_resp.app_iter)
+        close_if_possible(self.app_iter)
