@@ -448,29 +448,19 @@ swift-ring-builder <builder_file>
         print('The overload factor is %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
         if builder.devs:
+            balance_per_dev = builder._build_balance_per_dev()
             print('Devices:    id  region  zone      ip address  port  '
                   'replication ip  replication port      name '
                   'weight partitions balance flags meta')
-            weighted_parts = builder.parts * builder.replicas / \
-                sum(d['weight'] for d in builder.devs if d is not None)
-            for dev in builder.devs:
-                if dev is None:
-                    continue
-                if not dev['weight']:
-                    if dev['parts']:
-                        balance = MAX_BALANCE
-                    else:
-                        balance = 0
-                else:
-                    balance = 100.0 * dev['parts'] / \
-                        (dev['weight'] * weighted_parts) - 100.0
+            for dev in builder._iter_devs():
                 flags = 'DEL' if dev in builder._remove_devs else ''
                 print('         %5d %7d %5d %15s %5d %15s %17d %9s %6.02f '
                       '%10s %7.02f %5s %s' %
                       (dev['id'], dev['region'], dev['zone'], dev['ip'],
                        dev['port'], dev['replication_ip'],
                        dev['replication_port'], dev['device'], dev['weight'],
-                       dev['parts'], balance, flags, dev['meta']))
+                       dev['parts'], balance_per_dev[dev['id']], flags,
+                       dev['meta']))
         exit(EXIT_SUCCESS)
 
     def search():
@@ -924,6 +914,8 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
                                    verbose=options.verbose)
         print('Dispersion is %.06f, Balance is %.06f, Overload is %0.2f%%' % (
             builder.dispersion, builder.get_balance(), builder.overload * 100))
+        print('Required overload is %.6f%%' % (
+            builder.get_required_overload() * 100))
         if report['worst_tier']:
             status = EXIT_WARNING
             print('Worst tier is %.06f (%s)' % (report['max_dispersion'],
@@ -1034,7 +1026,6 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
         for parts in builder._replica2part2dev:
             for dev_id in parts:
                 builder.devs[dev_id]['parts'] += 1
-        builder._set_parts_wanted()
         builder.save(builder_file)
 
     def pretend_min_part_hours_passed():
