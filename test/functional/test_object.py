@@ -15,10 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import json
 import unittest2
 from unittest2 import SkipTest
 from uuid import uuid4
+import time
 
 from six.moves import range
 
@@ -184,6 +186,85 @@ class TestObject(unittest2.TestCase):
         self.assertEqual(resp.status, 400)
         self.assertIn(
             'X-Timestamp should be a UNIX timestamp float value', body)
+
+    def test_x_delete_after(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'x_delete_after'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-After': '1'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        def get(url, token, parsed, conn):
+            conn.request(
+                'GET',
+                '%s/%s/%s' % (parsed.path, self.container, 'x_delete_after'),
+                '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(get)
+        resp.read()
+        count = 0
+        while resp.status == 200 and count < 10:
+            resp = retry(get)
+            resp.read()
+            count += 1
+            time.sleep(1)
+
+        self.assertEqual(resp.status, 404)
+
+        # To avoid an error when the object deletion in tearDown(),
+        # the object is added again.
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+    def test_x_delete_at(self):
+        def put(url, token, parsed, conn):
+            dt = datetime.datetime.now()
+            epoch = time.mktime(dt.timetuple())
+            delete_time = str(int(epoch) + 3)
+            conn.request(
+                'PUT',
+                '%s/%s/%s' % (parsed.path, self.container, 'x_delete_at'),
+                '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0',
+                 'X-Delete-At': delete_time})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        def get(url, token, parsed, conn):
+            conn.request(
+                'GET',
+                '%s/%s/%s' % (parsed.path, self.container, 'x_delete_at'),
+                '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(get)
+        resp.read()
+        count = 0
+        while resp.status == 200 and count < 10:
+            resp = retry(get)
+            resp.read()
+            count += 1
+            time.sleep(1)
+
+        self.assertEqual(resp.status, 404)
+
+        # To avoid an error when the object deletion in tearDown(),
+        # the object is added again.
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
 
     def test_non_integer_x_delete_after(self):
         def put(url, token, parsed, conn):
