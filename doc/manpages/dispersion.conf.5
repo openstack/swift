@@ -50,14 +50,22 @@ Project name in case of keystone auth version 3
 Project domain name in case of keystone auth version 3
 .IP "\fBuser_domain_name\fR"
 User domain name in case of keystone auth version 3
+.IP "\fBendpoint_type\fR"
+The default is 'publicURL'.
+.IP "\fBkeystone_api_insecure\fR"
+The default is false.
 .IP "\fBswift_dir\fR"
 Location of openstack-swift configuration and ring files
 .IP "\fBdispersion_coverage\fR"
 Percentage of partition coverage to use. The default is 1.0.
 .IP "\fBretries\fR"
-Maximum number of attempts
+Maximum number of attempts. The defaul is 5.
 .IP "\fBconcurrency\fR"
 Concurrency to use. The default is 25.
+.IP "\fBcontainer_populate\fR"
+The default is true.
+.IP "\fBobject_populate\fR"
+The default is true.
 .IP "\fBdump_json\fR"
 Whether to output in json format. The default is no.
 .IP "\fBcontainer_report\fR"

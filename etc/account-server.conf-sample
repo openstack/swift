@@ -70,7 +70,7 @@ use = egg:swift#account
 # "replication_server" (this is the default). To only handle replication,
 # set to a True value (e.g. "True" or "1"). To handle only non-replication
 # verbs, set to "False". Unless you have a separate replication network, you
-# should not specify any value for "replication_server".
+# should not specify any value for "replication_server". Default is empty.
 # replication_server = false
 
 [filter:healthcheck]
@@ -137,8 +137,6 @@ use = egg:swift#recon
 # Will audit each account at most once per interval
 # interval = 1800
 #
-# log_facility = LOG_LOCAL0
-# log_level = INFO
 # accounts_per_second = 200
 # recon_cache_path = /var/cache/swift
 
