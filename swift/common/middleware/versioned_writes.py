@@ -93,12 +93,14 @@ See a listing of the older versions of the object::
 http://<storage_url>/versions?prefix=008myobject/
 
 Now delete the current version of the object and see that the older version is
-gone::
+gone from 'versions' container and back in 'container' container::
 
     curl -i -XDELETE -H "X-Auth-Token: <token>" \
 http://<storage_url>/container/myobject
     curl -i -H "X-Auth-Token: <token>" \
 http://<storage_url>/versions?prefix=008myobject/
+    curl -i -XGET -H "X-Auth-Token: <token>" \
+http://<storage_url>/container/myobject
 
 ---------------------------------------------------
 How to Disable Object Versioning in a Swift Cluster
