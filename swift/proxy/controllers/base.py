@@ -337,9 +337,10 @@ def _get_cache_key(account, container):
     """
     Get the keys for both memcache (cache_key) and env (env_key)
     where info about accounts and containers is cached
+
     :param   account: The name of the account
     :param container: The name of the container (or None if account)
-    :returns a tuple of (cache_key, env_key)
+    :returns: a tuple of (cache_key, env_key)
     """
 
     if container:
@@ -357,10 +358,11 @@ def _get_cache_key(account, container):
 def get_object_env_key(account, container, obj):
     """
     Get the keys for env (env_key) where info about object is cached
+
     :param   account: The name of the account
     :param container: The name of the container
     :param obj: The name of the object
-    :returns a string env_key
+    :returns: a string env_key
     """
     env_key = 'swift.object/%s/%s/%s' % (account,
                                          container, obj)
@@ -461,7 +463,7 @@ def _get_info_cache(app, env, account, container=None):
 
     :param  app: the application object
     :param  env: the environment used by the current request
-    :returns the cached info or None if not cached
+    :returns: the cached info or None if not cached
     """
 
     cache_key, env_key = _get_cache_key(account, container)
