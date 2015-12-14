@@ -1403,7 +1403,7 @@ class ECAppIter(object):
         def put_fragments_in_queue(frag_iter, queue):
             try:
                 for fragment in frag_iter:
-                    if fragment[0] == ' ':
+                    if fragment.startswith(' '):
                         raise Exception('Leading whitespace on fragment.')
                     queue.put(fragment)
             except GreenletExit:

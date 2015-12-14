@@ -296,7 +296,7 @@ def config_auto_int_value(value, default):
 
 
 def append_underscore(prefix):
-    if prefix and prefix[-1] != '_':
+    if prefix and not prefix.endswith('_'):
         prefix += '_'
     return prefix
 
@@ -439,7 +439,8 @@ def get_log_line(req, res, trans_time, additional_info):
 
 
 def get_trans_id_time(trans_id):
-    if len(trans_id) >= 34 and trans_id[:2] == 'tx' and trans_id[23] == '-':
+    if len(trans_id) >= 34 and \
+       trans_id.startswith('tx') and trans_id[23] == '-':
         try:
             return int(trans_id[24:34], 16)
         except ValueError:
@@ -1401,7 +1402,7 @@ class SwiftLogFormatter(logging.Formatter):
                 record.exc_text = self.formatException(
                     record.exc_info).replace('\n', '#012')
         if record.exc_text:
-            if msg[-3:] != '#012':
+            if not msg.endswith('#012'):
                 msg = msg + '#012'
             msg = msg + record.exc_text
 

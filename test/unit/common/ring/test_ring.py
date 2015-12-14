@@ -457,39 +457,42 @@ class TestRing(TestRingBase):
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someone changes the results the ring produces, they know it.
         exp_part = 6
-        exp_devs = [48, 93, 96]
-        exp_zones = set([5, 8, 9])
+        exp_devs = [71, 77, 30]
+        exp_zones = set([6, 3, 7])
 
-        exp_handoffs = [11, 47, 25, 76, 69, 23, 99, 59, 106, 64, 43, 34, 88, 3,
-                        30, 83, 16, 27, 103, 39, 60, 0, 8, 72, 56, 19, 91, 13,
-                        84, 38, 66, 52, 78, 107, 50, 57, 31, 32, 77, 24, 42,
-                        100, 71, 26, 9, 20, 35, 5, 14, 94, 28, 41, 18, 102,
-                        101, 61, 95, 21, 81, 1, 105, 58, 74, 90, 86, 46, 4, 68,
-                        40, 80, 54, 75, 45, 79, 44, 49, 62, 29, 7, 15, 70, 87,
-                        65, 12, 82, 17, 104, 97, 55, 22, 6, 89, 2, 67, 37, 63,
-                        53, 92, 33, 85, 73, 51, 98, 36, 10]
-        exp_first_handoffs = [1, 37, 48, 68, 84, 75, 11, 101, 14, 73, 100, 75,
-                              29, 19, 18, 101, 15, 99, 95, 24, 46, 82, 73, 62,
-                              24, 89, 9, 22, 107, 74, 54, 63, 40, 106, 99, 83,
-                              64, 73, 73, 106, 106, 80, 6, 25, 20, 33, 6, 79,
-                              59, 42, 62, 24, 14, 107, 28, 0, 85, 5, 4, 12, 58,
-                              11, 92, 18, 36, 56, 86, 1, 21, 33, 80, 97, 4, 81,
-                              79, 76, 89, 50, 75, 27, 7, 96, 47, 55, 81, 104,
-                              12, 5, 18, 106, 27, 93, 39, 92, 42, 30, 20, 88,
-                              58, 105, 65, 29, 17, 52, 11, 106, 7, 24, 21, 91,
-                              62, 52, 50, 31, 77, 102, 19, 11, 8, 58, 53, 20,
-                              26, 8, 18, 82, 48, 68, 82, 89, 101, 50, 3, 52,
-                              46, 11, 2, 30, 79, 66, 4, 61, 3, 56, 45, 102, 73,
-                              84, 36, 19, 34, 84, 49, 40, 103, 66, 31, 33, 93,
-                              33, 4, 52, 26, 58, 30, 47, 100, 57, 40, 79, 33,
-                              107, 24, 20, 44, 4, 7, 59, 83, 101, 1, 56, 20,
-                              61, 33, 16, 5, 74, 98, 4, 80, 15, 104, 52, 73,
-                              18, 67, 75, 98, 73, 79, 68, 75, 27, 91, 36, 100,
-                              52, 95, 37, 46, 70, 14, 47, 3, 70, 23, 40, 105,
-                              62, 86, 48, 22, 54, 4, 72, 81, 13, 0, 18, 98,
-                              101, 36, 29, 24, 39, 79, 97, 105, 28, 107, 47,
-                              52, 101, 20, 22, 29, 65, 27, 7, 33, 64, 101, 60,
-                              19, 55]
+        exp_handoffs = [99, 43, 94, 13, 1, 49, 60, 72, 27, 68, 78, 26, 21, 9,
+                        51, 105, 47, 89, 65, 82, 34, 98, 38, 85, 16, 4, 59,
+                        102, 40, 90, 20, 8, 54, 66, 80, 25, 14, 2, 50, 12, 0,
+                        48, 70, 76, 32, 107, 45, 87, 101, 44, 93, 100, 42, 95,
+                        106, 46, 88, 97, 37, 86, 96, 36, 84, 17, 5, 57, 63,
+                        81, 33, 67, 79, 24, 15, 3, 58, 69, 75, 31, 61, 74, 29,
+                        23, 10, 52, 22, 11, 53, 64, 83, 35, 62, 73, 28, 18, 6,
+                        56, 104, 39, 91, 103, 41, 92, 19, 7, 55]
+
+        exp_first_handoffs = [23, 64, 105, 102, 67, 17, 99, 65, 69, 97, 15,
+                              17, 24, 98, 66, 65, 69, 18, 104, 105, 16, 107,
+                              100, 15, 14, 19, 102, 105, 63, 104, 99, 12, 107,
+                              99, 16, 105, 71, 15, 15, 63, 63, 99, 21, 68, 20,
+                              64, 96, 21, 98, 19, 68, 99, 15, 69, 62, 100, 96,
+                              102, 17, 62, 13, 61, 102, 105, 22, 16, 21, 18,
+                              21, 100, 20, 16, 21, 106, 66, 106, 16, 99, 16,
+                              22, 62, 60, 99, 69, 18, 23, 104, 98, 106, 61,
+                              21, 23, 23, 16, 67, 71, 101, 16, 64, 66, 70, 15,
+                              102, 63, 19, 98, 18, 106, 101, 100, 62, 63, 98,
+                              18, 13, 97, 23, 22, 100, 13, 14, 67, 96, 14,
+                              105, 97, 71, 64, 96, 22, 65, 66, 98, 19, 105,
+                              98, 97, 21, 15, 69, 100, 98, 106, 65, 66, 97,
+                              62, 22, 68, 63, 61, 67, 67, 20, 105, 106, 105,
+                              18, 71, 100, 17, 62, 60, 13, 103, 99, 101, 96,
+                              97, 16, 60, 21, 14, 20, 12, 60, 69, 104, 65, 65,
+                              17, 16, 67, 13, 64, 15, 16, 68, 96, 21, 104, 66,
+                              96, 105, 58, 105, 103, 21, 96, 60, 16, 96, 21,
+                              71, 16, 99, 101, 63, 62, 103, 18, 102, 60, 17,
+                              19, 106, 97, 14, 99, 68, 102, 13, 70, 103, 21,
+                              22, 19, 61, 103, 23, 104, 65, 62, 68, 16, 65,
+                              15, 102, 102, 71, 99, 63, 67, 19, 23, 15, 69,
+                              107, 14, 13, 64, 13, 105, 15, 98, 69]
+
         rb = ring.RingBuilder(8, 3, 1)
         next_dev_id = 0
         for zone in range(1, 10):
@@ -501,16 +504,27 @@ class TestRing(TestRingBase):
                                 'zone': zone, 'region': 0,
                                 'weight': 1.0})
                     next_dev_id += 1
-        rb.rebalance(seed=1)
+        rb.rebalance(seed=2)
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
+
+        # every part has the same number of handoffs
+        part_handoff_counts = set()
+        for part in range(r.partition_count):
+            part_handoff_counts.add(len(list(r.get_more_nodes(part))))
+        self.assertEqual(part_handoff_counts, {105})
+        # which less the primaries - is every device in the ring
+        self.assertEqual(len(list(rb._iter_devs())) - rb.replicas, 105)
+
         part, devs = r.get_nodes('a', 'c', 'o')
         primary_zones = set([d['zone'] for d in devs])
         self.assertEqual(part, exp_part)
         self.assertEqual([d['id'] for d in devs], exp_devs)
         self.assertEqual(primary_zones, exp_zones)
         devs = list(r.get_more_nodes(part))
-        self.assertEqual([d['id'] for d in devs], exp_handoffs)
+        self.assertEqual(len(devs), len(exp_handoffs))
+        dev_ids = [d['id'] for d in devs]
+        self.assertEqual(dev_ids, exp_handoffs)
 
         # The first 6 replicas plus the 3 primary nodes should cover all 9
         # zones in this test
@@ -531,11 +545,22 @@ class TestRing(TestRingBase):
                     'ip': '1.2.%d.%d' % (zone, server),
                     'port': 1234, 'zone': zone, 'region': 0, 'weight': 1.0})
         next_dev_id += 1
-        rb.rebalance(seed=1)
+        rb.pretend_min_part_hours_passed()
+        num_parts_changed, _balance, _removed_dev = rb.rebalance(seed=2)
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
-        # We would change expectations here, but in this test no handoffs
-        # changed at all.
+
+        # so now we expect the device list to be longer by one device
+        part_handoff_counts = set()
+        for part in range(r.partition_count):
+            part_handoff_counts.add(len(list(r.get_more_nodes(part))))
+        self.assertEqual(part_handoff_counts, {106})
+        self.assertEqual(len(list(rb._iter_devs())) - rb.replicas, 106)
+        # I don't think there's any special reason this dev goes at this index
+        exp_handoffs.insert(27, rb.devs[-1]['id'])
+
+        # We would change expectations here, but in this part only the added
+        # device changed at all.
         part, devs = r.get_nodes('a', 'c', 'o')
         primary_zones = set([d['zone'] for d in devs])
         self.assertEqual(part, exp_part)
@@ -555,36 +580,60 @@ class TestRing(TestRingBase):
         seen_zones.update([d['zone'] for d in devs[:6]])
         self.assertEqual(seen_zones, set(range(1, 10)))
 
+        # Change expectations for the rest of the parts
         devs = []
         for part in range(r.partition_count):
             devs.append(next(r.get_more_nodes(part))['id'])
+        changed_first_handoff = 0
         for part in range(r.partition_count):
-            self.assertEqual(
-                devs[part], exp_first_handoffs[part],
-                'handoff for partitition %d is now device id %d' % (
-                    part, devs[part]))
+            if devs[part] != exp_first_handoffs[part]:
+                changed_first_handoff += 1
+                exp_first_handoffs[part] = devs[part]
+        self.assertEqual(devs, exp_first_handoffs)
+        self.assertEqual(changed_first_handoff, num_parts_changed)
 
-        # Remove a device.
+        # Remove a device - no need to fluff min_part_hours.
         rb.remove_dev(0)
-        rb.rebalance(seed=1)
+        num_parts_changed, _balance, _removed_dev = rb.rebalance(seed=1)
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
-        # Change expectations
-        # The long string of handoff nodes for the partition were the same for
-        # the first 20, which is pretty good.
-        exp_handoffs[20:] = [60, 108, 8, 72, 56, 19, 91, 13, 84, 38, 66, 52,
-                             1, 78, 107, 50, 57, 31, 32, 77, 24, 42, 100, 71,
-                             26, 9, 20, 35, 5, 14, 94, 28, 41, 18, 102, 101,
-                             61, 95, 21, 81, 105, 58, 74, 90, 86, 46, 4, 68,
-                             40, 80, 54, 75, 45, 79, 44, 49, 62, 29, 7, 15, 70,
-                             87, 65, 12, 82, 17, 104, 97, 55, 22, 6, 89, 2, 67,
-                             37, 63, 53, 92, 33, 85, 73, 51, 98, 36, 10]
-        # Just a few of the first handoffs changed
-        exp_first_handoffs[3] = 68
-        exp_first_handoffs[55] = 104
-        exp_first_handoffs[116] = 6
-        exp_first_handoffs[181] = 15
-        exp_first_handoffs[228] = 38
+
+        # so now we expect the device list to be shorter by one device
+        part_handoff_counts = set()
+        for part in range(r.partition_count):
+            part_handoff_counts.add(len(list(r.get_more_nodes(part))))
+        self.assertEqual(part_handoff_counts, {105})
+        self.assertEqual(len(list(rb._iter_devs())) - rb.replicas, 105)
+
+        # Change expectations for our part
+        exp_handoffs.remove(0)
+        first_matches = 0
+        total_changed = 0
+        devs = list(d['id'] for d in r.get_more_nodes(exp_part))
+        for i, part in enumerate(devs):
+            if exp_handoffs[i] != devs[i]:
+                total_changed += 1
+                exp_handoffs[i] = devs[i]
+            if not total_changed:
+                first_matches += 1
+        self.assertEqual(devs, exp_handoffs)
+        # the first 21 handoffs were the same across the rebalance
+        self.assertEqual(first_matches, 21)
+        # but as you dig deeper some of the differences show up
+        self.assertEqual(total_changed, 41)
+
+        # Change expectations for the rest of the parts
+        devs = []
+        for part in range(r.partition_count):
+            devs.append(next(r.get_more_nodes(part))['id'])
+        changed_first_handoff = 0
+        for part in range(r.partition_count):
+            if devs[part] != exp_first_handoffs[part]:
+                changed_first_handoff += 1
+                exp_first_handoffs[part] = devs[part]
+        self.assertEqual(devs, exp_first_handoffs)
+        self.assertEqual(changed_first_handoff, num_parts_changed)
+
         # Test
         part, devs = r.get_nodes('a', 'c', 'o')
         primary_zones = set([d['zone'] for d in devs])
@@ -615,56 +664,48 @@ class TestRing(TestRingBase):
 
         # Add a partial replica
         rb.set_replicas(3.5)
-        rb.rebalance(seed=1)
+        num_parts_changed, _balance, _removed_dev = rb.rebalance(seed=164)
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
+
         # Change expectations
+
         # We have another replica now
-        exp_devs.append(47)
-        exp_zones.add(4)
+        exp_devs.append(90)
+        exp_zones.add(8)
+        # and therefore one less handoff
+        exp_handoffs = exp_handoffs[:-1]
         # Caused some major changes in the sequence of handoffs for our test
         # partition, but at least the first stayed the same.
-        exp_handoffs[1:] = [81, 25, 69, 23, 99, 59, 76, 3, 106, 64, 43, 13, 34,
-                            88, 30, 16, 27, 103, 39, 74, 60, 108, 8, 56, 19,
-                            91, 52, 84, 38, 66, 1, 78, 45, 107, 50, 57, 83, 31,
-                            46, 32, 77, 24, 42, 63, 100, 72, 71, 7, 26, 9, 20,
-                            35, 5, 87, 14, 94, 62, 28, 41, 90, 18, 82, 102, 22,
-                            101, 61, 85, 95, 21, 98, 67, 105, 58, 86, 4, 79,
-                            68, 40, 80, 54, 75, 44, 49, 6, 29, 15, 70, 65, 12,
-                            17, 104, 97, 55, 89, 2, 37, 53, 92, 33, 73, 51, 36,
-                            10]
+        devs = list(d['id'] for d in r.get_more_nodes(exp_part))
+        first_matches = 0
+        total_changed = 0
+        for i, part in enumerate(devs):
+            if exp_handoffs[i] != devs[i]:
+                total_changed += 1
+                exp_handoffs[i] = devs[i]
+            if not total_changed:
+                first_matches += 1
+        # most seeds seem to throw out first handoff stabilization with
+        # replica_count change
+        self.assertEqual(first_matches, 2)
+        # and lots of other handoff changes...
+        self.assertEqual(total_changed, 95)
 
-        # Lots of first handoffs changed, but 30 of 256 is still just 11.72%.
-        exp_first_handoffs[1] = 6
-        exp_first_handoffs[4] = 104
-        exp_first_handoffs[11] = 106
-        exp_first_handoffs[17] = 13
-        exp_first_handoffs[21] = 77
-        exp_first_handoffs[22] = 95
-        exp_first_handoffs[27] = 46
-        exp_first_handoffs[29] = 65
-        exp_first_handoffs[30] = 3
-        exp_first_handoffs[31] = 20
-        exp_first_handoffs[51] = 50
-        exp_first_handoffs[53] = 8
-        exp_first_handoffs[54] = 2
-        exp_first_handoffs[72] = 107
-        exp_first_handoffs[79] = 72
-        exp_first_handoffs[85] = 71
-        exp_first_handoffs[88] = 66
-        exp_first_handoffs[92] = 29
-        exp_first_handoffs[93] = 46
-        exp_first_handoffs[96] = 38
-        exp_first_handoffs[101] = 57
-        exp_first_handoffs[103] = 87
-        exp_first_handoffs[104] = 28
-        exp_first_handoffs[107] = 1
-        exp_first_handoffs[109] = 69
-        exp_first_handoffs[110] = 50
-        exp_first_handoffs[111] = 76
-        exp_first_handoffs[115] = 47
-        exp_first_handoffs[117] = 48
-        exp_first_handoffs[119] = 7
+        self.assertEqual(devs, exp_handoffs)
+
+        # Change expectations for the rest of the parts
+        devs = []
+        for part in range(r.partition_count):
+            devs.append(next(r.get_more_nodes(part))['id'])
+        changed_first_handoff = 0
+        for part in range(r.partition_count):
+            if devs[part] != exp_first_handoffs[part]:
+                changed_first_handoff += 1
+                exp_first_handoffs[part] = devs[part]
+        self.assertEqual(devs, exp_first_handoffs)
+        self.assertLessEqual(changed_first_handoff, num_parts_changed)
+
         # Test
         part, devs = r.get_nodes('a', 'c', 'o')
         primary_zones = set([d['zone'] for d in devs])
@@ -696,17 +737,16 @@ class TestRing(TestRingBase):
 
         # One last test of a partial replica partition
         exp_part2 = 136
-        exp_devs2 = [52, 76, 97]
-        exp_zones2 = set([9, 5, 7])
-        exp_handoffs2 = [2, 67, 37, 92, 33, 23, 107, 63, 44, 103, 108, 85,
-                         73, 10, 89, 80, 4, 17, 49, 32, 12, 41, 58, 20, 25,
-                         61, 94, 47, 69, 56, 101, 28, 83, 8, 96, 53, 51, 42,
-                         98, 35, 36, 84, 43, 104, 31, 65, 1, 40, 9, 74, 95,
-                         45, 5, 71, 86, 78, 30, 93, 48, 91, 15, 88, 39, 18,
-                         57, 72, 70, 27, 54, 16, 24, 21, 14, 11, 77, 62, 50,
-                         6, 105, 26, 55, 29, 60, 34, 13, 87, 59, 38, 99, 75,
-                         106, 3, 82, 66, 79, 7, 46, 64, 81, 22, 68, 19, 102,
-                         90, 100]
+        exp_devs2 = [70, 76, 32]
+        exp_zones2 = set([3, 6, 7])
+        exp_handoffs2 = [89, 97, 37, 53, 20, 1, 86, 64, 102, 40, 90, 60, 72,
+                         27, 99, 68, 78, 26, 105, 45, 42, 95, 22, 13, 49, 55,
+                         11, 8, 83, 16, 4, 59, 33, 108, 61, 74, 29, 88, 66,
+                         80, 25, 100, 39, 67, 79, 24, 65, 96, 36, 84, 54, 21,
+                         63, 81, 56, 71, 77, 30, 48, 23, 10, 52, 82, 34, 17,
+                         107, 87, 104, 5, 35, 2, 50, 43, 62, 73, 28, 18, 14,
+                         98, 38, 85, 15, 57, 9, 51, 12, 6, 91, 3, 103, 41, 92,
+                         47, 75, 44, 69, 101, 93, 106, 46, 94, 31, 19, 7, 58]
 
         part2, devs2 = r.get_nodes('a', 'c', 'o2')
         primary_zones2 = set([d['zone'] for d in devs2])
@@ -764,14 +804,15 @@ class TestRing(TestRingBase):
 
         # Here's a brittle canary-in-the-coalmine test to make sure the region
         # handoff computation didn't change accidentally
-        exp_handoffs = [111, 112, 74, 54, 93, 31, 2, 43, 100, 22, 71, 92, 35,
-                        9, 50, 41, 76, 80, 84, 88, 17, 96, 6, 102, 37, 29,
-                        105, 5, 47, 20, 13, 108, 66, 81, 53, 65, 25, 58, 32,
-                        94, 101, 1, 10, 44, 73, 75, 21, 97, 28, 106, 30, 16,
-                        39, 77, 42, 72, 34, 99, 14, 61, 90, 4, 40, 3, 45, 62,
-                        7, 15, 87, 12, 83, 89, 33, 98, 49, 107, 56, 86, 48,
-                        57, 24, 11, 23, 26, 46, 64, 69, 38, 36, 79, 63, 104,
-                        51, 70, 82, 67, 68, 8, 95, 91, 55, 59, 85]
+        exp_handoffs = [111, 112, 35, 58, 62, 74, 20, 105, 41, 90, 53, 6, 3,
+                        67, 55, 76, 108, 32, 12, 80, 38, 85, 94, 42, 27, 99,
+                        50, 47, 70, 87, 26, 9, 15, 97, 102, 81, 23, 65, 33,
+                        77, 34, 4, 75, 8, 5, 30, 13, 73, 36, 92, 54, 51, 72,
+                        78, 66, 1, 48, 14, 93, 95, 88, 86, 84, 106, 60, 101,
+                        57, 43, 89, 59, 79, 46, 61, 52, 44, 45, 37, 68, 25,
+                        100, 49, 24, 16, 71, 96, 21, 107, 98, 64, 39, 18, 29,
+                        103, 91, 22, 63, 69, 28, 56, 11, 82, 10, 17, 19, 7,
+                        40, 83, 104, 31]
         dev_ids = [d['id'] for d in more_devs]
 
         self.assertEqual(len(dev_ids), len(exp_handoffs))

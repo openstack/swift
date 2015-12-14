@@ -33,7 +33,7 @@
 .SH DESCRIPTION
 .PP
 This is the configuration file used by the object server and other object
-background services, such as; replicator, updater and auditor.
+background services, such as; replicator, reconstructor, updater and auditor.
 
 The configuration file follows the python-pastedeploy syntax. The file is divided
 into sections, which are enclosed by square brackets. Each section will contain a
@@ -57,6 +57,8 @@ IP address the object server should bind to. The default is 0.0.0.0 which will m
 it bind to all available addresses.
 .IP "\fBbind_port\fR"
 TCP port the object server should bind to. The default is 6000.
+.IP "\fBbind_timeout\fR"
+Timeout to bind socket. The default is 30.
 .IP \fBbacklog\fR
 TCP backlog. Maximum number of allowed pending connections. The default value is 4096.
 .IP \fBworkers\fR
@@ -79,6 +81,17 @@ Parent directory or where devices are mounted. Default is /srv/node.
 .IP \fBmount_check\fR
 Whether or not check if the devices are mounted to prevent accidentally writing to
 the root device. The default is set to true.
+.IP \fBdisable_fallocate\fR
+Disable pre-allocate disk space for a file. The default is false.
+.IP \fBexpiring_objects_container_divisor\fR
+The default is 86400.
+.IP \fBexpiring_objects_account_name\fR
+The default is 'expiring_objects'.
+.IP \fBservers_per_port\fR
+Make object-server run this many worker processes per unique port of
+"local" ring devices across all storage policies.  This can help provide
+the isolation of threads_per_disk without the severe overhead.  The default
+value of 0 disables this feature.
 .IP \fBlog_name\fR
 Label used when logging. The default is swift.
 .IP \fBlog_facility\fR
@@ -87,6 +100,45 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
+.IP \fBlog_max_line_length\fR
+The following caps the length of log lines to the value given; no limit if
+set to 0, the default.
+.IP \fBlog_custom_handlers\fR
+Comma separated list of functions to call to setup custom log handlers.
+functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+adapted_logger. The default is empty.
+.IP \fBlog_udp_host\fR
+If set, log_udp_host will override log_address.
+.IP "\fBlog_udp_port\fR
+UDP log port, the default is 514.
+.IP \fBlog_statsd_host\fR = localhost
+log_statsd_*  enable StatsD logging.
+.IP \fBlog_statsd_port\fR
+The default is 8125.
+.IP \fBlog_statsd_default_sample_rate\fR
+The default is 1.
+.IP \fBlog_statsd_sample_rate_factor\fR
+The default is 1.
+.IP \fBlog_statsd_metric_prefix\fR
+The default is empty.
+.IP \fBeventlet_debug\fR
+Debug mode for eventlet library. The default is false.
+.IP \fBfallocate_reserve\fR
+You can set fallocate_reserve to the number of bytes you'd like fallocate to
+reserve, whether there is space for the given file size or not. The default is 0.
+.IP \fBnode_timeout\fR
+Request timeout to external services. The default is 3 seconds.
+.IP \fBconn_timeout\fR
+Connection timeout to external services. The default is 0.5 seconds.
+.IP \fBcontainer_update_timeout\fR
+Time to wait while sending a container update on object update. The default is 1 second.
+.IP \fBclient_timeout\fR
+Time to wait while receiving each chunk of data from a client or another
+backend node. The default is 60.
+.IP \fBnetwork_chunk_size\fR
+The default is 65536.
+.IP \fBdisk_chunk_size\fR
+The default is 65536.
 .RE
 .PD
 
@@ -115,22 +167,68 @@ that are acceptable within this section.
 .IP "\fBuse\fR"
 Entry point for paste.deploy for the object server. This is the reference to the installed python egg.
 This is normally \fBegg:swift#object\fR.
-.IP "\fBset log_name\fR
+.IP "\fBset log_name\fR"
 Label used when logging. The default is object-server.
-.IP "\fBset log_facility\fR
+.IP "\fBset log_facility\fR"
 Syslog log facility. The default is LOG_LOCAL0.
-.IP "\fB set log_level\fR
+.IP "\fBset log_level\fR"
 Logging level. The default is INFO.
-.IP "\fB set log_requests\fR
+.IP "\fBset log_requests\fR"
 Enables request logging. The default is True.
-.IP "\fB set log_address\fR
+.IP "\fBset log_address\fR"
 Logging address. The default is /dev/log.
-.IP \fBnode_timeout\fR
-Request timeout to external services. The default is 3 seconds.
-.IP \fBconn_timeout\fR
-Connection timeout to external services. The default is 0.5 seconds.
-.IP \fBcontainer_update_timeout\fR
-Time to wait while sending a container update on object update. The default is 1 second.
+.IP "\fBmax_upload_time\fR"
+The default is 86400.
+.IP "\fBslow\fR"
+The default is 0.
+.IP "\fBkeep_cache_size\fR"
+Objects smaller than this are not evicted from the buffercache once read. The default is 5242880.
+.IP "\fBkeep_cache_private\fR"
+If true, objects for authenticated GET requests may be kept in buffer cache
+if small enough. The default is false.
+.IP "\fBmb_per_sync\fR"
+On PUTs, sync data every n MB. The default is 512.
+.IP "\fBallowed_headers\fR"
+Comma separated list of headers that can be set in metadata on an object.
+This list is in addition to X-Object-Meta-* headers and cannot include Content-Type, etag, Content-Length, or deleted.
+The default is 'Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object'.
+.IP "\fBauto_create_account_prefix\fR"
+The default is '.'.
+.IP "\fBthreads_per_disk\fR"
+A value of 0 means "don't use thread pools". A reasonable starting point is
+4. The default is 0.
+.IP "\fBreplication_server\fR"
+Configure parameter for creating specific server
+To handle all verbs, including replication verbs, do not specify
+"replication_server" (this is the default). To only handle replication,
+set to a True value (e.g. "True" or "1"). To handle only non-replication
+verbs, set to "False". Unless you have a separate replication network, you
+should not specify any value for "replication_server".
+.IP "\fBreplication_concurrency\fR"
+Set to restrict the number of concurrent incoming REPLICATION requests
+Set to 0 for unlimited (the default is 4). Note that REPLICATION is currently an ssync only item.
+.IP "\fBreplication_one_per_device\fR"
+Restricts incoming REPLICATION requests to one per device,
+replication_currency above allowing. This can help control I/O to each
+device, but you may wish to set this to False to allow multiple REPLICATION
+requests (up to the above replication_concurrency setting) per device. The default is true.
+.IP "\fBreplication_lock_timeout\fR"
+Number of seconds to wait for an existing replication device lock before
+giving up. The default is 15.
+.IP "\fBreplication_failure_threshold\fR"
+.IP "\fBreplication_failure_ratio\fR"
+These two settings control when the REPLICATION subrequest handler will
+abort an incoming REPLICATION attempt. An abort will occur if there are at
+least threshold number of failures and the value of failures / successes
+exceeds the ratio. The defaults of 100 and 1.0 means that at least 100
+failures have to occur and there have to be more failures than successes for
+an abort to occur.
+.IP "\fBsplice\fR"
+Use splice() for zero-copy object GETs. This requires Linux kernel
+version 3.0 or greater. If you set "splice = yes" but the kernel
+does not support it, error messages will appear in the object server
+logs at startup, but your object servers should continue to function.
+The default is false.
 .RE
 .PD
 
@@ -164,9 +262,41 @@ This is normally \fBegg:swift#recon\fR.
 The recon_cache_path simply sets the directory where stats for a few items will be stored.
 Depending on the method of deployment you may need to create this directory manually
 and ensure that swift has read/write. The default is /var/cache/swift.
+.IP "\fBrecon_lock_path\fR"
+The default is /var/lock.
 .RE
 .PD
 
+.RS 0
+.IP "\fB[filter:xprofile]\fR"
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy for the xprofile middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#xprofile\fR.
+.IP "\fBprofile_module\fR"
+This option enable you to switch profilers which should inherit from python
+standard profiler. Currently the supported value can be 'cProfile', 'eventlet.green.profile' etc.
+.IP "\fBlog_filename_prefix\fR"
+This prefix will be used to combine process ID and timestamp to name the
+profile data file.  Make sure the executing user has permission to write
+into this path (missing path segments will be created, if necessary).
+If you enable profiling in more than one type of daemon, you must override
+it with an unique value like, the default is /var/log/swift/profile/account.profile.
+.IP "\fBdump_interval\fR"
+The profile data will be dumped to local disk based on above naming rule
+in this interval. The default is 5.0.
+.IP "\fBdump_timestamp\fR"
+Be careful, this option will enable profiler to dump data into the file with
+time stamp which means there will be lots of files piled up in the directory.
+The default is false
+.IP "\fBpath\fR"
+This is the path of the URL to access the mini web UI. The default is __profile__.
+.IP "\fBflush_at_shutdown\fR"
+Clear the data when the wsgi server shutdown. The default is false.
+.IP "\fBunwind\fR"
+Unwind the iterator of applications. Default is false.
+.RE
+.PD
 
 
 .SH ADDITIONAL SECTIONS
@@ -195,10 +325,26 @@ Time in seconds to wait between replication passes. The default is 30.
 Number of replication workers to spawn. The default is 1.
 .IP \fBstats_interval\fR
 Interval in seconds between logging replication statistics. The default is 300.
+.IP \fBsync_method\fR
+The sync method to use; default is rsync but you can use ssync to try the
+EXPERIMENTAL all-swift-code-no-rsync-callouts method. Once ssync is verified
+as having performance comparable to, or better than, rsync, we plan to
+deprecate rsync so we can move on with more features for replication.
 .IP \fBrsync_timeout\fR
 Max duration of a partition rsync. The default is 900 seconds.
 .IP \fBrsync_io_timeout\fR
 Passed to rsync for I/O OP timeout. The default is 30 seconds.
+.IP \fBrsync_compress\fR
+Allow rsync to compress data which is transmitted to destination node
+during sync. However, this is applicable only when destination node is in
+a different region than the local one.
+NOTE: Objects that are already compressed (for example: .tar.gz, .mp3) might
+slow down the syncing process. The default is false.
+.IP \fBrsync_module\fR
+Format of the rysnc module where the replicator will send data. See
+etc/rsyncd.conf-sample for some usage examples. The default is empty.
+.IP \fBnode_timeout\fR
+Request timeout to external services. The default is 10 seconds.
 .IP \fBrsync_bwlimit\fR
 Passed to rsync for bandwidth limit in kB/s.  The default is 0 (unlimited).
 .IP \fBhttp_timeout\fR
@@ -206,16 +352,85 @@ Max duration of an HTTP request. The default is 60 seconds.
 .IP \fBlockup_timeout\fR
 Attempts to kill all workers if nothing replicates for lockup_timeout seconds. The
 default is 1800 seconds.
+.IP \fBring_check_interval\fR
+The default is 15.
+.IP \fBrsync_error_log_line_length\fR
+Limits how long rsync error log lines are. 0 (default) means to log the entire line.
 .IP \fBreclaim_age\fR
 Time elapsed in seconds before an object can be reclaimed. The default is
 604800 seconds.
-.IP \fBrecon_enable\fR
-Enable logging of replication stats for recon. The default is on.
 .IP "\fBrecon_cache_path\fR"
 The recon_cache_path simply sets the directory where stats for a few items will be stored.
 Depending on the method of deployment you may need to create this directory manually
 and ensure that swift has read/write.The default is /var/cache/swift.
+.IP "\fBhandoffs_first\fR"
+The flag to replicate handoffs prior to canonical partitions.
+It allows to force syncing and deleting handoffs quickly.
+If set to a True value(e.g. "True" or "1"), partitions
+that are not supposed to be on the node will be replicated first.
+The default is false.
+.IP "\fBhandoff_delete\fR"
+The number of replicas which are ensured in swift.
+If the number less than the number of replicas is set, object-replicator
+could delete local handoffs even if all replicas are not ensured in the
+cluster. Object-replicator would remove local handoff partition directories
+after syncing partition when the number of successful responses is greater
+than or equal to this number. By default(auto), handoff partitions will be
+removed  when it has successfully replicated to all the canonical nodes.
+
+The handoffs_first and handoff_delete are options for a special case
+such as disk full in the cluster. These two options SHOULD NOT BE
+CHANGED, except for such an extreme situations. (e.g. disks filled up
+or are about to fill up. Anyway, DO NOT let your drives fill up).
 .RE
+
+
+.RS 0
+.IP "\fB[object-reconstructor]\fR"
+.RE
+.RS 3
+.IP \fBlog_name\fR
+Label used when logging. The default is object-reconstructor.
+.IP \fBlog_facility\fR
+Syslog log facility. The default is LOG_LOCAL0.
+.IP \fBlog_level\fR
+Logging level. The default is INFO.
+.IP \fBlog_address\fR
+Logging address. The default is /dev/log.
+.IP \fBdaemonize\fR
+Whether or not to run replication as a daemon. The default is yes.
+.IP "\fBrun_pause [deprecated]\fR"
+Time in seconds to wait between replication passes. The default is 30.
+.IP \fBinterval\fR
+Time in seconds to wait between replication passes. The default is 30.
+.IP \fBconcurrency\fR
+Number of replication workers to spawn. The default is 1.
+.IP \fBstats_interval\fR
+Interval in seconds between logging replication statistics. The default is 300.
+.IP \fBnode_timeout\fR
+Request timeout to external services. The default is 10 seconds.
+.IP \fBhttp_timeout\fR
+Max duration of an HTTP request. The default is 60 seconds.
+.IP \fBlockup_timeout\fR
+Attempts to kill all workers if nothing replicates for lockup_timeout seconds. The
+default is 1800 seconds.
+.IP \fBring_check_interval\fR
+The default is 15.
+.IP \fBreclaim_age\fR
+Time elapsed in seconds before an object can be reclaimed. The default is
+604800 seconds.
+.IP "\fBrecon_cache_path\fR"
+The recon_cache_path simply sets the directory where stats for a few items will be stored.
+Depending on the method of deployment you may need to create this directory manually
+and ensure that swift has read/write.The default is /var/cache/swift.
+.IP "\fBhandoffs_first\fR"
+The flag to replicate handoffs prior to canonical partitions.
+It allows to force syncing and deleting handoffs quickly.
+If set to a True value(e.g. "True" or "1"), partitions
+that are not supposed to be on the node will be replicated first.
+The default is false.
+.RE
+.PD
 
 
 .RS 0
@@ -236,10 +451,12 @@ Minimum time for a pass to take. The default is 300 seconds.
 Number of reaper workers to spawn. The default is 1.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 10 seconds.
-.IP \fBconn_timeout\fR
-Connection timeout to external services. The default is 0.5 seconds.
 .IP \fBslowdown\fR
 Slowdown will sleep that amount between objects. The default is 0.01 seconds.
+.IP "\fBrecon_cache_path\fR"
+The recon_cache_path simply sets the directory where stats for a few items will be stored.
+Depending on the method of deployment you may need to create this directory manually
+and ensure that swift has read/write. The default is /var/cache/swift.
 .RE
 .PD
 
@@ -257,16 +474,28 @@ Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
 
+.IP \fBdisk_chunk_size\fR
+The default is 65536.
 .IP \fBfiles_per_second\fR
 Maximum files audited per second. Should be tuned according to individual
 system specs. 0 is unlimited. The default is 20.
 .IP \fBbytes_per_second\fR
 Maximum bytes audited per second. Should be tuned according to individual
 system specs. 0 is unlimited. The default is 10000000.
+.IP \fBconcurrency\fR
+Number of reaper workers to spawn. The default is 1.
 .IP \fBlog_time\fR
 The default is 3600 seconds.
 .IP \fBzero_byte_files_per_second\fR
 The default is 50.
+.IP "\fBrecon_cache_path\fR"
+The recon_cache_path simply sets the directory where stats for a few items will be stored.
+Depending on the method of deployment you may need to create this directory manually
+and ensure that swift has read/write. The default is /var/cache/swift.
+.IP \fBobject_size_stats\fR
+Takes a comma separated list of ints. If set, the object auditor will
+increment a counter for every object whose size is <= to the given break
+points and report the result after a full scan.
 .RE
 
 

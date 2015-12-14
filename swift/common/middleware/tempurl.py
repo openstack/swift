@@ -284,44 +284,48 @@ class TempURL(object):
                                      DEFAULT_INCOMING_REMOVE_HEADERS.split())]
         #: Headers to remove from incoming requests. Uppercase WSGI env style,
         #: like `HTTP_X_PRIVATE`.
-        self.incoming_remove_headers = [h for h in headers if h[-1] != '*']
+        self.incoming_remove_headers = \
+            [h for h in headers if not h.endswith('*')]
         #: Header with match prefixes to remove from incoming requests.
         #: Uppercase WSGI env style, like `HTTP_X_SENSITIVE_*`.
         self.incoming_remove_headers_startswith = \
-            [h[:-1] for h in headers if h[-1] == '*']
+            [h[:-1] for h in headers if h.endswith('*')]
 
         headers = [header_to_environ_key(h)
                    for h in conf.get('incoming_allow_headers',
                                      DEFAULT_INCOMING_ALLOW_HEADERS.split())]
         #: Headers to allow in incoming requests. Uppercase WSGI env style,
         #: like `HTTP_X_MATCHES_REMOVE_PREFIX_BUT_OKAY`.
-        self.incoming_allow_headers = [h for h in headers if h[-1] != '*']
+        self.incoming_allow_headers = \
+            [h for h in headers if not h.endswith('*')]
         #: Header with match prefixes to allow in incoming requests. Uppercase
         #: WSGI env style, like `HTTP_X_MATCHES_REMOVE_PREFIX_BUT_OKAY_*`.
         self.incoming_allow_headers_startswith = \
-            [h[:-1] for h in headers if h[-1] == '*']
+            [h[:-1] for h in headers if h.endswith('*')]
 
         headers = [h.title()
                    for h in conf.get('outgoing_remove_headers',
                                      DEFAULT_OUTGOING_REMOVE_HEADERS.split())]
         #: Headers to remove from outgoing responses. Lowercase, like
         #: `x-account-meta-temp-url-key`.
-        self.outgoing_remove_headers = [h for h in headers if h[-1] != '*']
+        self.outgoing_remove_headers = \
+            [h for h in headers if not h.endswith('*')]
         #: Header with match prefixes to remove from outgoing responses.
         #: Lowercase, like `x-account-meta-private-*`.
         self.outgoing_remove_headers_startswith = \
-            [h[:-1] for h in headers if h[-1] == '*']
+            [h[:-1] for h in headers if h.endswith('*')]
 
         headers = [h.title()
                    for h in conf.get('outgoing_allow_headers',
                                      DEFAULT_OUTGOING_ALLOW_HEADERS.split())]
         #: Headers to allow in outgoing responses. Lowercase, like
         #: `x-matches-remove-prefix-but-okay`.
-        self.outgoing_allow_headers = [h for h in headers if h[-1] != '*']
+        self.outgoing_allow_headers = \
+            [h for h in headers if not h.endswith('*')]
         #: Header with match prefixes to allow in outgoing responses.
         #: Lowercase, like `x-matches-remove-prefix-but-okay-*`.
         self.outgoing_allow_headers_startswith = \
-            [h[:-1] for h in headers if h[-1] == '*']
+            [h[:-1] for h in headers if h.endswith('*')]
         #: HTTP user agent to use for subrequests.
         self.agent = '%(orig)s TempURL'
 

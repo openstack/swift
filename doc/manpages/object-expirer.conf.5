@@ -65,6 +65,27 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
+.IP \fBlog_max_line_length\fR
+The following caps the length of log lines to the value given; no limit if
+set to 0, the default.
+.IP \fBlog_custom_handlers\fR
+Comma separated list of functions to call to setup custom log handlers.
+functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+adapted_logger. The default is empty.
+.IP \fBlog_udp_host\fR
+If set, log_udp_host will override log_address.
+.IP "\fBlog_udp_port\fR
+UDP log port, the default is 514.
+.IP \fBlog_statsd_host\fR = localhost
+log_statsd_*  enable StatsD logging.
+.IP \fBlog_statsd_port\fR
+The default is 8125.
+.IP \fBlog_statsd_default_sample_rate\fR
+The default is 1.
+.IP \fBlog_statsd_sample_rate_factor\fR
+The default is 1.
+.IP \fBlog_statsd_metric_prefix\fR
+The default is empty.
 .RE
 .PD
 
@@ -126,8 +147,58 @@ Entry point for paste.deploy for the catch_errors middleware. This is the refere
 The default is \fBegg:swift#catch_errors\fR. See proxy-server.conf-sample for options or See proxy-server.conf manpage.
 .RE
 
+.RS 0
+.IP "\fB[filter:proxy-logging]\fR"
+.RE
+
+Logging for the proxy server now lives in this middleware.
+If the access_* variables are not set, logging directives from [DEFAULT]
+without "access_" will be used.
+
+.RS 3
+.IP \fBuse\fR
+Entry point for paste.deploy for the proxy_logging middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#proxy_logging\fR. See proxy-server.conf-sample for options or See proxy-server.conf manpage.
+.RE
+
 .PD
 
+
+.SH ADDITIONAL SECTIONS
+.PD 1
+.RS 0
+The following sections are used by other swift-account services, such as replicator,
+auditor and reaper.
+.IP "\fB[account-replicator]\fR"
+.RE
+.RS 3
+.IP \fBinterval\fR
+Replaces run_pause with the more standard "interval", which means the replicator won't pause unless it takes less than the interval set. The default is 300.
+.IP "\fBauto_create_account_prefix\fR
+The default is ".".
+.IP \fBexpiring_objects_account_name\fR
+The default is 'expiring_objects'.
+.IP \fBreport_interval\fR
+The default is 300 seconds.
+.IP \fBconcurrency\fR
+Number of replication workers to spawn. The default is 1.
+.IP \fBprocesses\fR
+Processes is how many parts to divide the work into, one part per process that will be doing the work.
+Processes set 0 means that a single process will be doing all the work.
+Processes can also be specified on the command line and will override the config value.
+The default is 0.
+.IP \fBprocess\fR
+Process is which of the parts a particular process will work on process can also be specified
+on the command line and will override the config value process is "zero based", if you want
+to use 3 processes, you should run processes with process set to 0, 1, and 2. The default is 0.
+.IP \fBreclaim_age\fR
+The expirer will re-attempt expiring if the source object is not available
+up to reclaim_age seconds before it gives up and deletes the entry in the
+queue. The default is 604800 seconds.
+.IP \fBrecon_cache_path\fR
+Path to recon cache directory. The default is /var/cache/swift.
+.RE
+.PD
 
 
 .SH DOCUMENTATION

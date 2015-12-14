@@ -2645,6 +2645,17 @@ class TestSloEnv(object):
                  'size_bytes': None},
             ]), parms={'multipart-manifest': 'put'})
 
+        file_item = cls.container.file("ranged-manifest-repeated-segment")
+        file_item.write(
+            json.dumps([
+                {'path': seg_info['seg_a']['path'], 'etag': None,
+                 'size_bytes': None, 'range': '-1048578'},
+                {'path': seg_info['seg_a']['path'], 'etag': None,
+                 'size_bytes': None},
+                {'path': seg_info['seg_b']['path'], 'etag': None,
+                 'size_bytes': None, 'range': '-1048578'},
+            ]), parms={'multipart-manifest': 'put'})
+
 
 class TestSlo(Base):
     env = TestSloEnv
@@ -2700,6 +2711,15 @@ class TestSlo(Base):
             ('b', 512 * 1024),
             ('c', 1),
             ('d', 1)], grouped_file_contents)
+
+    def test_slo_get_ranged_manifest_repeated_segment(self):
+        file_item = self.env.container.file('ranged-manifest-repeated-segment')
+        grouped_file_contents = [
+            (char, sum(1 for _char in grp))
+            for char, grp in itertools.groupby(file_item.read())]
+        self.assertEqual(
+            [('a', 2097152), ('b', 1048576)],
+            grouped_file_contents)
 
     def test_slo_get_ranged_submanifest(self):
         file_item = self.env.container.file('ranged-submanifest')

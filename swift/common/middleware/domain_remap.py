@@ -68,7 +68,7 @@ class DomainRemapMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.storage_domain = conf.get('storage_domain', 'example.com')
-        if self.storage_domain and self.storage_domain[0] != '.':
+        if self.storage_domain and not self.storage_domain.startswith('.'):
             self.storage_domain = '.' + self.storage_domain
         self.path_root = conf.get('path_root', 'v1').strip('/')
         prefixes = conf.get('reseller_prefixes', 'AUTH')
