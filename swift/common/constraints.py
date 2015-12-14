@@ -174,12 +174,12 @@ def check_object_creation(req, object_name):
 
     :param req: HTTP request object
     :param object_name: name of object to be created
-    :returns HTTPRequestEntityTooLarge: the object is too large
-    :returns HTTPLengthRequired: missing content-length header and not
-                                 a chunked request
-    :returns HTTPBadRequest: missing or bad content-type header, or
-                             bad metadata
-    :returns HTTPNotImplemented: unsupported transfer-encoding header value
+    :returns: HTTPRequestEntityTooLarge -- the object is too large
+    :returns: HTTPLengthRequired -- missing content-length header and not
+                                    a chunked request
+    :returns: HTTPBadRequest -- missing or bad content-type header, or
+                                bad metadata
+    :returns: HTTPNotImplemented -- unsupported transfer-encoding header value
     """
     try:
         ml = req.message_length()
