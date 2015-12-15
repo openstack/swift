@@ -647,21 +647,16 @@ class TestAuthorize(BaseTestAuthorize):
         req = self._check_authenticate(identity=identity)
         self.assertTrue(req.environ.get('swift_owner'))
 
-    def _check_authorize_for_tenant_owner_match(self, exception=None):
+    def test_authorize_fails_same_user_and_tenant(self):
+        # Historically the is_admin option allowed access when user_name
+        # matched tenant_name, but it is no longer supported. This test is a
+        # sanity check that the option no longer works.
+        self.test_auth.is_admin = True
         identity = self._get_identity(user_name='same_name',
                                       tenant_name='same_name')
-        req = self._check_authenticate(identity=identity, exception=exception)
-        expected = bool(exception is None)
-        self.assertEqual(bool(req.environ.get('swift_owner')), expected)
-
-    def test_authorize_succeeds_as_owner_for_tenant_owner_match(self):
-        self.test_auth.is_admin = True
-        self._check_authorize_for_tenant_owner_match()
-
-    def test_authorize_fails_as_owner_for_tenant_owner_match(self):
-        self.test_auth.is_admin = False
-        self._check_authorize_for_tenant_owner_match(
-            exception=HTTP_FORBIDDEN)
+        req = self._check_authenticate(identity=identity,
+                                       exception=HTTP_FORBIDDEN)
+        self.assertFalse(bool(req.environ.get('swift_owner')))
 
     def test_authorize_succeeds_for_container_sync(self):
         env = {'swift_sync_key': 'foo', 'REMOTE_ADDR': '127.0.0.1'}
