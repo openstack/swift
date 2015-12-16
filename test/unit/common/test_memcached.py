@@ -182,8 +182,120 @@ class TestMemcached(unittest.TestCase):
                         one = False
                     if peeripport == sock2ipport:
                         two = False
+            self.assertEqual(len(memcache_client._errors[sock1ipport]), 0)
+            self.assertEqual(len(memcache_client._errors[sock2ip]), 0)
         finally:
             memcached.DEFAULT_MEMCACHED_PORT = orig_port
+
+    def test_get_conns_v6(self):
+        if not socket.has_ipv6:
+            return
+        try:
+            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            sock.bind(('::1', 0, 0, 0))
+            sock.listen(1)
+            sock_addr = sock.getsockname()
+            server_socket = '[%s]:%s' % (sock_addr[0], sock_addr[1])
+            memcache_client = memcached.MemcacheRing([server_socket])
+            key = uuid4().hex
+            for conn in memcache_client._get_conns(key):
+                peer_sockaddr = conn[2].getpeername()
+                peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
+                self.assertEqual(peer_socket, server_socket)
+            self.assertEqual(len(memcache_client._errors[server_socket]), 0)
+        finally:
+            sock.close()
+
+    def test_get_conns_v6_default(self):
+        if not socket.has_ipv6:
+            return
+        try:
+            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            sock.bind(('::1', 0))
+            sock.listen(1)
+            sock_addr = sock.getsockname()
+            server_socket = '[%s]:%s' % (sock_addr[0], sock_addr[1])
+            server_host = '[%s]' % sock_addr[0]
+            memcached.DEFAULT_MEMCACHED_PORT = sock_addr[1]
+            memcache_client = memcached.MemcacheRing([server_host])
+            key = uuid4().hex
+            for conn in memcache_client._get_conns(key):
+                peer_sockaddr = conn[2].getpeername()
+                peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
+                self.assertEqual(peer_socket, server_socket)
+            self.assertEqual(len(memcache_client._errors[server_host]), 0)
+        finally:
+            sock.close()
+
+    def test_get_conns_bad_v6(self):
+        if not socket.has_ipv6:
+            return
+        try:
+            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            sock.bind(('::1', 0))
+            sock.listen(1)
+            sock_addr = sock.getsockname()
+            # IPv6 address with missing [] is invalid
+            server_socket = '%s:%s' % (sock_addr[0], sock_addr[1])
+            memcache_client = memcached.MemcacheRing([server_socket])
+            key = uuid4().hex
+            for conn in memcache_client._get_conns(key):
+                peer_sockaddr = conn[2].getpeername()
+                peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
+                self.assertEqual(peer_socket, server_socket)
+            # Expect a parsing error when creating the socket
+            self.assertEqual(len(memcache_client._errors[server_socket]), 1)
+        finally:
+            sock.close()
+
+    def test_get_conns_hostname(self):
+        with patch('swift.common.memcached.socket.getaddrinfo') as addrinfo:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.bind(('127.0.0.1', 0))
+                sock.listen(1)
+                sock_addr = sock.getsockname()
+                fqdn = socket.getfqdn()
+                server_socket = '%s:%s' % (fqdn, sock_addr[1])
+                addrinfo.return_value = [(socket.AF_INET,
+                                          socket.SOCK_STREAM, 0, '',
+                                          ('127.0.0.1', sock_addr[1]))]
+                memcache_client = memcached.MemcacheRing([server_socket])
+                key = uuid4().hex
+                for conn in memcache_client._get_conns(key):
+                    peer_sockaddr = conn[2].getpeername()
+                    peer_socket = '%s:%s' % (peer_sockaddr[0],
+                                             peer_sockaddr[1])
+                    self.assertEqual(peer_socket,
+                                     '127.0.0.1:%d' % sock_addr[1])
+                self.assertEqual(len(memcache_client._errors[server_socket]),
+                                 0)
+            finally:
+                sock.close()
+
+    def test_get_conns_hostname6(self):
+        with patch('swift.common.memcached.socket.getaddrinfo') as addrinfo:
+            try:
+                sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+                sock.bind(('::1', 0))
+                sock.listen(1)
+                sock_addr = sock.getsockname()
+                fqdn = socket.getfqdn()
+                server_socket = '%s:%s' % (fqdn, sock_addr[1])
+                addrinfo.return_value = [(socket.AF_INET6,
+                                          socket.SOCK_STREAM, 0, '',
+                                          ('::1', sock_addr[1]))]
+                memcache_client = memcached.MemcacheRing([server_socket])
+                key = uuid4().hex
+                for conn in memcache_client._get_conns(key):
+                    peer_sockaddr = conn[2].getpeername()
+                    peer_socket = '[%s]:%s' % (peer_sockaddr[0],
+                                               peer_sockaddr[1])
+                    self.assertEqual(peer_socket, '[::1]:%d' % sock_addr[1])
+                self.assertEqual(len(memcache_client._errors[server_socket]),
+                                 0)
+            finally:
+                sock.close()
 
     def test_set_get(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -349,6 +461,13 @@ class TestMemcached(unittest.TestCase):
 
     def test_connection_pooling(self):
         with patch('swift.common.memcached.socket') as mock_module:
+            def mock_getaddrinfo(host, port, family=socket.AF_INET,
+                                 socktype=socket.SOCK_STREAM, proto=0,
+                                 flags=0):
+                return [(family, socktype, proto, '', (host, port))]
+
+            mock_module.getaddrinfo = mock_getaddrinfo
+
             # patch socket, stub socket.socket, mock sock
             mock_sock = mock_module.socket.return_value
 
@@ -461,6 +580,28 @@ class TestMemcached(unittest.TestCase):
             self.assertEqual(connections['1.2.3.4:11211'].qsize(), 2)
         finally:
             memcached.MemcacheConnPool = orig_conn_pool
+
+    def test_connection_pool_parser(self):
+        default = memcached.DEFAULT_MEMCACHED_PORT
+        addrs = [('1.2.3.4', '1.2.3.4', default),
+                 ('1.2.3.4:5000', '1.2.3.4', 5000),
+                 ('[dead:beef::1]', 'dead:beef::1', default),
+                 ('[dead:beef::1]:5000', 'dead:beef::1', 5000),
+                 ('example.com', 'example.com', default),
+                 ('example.com:5000', 'example.com', 5000),
+                 ('foo.1-2-3.bar.com:5000', 'foo.1-2-3.bar.com', 5000),
+                 ('1.2.3.4:10:20', None, None),
+                 ('dead:beef::1:5000', None, None)]
+
+        for addr, expected_host, expected_port in addrs:
+            pool = memcached.MemcacheConnPool(addr, 1, 0)
+            if expected_host:
+                host, port = pool._get_addr()
+                self.assertEqual(expected_host, host)
+                self.assertEqual(expected_port, int(port))
+            else:
+                with self.assertRaises(ValueError):
+                    pool._get_addr()
 
 if __name__ == '__main__':
     unittest.main()
