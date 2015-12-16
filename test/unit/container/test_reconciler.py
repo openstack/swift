@@ -36,7 +36,7 @@ from test.unit.common.middleware.helpers import FakeSwift
 
 
 def timestamp_to_last_modified(timestamp):
-    return datetime.fromtimestamp(
+    return datetime.utcfromtimestamp(
         float(Timestamp(timestamp))).strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 
