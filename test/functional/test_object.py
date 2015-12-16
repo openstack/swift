@@ -16,8 +16,8 @@
 # limitations under the License.
 
 import json
-import unittest
-from nose import SkipTest
+import unittest2
+from unittest2 import SkipTest
 from uuid import uuid4
 
 from six.moves import range
@@ -35,7 +35,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestObject(unittest.TestCase):
+class TestObject(unittest2.TestCase):
 
     def setUp(self):
         if tf.skip:
@@ -1254,4 +1254,4 @@ class TestObject(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

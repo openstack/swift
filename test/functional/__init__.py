@@ -27,11 +27,11 @@ import functools
 import random
 
 from time import time, sleep
-from nose import SkipTest
 from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
+from unittest2 import SkipTest
 
 from six.moves.configparser import ConfigParser, NoSectionError
 from six.moves import http_client
