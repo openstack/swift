@@ -27,6 +27,14 @@ import test.functional as tf
 from six.moves import range
 
 
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
 class TestContainer(unittest.TestCase):
 
     def setUp(self):

@@ -29,6 +29,14 @@ from test.functional import check_response, retry, requires_acls, \
 import test.functional as tf
 
 
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
 class TestAccount(unittest.TestCase):
 
     def setUp(self):

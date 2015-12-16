@@ -39,6 +39,14 @@ from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
 
 
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
 class Utils(object):
     @classmethod
     def create_ascii_name(cls, length=None):

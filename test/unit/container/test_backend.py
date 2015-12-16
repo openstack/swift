@@ -36,7 +36,7 @@ import mock
 
 from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
                        EMPTY_ETAG)
-from test.unit.common.test_db import TestExampleBroker
+from test.unit.common import test_db
 
 
 class TestContainerBroker(unittest.TestCase):
@@ -1680,7 +1680,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(broker.get_policy_stats(), expected)
 
 
-class TestCommonContainerBroker(TestExampleBroker):
+class TestCommonContainerBroker(test_db.TestExampleBroker):
 
     broker_class = ContainerBroker
 
