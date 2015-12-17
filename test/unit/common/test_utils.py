@@ -4372,6 +4372,69 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.load_pkg_resource(*args)
         self.assertEqual("Unhandled URI scheme: 'nog'", str(cm.exception))
 
+    def test_systemd_notify(self):
+        m_sock = mock.Mock(connect=mock.Mock(), sendall=mock.Mock())
+        with mock.patch('swift.common.utils.socket.socket',
+                        return_value=m_sock) as m_socket:
+            # No notification socket
+            m_socket.reset_mock()
+            m_sock.reset_mock()
+            utils.systemd_notify()
+            self.assertEqual(m_socket.call_count, 0)
+            self.assertEqual(m_sock.connect.call_count, 0)
+            self.assertEqual(m_sock.sendall.call_count, 0)
+
+            # File notification socket
+            m_socket.reset_mock()
+            m_sock.reset_mock()
+            os.environ['NOTIFY_SOCKET'] = 'foobar'
+            utils.systemd_notify()
+            m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
+            m_sock.connect.assert_called_once_with('foobar')
+            m_sock.sendall.assert_called_once_with(b'READY=1')
+            self.assertNotIn('NOTIFY_SOCKET', os.environ)
+
+            # Abstract notification socket
+            m_socket.reset_mock()
+            m_sock.reset_mock()
+            os.environ['NOTIFY_SOCKET'] = '@foobar'
+            utils.systemd_notify()
+            m_socket.assert_called_once_with(socket.AF_UNIX, socket.SOCK_DGRAM)
+            m_sock.connect.assert_called_once_with('\0foobar')
+            m_sock.sendall.assert_called_once_with(b'READY=1')
+            self.assertNotIn('NOTIFY_SOCKET', os.environ)
+
+        # Test logger with connection error
+        m_sock = mock.Mock(connect=mock.Mock(side_effect=EnvironmentError),
+                           sendall=mock.Mock())
+        m_logger = mock.Mock(debug=mock.Mock())
+        with mock.patch('swift.common.utils.socket.socket',
+                        return_value=m_sock) as m_socket:
+            os.environ['NOTIFY_SOCKET'] = '@foobar'
+            m_sock.reset_mock()
+            m_logger.reset_mock()
+            utils.systemd_notify()
+            self.assertEqual(0, m_sock.sendall.call_count)
+            self.assertEqual(0, m_logger.debug.call_count)
+
+            m_sock.reset_mock()
+            m_logger.reset_mock()
+            utils.systemd_notify(logger=m_logger)
+            self.assertEqual(0, m_sock.sendall.call_count)
+            m_logger.debug.assert_called_once_with(
+                "Systemd notification failed", exc_info=True)
+
+        # Test it for real
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.settimeout(5)
+        sock.bind('\0foobar')
+        os.environ['NOTIFY_SOCKET'] = '@foobar'
+        utils.systemd_notify()
+        msg = sock.recv(512)
+        sock.close()
+        self.assertEqual(msg, b'READY=1')
+        self.assertNotIn('NOTIFY_SOCKET', os.environ)
+
 
 class ResellerConfReader(unittest.TestCase):
 

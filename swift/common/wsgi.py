@@ -45,7 +45,7 @@ from swift.common.swob import Request, wsgi_quote, wsgi_unquote, \
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
-    reiterate, clean_up_daemon_hygiene
+    reiterate, clean_up_daemon_hygiene, systemd_notify
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
@@ -1184,6 +1184,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         reexec_signal_fd = int(reexec_signal_fd)
         os.write(reexec_signal_fd, str(os.getpid()).encode('utf8'))
         os.close(reexec_signal_fd)
+
+    # Finally, signal systemd (if appropriate) that process started properly.
+    systemd_notify(logger=logger)
 
     no_fork_sock = strategy.no_fork_sock()
     if no_fork_sock:

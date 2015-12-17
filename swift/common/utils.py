@@ -5820,3 +5820,30 @@ def get_db_files(db_path):
             continue
         results.append(os.path.join(db_dir, f))
     return sorted(results)
+
+
+def systemd_notify(logger=None):
+    """
+    Notify the service manager that started this process, if it is
+    systemd-compatible, that this process correctly started. To do so,
+    it communicates through a Unix socket stored in environment variable
+    NOTIFY_SOCKET. More information can be found in systemd documentation:
+    https://www.freedesktop.org/software/systemd/man/sd_notify.html
+
+    :param logger: a logger object
+    """
+    msg = b'READY=1'
+    notify_socket = os.getenv('NOTIFY_SOCKET')
+    if notify_socket:
+        if notify_socket.startswith('@'):
+            # abstract namespace socket
+            notify_socket = '\0%s' % notify_socket[1:]
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        with closing(sock):
+            try:
+                sock.connect(notify_socket)
+                sock.sendall(msg)
+                del os.environ['NOTIFY_SOCKET']
+            except EnvironmentError:
+                if logger:
+                    logger.debug("Systemd notification failed", exc_info=True)
