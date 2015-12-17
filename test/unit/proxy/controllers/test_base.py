@@ -725,7 +725,8 @@ class TestFuncs(unittest.TestCase):
         expected_headers = {'x-base-meta-size': '151M',
                             'connection': 'close'}
         for k, v in expected_headers.items():
-            self.assertDictContainsSubset(expected_headers, dst_headers)
+            self.assertIn(k, dst_headers)
+            self.assertEqual(v, dst_headers[k])
         self.assertEqual('', dst_headers['Referer'])
 
     def test_client_chunk_size(self):
