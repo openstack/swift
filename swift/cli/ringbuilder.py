@@ -1029,6 +1029,19 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
         builder.save(builder_file)
 
     def pretend_min_part_hours_passed():
+        """
+swift-ring-builder <builder_file> pretend_min_part_hours_passed
+    Resets the clock on the last time a rebalance happened, thus
+    circumventing the min_part_hours check.
+
+    *****************************
+    USE THIS WITH EXTREME CAUTION
+    *****************************
+
+    If you run this command and deploy rebalanced rings before a replication
+    pass completes, you may introduce unavailability in your cluster. This
+    has an end-user impact.
+        """
         builder.pretend_min_part_hours_passed()
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
