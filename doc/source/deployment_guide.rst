@@ -510,9 +510,9 @@ container_update_timeout         1           Time to wait while sending a contai
 
 [object-server]
 
-=============================  ====================== =================================
+=============================  ====================== ===============================================
 Option                         Default                Description
------------------------------  ---------------------- ---------------------------------
+-----------------------------  ---------------------- -----------------------------------------------
 use                                                   paste.deploy entry point for the
                                                       object server.  For most cases,
                                                       this should be
@@ -537,9 +537,9 @@ keep_cache_private             false                  Allow non-public objects t
                                                       in kernel's buffer cache
 allowed_headers                Content-Disposition,   Comma separated list of headers
                                Content-Encoding,      that can be set in metadata on an object.
-                               X-Delete-At,           This list is in addition to X-Object-Meta-* headers and cannot include
-                               X-Object-Manifest,     Content-Type, etag, Content-Length, or deleted
-                               X-Static-Large-Object
+                               X-Delete-At,           This list is in addition to
+                               X-Object-Manifest,     X-Object-Meta-* headers and cannot include
+                               X-Static-Large-Object  Content-Type, etag, Content-Length, or deleted
 auto_create_account_prefix     .                      Prefix used when automatically
                                                       creating accounts.
 threads_per_disk               0                      Size of the per-disk thread pool
@@ -596,98 +596,99 @@ splice                         no                     Use splice() for zero-copy
                                                       will appear in the object server
                                                       logs at startup, but your object
                                                       servers should continue to function.
-=============================  ====================== =================================
+=============================  ====================== ===============================================
 
 [object-replicator]
 
-==================  ========================  ================================
-Option              Default                   Description
-------------------  ------------------------  --------------------------------
-log_name            object-replicator         Label used when logging
-log_facility        LOG_LOCAL0                Syslog log facility
-log_level           INFO                      Logging level
-log_address         /dev/log                  Logging directory
-daemonize           yes                       Whether or not to run replication
-                                              as a daemon
-interval            30                        Time in seconds to wait between
-                                              replication passes
-concurrency         1                         Number of replication workers to
-                                              spawn
-sync_method         rsync                     The sync method to use; default is
-                                              rsync but you can use ssync to try the
-                                              EXPERIMENTAL all-swift-code-no-rsync-callouts
-                                              method. Once ssync is verified
-                                              as having performance comparable to,
-                                              or better than, rsync, we plan to
-                                              deprecate rsync so we can move on
-                                              with more features for replication.
-rsync_timeout       900                       Max duration of a partition rsync
-rsync_bwlimit       0                         Bandwidth limit for rsync in kB/s.
-                                              0 means unlimited.
-rsync_io_timeout    30                        Timeout value sent to rsync
-                                              --timeout and --contimeout
-                                              options
-rsync_compress      no                        Allow rsync to compress data
-                                              which is transmitted to destination
-                                              node during sync. However, this
-                                              is applicable only when destination
-                                              node is in a different region
-                                              than the local one.
-                                              NOTE: Objects that are already
-                                              compressed (for example: .tar.gz,
-                                              .mp3) might slow down the syncing
-                                              process.
-stats_interval      300                       Interval in seconds between
-                                              logging replication statistics
-reclaim_age         604800                    Time elapsed in seconds before an
-                                              object can be reclaimed
-handoffs_first      false                     If set to True, partitions that
-                                              are not supposed to be on the
-                                              node will be replicated first.
-                                              The default setting should not be
-                                              changed, except for extreme
-                                              situations.
-handoff_delete      auto                      By default handoff partitions
-                                              will be removed when it has
-                                              successfully replicated to all
-                                              the canonical nodes. If set to an
-                                              integer n, it will remove the
-                                              partition if it is successfully
-                                              replicated to n nodes.  The
-                                              default setting should not be
-                                              changed, except for extreme
-                                              situations.
-node_timeout        DEFAULT or 10             Request timeout to external
-                                              services. This uses what's set
-                                              here, or what's set in the
-                                              DEFAULT section, or 10 (though
-                                              other sections use 3 as the final
-                                              default).
-http_timeout        60                        Max duration of an http request.
-                                              This is for REPLICATE finalization
-                                              calls and so should be longer
-                                              than node_timeout.
-lockup_timeout      1800                      Attempts to kill all workers if
-                                              nothing replicates for
-                                              lockup_timeout seconds
-rsync_module        {replication_ip}::object  Format of the rsync module where
-                                              the replicator will send data.
-                                              The configuration value can
-                                              include some variables that will
-                                              be extracted from the ring.
-                                              Variables must follow the format
-                                              {NAME} where NAME is one of: ip,
-                                              port, replication_ip,
-                                              replication_port, region, zone,
-                                              device, meta. See
-                                              etc/rsyncd.conf-sample for some
-                                              examples.
-rsync_error_log_line_length     0             Limits how long rsync error log
-                                              lines are
-ring_check_interval 15                        Interval for checking new ring
-                                              file
-recon_cache_path    /var/cache/swift          Path to recon cache
-==================  ========================  ================================
+===========================  ========================  ================================
+Option                       Default                   Description
+---------------------------  ------------------------  --------------------------------
+log_name                     object-replicator         Label used when logging
+log_facility                 LOG_LOCAL0                Syslog log facility
+log_level                    INFO                      Logging level
+log_address                  /dev/log                  Logging directory
+daemonize                    yes                       Whether or not to run replication
+                                                       as a daemon
+interval                     30                        Time in seconds to wait between
+                                                       replication passes
+concurrency                  1                         Number of replication workers to
+                                                       spawn
+sync_method                  rsync                     The sync method to use; default
+                                                       is rsync but you can use ssync to
+                                                       try the EXPERIMENTAL
+                                                       all-swift-code-no-rsync-callouts
+                                                       method. Once ssync is verified as
+                                                       or better than, rsync, we plan to
+                                                       deprecate rsync so we can move on
+                                                       with more features for
+                                                       replication.
+rsync_timeout                900                       Max duration of a partition rsync
+rsync_bwlimit                0                         Bandwidth limit for rsync in kB/s.
+                                                       0 means unlimited.
+rsync_io_timeout             30                        Timeout value sent to rsync
+                                                       --timeout and --contimeout
+                                                       options
+rsync_compress               no                        Allow rsync to compress data
+                                                       which is transmitted to destination
+                                                       node during sync. However, this
+                                                       is applicable only when destination
+                                                       node is in a different region
+                                                       than the local one.
+                                                       NOTE: Objects that are already
+                                                       compressed (for example: .tar.gz,
+                                                       .mp3) might slow down the syncing
+                                                       process.
+stats_interval               300                       Interval in seconds between
+                                                       logging replication statistics
+reclaim_age                  604800                    Time elapsed in seconds before an
+                                                       object can be reclaimed
+handoffs_first               false                     If set to True, partitions that
+                                                       are not supposed to be on the
+                                                       node will be replicated first.
+                                                       The default setting should not be
+                                                       changed, except for extreme
+                                                       situations.
+handoff_delete               auto                      By default handoff partitions
+                                                       will be removed when it has
+                                                       successfully replicated to all
+                                                       the canonical nodes. If set to an
+                                                       integer n, it will remove the
+                                                       partition if it is successfully
+                                                       replicated to n nodes.  The
+                                                       default setting should not be
+                                                       changed, except for extreme
+                                                       situations.
+node_timeout                 DEFAULT or 10             Request timeout to external
+                                                       services. This uses what's set
+                                                       here, or what's set in the
+                                                       DEFAULT section, or 10 (though
+                                                       other sections use 3 as the final
+                                                       default).
+http_timeout                 60                        Max duration of an http request.
+                                                       This is for REPLICATE finalization
+                                                       calls and so should be longer
+                                                       than node_timeout.
+lockup_timeout               1800                      Attempts to kill all workers if
+                                                       nothing replicates for
+                                                       lockup_timeout seconds
+rsync_module                 {replication_ip}::object  Format of the rsync module where
+                                                       the replicator will send data.
+                                                       The configuration value can
+                                                       include some variables that will
+                                                       be extracted from the ring.
+                                                       Variables must follow the format
+                                                       {NAME} where NAME is one of: ip,
+                                                       port, replication_ip,
+                                                       replication_port, region, zone,
+                                                       device, meta. See
+                                                       etc/rsyncd.conf-sample for some
+                                                       examples.
+rsync_error_log_line_length  0                         Limits how long rsync error log
+                                                       lines are
+ring_check_interval          15                        Interval for checking new ring
+                                                       file
+recon_cache_path             /var/cache/swift          Path to recon cache
+===========================  ========================  ================================
 
 [object-updater]
 
@@ -822,7 +823,7 @@ set log_address                 /dev/log          Logging directory
 node_timeout                    3                 Request timeout to external services
 conn_timeout                    0.5               Connection timeout to external services
 allow_versions                  false             Enable/Disable object versioning feature
-auto_create_account_prefix     .                  Prefix used when automatically
+auto_create_account_prefix      .                 Prefix used when automatically
 replication_server                                Configure parameter for creating
                                                   specific server. To handle all verbs,
                                                   including replication verbs, do not
@@ -887,15 +888,15 @@ rsync_module        {replication_ip}::container  Format of the rsync module
                                                  etc/rsyncd.conf-sample for
                                                  some examples.
 rsync_compress      no                           Allow rsync to compress data
-                                                 which is transmitted to destination
-                                                 node during sync. However, this
-                                                 is applicable only when destination
-                                                 node is in a different region
-                                                 than the local one.
-                                                 NOTE: Objects that are already
-                                                 compressed (for example: .tar.gz,
-                                                 .mp3) might slow down the syncing
-                                                 process.
+                                                 which is transmitted to
+                                                 destination node during sync.
+                                                 However, this is applicable
+                                                 only when destination node is
+                                                 in a different region than the
+                                                 local one. NOTE: Objects that
+                                                 are already compressed (for
+                                                 example: .tar.gz, mp3) might
+                                                 slow down the syncing process.
 recon_cache_path    /var/cache/swift             Path to recon cache
 ==================  ===========================  =============================
 
@@ -1090,15 +1091,15 @@ rsync_module        {replication_ip}::account  Format of the rsync module where
                                                etc/rsyncd.conf-sample for some
                                                examples.
 rsync_compress      no                         Allow rsync to compress data
-                                               which is transmitted to destination
-                                               node during sync. However, this
-                                               is applicable only when destination
-                                               node is in a different region
-                                               than the local one.
-                                               NOTE: Objects that are already
-                                               compressed (for example: .tar.gz,
-                                               .mp3) might slow down the syncing
-                                               process.
+                                               which is transmitted to
+                                               destination node during sync.
+                                               However, this is applicable only
+                                               when destination node is in a
+                                               different region than the local
+                                               one. NOTE: Objects that are
+                                               already compressed (for example:
+                                               .tar.gz, mp3) might slow down
+                                               the syncing process.
 recon_cache_path    /var/cache/swift           Path to recon cache
 ==================  =========================  ===============================
 
@@ -1159,9 +1160,9 @@ The following configuration options are available:
 
 [DEFAULT]
 
-====================================  ========================  =============================
+====================================  ========================  ========================================
 Option                                Default                   Description
-------------------------------------  ------------------------  -----------------------------
+------------------------------------  ------------------------  ----------------------------------------
 bind_ip                               0.0.0.0                   IP Address for server to
                                                                 bind to
 bind_port                             80                        Port for server to bind to
@@ -1205,11 +1206,12 @@ cors_allow_origin                                               This is a list o
 strict_cors_mode                      True
 client_timeout                        60
 trans_id_suffix                                                 This optional suffix (default is empty)
-                                                                that would be appended to the swift transaction
-                                                                id allows one to easily figure out from
-                                                                which cluster that X-Trans-Id belongs to.
-                                                                This is very useful when one is managing
-                                                                more than one swift cluster.
+                                                                that would be appended to the swift
+                                                                transaction id allows one to easily
+                                                                figure out from which cluster that
+                                                                X-Trans-Id belongs to. This is very
+                                                                useful when one is managing more than
+                                                                one swift cluster.
 log_name                              swift                     Label used when logging
 log_facility                          LOG_LOCAL0                Syslog log facility
 log_level                             INFO                      Logging level
@@ -1246,7 +1248,7 @@ disallowed_sections                   swift.valid_api_versions  Allows the abili
                                                                 the dict level with a ".".
 expiring_objects_container_divisor    86400
 expiring_objects_account_name         expiring_objects
-====================================  ========================  =============================
+====================================  ========================  ========================================
 
 [proxy-server]
 
