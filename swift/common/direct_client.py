@@ -50,7 +50,7 @@ class DirectClientException(ClientException):
 
 
 def _get_direct_account_container(path, stype, node, part,
-                                  account, marker=None, limit=None,
+                                  marker=None, limit=None,
                                   prefix=None, delimiter=None, conn_timeout=5,
                                   response_timeout=15):
     """Base class for get direct account and container.
@@ -113,7 +113,7 @@ def direct_get_account(node, part, account, marker=None, limit=None,
     """
     path = '/' + account
     return _get_direct_account_container(path, "Account", node, part,
-                                         account, marker=marker,
+                                         marker=marker,
                                          limit=limit, prefix=prefix,
                                          delimiter=delimiter,
                                          conn_timeout=conn_timeout,
@@ -189,7 +189,7 @@ def direct_get_container(node, part, account, container, marker=None,
     """
     path = '/%s/%s' % (account, container)
     return _get_direct_account_container(path, "Container", node,
-                                         part, account, marker=marker,
+                                         part, marker=marker,
                                          limit=limit, prefix=prefix,
                                          delimiter=delimiter,
                                          conn_timeout=conn_timeout,
