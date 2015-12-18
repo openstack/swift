@@ -375,7 +375,7 @@ folks a start on their own code if they want to use repoze.what::
                 expiration = float(resp.getheader('x-auth-ttl'))
                 user = resp.getheader('x-auth-user')
                 memcache_client.set(key, (time(), expiration, user),
-                                    timeout=expiration)
+                                    time=expiration)
                 return user
             return None
 
