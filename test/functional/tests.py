@@ -25,11 +25,11 @@ import random
 import six
 from six.moves import urllib
 import time
-import unittest
+import unittest2
 import uuid
 from copy import deepcopy
 import eventlet
-from nose import SkipTest
+from unittest2 import SkipTest
 from swift.common.http import is_success, is_client_error
 
 from test.functional import normalized_urls, load_constraint, cluster_info
@@ -70,7 +70,7 @@ class Utils(object):
     create_name = create_ascii_name
 
 
-class Base(unittest.TestCase):
+class Base(unittest2.TestCase):
     def setUp(self):
         cls = type(self)
         if not cls.set_up:
@@ -4148,7 +4148,7 @@ class TestSloTempurlUTF8(Base2, TestSloTempurl):
     set_up = False
 
 
-class TestServiceToken(unittest.TestCase):
+class TestServiceToken(unittest2.TestCase):
 
     def setUp(self):
         if tf.skip_service_tokens:
@@ -4316,4 +4316,4 @@ class TestServiceToken(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()
