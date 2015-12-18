@@ -2,20 +2,6 @@
 Erasure Code Support
 ====================
 
-
---------------------------
-Beta: Not production ready
---------------------------
-The erasure code support in Swift is considered "beta" at this point.
-Most major functionality is included, but it has not been tested or validated
-at large scale. This feature relies on ssync for durability. Deployers are
-urged to do extensive testing and not deploy production data using an
-erasure code storage policy.
-
-If any bugs are found during testing, please report them to
-https://bugs.launchpad.net/swift
-
-
 -------------------------------
 History and Theory of Operation
 -------------------------------
