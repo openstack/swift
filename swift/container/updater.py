@@ -29,7 +29,7 @@ import swift.common.db
 from swift.common.constraints import check_drive
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.bufferedhttp import http_connect
-from swift.common.exceptions import ConnectionTimeout
+from swift.common.exceptions import ConnectionTimeout, LockTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, majority_size, Timestamp, ratelimit_sleep, \
@@ -232,7 +232,12 @@ class ContainerUpdater(Daemon):
         """
         start_time = time.time()
         broker = ContainerBroker(dbfile, logger=self.logger)
-        info = broker.get_info()
+        try:
+            info = broker.get_info()
+        except LockTimeout:
+            self.logger.exception("Failed to get container info for %s",
+                                  dbfile)
+            return
         # Don't send updates if the container was auto-created since it
         # definitely doesn't have up to date statistics.
         if Timestamp(info['put_timestamp']) <= 0:
