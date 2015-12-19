@@ -832,6 +832,9 @@ class Timestamp(object):
             other = Timestamp(other)
         return cmp(self.internal, other.internal)
 
+    def __hash__(self):
+        return hash(self.internal)
+
 
 def normalize_timestamp(timestamp):
     """

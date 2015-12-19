@@ -779,6 +779,15 @@ class TestTimestamp(unittest.TestCase):
             self.assertEqual(
                 sorted([t.internal for t in timestamps]), expected)
 
+    def test_hashable(self):
+        ts_0 = utils.Timestamp('1402444821.72589')
+        ts_0_also = utils.Timestamp('1402444821.72589')
+        self.assertEqual(ts_0, ts_0_also)  # sanity
+        self.assertEqual(hash(ts_0), hash(ts_0_also))
+        d = {ts_0: 'whatever'}
+        self.assertIn(ts_0, d)  # sanity
+        self.assertIn(ts_0_also, d)
+
 
 class TestUtils(unittest.TestCase):
     """Tests for swift.common.utils """
