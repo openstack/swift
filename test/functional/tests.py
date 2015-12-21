@@ -3565,9 +3565,22 @@ class TestObjectVersioning(Base):
         obj_name = Utils.create_name()
 
         versioned_obj = container.file(obj_name)
-        versioned_obj.write("aaaaa", hdrs={'Content-Type': 'text/jibberish01'})
+        put_headers = {'Content-Type': 'text/jibberish01',
+                       'Content-Encoding': 'gzip',
+                       'Content-Disposition': 'attachment; filename=myfile'}
+        versioned_obj.write("aaaaa", hdrs=put_headers)
         obj_info = versioned_obj.info()
         self.assertEqual('text/jibberish01', obj_info['content_type'])
+
+        # the allowed headers are configurable in object server, so we cannot
+        # assert that content-encoding or content-disposition get *copied* to
+        # the object version unless they were set on the original PUT, so
+        # populate expected_headers by making a HEAD on the original object
+        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        expected_headers = {}
+        for k, v in put_headers.items():
+            if k.lower() in resp_headers:
+                expected_headers[k] = v
 
         self.assertEqual(0, versions_container.info()['object_count'])
         versioned_obj.write("bbbbb", hdrs={'Content-Type': 'text/jibberish02',
@@ -3583,6 +3596,11 @@ class TestObjectVersioning(Base):
         prev_version.initialize()
         self.assertEqual("aaaaa", prev_version.read())
         self.assertEqual(prev_version.content_type, 'text/jibberish01')
+
+        resp_headers = dict(prev_version.conn.response.getheaders())
+        for k, v in expected_headers.items():
+            self.assertIn(k.lower(), resp_headers)
+            self.assertEqual(v, resp_headers[k.lower()])
 
         # make sure the new obj metadata did not leak to the prev. version
         self.assertTrue('foo' not in prev_version.metadata)
@@ -3632,6 +3650,15 @@ class TestObjectVersioning(Base):
         versioned_obj.delete()
         self.assertEqual("aaaaa", versioned_obj.read())
         self.assertEqual(0, versions_container.info()['object_count'])
+
+        # verify that all the original object headers have been copied back
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/jibberish01', obj_info['content_type'])
+        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        for k, v in expected_headers.items():
+            self.assertIn(k.lower(), resp_headers)
+            self.assertEqual(v, resp_headers[k.lower()])
+
         versioned_obj.delete()
         self.assertRaises(ResponseError, versioned_obj.read)
 
@@ -3793,6 +3820,107 @@ class TestCrossPolicyObjectVersioning(TestObjectVersioning):
             raise Exception("Expected multiple_policies_enabled "
                             "to be True/False, got %r" % (
                                 self.env.versioning_enabled,))
+
+
+class TestSloWithVersioning(Base):
+
+    def setUp(self):
+        if 'slo' not in cluster_info:
+            raise SkipTest("SLO not enabled")
+
+        self.conn = Connection(tf.config)
+        self.conn.authenticate()
+        self.account = Account(
+            self.conn, tf.config.get('account', tf.config['username']))
+        self.account.delete_containers()
+
+        # create a container with versioning
+        self.versions_container = self.account.container(Utils.create_name())
+        self.container = self.account.container(Utils.create_name())
+        self.segments_container = self.account.container(Utils.create_name())
+        if not self.container.create(
+                hdrs={'X-Versions-Location': self.versions_container.name}):
+            raise ResponseError(self.conn.response)
+        if 'versions' not in self.container.info():
+            raise SkipTest("Object versioning not enabled")
+
+        for cont in (self.versions_container, self.segments_container):
+            if not cont.create():
+                raise ResponseError(self.conn.response)
+
+        # create some segments
+        self.seg_info = {}
+        for letter, size in (('a', 1024 * 1024),
+                             ('b', 1024 * 1024)):
+            seg_name = letter
+            file_item = self.segments_container.file(seg_name)
+            file_item.write(letter * size)
+            self.seg_info[seg_name] = {
+                'size_bytes': size,
+                'etag': file_item.md5,
+                'path': '/%s/%s' % (self.segments_container.name, seg_name)}
+
+    def _create_manifest(self, seg_name):
+        # create a manifest in the versioning container
+        file_item = self.container.file("my-slo-manifest")
+        file_item.write(
+            json.dumps([self.seg_info[seg_name]]),
+            parms={'multipart-manifest': 'put'})
+        return file_item
+
+    def _assert_is_manifest(self, file_item, seg_name):
+        manifest_body = file_item.read(parms={'multipart-manifest': 'get'})
+        resp_headers = dict(file_item.conn.response.getheaders())
+        self.assertIn('x-static-large-object', resp_headers)
+        self.assertEqual('application/json; charset=utf-8',
+                         file_item.content_type)
+        try:
+            manifest = json.loads(manifest_body)
+        except ValueError:
+            self.fail("GET with multipart-manifest=get got invalid json")
+
+        self.assertEqual(1, len(manifest))
+        key_map = {'etag': 'hash', 'size_bytes': 'bytes', 'path': 'name'}
+        for k_client, k_slo in key_map.items():
+            self.assertEqual(self.seg_info[seg_name][k_client],
+                             manifest[0][k_slo])
+
+    def _assert_is_object(self, file_item, seg_name):
+        file_contents = file_item.read()
+        self.assertEqual(1024 * 1024, len(file_contents))
+        self.assertEqual(seg_name, file_contents[0])
+        self.assertEqual(seg_name, file_contents[-1])
+
+    def tearDown(self):
+        # remove versioning to allow simple container delete
+        self.container.update_metadata(hdrs={'X-Versions-Location': ''})
+        self.account.delete_containers()
+
+    def test_slo_manifest_version(self):
+        file_item = self._create_manifest('a')
+        # sanity check: read the manifest, then the large object
+        self._assert_is_manifest(file_item, 'a')
+        self._assert_is_object(file_item, 'a')
+
+        # upload new manifest
+        file_item = self._create_manifest('b')
+        # sanity check: read the manifest, then the large object
+        self._assert_is_manifest(file_item, 'b')
+        self._assert_is_object(file_item, 'b')
+
+        versions_list = self.versions_container.files()
+        self.assertEqual(1, len(versions_list))
+        version_file = self.versions_container.file(versions_list[0])
+        # check the version is still a manifest
+        self._assert_is_manifest(version_file, 'a')
+        self._assert_is_object(version_file, 'a')
+
+        # delete the newest manifest
+        file_item.delete()
+
+        # expect the original manifest file to be restored
+        self._assert_is_manifest(file_item, 'a')
+        self._assert_is_object(file_item, 'a')
 
 
 class TestTempurlEnv(object):
