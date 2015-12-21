@@ -517,6 +517,18 @@ class TestAuth(unittest.TestCase):
         self.assertTrue(resp.headers['x-auth-token'].startswith('AUTH_'))
         self.assertTrue(len(resp.headers['x-auth-token']) > 10)
 
+    def test_get_token_success_other_auth_prefix(self):
+        test_auth = auth.filter_factory({'user_ac_user': 'testing',
+                                         'auth_prefix': '/other/'})(FakeApp())
+        req = self._make_request(
+            '/other/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+        self.assertTrue(resp.headers['x-storage-url'].endswith('/v1/AUTH_ac'))
+        self.assertTrue(resp.headers['x-auth-token'].startswith('AUTH_'))
+        self.assertTrue(len(resp.headers['x-auth-token']) > 10)
+
     def test_use_token_success(self):
         # Example of how to simulate an authorized request
         test_auth = auth.filter_factory({'user_acct_user': 'testing'})(
