@@ -5847,7 +5847,9 @@ class TestObjectController(unittest.TestCase):
             def stubContainerInfo(*args):
                 return {
                     'cors': {
-                        'allow_origin': 'http://not.foo.bar'
+                        'allow_origin': 'http://not.foo.bar',
+                        'expose_headers': 'X-Object-Meta-Color '
+                                          'X-Object-Meta-Color-Ex'
                     }
                 }
             controller.container_info = stubContainerInfo
@@ -5872,14 +5874,15 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual('red', resp.headers['x-object-meta-color'])
             # X-Super-Secret is in the response, but not "exposed"
             self.assertEqual('hush', resp.headers['x-super-secret'])
-            self.assertTrue('access-control-expose-headers' in resp.headers)
+            self.assertIn('access-control-expose-headers', resp.headers)
             exposed = set(
                 h.strip() for h in
                 resp.headers['access-control-expose-headers'].split(','))
             expected_exposed = set(['cache-control', 'content-language',
                                     'content-type', 'expires', 'last-modified',
                                     'pragma', 'etag', 'x-timestamp',
-                                    'x-trans-id', 'x-object-meta-color'])
+                                    'x-trans-id', 'x-object-meta-color',
+                                    'x-object-meta-color-ex'])
             self.assertEqual(expected_exposed, exposed)
 
             controller.app.strict_cors_mode = True
@@ -5891,7 +5894,49 @@ class TestObjectController(unittest.TestCase):
             resp = cors_validation(objectGET)(controller, req)
 
             self.assertEqual(200, resp.status_int)
-            self.assertTrue('access-control-allow-origin' not in resp.headers)
+            self.assertNotIn('access-control-expose-headers', resp.headers)
+            self.assertNotIn('access-control-allow-origin', resp.headers)
+
+            controller.app.strict_cors_mode = False
+
+            def stubContainerInfoWithAsteriskAllowOrigin(*args):
+                return {
+                    'cors': {
+                        'allow_origin': '*'
+                    }
+                }
+            controller.container_info = \
+                stubContainerInfoWithAsteriskAllowOrigin
+
+            req = Request.blank(
+                '/v1/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('*',
+                             resp.headers['access-control-allow-origin'])
+
+            def stubContainerInfoWithEmptyAllowOrigin(*args):
+                return {
+                    'cors': {
+                        'allow_origin': ''
+                    }
+                }
+            controller.container_info = stubContainerInfoWithEmptyAllowOrigin
+
+            req = Request.blank(
+                '/v1/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('http://foo.bar',
+                             resp.headers['access-control-allow-origin'])
 
     def test_CORS_valid_with_obj_headers(self):
         with save_globals():
