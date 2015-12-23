@@ -21,7 +21,7 @@ swift_hash_path_prefix = changeme
 # policy with index 0 will be declared the default.  If multiple policies are
 # defined you must define a policy with index 0 and you must specify a
 # default.  It is recommended you always define a section for
-# storage-policy:0.
+# storage-policy:0. Aliases are not required when defining a storage policy.
 #
 # A 'policy_type' argument is also supported but is not mandatory.  Default
 # policy type 'replication' is used when 'policy_type' is unspecified.
@@ -29,6 +29,7 @@ swift_hash_path_prefix = changeme
 name = Policy-0
 default = yes
 #policy_type = replication
+aliases = yellow, orange
 
 # the following section would declare a policy called 'silver', the number of
 # replicas will be determined by how the ring is built.  In this example the
@@ -40,7 +41,10 @@ default = yes
 # this config has specified it as the default.  However if a legacy container
 # (one created with a pre-policy version of swift) is accessed, it is known
 # implicitly to be assigned to the policy with index 0 as opposed to the
-# current default.
+# current default. Note that even without specifying any aliases, a policy
+# always has at least the default name stored in aliases because this field is
+# used to contain all human readable names for a storage policy.
+#
 #[storage-policy:1]
 #name = silver
 #policy_type = replication
@@ -67,12 +71,13 @@ default = yes
 # refer to Swift documentation for details on how to configure EC policies.
 #
 # The example 'deepfreeze10-4' policy defined below is a _sample_
-# configuration with 10 'data' and 4 'parity' fragments. 'ec_type'
-# defines the Erasure Coding scheme. 'jerasure_rs_vand' (Reed-Solomon
-# Vandermonde) is used as an example below.
+# configuration with an alias of 'df10-4' as well as 10 'data' and 4 'parity'
+# fragments. 'ec_type' defines the Erasure Coding scheme.
+# 'jerasure_rs_vand' (Reed-Solomon Vandermonde) is used as an example below.
 #
 #[storage-policy:2]
 #name = deepfreeze10-4
+#aliases = df10-4
 #policy_type = erasure_coding
 #ec_type = jerasure_rs_vand
 #ec_num_data_fragments = 10
