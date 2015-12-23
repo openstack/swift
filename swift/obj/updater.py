@@ -84,7 +84,7 @@ class ObjectUpdater(Daemon):
                 if self.mount_check and \
                         not ismount(os.path.join(self.devices, device)):
                     self.logger.increment('errors')
-                    self.logger.warn(
+                    self.logger.warning(
                         _('Skipping %s as it is not mounted'), device)
                     continue
                 while len(pids) >= self.concurrency:
@@ -127,7 +127,7 @@ class ObjectUpdater(Daemon):
             if self.mount_check and \
                     not ismount(os.path.join(self.devices, device)):
                 self.logger.increment('errors')
-                self.logger.warn(
+                self.logger.warning(
                     _('Skipping %s as it is not mounted'), device)
                 continue
             self.object_sweep(os.path.join(self.devices, device))
@@ -159,8 +159,9 @@ class ObjectUpdater(Daemon):
             try:
                 base, policy = split_policy_string(asyncdir)
             except PolicyError as e:
-                self.logger.warn(_('Directory %r does not map '
-                                   'to a valid policy (%s)') % (asyncdir, e))
+                self.logger.warning(_('Directory %r does not map '
+                                    'to a valid policy (%s)') %
+                                    (asyncdir, e))
                 continue
             for prefix in self._listdir(async_pending):
                 prefix_path = os.path.join(async_pending, prefix)

@@ -477,6 +477,12 @@ class UnmockTimeModule(object):
 logging.time = UnmockTimeModule()
 
 
+class WARN_DEPRECATED(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+        print(self.msg)
+
+
 class FakeLogger(logging.Logger, object):
     # a thread safe fake logger
 
@@ -498,6 +504,9 @@ class FakeLogger(logging.Logger, object):
         logging.CRITICAL: 'critical',
         NOTICE: 'notice',
     }
+
+    def warn(self, *args, **kwargs):
+        raise WARN_DEPRECATED("Deprecated Method warn use warning instead")
 
     def notice(self, msg, *args, **kwargs):
         """

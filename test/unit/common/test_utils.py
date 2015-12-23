@@ -1221,7 +1221,7 @@ class TestUtils(unittest.TestCase):
         logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
         logger = utils.get_logger(None, 'server', log_route='server')
-        logger.warn('test1')
+        logger.warning('test1')
         self.assertEqual(sio.getvalue(), 'test1\n')
         logger.debug('test2')
         self.assertEqual(sio.getvalue(), 'test1\n')
@@ -1233,7 +1233,7 @@ class TestUtils(unittest.TestCase):
         # way to syslog; but exercises the code.
         logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
                                   log_route='server')
-        logger.warn('test4')
+        logger.warning('test4')
         self.assertEqual(sio.getvalue(),
                          'test1\ntest3\ntest4\n')
         # make sure debug doesn't log by default
@@ -1491,7 +1491,7 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('12345' not in log_msg)
             # test txn already in message
             self.assertEqual(logger.txn_id, '12345')
-            logger.warn('test 12345 test')
+            logger.warning('test 12345 test')
             self.assertEqual(strip_value(sio), 'test 12345 test\n')
             # Test multi line collapsing
             logger.error('my\nerror\nmessage')
@@ -1517,7 +1517,7 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('1.2.3.4' not in log_msg)
             # test client_ip (and txn) already in message
             self.assertEqual(logger.client_ip, '1.2.3.4')
-            logger.warn('test 1.2.3.4 test 12345')
+            logger.warning('test 1.2.3.4 test 12345')
             self.assertEqual(strip_value(sio), 'test 1.2.3.4 test 12345\n')
         finally:
             logger.logger.removeHandler(handler)

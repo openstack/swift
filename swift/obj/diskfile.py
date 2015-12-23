@@ -303,8 +303,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                 base, policy = split_policy_string(dir_)
             except PolicyError as e:
                 if logger:
-                    logger.warn(_('Directory %r does not map '
-                                  'to a valid policy (%s)') % (dir_, e))
+                    logger.warning(_('Directory %r does not map '
+                                     'to a valid policy (%s)') % (dir_, e))
                 continue
             datadir_path = os.path.join(devices, device, dir_)
             partitions = listdir(datadir_path)
@@ -420,7 +420,7 @@ class BaseDiskFileManager(object):
         # If the operator wants zero-copy with splice() but we don't have the
         # requisite kernel support, complain so they can go fix it.
         if conf_wants_splice and not splice.available:
-            self.logger.warn(
+            self.logger.warning(
                 "Use of splice() requested (config says \"splice = %s\"), "
                 "but the system does not support it. "
                 "splice() will not be used." % conf.get('splice'))
@@ -434,8 +434,8 @@ class BaseDiskFileManager(object):
                 # AF_ALG support), we can't use zero-copy.
                 if err.errno != errno.EAFNOSUPPORT:
                     raise
-                self.logger.warn("MD5 sockets not supported. "
-                                 "splice() will not be used.")
+                self.logger.warning("MD5 sockets not supported. "
+                                    "splice() will not be used.")
             else:
                 self.use_splice = True
                 with open('/proc/sys/fs/pipe-max-size') as f:
@@ -1404,7 +1404,7 @@ class BaseDiskFileReader(object):
         self._quarantined_dir = self._threadpool.run_in_thread(
             self.manager.quarantine_renamer, self._device_path,
             self._data_file)
-        self._logger.warn("Quarantined object %s: %s" % (
+        self._logger.warning("Quarantined object %s: %s" % (
             self._data_file, msg))
         self._logger.increment('quarantines')
         self._quarantine_hook(msg)
@@ -1674,7 +1674,7 @@ class BaseDiskFile(object):
         """
         self._quarantined_dir = self._threadpool.run_in_thread(
             self.manager.quarantine_renamer, self._device_path, data_file)
-        self._logger.warn("Quarantined object %s: %s" % (
+        self._logger.warning("Quarantined object %s: %s" % (
             data_file, msg))
         self._logger.increment('quarantines')
         return DiskFileQuarantined(msg)

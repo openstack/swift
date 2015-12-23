@@ -389,8 +389,8 @@ def load_libc_function(func_name, log_error=True,
         if fail_if_missing:
             raise
         if log_error:
-            logging.warn(_("Unable to locate %s in libc.  Leaving as a "
-                         "no-op."), func_name)
+            logging.warning(_("Unable to locate %s in libc.  Leaving as a "
+                            "no-op."), func_name)
         return noop_libc_function
 
 
@@ -580,8 +580,8 @@ class FallocateWrapper(object):
             if self.fallocate is not noop_libc_function:
                 break
         if self.fallocate is noop_libc_function:
-            logging.warn(_("Unable to locate fallocate, posix_fallocate in "
-                         "libc.  Leaving as a no-op."))
+            logging.warning(_("Unable to locate fallocate, posix_fallocate in "
+                            "libc.  Leaving as a no-op."))
 
     def __call__(self, fd, mode, offset, length):
         """The length parameter must be a ctypes.c_uint64."""
@@ -664,8 +664,8 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warn(_("Unable to perform fsync() on directory %s: %s"),
-                     dirpath, os.strerror(err.errno))
+        logging.warning(_("Unable to perform fsync() on directory %s: %s"),
+                        dirpath, os.strerror(err.errno))
     finally:
         if dirfd:
             os.close(dirfd)
@@ -686,9 +686,9 @@ def drop_buffer_cache(fd, offset, length):
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                          ctypes.c_uint64(length), 4)
     if ret != 0:
-        logging.warn("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
-                     "-> %(ret)s", {'fd': fd, 'offset': offset,
-                                    'length': length, 'ret': ret})
+        logging.warning("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
+                        "-> %(ret)s", {'fd': fd, 'offset': offset,
+                                       'length': length, 'ret': ret})
 
 
 NORMAL_FORMAT = "%016.05f"
@@ -1176,7 +1176,7 @@ class StatsdClient(object):
                 return sock.sendto('|'.join(parts), self._target)
             except IOError as err:
                 if self.logger:
-                    self.logger.warn(
+                    self.logger.warning(
                         'Error sending UDP message to %r: %s',
                         self._target, err)
 
@@ -1261,7 +1261,6 @@ class LogAdapter(logging.LoggerAdapter, object):
     def __init__(self, logger, server):
         logging.LoggerAdapter.__init__(self, logger, {})
         self.server = server
-        setattr(self, 'warn', self.warning)
 
     @property
     def txn_id(self):
@@ -3561,7 +3560,8 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
             except StopIteration:
                 pass
             else:
-                logger.warn("More than one part in a single-part response?")
+                logger.warning(
+                    "More than one part in a single-part response?")
 
         return string_along(response_body_iter, ranges_iter, logger)
 

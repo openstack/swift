@@ -183,7 +183,7 @@ class TestObjectUpdater(unittest.TestCase):
                 'node_timeout': '5'})
             cu.logger = mock_logger = mock.MagicMock()
             cu.object_sweep(self.sda1)
-            self.assertEqual(mock_logger.warn.call_count, warn)
+            self.assertEqual(mock_logger.warning.call_count, warn)
             self.assertTrue(
                 os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
             if should_skip:

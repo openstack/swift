@@ -429,10 +429,12 @@ class TempAuth(object):
         try:
             acls = acls_from_account_info(info)
         except ValueError as e1:
-            self.logger.warn("Invalid ACL stored in metadata: %r" % e1)
+            self.logger.warning("Invalid ACL stored in metadata: %r" % e1)
             return None
         except NotImplementedError as e2:
-            self.logger.warn("ACL version exceeds middleware version: %r" % e2)
+            self.logger.warning(
+                "ACL version exceeds middleware version: %r"
+                % e2)
             return None
         return acls
 

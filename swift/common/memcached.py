@@ -357,7 +357,6 @@ class MemcacheRing(object):
         :returns: result of decrementing
         :raises MemcacheConnectionError:
         """
-
         return self.incr(key, delta=-delta, time=time)
 
     def delete(self, key):
