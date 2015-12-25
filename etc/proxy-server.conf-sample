@@ -287,13 +287,21 @@ user_test5_tester5 = testing5 service
 # You'll also need to have the keystoneauth middleware enabled and have it in
 # your main pipeline, as show in the sample pipeline at the top of this file.
 #
+# Following parameters are known to work with keystonemiddleware v2.3.0
+# (above v2.0.0), but checking the latest information in the wiki page[1]
+# is recommended.
+# 1. http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration
+#
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-# identity_uri = http://keystonehost:35357/
-# auth_uri = http://keystonehost:5000/
-# admin_tenant_name = service
-# admin_user = swift
-# admin_password = password
+# auth_uri = http://keystonehost:5000
+# auth_url = http://keystonehost:35357
+# auth_plugin = password
+# project_domain_id = default
+# user_domain_id = default
+# project_name = service
+# username = swift
+# password = password
 #
 # delay_auth_decision defaults to False, but leaving it as false will
 # prevent other auth systems, staticweb, tempurl, formpost, and ACLs from
