@@ -16,7 +16,6 @@
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
 from collections import defaultdict
-from copy import deepcopy
 from hashlib import md5
 from swift.common import swob
 from swift.common.swob import HTTPException
@@ -107,17 +106,19 @@ class FakeSwift(object):
         # simulate object PUT
         if method == 'PUT' and obj:
             input = ''.join(iter(env['wsgi.input'].read, ''))
+            if 'swift.update.footers' in env:
+                env['swift.update.footers'](req_headers)
             etag = md5(input).hexdigest()
+            req_headers.setdefault('Etag', etag)
+            req_headers.setdefault('Content-Length', len(input))
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(input))
 
             # keep it for subsequent GET requests later
-            self.uploaded[path] = (deepcopy(headers), input)
+            self.uploaded[path] = (dict(req_headers), input)
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
-        if 'swift.update.footers' in env:
-            env['swift.update.footers'](req_headers)
         self._calls.append((method, path, req_headers))
 
         # range requests ought to work, hence conditional_response=True
