@@ -324,7 +324,7 @@ class BaseStoragePolicy(object):
         Removes an alias name from the storage policy. Shouldn't be called
         directly from the storage policy but instead through the storage
         policy collection class, so lookups by name resolve correctly. If
-        the name removed is the primary name then the next availiable alias
+        the name removed is the primary name then the next available alias
         will be adopted as the new primary name.
 
         :param name: a name assigned to the storage policy
@@ -776,7 +776,7 @@ class StoragePolicyCollection(object):
     def remove_policy_alias(self, *aliases):
         """
         Removes a name or names from a policy. If the name removed is the
-        primary name then the next availiable alias will be adopted
+        primary name then the next available alias will be adopted
         as the new primary name.
 
         :param *aliases: arbitrary number of existing policy names to remove.

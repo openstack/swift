@@ -5558,7 +5558,7 @@ class TestObjectServer(unittest.TestCase):
                         object-metadata (e.g.  X-Backend-Obj-Content-Length)
                         is generally expected tomatch the test_doc)
         :param finish_body: boolean, if true send "0\r\n\r\n" after test_doc
-                            and wait for 100-continue before yeilding context
+                            and wait for 100-continue before yielding context
         """
         test_data = 'obj data'
         footer_meta = {

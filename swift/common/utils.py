@@ -424,7 +424,7 @@ def get_log_line(req, res, trans_time, additional_info):
     :param trans_time: the time the request took to complete, a float.
     :param additional_info: a string to log at the end of the line
 
-    :returns: a properly formated line for logging.
+    :returns: a properly formatted line for logging.
     """
 
     policy_index = get_policy_index(req.headers, res.headers)

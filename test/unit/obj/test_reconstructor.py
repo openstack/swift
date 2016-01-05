@@ -221,7 +221,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
             def part_2(set):
                 # this part is a handoff in our config (always)
-                # so lets do a set with indicies from different nodes
+                # so lets do a set with indices from different nodes
                 if set == 0:
                     return (local_id + 1) % 3
                 else:
