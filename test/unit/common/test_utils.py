@@ -34,6 +34,7 @@ import sys
 import json
 import math
 
+import six
 from six import BytesIO, StringIO
 from six.moves.queue import Queue, Empty
 from six.moves import range
@@ -3659,7 +3660,7 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith("|@0.5"))
+        self.assertTrue(payload.endswith(b"|@0.5"))
 
     def test_sample_rates_with_sample_rate_factor(self):
         logger = utils.get_logger({
@@ -3685,8 +3686,10 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                        payload)
+        suffix = "|@%s" % effective_sample_rate
+        if six.PY3:
+            suffix = suffix.encode('utf-8')
+        self.assertTrue(payload.endswith(suffix), payload)
 
         effective_sample_rate = 0.587 * 0.91
         statsd_client.random = lambda: effective_sample_rate - 0.001
@@ -3694,8 +3697,10 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 2)
 
         payload = mock_socket.sent[1][0]
-        self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                        payload)
+        suffix = "|@%s" % effective_sample_rate
+        if six.PY3:
+            suffix = suffix.encode('utf-8')
+        self.assertTrue(payload.endswith(suffix), payload)
 
     def test_timing_stats(self):
         class MockController(object):
@@ -3992,7 +3997,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         while True:
             try:
                 payload = self.sock.recv(4096)
-                if payload and 'STOP' in payload:
+                if payload and b'STOP' in payload:
                     return 42
                 self.queue.put(payload)
             except Exception as e:
@@ -4015,10 +4020,14 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
 
     def assertStat(self, expected, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
+        if six.PY3:
+            got = got.decode('utf-8')
         return self.assertEqual(expected, got)
 
     def assertStatMatches(self, expected_regexp, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
+        if six.PY3:
+            got = got.decode('utf-8')
         return self.assertTrue(re.search(expected_regexp, got),
                                [got, expected_regexp])
 
@@ -4187,7 +4196,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                          utils.get_valid_utf8_str(valid_utf8_str))
         self.assertEqual(valid_utf8_str,
                          utils.get_valid_utf8_str(unicode_sample))
-        self.assertEqual('\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
+        self.assertEqual(b'\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
                          utils.get_valid_utf8_str(invalid_utf8_str))
 
     @reset_logger_state

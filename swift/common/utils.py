@@ -1169,11 +1169,13 @@ class StatsdClient(object):
                 parts.append('@%s' % (sample_rate,))
             else:
                 return
+        if six.PY3:
+            parts = [part.encode('utf-8') for part in parts]
         # Ideally, we'd cache a sending socket in self, but that
         # results in a socket getting shared by multiple green threads.
         with closing(self._open_socket()) as sock:
             try:
-                return sock.sendto('|'.join(parts), self._target)
+                return sock.sendto(b'|'.join(parts), self._target)
             except IOError as err:
                 if self.logger:
                     self.logger.warning(
@@ -1230,7 +1232,7 @@ def timing_stats(**dec_kwargs):
     swift's wsgi server controllers, based on response code.
     """
     def decorating_func(func):
-        method = func.func_name
+        method = func.__name__
 
         @functools.wraps(func)
         def _timing_stats(ctrl, *args, **kwargs):
