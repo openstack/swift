@@ -1072,6 +1072,103 @@ class TestSloHeadManifest(SloTestCase):
         self.assertEqual(status, '304 Not Modified')
 
 
+class TestSloGetRawManifest(SloTestCase):
+
+    def setUp(self):
+        super(TestSloGetRawManifest, self).setUp()
+
+        _bc_manifest_json = json.dumps(
+            [{'name': '/gettest/b_10', 'hash': md5hex('b' * 10), 'bytes': '10',
+              'content_type': 'text/plain',
+              'last_modified': '1970-01-01T00:00:00.000000'},
+             {'name': '/gettest/c_15', 'hash': md5hex('c' * 15), 'bytes': '15',
+              'content_type': 'text/plain',
+              'last_modified': '1970-01-01T00:00:00.000000'},
+             {'name': '/gettest/d_10',
+              'hash': md5hex(md5hex("e" * 5) + md5hex("f" * 5)), 'bytes': '10',
+              'content_type': 'application/json;swift_bytes=10',
+              'sub_slo': True,
+              'last_modified': '1970-01-01T00:00:00.000000'}])
+        self.bc_etag = md5hex(_bc_manifest_json)
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-bc',
+            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=35',
+                          'X-Static-Large-Object': 'true',
+                          'X-Object-Meta-Plant': 'Ficus',
+                          'Etag': md5hex(_bc_manifest_json)},
+            _bc_manifest_json)
+
+        _bc_manifest_json_ranges = json.dumps(
+            [{'name': '/gettest/b_10', 'hash': md5hex('b' * 10), 'bytes': '10',
+              'last_modified': '1970-01-01T00:00:00.000000',
+              'content_type': 'text/plain', 'range': '1-99'},
+             {'name': '/gettest/c_15', 'hash': md5hex('c' * 15), 'bytes': '15',
+              'last_modified': '1970-01-01T00:00:00.000000',
+              'content_type': 'text/plain', 'range': '100-200'}])
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-bc-r',
+            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
+                          'X-Static-Large-Object': 'true',
+                          'X-Object-Meta-Plant': 'Ficus',
+                          'Etag': md5hex(_bc_manifest_json_ranges)},
+            _bc_manifest_json_ranges)
+
+    def test_get_raw_manifest(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc'
+            '?multipart-manifest=get&format=raw',
+            environ={'REQUEST_METHOD': 'GET',
+                     'HTTP_ACCEPT': 'application/json'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertTrue(('Etag', self.bc_etag) in headers, headers)
+        self.assertTrue(('X-Static-Large-Object', 'true') in headers, headers)
+        self.assertTrue(
+            ('Content-Type', 'application/json; charset=utf-8') in headers,
+            headers)
+
+        try:
+            resp_data = json.loads(body)
+        except ValueError:
+            self.fail("Invalid JSON in manifest GET: %r" % body)
+
+        self.assertEqual(
+            resp_data,
+            [{'etag': md5hex('b' * 10), 'size_bytes': '10',
+              'path': '/gettest/b_10'},
+             {'etag': md5hex('c' * 15), 'size_bytes': '15',
+              'path': '/gettest/c_15'},
+             {'etag': md5hex(md5hex("e" * 5) + md5hex("f" * 5)),
+              'size_bytes': '10',
+              'path': '/gettest/d_10'}])
+
+    def test_get_raw_manifest_passthrough_with_ranges(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-bc-r'
+            '?multipart-manifest=get&format=raw',
+            environ={'REQUEST_METHOD': 'GET',
+                     'HTTP_ACCEPT': 'application/json'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertTrue(
+            ('Content-Type', 'application/json; charset=utf-8') in headers,
+            headers)
+        try:
+            resp_data = json.loads(body)
+        except ValueError:
+            self.fail("Invalid JSON in manifest GET: %r" % body)
+
+        self.assertEqual(
+            resp_data,
+            [{'etag': md5hex('b' * 10), 'size_bytes': '10',
+              'path': '/gettest/b_10', 'range': '1-99'},
+             {'etag': md5hex('c' * 15), 'size_bytes': '15',
+              'path': '/gettest/c_15', 'range': '100-200'}],
+            body)
+
+
 class TestSloGetManifest(SloTestCase):
     def setUp(self):
         super(TestSloGetManifest, self).setUp()
@@ -1777,7 +1874,7 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
 
-    def test_get_segment_with_non_ascii_name(self):
+    def test_get_segment_with_non_ascii_path(self):
         segment_body = u"a møøse once bit my sister".encode("utf-8")
         self.app.register(
             'GET', u'/v1/AUTH_test/ünicode/öbject-segment'.encode('utf-8'),

@@ -3242,6 +3242,39 @@ class TestSlo(Base):
         self.assertEqual(value[1]['name'],
                          '/%s/seg_b' % self.env.container.name.decode("utf-8"))
 
+    def test_slo_get_raw_the_manifest_with_details_from_server(self):
+        manifest = self.env.container.file("manifest-db")
+        got_body = manifest.read(parms={'multipart-manifest': 'get',
+                                        'format': 'raw'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         manifest.content_type)
+        try:
+            value = json.loads(got_body)
+        except ValueError:
+            msg = "GET with multipart-manifest=get&format=raw got invalid json"
+            self.fail(msg)
+
+        self.assertEqual(
+            set(value[0].keys()), set(('size_bytes', 'etag', 'path')))
+        self.assertEqual(len(value), 2)
+        self.assertEqual(value[0]['size_bytes'], 1024 * 1024)
+        self.assertEqual(value[0]['etag'],
+                         hashlib.md5('d' * 1024 * 1024).hexdigest())
+        self.assertEqual(value[0]['path'],
+                         '/%s/seg_d' % self.env.container.name.decode("utf-8"))
+        self.assertEqual(value[1]['size_bytes'], 1024 * 1024)
+        self.assertEqual(value[1]['etag'],
+                         hashlib.md5('b' * 1024 * 1024).hexdigest())
+        self.assertEqual(value[1]['path'],
+                         '/%s/seg_b' % self.env.container.name.decode("utf-8"))
+
+        file_item = self.env.container.file("manifest-from-get-raw")
+        file_item.write(got_body, parms={'multipart-manifest': 'put'})
+
+        file_contents = file_item.read()
+        self.assertEqual(2 * 1024 * 1024, len(file_contents))
+
     def test_slo_head_the_manifest(self):
         manifest = self.env.container.file("manifest-abcde")
         got_info = manifest.info(parms={'multipart-manifest': 'get'})
