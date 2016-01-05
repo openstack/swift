@@ -200,6 +200,10 @@ if __name__ == '__main__':
                                     (mount_point))
                         comment_fstab(mount_point)
                         unmounts += 1
+                    else:
+                        logger.info("Detected %s with %d errors "
+                                    "(Device not unmounted)" %
+                                    (mount_point, count))
                     recon_errors[mount_point] = count
                     total_errors += count
     recon_file = recon_cache_path + "/drive.recon"
