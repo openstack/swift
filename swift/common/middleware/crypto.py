@@ -60,6 +60,7 @@ class Crypto(object):
         :raises: ValueError on invalid key, iv or offset
         :returns: an instance of :class:`CryptoContext`
         """
+        # TODO: check keys when we first fetch them from the keymaster
         self._check_key(key)
         if offset < 0:
             raise ValueError('Invalid offset: should be >= 0')

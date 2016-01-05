@@ -121,13 +121,13 @@ class BaseDecrypterContext(CryptoWSGIContext):
             return value
         try:
             self._check_cipher(crypto_meta.get('cipher'))
-        except EncryptionException as err:
+            crypto_ctxt = self.crypto.create_decryption_ctxt(
+                key, crypto_meta['iv'], 0)
+        except (ValueError, EncryptionException) as err:
             msg = 'Error decrypting header value'
             self.logger.error('%s: %s' % (msg, str(err)))
             raise HTTPInternalServerError(body=msg, content_type='text/plain')
 
-        crypto_ctxt = self.crypto.create_decryption_ctxt(
-            key, crypto_meta['iv'], 0)
         return crypto_ctxt.update(base64.b64decode(value))
 
     def process_resp(self, req):
@@ -222,13 +222,6 @@ class DecrypterObjContext(BaseDecrypterContext):
             self.logger.warn("Warning: No sysmeta-crypto-meta for body.")
             return None
 
-        try:
-            self._check_cipher(body_crypto_meta.get('cipher'))
-        except EncryptionException as err:
-            msg = 'Error creating decryption context for object body'
-            self.logger.error('%s: %s' % (msg, str(err)))
-            raise HTTPInternalServerError(body=msg, content_type='text/plain')
-
         content_range = self._response_header_value('Content-Range')
         offset = 0
         if content_range:
@@ -236,8 +229,14 @@ class DecrypterObjContext(BaseDecrypterContext):
             offset, end, total = parse_content_range(content_range)
             self.logger.debug("Range is: %s - %s, %s" % (offset, end, total))
 
-        return self.crypto.create_decryption_ctxt(
-            keys['object'], body_crypto_meta.get('iv'), offset)
+        try:
+            self._check_cipher(body_crypto_meta.get('cipher'))
+            return self.crypto.create_decryption_ctxt(
+                keys['object'], body_crypto_meta.get('iv'), offset)
+        except (ValueError, EncryptionException) as err:
+            msg = 'Error creating decryption context for object body'
+            self.logger.error('%s: %s' % (msg, str(err)))
+            raise HTTPInternalServerError(body=msg, content_type='text/plain')
 
     def GET(self, req, start_response):
         app_resp = self._app_call(req.environ)
@@ -250,8 +249,8 @@ class DecrypterObjContext(BaseDecrypterContext):
                            self._response_exc_info)
             return app_resp
 
-        self.body_crypto_ctxt = self.make_decryption_context(keys)
         mod_resp_headers = self.decrypt_resp_headers(keys)
+        self.body_crypto_ctxt = self.make_decryption_context(keys)
 
         start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
@@ -360,7 +359,7 @@ class Decrypter(object):
         self.conf = conf
 
     def __call__(self, env, start_response):
-        self.crypto = get_crypto(self.conf)
+        self.crypto = Crypto(self.conf)
 
         req = Request(env)
         try:
@@ -383,10 +382,6 @@ class Decrypter(object):
                 return err_resp(env, start_response)
 
         return self.app(env, start_response)
-
-
-def get_crypto(conf):
-    return Crypto(conf)
 
 
 def filter_factory(global_conf, **local_conf):

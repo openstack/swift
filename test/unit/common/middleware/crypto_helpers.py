@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import hashlib
+from swift.common.middleware.crypto import Crypto
 
 
 def fetch_crypto_keys():
     return {'account': 'This is an account key 012345678',
-            'container': 'This is a containter key 0123456',
+            'container': 'This is a container key 01234567',
             'object': 'This is an object key 0123456789'}
 
 
@@ -25,41 +26,22 @@ def md5hex(s):
     return hashlib.md5(s).hexdigest()
 
 
-def fake_decrypt(chunk):
-    return chunk.swapcase()
+def encrypt(val, key=None, iv=None, ctxt=None):
+    if ctxt is None:
+        ctxt = Crypto({}).create_encryption_ctxt(key, iv)
+    enc_val = ctxt.update(val)
+    return enc_val
 
 
-def fake_encrypt(chunk):
-    return chunk.swapcase()
+def decrypt(key, iv, enc_val):
+    dec_ctxt = Crypto({}).create_decryption_ctxt(key, iv, 0)
+    dec_val = dec_ctxt.update(enc_val)
+    return dec_val
 
 
-class FakeEncryptionContext(object):
-
-    def update(self, chunk):
-        return fake_encrypt(chunk)
+def fake_iv():
+    return "This is an IV123"
 
 
-class FakeDecryptionContext(object):
-
-    def update(self, chunk):
-        return fake_decrypt(chunk)
-
-
-class FakeCrypto(object):
-    def __init__(self, *args):
-        pass
-
-    def create_encryption_ctxt(self, key, iv):
-        return FakeEncryptionContext()
-
-    def create_decryption_ctxt(self, key, iv, offset):
-        return FakeDecryptionContext()
-
-    def create_iv(self):
-        return "test_iv"
-
-    def get_cipher(self):
-        return "test_cipher"
-
-    def get_crypto_meta(self):
-        return {'iv': self.create_iv(), 'cipher': self.get_cipher()}
+def fake_get_crypto_meta():
+    return {'iv': fake_iv(), 'cipher': Crypto({}).get_cipher()}
