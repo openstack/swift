@@ -463,7 +463,12 @@ Example::
 
 Assuming 3 replicas, this configuration will make object PUTs try
 storing the object's replicas on up to 6 disks ("2 * replicas") in
-region 1 ("r1").
+region 1 ("r1"). Proxy server tries to find 3 devices for storing the 
+object. While a device is unavailable, it queries the ring for the 4th 
+device and so on until 6th device. If the 6th disk is still unavailable,
+the last replica will be sent to other region. It doesn't mean there'll 
+have 6 replicas in region 1. 
+
 
 You should be aware that, if you have data coming into SF faster than
 your link to NY can transfer it, then your cluster's data distribution
