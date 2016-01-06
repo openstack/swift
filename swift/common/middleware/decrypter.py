@@ -16,17 +16,13 @@
 import base64
 import json
 import urllib
-try:
-    import xml.etree.cElementTree as ElementTree
-except ImportError:
-    import xml.etree.ElementTree as ElementTree
 
 from swift.common.http import is_success
 from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.exceptions import EncryptionException
 from swift.common.middleware.crypto import Crypto
 from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
-    get_obj_persisted_sysmeta_prefix, get_listing_content_type
+    get_obj_persisted_sysmeta_prefix
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible
@@ -195,11 +191,6 @@ class DecrypterObjContext(BaseDecrypterContext):
             mod_hdr_pairs.append(('Etag', self.decrypt_value(
                 etag, keys[self.server_type], crypto_meta)))
 
-        # Decrypt content-type
-        ctype = self._response_header_value('Content-Type')
-        mod_hdr_pairs.append(('Content-Type', self.decrypt_value(
-            ctype, keys[self.server_type], None)))
-
         # Decrypt all user metadata
         mod_hdr_pairs.extend(self.decrypt_user_metadata(keys))
 
@@ -282,75 +273,6 @@ class DecrypterObjContext(BaseDecrypterContext):
         return app_resp
 
 
-class DecrypterContContext(BaseDecrypterContext):
-    def __init__(self, decrypter, logger):
-        super(DecrypterContContext, self).__init__(decrypter, logger)
-
-    def GET(self, req, start_response):
-        app_resp = self._app_call(req.environ)
-
-        keys = self.process_resp(req)
-
-        if keys:
-            out_content_type = get_listing_content_type(req)
-            if out_content_type == 'application/json':
-                app_resp = self.process_json_resp(keys, app_resp)
-            elif out_content_type.endswith('/xml'):
-                app_resp = self.process_xml_resp(keys, app_resp)
-
-        start_response(self._response_status,
-                       self._response_headers,
-                       self._response_exc_info)
-
-        return app_resp
-
-    def update_content_length(self, new_total_len):
-        self._response_headers = [
-            (h, v) for h, v in self._response_headers
-            if h.lower() != 'content-length']
-        self._response_headers.append(('Content-Length', str(new_total_len)))
-
-    def process_json_resp(self, keys, resp_iter):
-        """
-        Parses json body listing and decrypt content-type entries. Updates
-        Content-Length header with new body length and return a body iter.
-        """
-        with closing_if_possible(resp_iter):
-            resp_body = ''.join(resp_iter)
-        body_json = json.loads(resp_body)
-        new_body = json.dumps([self.decrypt_obj_dict(obj_dict, keys)
-                               for obj_dict in body_json])
-        self.update_content_length(len(new_body))
-        return [new_body]
-
-    def decrypt_obj_dict(self, obj_dict, keys):
-        ciphertext = obj_dict['content_type']
-        obj_dict['content_type'] = self.decrypt_value(
-            ciphertext, keys['container'], None)
-
-        # TODO - decode/decrypt etag when not using FakeFooters
-        # if etag and (len(etag) > constraints.ETAG_LENGTH):
-        return obj_dict
-
-    def process_xml_resp(self, keys, resp_iter):
-        """
-        Parses xml body listing and decrypt content-type entries. Updates
-        Content-Length header with new body length and return a body iter.
-        """
-        with closing_if_possible(resp_iter):
-            resp_body = ''.join(resp_iter)
-        tree = ElementTree.fromstring(resp_body)
-        for elem in tree.iter('content_type'):
-            ciphertext = elem.text.encode('utf8')
-            plaintext = self.decrypt_value(ciphertext, keys['container'], None)
-            elem.text = plaintext.decode('utf8')
-        new_body = ElementTree.tostring(tree, encoding='UTF-8').replace(
-            "<?xml version='1.0' encoding='UTF-8'?>",
-            '<?xml version="1.0" encoding="UTF-8"?>', 1)
-        self.update_content_length(len(new_body))
-        return [new_body]
-
-
 class Decrypter(object):
 
     def __init__(self, app, conf):
@@ -369,8 +291,6 @@ class Decrypter(object):
 
         if parts[3] and hasattr(DecrypterObjContext, req.method):
             dec_context = DecrypterObjContext(self, self.logger)
-        elif parts[2] and hasattr(DecrypterContContext, req.method):
-            dec_context = DecrypterContContext(self, self.logger)
         else:
             # url and/or request verb is not handled by decrypter
             dec_context = None

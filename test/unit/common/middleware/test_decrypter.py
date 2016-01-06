@@ -54,10 +54,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
                     base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
@@ -90,10 +89,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
@@ -124,10 +122,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['iv'] = 'bad_iv'
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
@@ -159,10 +156,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['iv'] = 'bad_iv'
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
@@ -182,11 +178,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
                     base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
@@ -245,11 +240,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
                     base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
@@ -307,10 +301,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         key = fetch_crypto_keys()['object']
         ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
         enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': sum(map(len, enc_body)),
                 'X-Object-Sysmeta-Crypto-Etag':
                     base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
@@ -334,10 +327,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
         enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
         enc_body = [enc_body[0][3:], enc_body[1], enc_body[2][:2]]
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': sum(map(len, enc_body)),
                 'content-range': req.headers['Content-Range'],
                 'X-Object-Sysmeta-Crypto-Etag':
@@ -362,10 +354,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
         enc_body = encrypt(body, key, fake_iv())
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex('not the body'),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
@@ -434,29 +425,6 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual('Error creating decryption context for object body',
                          resp.body)
 
-    def test_cipher_mismatch_for_content_type(self):
-        # Cipher does not match
-        env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
-        req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
-        key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['cipher'] = 'unknown_cipher'
-        content_type = encrypt_and_append_meta('text/plain', key,
-                                               crypto_meta=bad_crypto_meta)
-        app = FakeSwift()
-        hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
-                'content-length': len(enc_body),
-                'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
-                'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
-        self.assertEqual('Error decrypting header value', resp.body)
-
     def test_cipher_mismatch_for_metadata(self):
         # Cipher does not match
         env = {'REQUEST_METHOD': 'GET',
@@ -467,10 +435,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         enc_body = encrypt(body, key, fake_iv())
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
-        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': content_type,
+                'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
@@ -545,23 +512,18 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def test_cont_get_json_req(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
-        key = fetch_crypto_keys()['container']
 
         obj_dict_1 = {"bytes": 16,
                       "last_modified": "2015-04-14T23:33:06.439040",
                       "hash": "c6e8196d7f0fff6444b90861fe8d609d",
                       "name": "testfile",
-                      "content_type":
-                      encrypt_and_append_meta(
-                          content_type_1.encode('utf-8'), key)}
+                      "content_type": content_type_1}
 
         obj_dict_2 = {"bytes": 24,
                       "last_modified": "2015-04-14T23:33:06.519020",
                       "hash": "ac0374ed4d43635f803c82469d0b5a10",
                       "name": "testfile2",
-                      "content_type":
-                      encrypt_and_append_meta(
-                          content_type_2.encode('utf-8'), key)}
+                      "content_type": content_type_2}
 
         listing = [obj_dict_1, obj_dict_2]
         fake_body = json.dumps(listing)
@@ -609,29 +571,6 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         obj_dict_2['content_type'] = content_type_2
         self.assertDictEqual(obj_dict_2, body_json[1])
 
-    def test_cont_get_json_req_with_cipher_mismatch(self):
-        content_type = 'image/jpeg'
-        bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['cipher'] = 'unknown_cipher'
-        key = fetch_crypto_keys()['container']
-
-        obj_dict_1 = {"bytes": 16,
-                      "last_modified": "2015-04-14T23:33:06.439040",
-                      "hash": "c6e8196d7f0fff6444b90861fe8d609d",
-                      "name": "testfile",
-                      "content_type":
-                          encrypt_and_append_meta(content_type, key,
-                                                  crypto_meta=bad_crypto_meta)}
-
-        listing = [obj_dict_1]
-        fake_body = json.dumps(listing)
-
-        resp = self._make_cont_get_req(fake_body, 'json')
-
-        self.assertEqual('500 Internal Error', resp.status)
-        # TODO: this error message is not appropriate, change
-        self.assertEqual('Error decrypting header value', resp.body)
-
     def _assert_element_contains_dict(self, expected, element):
         for k, v in expected.items():
             entry = element.getElementsByTagName(k)
@@ -644,16 +583,15 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def test_cont_get_xml_req(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
-        key = fetch_crypto_keys()['container']
 
         fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
 <container name="testc">\
 <object><hash>c6e8196d7f0fff6444b90861fe8d609d</hash><content_type>\
-''' + encrypt_and_append_meta(content_type_1.encode('utf8'), key) + '''\
+''' + content_type_1 + '''\
 </content_type><name>testfile</name><bytes>16</bytes>\
 <last_modified>2015-04-19T02:37:39.601660</last_modified></object>\
 <object><hash>ac0374ed4d43635f803c82469d0b5a10</hash><content_type>\
-''' + encrypt_and_append_meta(content_type_2.encode('utf8'), key) + '''\
+''' + content_type_2 + '''\
 </content_type><name>testfile2</name><bytes>24</bytes>\
 <last_modified>2015-04-19T02:37:39.684740</last_modified></object>\
 </container>'''
@@ -728,26 +666,6 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "name": "testfile2",
                       "content_type": content_type_2}
         self._assert_element_contains_dict(obj_dict_2, objs[1])
-
-    def test_cont_get_xml_req_with_cipher_mismatch(self):
-        content_type = 'image/jpeg'
-        bad_crypto_meta = fake_get_crypto_meta()
-        bad_crypto_meta['cipher'] = 'unknown_cipher'
-
-        fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
-<container name="testc">\
-<object><hash>c6e8196d7f0fff6444b90861fe8d609d</hash>\
-<content_type>''' + encrypt_and_append_meta(content_type,
-                                            fetch_crypto_keys()['container'],
-                                            crypto_meta=bad_crypto_meta) + '''\
-</content_type><name>testfile</name><bytes>16</bytes>\
-<last_modified>2015-04-19T02:37:39.601660</last_modified></object>\
-</container>'''
-
-        resp = self._make_cont_get_req(fake_body, 'xml')
-
-        self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('Error decrypting header value', resp.body)
 
 
 class TestModuleMethods(unittest.TestCase):
