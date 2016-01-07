@@ -1,5 +1,3 @@
-.. _formpost:
-
 ====================
 Form POST middleware
 ====================
@@ -19,9 +17,7 @@ URL middleware uses. For information about how to set these keys, see
 :ref:`secret_keys`.
 
 For information about the form **POST** middleware configuration
-options, see `Form
-post <http://docs.openstack.org/havana/config-reference/content/object-storage-form-post.html>`__
-in the *OpenStack Configuration Reference*.
+options, see :ref:`formpost` in the *Source Documentation*.
 
 Form POST format
 ~~~~~~~~~~~~~~~~

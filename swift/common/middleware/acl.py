@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.utils import urlparse, json
+import json
+
+from swift.common.utils import urlparse
 
 
 def clean_acl(name, value):
@@ -95,17 +97,17 @@ def clean_acl(name, value):
             values.append(raw_value)
             continue
         first, second = (v.strip() for v in raw_value.split(':', 1))
-        if not first or first[0] != '.':
+        if not first or not first.startswith('.'):
             values.append(raw_value)
         elif first in ('.r', '.ref', '.referer', '.referrer'):
             if 'write' in name:
                 raise ValueError('Referrers not allowed in write ACL: '
                                  '%s' % repr(raw_value))
             negate = False
-            if second and second[0] == '-':
+            if second and second.startswith('-'):
                 negate = True
                 second = second[1:].strip()
-            if second and second != '*' and second[0] == '*':
+            if second and second != '*' and second.startswith('*'):
                 second = second[1:].strip()
             if not second or second == '.':
                 raise ValueError('No host/domain value after referrer '
@@ -261,13 +263,13 @@ def referrer_allowed(referrer, referrer_acl):
     if referrer_acl:
         rhost = urlparse(referrer or '').hostname or 'unknown'
         for mhost in referrer_acl:
-            if mhost[0] == '-':
+            if mhost.startswith('-'):
                 mhost = mhost[1:]
-                if mhost == rhost or (mhost[0] == '.' and
+                if mhost == rhost or (mhost.startswith('.') and
                                       rhost.endswith(mhost)):
                     allow = False
             elif mhost == '*' or mhost == rhost or \
-                    (mhost[0] == '.' and rhost.endswith(mhost)):
+                    (mhost.startswith('.') and rhost.endswith(mhost)):
                 allow = True
     return allow
 

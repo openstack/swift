@@ -16,4 +16,6 @@ pycscope.*
 .idea
 MANIFEST
 
+.testrepository/*
+subunit.log
 test/probe/.noseids

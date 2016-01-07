@@ -34,8 +34,9 @@ from swift.common.storage_policy import POLICIES
 
 import mock
 
-from test.unit import patch_policies, with_tempdir
-from test.unit.common.test_db import TestExampleBroker
+from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
+                       EMPTY_ETAG)
+from test.unit.common import test_db
 
 
 class TestContainerBroker(unittest.TestCase):
@@ -773,6 +774,12 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(listing[0][0], '1/0075')
         self.assertEqual(listing[-1][0], '2/0004')
 
+        listing = broker.list_objects_iter(55, '2/0005', None, None, '',
+                                           reverse=True)
+        self.assertEqual(len(listing), 55)
+        self.assertEqual(listing[0][0], '2/0004')
+        self.assertEqual(listing[-1][0], '1/0075')
+
         listing = broker.list_objects_iter(10, '', None, '0/01', '')
         self.assertEqual(len(listing), 10)
         self.assertEqual(listing[0][0], '0/0100')
@@ -783,16 +790,33 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(listing[0][0], '0/0000')
         self.assertEqual(listing[-1][0], '0/0009')
 
+        listing = broker.list_objects_iter(10, '', None, '0/', '/',
+                                           reverse=True)
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0/0124')
+        self.assertEqual(listing[-1][0], '0/0115')
+
         # Same as above, but using the path argument.
         listing = broker.list_objects_iter(10, '', None, None, '', '0')
         self.assertEqual(len(listing), 10)
         self.assertEqual(listing[0][0], '0/0000')
         self.assertEqual(listing[-1][0], '0/0009')
 
+        listing = broker.list_objects_iter(10, '', None, None, '', '0',
+                                           reverse=True)
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0/0124')
+        self.assertEqual(listing[-1][0], '0/0115')
+
         listing = broker.list_objects_iter(10, '', None, '', '/')
         self.assertEqual(len(listing), 4)
         self.assertEqual([row[0] for row in listing],
                          ['0/', '1/', '2/', '3/'])
+
+        listing = broker.list_objects_iter(10, '', None, '', '/', reverse=True)
+        self.assertEqual(len(listing), 4)
+        self.assertEqual([row[0] for row in listing],
+                         ['3/', '2/', '1/', '0/'])
 
         listing = broker.list_objects_iter(10, '2', None, None, '/')
         self.assertEqual(len(listing), 2)
@@ -801,6 +825,16 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(10, '2/', None, None, '/')
         self.assertEqual(len(listing), 1)
         self.assertEqual([row[0] for row in listing], ['3/'])
+
+        listing = broker.list_objects_iter(10, '2/', None, None, '/',
+                                           reverse=True)
+        self.assertEqual(len(listing), 2)
+        self.assertEqual([row[0] for row in listing], ['1/', '0/'])
+
+        listing = broker.list_objects_iter(10, '20', None, None, '/',
+                                           reverse=True)
+        self.assertEqual(len(listing), 3)
+        self.assertEqual([row[0] for row in listing], ['2/', '1/', '0/'])
 
         listing = broker.list_objects_iter(10, '2/0050', None, '2/', '/')
         self.assertEqual(len(listing), 10)
@@ -851,6 +885,154 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(2, None, None, None, None, '3')
         self.assertEqual(len(listing), 2)
         self.assertEqual([row[0] for row in listing], ['3/0000', '3/0001'])
+
+    def test_reverse_prefix_delim(self):
+        expectations = [
+            {
+                'objects': [
+                    'topdir1/subdir1.0/obj1',
+                    'topdir1/subdir1.1/obj1',
+                    'topdir1/subdir1/obj1',
+                ],
+                'params': {
+                    'prefix': 'topdir1/',
+                    'delimiter': '/',
+                },
+                'expected': [
+                    'topdir1/subdir1.0/',
+                    'topdir1/subdir1.1/',
+                    'topdir1/subdir1/',
+                ],
+            },
+            {
+                'objects': [
+                    'topdir1/subdir1.0/obj1',
+                    'topdir1/subdir1.1/obj1',
+                    'topdir1/subdir1/obj1',
+                    'topdir1/subdir10',
+                    'topdir1/subdir10/obj1',
+                ],
+                'params': {
+                    'prefix': 'topdir1/',
+                    'delimiter': '/',
+                },
+                'expected': [
+                    'topdir1/subdir1.0/',
+                    'topdir1/subdir1.1/',
+                    'topdir1/subdir1/',
+                    'topdir1/subdir10',
+                    'topdir1/subdir10/',
+                ],
+            },
+            {
+                'objects': [
+                    'topdir1/subdir1/obj1',
+                    'topdir1/subdir1.0/obj1',
+                    'topdir1/subdir1.1/obj1',
+                ],
+                'params': {
+                    'prefix': 'topdir1/',
+                    'delimiter': '/',
+                    'reverse': True,
+                },
+                'expected': [
+                    'topdir1/subdir1/',
+                    'topdir1/subdir1.1/',
+                    'topdir1/subdir1.0/',
+                ],
+            },
+            {
+                'objects': [
+                    'topdir1/subdir10/obj1',
+                    'topdir1/subdir10',
+                    'topdir1/subdir1/obj1',
+                    'topdir1/subdir1.0/obj1',
+                    'topdir1/subdir1.1/obj1',
+                ],
+                'params': {
+                    'prefix': 'topdir1/',
+                    'delimiter': '/',
+                    'reverse': True,
+                },
+                'expected': [
+                    'topdir1/subdir10/',
+                    'topdir1/subdir10',
+                    'topdir1/subdir1/',
+                    'topdir1/subdir1.1/',
+                    'topdir1/subdir1.0/',
+                ],
+            },
+            {
+                'objects': [
+                    '1',
+                    '2',
+                    '3/1',
+                    '3/2.2',
+                    '3/2/1',
+                    '3/2/2',
+                    '3/3',
+                    '4',
+                ],
+                'params': {
+                    'path': '3/',
+                },
+                'expected': [
+                    '3/1',
+                    '3/2.2',
+                    '3/3',
+                ],
+            },
+            {
+                'objects': [
+                    '1',
+                    '2',
+                    '3/1',
+                    '3/2.2',
+                    '3/2/1',
+                    '3/2/2',
+                    '3/3',
+                    '4',
+                ],
+                'params': {
+                    'path': '3/',
+                    'reverse': True,
+                },
+                'expected': [
+                    '3/3',
+                    '3/2.2',
+                    '3/1',
+                ],
+            },
+        ]
+        ts = make_timestamp_iter()
+        default_listing_params = {
+            'limit': 10000,
+            'marker': '',
+            'end_marker': None,
+            'prefix': None,
+            'delimiter': None,
+        }
+        obj_create_params = {
+            'size': 0,
+            'content_type': 'application/test',
+            'etag': EMPTY_ETAG,
+        }
+        failures = []
+        for expected in expectations:
+            broker = ContainerBroker(':memory:', account='a', container='c')
+            broker.initialize(next(ts).internal, 0)
+            for name in expected['objects']:
+                broker.put_object(name, next(ts).internal, **obj_create_params)
+            params = default_listing_params.copy()
+            params.update(expected['params'])
+            listing = list(o[0] for o in broker.list_objects_iter(**params))
+            if listing != expected['expected']:
+                expected['listing'] = listing
+                failures.append(
+                    "With objects %(objects)r, the params %(params)r "
+                    "produced %(listing)r instead of %(expected)r" % expected)
+        self.assertFalse(failures, "Found the following failures:\n%s" %
+                         '\n'.join(failures))
 
     def test_list_objects_iter_non_slash(self):
         # Test ContainerBroker.list_objects_iter using a
@@ -1005,6 +1187,47 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(100, None, None, '/pets/fish/', '/')
         self.assertEqual([row[0] for row in listing],
                          ['/pets/fish/a', '/pets/fish/b'])
+
+    def test_list_objects_iter_order_and_reverse(self):
+        # Test ContainerBroker.list_objects_iter
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+
+        broker.put_object(
+            'o1', Timestamp(0).internal, 0,
+            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object(
+            'o10', Timestamp(0).internal, 0,
+            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object(
+            'O1', Timestamp(0).internal, 0,
+            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object(
+            'o2', Timestamp(0).internal, 0,
+            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object(
+            'o3', Timestamp(0).internal, 0,
+            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker.put_object(
+            'O4', Timestamp(0).internal, 0,
+            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+
+        listing = broker.list_objects_iter(100, None, None, '', '',
+                                           reverse=False)
+        self.assertEqual([row[0] for row in listing],
+                         ['O1', 'O4', 'o1', 'o10', 'o2', 'o3'])
+        listing = broker.list_objects_iter(100, None, None, '', '',
+                                           reverse=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['o3', 'o2', 'o10', 'o1', 'O4', 'O1'])
+        listing = broker.list_objects_iter(2, None, None, '', '',
+                                           reverse=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['o3', 'o2'])
+        listing = broker.list_objects_iter(100, 'o2', 'O4', '', '',
+                                           reverse=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['o10', 'o1'])
 
     def test_double_check_trailing_delimiter(self):
         # Test ContainerBroker.list_objects_iter for a
@@ -1457,7 +1680,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(broker.get_policy_stats(), expected)
 
 
-class TestCommonContainerBroker(TestExampleBroker):
+class TestCommonContainerBroker(test_db.TestExampleBroker):
 
     broker_class = ContainerBroker
 

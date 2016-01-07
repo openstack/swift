@@ -49,7 +49,7 @@ class ContainerUpdater(Daemon):
         self.account_ring = None
         self.concurrency = int(conf.get('concurrency', 4))
         self.slowdown = float(conf.get('slowdown', 0.01))
-        self.node_timeout = int(conf.get('node_timeout', 3))
+        self.node_timeout = float(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.no_changes = 0
         self.successes = 0
@@ -89,7 +89,7 @@ class ContainerUpdater(Daemon):
         for device in self._listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
             if self.mount_check and not ismount(dev_path):
-                self.logger.warn(_('%s is not mounted'), device)
+                self.logger.warning(_('%s is not mounted'), device)
                 continue
             con_path = os.path.join(dev_path, DATADIR)
             if not os.path.exists(con_path):

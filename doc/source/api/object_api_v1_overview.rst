@@ -128,7 +128,24 @@ If you have a large number of containers or objects, you can use query
 parameters to page through large lists of containers or objects. Use the
 *``marker``*, *``limit``*, and *``end_marker``* query parameters to
 control how many items are returned in a list and where the list starts
-or ends.
+or ends. If you want to page through in reverse order, you can use the query
+parameter *``reverse``*, noting that your marker and end_markers should be
+switched when applied to a reverse listing. I.e, for a list of objects
+``[a, b, c, d, e]`` the non-reversed could be:
+
+.. code::
+
+  /v1/{account}/{container}/?marker=a&end_marker=d
+  b
+  c
+
+However, when reversed marker and end_marker are applied to a reversed list:
+
+.. code::
+
+  /v1/{account}/{container}/?marker=d&end_marker=a&reverse=on
+  c
+  b
 
 Object Storage HTTP requests have the following default constraints.
 Your service provider might use different default values.

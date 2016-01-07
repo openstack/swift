@@ -28,19 +28,20 @@ import time
 import random
 
 from eventlet import spawn, Timeout, listen
-import simplejson
+import json
 import six
 from six import BytesIO
 from six import StringIO
 
 from swift import __version__ as swift_version
-from swift.common.swob import Request, HeaderKeyDict
+from swift.common.swob import (Request, HeaderKeyDict,
+                               WsgiBytesIO, HTTPNoContent)
 import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
-                                lock_parent_directory, json)
-from test.unit import fake_http_connect
+                                storage_directory, lock_parent_directory)
+from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
@@ -91,6 +92,12 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(204, resp.status_int)
         self.assertEqual(str(policy_index),
                          resp.headers['X-Backend-Storage-Policy-Index'])
+
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        replicator = container_server.ContainerController(
+            {'node_timeout': '3.5'})
+        self.assertEqual(replicator.node_timeout, 3.5)
 
     def test_get_and_validate_policy_index(self):
         # no policy is OK
@@ -1146,6 +1153,50 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(info['x_container_sync_point1'], -1)
         self.assertEqual(info['x_container_sync_point2'], -1)
 
+    def test_REPLICATE_insufficient_storage(self):
+        conf = {'devices': self.testdir, 'mount_check': 'true'}
+        self.container_controller = container_server.ContainerController(
+            conf)
+
+        def fake_check_mount(*args, **kwargs):
+            return False
+
+        with mock.patch("swift.common.constraints.check_mount",
+                        fake_check_mount):
+            req = Request.blank('/sda1/p/suff',
+                                environ={'REQUEST_METHOD': 'REPLICATE'},
+                                headers={})
+            resp = req.get_response(self.container_controller)
+        self.assertEqual(resp.status_int, 507)
+
+    def test_REPLICATE_works(self):
+        mkdirs(os.path.join(self.testdir, 'sda1', 'containers', 'p', 'a', 'a'))
+        db_file = os.path.join(self.testdir, 'sda1',
+                               storage_directory('containers', 'p', 'a'),
+                               'a' + '.db')
+        open(db_file, 'w')
+
+        def fake_rsync_then_merge(self, drive, db_file, args):
+            return HTTPNoContent()
+
+        with mock.patch("swift.container.replicator.ContainerReplicatorRpc."
+                        "rsync_then_merge", fake_rsync_then_merge):
+            req = Request.blank('/sda1/p/a/',
+                                environ={'REQUEST_METHOD': 'REPLICATE'},
+                                headers={})
+            json_string = '["rsync_then_merge", "a.db"]'
+            inbuf = WsgiBytesIO(json_string)
+            req.environ['wsgi.input'] = inbuf
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+
+        # check valuerror
+        wsgi_input_valuerror = '["sync" : sync, "-1"]'
+        inbuf1 = WsgiBytesIO(wsgi_input_valuerror)
+        req.environ['wsgi.input'] = inbuf1
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+
     def test_DELETE(self):
         req = Request.blank(
             '/sda1/p/a/c',
@@ -1639,7 +1690,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(simplejson.loads(resp.body), [])
+        self.assertEqual(json.loads(resp.body), [])
         # fill the container
         for i in range(3):
             req = Request.blank(
@@ -1674,7 +1725,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'application/json')
-        self.assertEqual(simplejson.loads(resp.body), json_body)
+        self.assertEqual(json.loads(resp.body), json_body)
         self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank(
@@ -1691,7 +1742,7 @@ class TestContainerController(unittest.TestCase):
             req.accept = accept
             resp = req.get_response(self.controller)
             self.assertEqual(
-                simplejson.loads(resp.body), json_body,
+                json.loads(resp.body), json_body,
                 'Invalid body for Accept: %s' % accept)
             self.assertEqual(
                 resp.content_type, 'application/json',
@@ -1821,7 +1872,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'application/json')
-        self.assertEqual(simplejson.loads(resp.body), json_body)
+        self.assertEqual(json.loads(resp.body), json_body)
         self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_xml(self):
@@ -1949,7 +2000,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        result = [x['content_type'] for x in simplejson.loads(resp.body)]
+        result = [x['content_type'] for x in json.loads(resp.body)]
         self.assertEqual(result, [u'\u2603', 'text/plain;charset="utf-8"'])
 
     def test_GET_accept_not_valid(self):
@@ -2037,7 +2088,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(
-            simplejson.loads(resp.body),
+            json.loads(resp.body),
             [{"subdir": "US-OK-"},
              {"subdir": "US-TX-"},
              {"subdir": "US-UT-"}])
@@ -2118,7 +2169,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(
-            simplejson.loads(resp.body),
+            json.loads(resp.body),
             [{"name": "US/OK", "hash": "x", "bytes": 0,
               "content_type": "text/plain",
               "last_modified": "1970-01-01T00:00:01.000000"},
@@ -2579,6 +2630,52 @@ class TestContainerController(unittest.TestCase):
             self.controller(env, start_response)
             self.assertEqual(errbuf.getvalue(), '')
             self.assertEqual(outbuf.getvalue()[:4], '405 ')
+
+    def test__call__raise_timeout(self):
+        inbuf = WsgiBytesIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        self.logger = debug_logger('test')
+        self.container_controller = container_server.ContainerController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'false', 'log_requests': 'false'},
+            logger=self.logger)
+
+        def start_response(*args):
+            # Sends args to outbuf
+            outbuf.writelines(args)
+
+        method = 'PUT'
+
+        env = {'REQUEST_METHOD': method,
+               'SCRIPT_NAME': '',
+               'PATH_INFO': '/sda1/p/a/c',
+               'SERVER_NAME': '127.0.0.1',
+               'SERVER_PORT': '8080',
+               'SERVER_PROTOCOL': 'HTTP/1.0',
+               'CONTENT_LENGTH': '0',
+               'wsgi.version': (1, 0),
+               'wsgi.url_scheme': 'http',
+               'wsgi.input': inbuf,
+               'wsgi.errors': errbuf,
+               'wsgi.multithread': False,
+               'wsgi.multiprocess': False,
+               'wsgi.run_once': False}
+
+        @public
+        def mock_put_method(*args, **kwargs):
+            raise Exception()
+
+        with mock.patch.object(self.container_controller, method,
+                               new=mock_put_method):
+            response = self.container_controller.__call__(env, start_response)
+            self.assertTrue(response[0].startswith(
+                'Traceback (most recent call last):'))
+            self.assertEqual(self.logger.get_lines_for_level('error'), [
+                'ERROR __call__ error with %(method)s %(path)s : ' % {
+                    'method': 'PUT', 'path': '/sda1/p/a/c'},
+            ])
+            self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_GET_log_requests_true(self):
         self.controller.logger = FakeLogger()

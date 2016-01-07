@@ -22,7 +22,6 @@ import socket
 import unittest
 import os
 from textwrap import dedent
-from contextlib import nested
 from collections import defaultdict
 
 from eventlet import listen
@@ -380,7 +379,8 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True)
+                                                          socket=True,
+                                                          thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -413,13 +413,12 @@ class TestWSGI(unittest.TestCase):
             with open(conf_file, 'w') as f:
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
-            with nested(
-                mock.patch('swift.proxy.server.Application.'
-                           'modify_wsgi_pipeline'),
-                mock.patch('swift.common.wsgi.wsgi'),
-                mock.patch('swift.common.wsgi.eventlet'),
-                mock.patch('swift.common.wsgi.inspect',
-                           getargspec=argspec_stub)) as (_, _wsgi, _, _):
+            with mock.patch('swift.proxy.server.Application.'
+                            'modify_wsgi_pipeline'), \
+                    mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
+                    mock.patch('swift.common.wsgi.eventlet'), \
+                    mock.patch('swift.common.wsgi.inspect',
+                               getargspec=argspec_stub):
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
                 sock = listen(('localhost', 0))
@@ -468,7 +467,8 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True)
+                                                          socket=True,
+                                                          thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -519,7 +519,8 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True)
+                                                          socket=True,
+                                                          thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
@@ -658,15 +659,15 @@ class TestWSGI(unittest.TestCase):
             self.assertEqual(kwargs['global_conf'],
                              {'log_name': 'log_name', 'test1': 'one'})
 
-        with nested(
-                mock.patch.object(wsgi, '_initrp', _initrp),
-                mock.patch.object(wsgi, 'get_socket'),
-                mock.patch.object(wsgi, 'drop_privileges'),
-                mock.patch.object(wsgi, 'loadapp', _loadapp),
-                mock.patch.object(wsgi, 'capture_stdio'),
-                mock.patch.object(wsgi, 'run_server')):
+        with mock.patch.object(wsgi, '_initrp', _initrp), \
+                mock.patch.object(wsgi, 'get_socket'), \
+                mock.patch.object(wsgi, 'drop_privileges'), \
+                mock.patch.object(wsgi, 'loadapp', _loadapp), \
+                mock.patch.object(wsgi, 'capture_stdio'), \
+                mock.patch.object(wsgi, 'run_server'):
             wsgi.run_wsgi('conf_file', 'app_section',
                           global_conf_callback=_global_conf_callback)
+
         self.assertEqual(calls['_global_conf_callback'], 1)
         self.assertEqual(calls['_loadapp'], 1)
 
@@ -683,13 +684,12 @@ class TestWSGI(unittest.TestCase):
         def _loadapp(uri, name=None, **kwargs):
             calls['_loadapp'] += 1
 
-        with nested(
-                mock.patch.object(wsgi, '_initrp', _initrp),
-                mock.patch.object(wsgi, 'get_socket'),
-                mock.patch.object(wsgi, 'drop_privileges'),
-                mock.patch.object(wsgi, 'loadapp', _loadapp),
-                mock.patch.object(wsgi, 'capture_stdio'),
-                mock.patch.object(wsgi, 'run_server')):
+        with mock.patch.object(wsgi, '_initrp', _initrp), \
+                mock.patch.object(wsgi, 'get_socket'), \
+                mock.patch.object(wsgi, 'drop_privileges'), \
+                mock.patch.object(wsgi, 'loadapp', _loadapp), \
+                mock.patch.object(wsgi, 'capture_stdio'), \
+                mock.patch.object(wsgi, 'run_server'):
             rc = wsgi.run_wsgi('conf_file', 'app_section')
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 1)
@@ -764,13 +764,12 @@ class TestWSGI(unittest.TestCase):
         def _loadapp(uri, name=None, **kwargs):
             calls['_loadapp'] += 1
 
-        with nested(
-                mock.patch.object(wsgi, '_initrp', _initrp),
-                mock.patch.object(wsgi, 'get_socket'),
-                mock.patch.object(wsgi, 'drop_privileges'),
-                mock.patch.object(wsgi, 'loadapp', _loadapp),
-                mock.patch.object(wsgi, 'capture_stdio'),
-                mock.patch.object(wsgi, 'run_server')):
+        with mock.patch.object(wsgi, '_initrp', _initrp), \
+                mock.patch.object(wsgi, 'get_socket'), \
+                mock.patch.object(wsgi, 'drop_privileges'), \
+                mock.patch.object(wsgi, 'loadapp', _loadapp), \
+                mock.patch.object(wsgi, 'capture_stdio'), \
+                mock.patch.object(wsgi, 'run_server'):
             rc = wsgi.run_wsgi('conf_file', 'app_section')
         self.assertEqual(calls['_initrp'], 1)
         self.assertEqual(calls['_loadapp'], 0)
@@ -825,6 +824,13 @@ class TestWSGI(unittest.TestCase):
 
         self.assertTrue('HTTP_X_PROJECT_ID' in newenv)
         self.assertEqual(newenv['HTTP_X_PROJECT_ID'], '5678')
+
+    def test_make_env_keeps_referer(self):
+        oldenv = {'HTTP_REFERER': 'http://blah.example.com'}
+        newenv = wsgi.make_env(oldenv)
+
+        self.assertTrue('HTTP_REFERER' in newenv)
+        self.assertEqual(newenv['HTTP_REFERER'], 'http://blah.example.com')
 
 
 class TestServersPerPortStrategy(unittest.TestCase):

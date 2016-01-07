@@ -45,7 +45,7 @@ from nose import SkipTest
 from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
-    make_timestamp_iter
+    make_timestamp_iter, DEFAULT_TEST_EC_TYPE
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
@@ -57,7 +57,7 @@ from swift.common.swob import Request, HeaderKeyDict, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
-from swift.common.exceptions import DiskFileDeviceUnavailable
+from swift.common.exceptions import DiskFileDeviceUnavailable, DiskFileNoSpace
 
 
 def mock_time(*args, **kwargs):
@@ -66,7 +66,7 @@ def mock_time(*args, **kwargs):
 
 test_policies = [
     StoragePolicy(0, name='zero', is_default=True),
-    ECStoragePolicy(1, name='one', ec_type='jerasure_rs_vand',
+    ECStoragePolicy(1, name='one', ec_type=DEFAULT_TEST_EC_TYPE,
                     ec_ndata=10, ec_nparity=4),
 ]
 
@@ -2604,6 +2604,29 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(len(os.listdir(os.path.dirname(objfile))), 1)
         finally:
             self.object_controller.container_update = orig_cu
+
+    def test_DELETE_full_drive(self):
+
+        def mock_diskfile_delete(self, timestamp):
+            raise DiskFileNoSpace()
+
+        t_put = utils.Timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put.internal,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        with mock.patch('swift.obj.diskfile.BaseDiskFile.delete',
+                        mock_diskfile_delete):
+            t_delete = utils.Timestamp(time())
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': t_delete.internal})
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 507)
 
     def test_object_update_with_offset(self):
         ts = (utils.Timestamp(t).internal for t in
@@ -5535,7 +5558,7 @@ class TestObjectServer(unittest.TestCase):
                         object-metadata (e.g.  X-Backend-Obj-Content-Length)
                         is generally expected tomatch the test_doc)
         :param finish_body: boolean, if true send "0\r\n\r\n" after test_doc
-                            and wait for 100-continue before yeilding context
+                            and wait for 100-continue before yielding context
         """
         test_data = 'obj data'
         footer_meta = {

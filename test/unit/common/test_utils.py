@@ -34,19 +34,18 @@ import sys
 import json
 import math
 
+import six
 from six import BytesIO, StringIO
 from six.moves.queue import Queue, Empty
 from six.moves import range
 from textwrap import dedent
 
 import tempfile
-import threading
 import time
 import traceback
 import unittest
 import fcntl
 import shutil
-from contextlib import nested
 
 from getpass import getuser
 from shutil import rmtree
@@ -54,6 +53,7 @@ from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
 from mock import MagicMock, patch
+from six.moves.configparser import NoSectionError, NoOptionError
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout, LockTimeout,
@@ -63,6 +63,8 @@ from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import Request, Response, HeaderKeyDict
 from test.unit import FakeLogger
+
+threading = eventlet.patcher.original('threading')
 
 
 class MockOs(object):
@@ -778,6 +780,15 @@ class TestTimestamp(unittest.TestCase):
             self.assertEqual(
                 sorted([t.internal for t in timestamps]), expected)
 
+    def test_hashable(self):
+        ts_0 = utils.Timestamp('1402444821.72589')
+        ts_0_also = utils.Timestamp('1402444821.72589')
+        self.assertEqual(ts_0, ts_0_also)  # sanity
+        self.assertEqual(hash(ts_0), hash(ts_0_also))
+        d = {ts_0: 'whatever'}
+        self.assertIn(ts_0, d)  # sanity
+        self.assertIn(ts_0_also, d)
+
 
 class TestUtils(unittest.TestCase):
     """Tests for swift.common.utils """
@@ -955,23 +966,23 @@ class TestUtils(unittest.TestCase):
         # all of the boundary conditions and typical conditions.
         # Block boundaries are marked with '<>' characters
         blocksize = 25
-        lines = ['123456789x12345678><123456789\n',  # block larger than rest
-                 '123456789x123>\n',  # block ends just before \n character
-                 '123423456789\n',
-                 '123456789x\n',  # block ends at the end of line
-                 '<123456789x123456789x123\n',
-                 '<6789x123\n',  # block ends at the beginning of the line
-                 '6789x1234\n',
-                 '1234><234\n',  # block ends typically in the middle of line
-                 '123456789x123456789\n']
+        lines = [b'123456789x12345678><123456789\n',  # block larger than rest
+                 b'123456789x123>\n',  # block ends just before \n character
+                 b'123423456789\n',
+                 b'123456789x\n',  # block ends at the end of line
+                 b'<123456789x123456789x123\n',
+                 b'<6789x123\n',  # block ends at the beginning of the line
+                 b'6789x1234\n',
+                 b'1234><234\n',  # block ends typically in the middle of line
+                 b'123456789x123456789\n']
 
-        with TemporaryFile('r+w') as f:
+        with TemporaryFile() as f:
             for line in lines:
                 f.write(line)
 
             count = len(lines) - 1
             for line in utils.backward(f, blocksize):
-                self.assertEqual(line, lines[count].split('\n')[0])
+                self.assertEqual(line, lines[count].split(b'\n')[0])
                 count -= 1
 
         # Empty file case
@@ -1211,7 +1222,7 @@ class TestUtils(unittest.TestCase):
         logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
         logger = utils.get_logger(None, 'server', log_route='server')
-        logger.warn('test1')
+        logger.warning('test1')
         self.assertEqual(sio.getvalue(), 'test1\n')
         logger.debug('test2')
         self.assertEqual(sio.getvalue(), 'test1\n')
@@ -1223,7 +1234,7 @@ class TestUtils(unittest.TestCase):
         # way to syslog; but exercises the code.
         logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
                                   log_route='server')
-        logger.warn('test4')
+        logger.warning('test4')
         self.assertEqual(sio.getvalue(),
                          'test1\ntest3\ntest4\n')
         # make sure debug doesn't log by default
@@ -1308,6 +1319,7 @@ class TestUtils(unittest.TestCase):
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
+            sio.seek(0)
             v = sio.getvalue()
             sio.truncate(0)
             return v
@@ -1401,6 +1413,7 @@ class TestUtils(unittest.TestCase):
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
+            sio.seek(0)
             v = sio.getvalue()
             sio.truncate(0)
             return v
@@ -1455,6 +1468,7 @@ class TestUtils(unittest.TestCase):
         logger.logger.addHandler(handler)
 
         def strip_value(sio):
+            sio.seek(0)
             v = sio.getvalue()
             sio.truncate(0)
             return v
@@ -1478,7 +1492,7 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('12345' not in log_msg)
             # test txn already in message
             self.assertEqual(logger.txn_id, '12345')
-            logger.warn('test 12345 test')
+            logger.warning('test 12345 test')
             self.assertEqual(strip_value(sio), 'test 12345 test\n')
             # Test multi line collapsing
             logger.error('my\nerror\nmessage')
@@ -1504,7 +1518,7 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('1.2.3.4' not in log_msg)
             # test client_ip (and txn) already in message
             self.assertEqual(logger.client_ip, '1.2.3.4')
-            logger.warn('test 1.2.3.4 test 12345')
+            logger.warning('test 1.2.3.4 test 12345')
             self.assertEqual(strip_value(sio), 'test 1.2.3.4 test 12345\n')
         finally:
             logger.logger.removeHandler(handler)
@@ -1546,9 +1560,8 @@ class TestUtils(unittest.TestCase):
         def my_ifaddress_error(interface):
             raise ValueError
 
-        with nested(
-                patch('netifaces.interfaces', my_interfaces),
-                patch('netifaces.ifaddresses', my_ifaddress_error)):
+        with patch('netifaces.interfaces', my_interfaces), \
+                patch('netifaces.ifaddresses', my_ifaddress_error):
             self.assertEqual(utils.whataremyips(), [])
 
     def test_whataremyips_ipv6(self):
@@ -1562,19 +1575,16 @@ class TestUtils(unittest.TestCase):
             return {AF_INET6:
                     [{'netmask': 'ffff:ffff:ffff:ffff::',
                       'addr': '%s%%%s' % (test_ipv6_address, test_interface)}]}
-        with nested(
-                patch('netifaces.interfaces', my_ipv6_interfaces),
-                patch('netifaces.ifaddresses', my_ipv6_ifaddresses)):
+        with patch('netifaces.interfaces', my_ipv6_interfaces), \
+                patch('netifaces.ifaddresses', my_ipv6_ifaddresses):
             myips = utils.whataremyips()
             self.assertEqual(len(myips), 1)
             self.assertEqual(myips[0], test_ipv6_address)
 
     def test_hash_path(self):
-        _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someones changes the results hash_path produces, they know it
-        try:
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''):
             self.assertEqual(utils.hash_path('a'),
                              '1c84525acb02107ea475dcd3d09c2c58')
             self.assertEqual(utils.hash_path('a', 'c'),
@@ -1590,8 +1600,60 @@ class TestUtils(unittest.TestCase):
             utils.HASH_PATH_PREFIX = 'abcdef'
             self.assertEqual(utils.hash_path('a', 'c', 'o', raw_digest=False),
                              '363f9b535bfb7d17a43a46a358afca0e')
-        finally:
-            utils.HASH_PATH_PREFIX = _prefix
+
+    def test_validate_hash_conf(self):
+        # no section causes InvalidHashPathConfigError
+        self._test_validate_hash_conf([], [], True)
+
+        # 'swift-hash' section is there but no options causes
+        # InvalidHashPathConfigError
+        self._test_validate_hash_conf(['swift-hash'], [], True)
+
+        # if we have the section and either of prefix or suffix,
+        # InvalidHashPathConfigError doesn't occur
+        self._test_validate_hash_conf(
+            ['swift-hash'], ['swift_hash_path_prefix'], False)
+        self._test_validate_hash_conf(
+            ['swift-hash'], ['swift_hash_path_suffix'], False)
+
+        # definitely, we have the section and both of them,
+        # InvalidHashPathConfigError doesn't occur
+        self._test_validate_hash_conf(
+            ['swift-hash'],
+            ['swift_hash_path_suffix', 'swift_hash_path_prefix'], False)
+
+        # But invalid section name should make an error even if valid
+        # options are there
+        self._test_validate_hash_conf(
+            ['swift-hash-xxx'],
+            ['swift_hash_path_suffix', 'swift_hash_path_prefix'], True)
+
+    def _test_validate_hash_conf(self, sections, options, should_raise_error):
+
+        class FakeConfigParser(object):
+            def read(self, conf_path):
+                return True
+
+            def get(self, section, option):
+                if section not in sections:
+                    raise NoSectionError('section error')
+                elif option not in options:
+                    raise NoOptionError('option error', 'this option')
+                else:
+                    return 'some_option_value'
+
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                mock.patch('swift.common.utils.HASH_PATH_SUFFIX', ''), \
+                mock.patch('swift.common.utils.ConfigParser',
+                           FakeConfigParser):
+            try:
+                utils.validate_hash_conf()
+            except utils.InvalidHashPathConfigError:
+                if not should_raise_error:
+                    self.fail('validate_hash_conf should not raise an error')
+            else:
+                if should_raise_error:
+                    self.fail('validate_hash_conf should raise an error')
 
     def test_load_libc_function(self):
         self.assertTrue(callable(
@@ -1879,10 +1941,9 @@ log_name = %(yarr)s'''
             curr_time[0] += 0.001
             curr_time[0] += duration
 
-        with nested(
-                patch('time.time', my_time),
-                patch('time.sleep', my_sleep),
-                patch('eventlet.sleep', my_sleep)):
+        with patch('time.time', my_time), \
+                patch('time.sleep', my_sleep), \
+                patch('eventlet.sleep', my_sleep):
             start = time.time()
             func(*args, **kwargs)
             # make sure it's accurate to 10th of a second, converting the time
@@ -2537,6 +2598,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                                   fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             with utils.lock_file(nt.name, unlink=False, append=True) as f:
+                f.seek(0)
                 self.assertEqual(f.read(), "test string")
                 f.seek(0)
                 f.write("\nanother string")
@@ -3598,7 +3660,7 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith("|@0.5"))
+        self.assertTrue(payload.endswith(b"|@0.5"))
 
     def test_sample_rates_with_sample_rate_factor(self):
         logger = utils.get_logger({
@@ -3624,8 +3686,10 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                        payload)
+        suffix = "|@%s" % effective_sample_rate
+        if six.PY3:
+            suffix = suffix.encode('utf-8')
+        self.assertTrue(payload.endswith(suffix), payload)
 
         effective_sample_rate = 0.587 * 0.91
         statsd_client.random = lambda: effective_sample_rate - 0.001
@@ -3633,8 +3697,10 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 2)
 
         payload = mock_socket.sent[1][0]
-        self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                        payload)
+        suffix = "|@%s" % effective_sample_rate
+        if six.PY3:
+            suffix = suffix.encode('utf-8')
+        self.assertTrue(payload.endswith(suffix), payload)
 
     def test_timing_stats(self):
         class MockController(object):
@@ -3828,9 +3894,8 @@ class TestRateLimitedIterator(unittest.TestCase):
             curr_time[0] += 0.001
             curr_time[0] += duration
 
-        with nested(
-                patch('time.time', my_time),
-                patch('eventlet.sleep', my_sleep)):
+        with patch('time.time', my_time), \
+                patch('eventlet.sleep', my_sleep):
             return func(*args, **kwargs)
 
     def test_rate_limiting(self):
@@ -3932,7 +3997,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         while True:
             try:
                 payload = self.sock.recv(4096)
-                if payload and 'STOP' in payload:
+                if payload and b'STOP' in payload:
                     return 42
                 self.queue.put(payload)
             except Exception as e:
@@ -3955,10 +4020,14 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
 
     def assertStat(self, expected, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
+        if six.PY3:
+            got = got.decode('utf-8')
         return self.assertEqual(expected, got)
 
     def assertStatMatches(self, expected_regexp, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
+        if six.PY3:
+            got = got.decode('utf-8')
         return self.assertTrue(re.search(expected_regexp, got),
                                [got, expected_regexp])
 
@@ -4127,7 +4196,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                          utils.get_valid_utf8_str(valid_utf8_str))
         self.assertEqual(valid_utf8_str,
                          utils.get_valid_utf8_str(unicode_sample))
-        self.assertEqual('\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
+        self.assertEqual(b'\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
                          utils.get_valid_utf8_str(invalid_utf8_str))
 
     @reset_logger_state

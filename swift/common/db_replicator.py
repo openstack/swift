@@ -166,7 +166,7 @@ class Replicator(Daemon):
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.rsync_compress = config_true_value(
             conf.get('rsync_compress', 'no'))
@@ -174,11 +174,12 @@ class Replicator(Daemon):
         if not self.rsync_module:
             self.rsync_module = '{replication_ip}::%s' % self.server_type
             if config_true_value(conf.get('vm_test_mode', 'no')):
-                self.logger.warn('Option %(type)s-replicator/vm_test_mode is '
-                                 'deprecated and will be removed in a future '
-                                 'version. Update your configuration to use '
-                                 'option %(type)s-replicator/rsync_module.'
-                                 % {'type': self.server_type})
+                self.logger.warning('Option %(type)s-replicator/vm_test_mode '
+                                    'is deprecated and will be removed in a '
+                                    'future version. Update your configuration'
+                                    ' to use option %(type)s-replicator/'
+                                    'rsync_module.'
+                                    % {'type': self.server_type})
                 self.rsync_module += '{replication_port}'
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
@@ -434,8 +435,12 @@ class Replicator(Daemon):
             if self._in_sync(rinfo, info, broker, local_sync):
                 return True
             # if the difference in rowids between the two differs by
-            # more than 50%, rsync then do a remote merge.
-            if rinfo['max_row'] / float(info['max_row']) < 0.5:
+            # more than 50% and the difference is greater than per_diff,
+            # rsync then do a remote merge.
+            # NOTE: difference > per_diff stops us from dropping to rsync
+            # on smaller containers, who have only a few rows to sync.
+            if rinfo['max_row'] / float(info['max_row']) < 0.5 and \
+                    info['max_row'] - rinfo['max_row'] > self.per_diff:
                 self.stats['remote_merge'] += 1
                 self.logger.increment('remote_merges')
                 return self._rsync_db(broker, node, http, info['id'],
@@ -616,17 +621,19 @@ class Replicator(Daemon):
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
         self._local_device_ids = set()
+        found_local = False
         for node in self.ring.devs:
             if node and is_local_device(ips, self.port,
                                         node['replication_ip'],
                                         node['replication_port']):
+                found_local = True
                 if self.mount_check and not ismount(
                         os.path.join(self.root, node['device'])):
                     self._add_failure_stats(
                         [(failure_dev['replication_ip'],
                           failure_dev['device'])
                          for failure_dev in self.ring.devs if failure_dev])
-                    self.logger.warn(
+                    self.logger.warning(
                         _('Skipping %(device)s as it is not mounted') % node)
                     continue
                 unlink_older_than(
@@ -636,6 +643,10 @@ class Replicator(Daemon):
                 if os.path.isdir(datadir):
                     self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
+        if not found_local:
+            self.logger.error("Can't find itself %s with port %s in ring "
+                              "file, not replicating",
+                              ", ".join(ips), self.port)
         self.logger.info(_('Beginning replication run'))
         for part, object_file, node_id in roundrobin_datadirs(dirs):
             self.cpool.spawn_n(

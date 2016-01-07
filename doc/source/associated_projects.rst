@@ -23,12 +23,15 @@ Application Bindings
     * `SwiftBox <https://github.com/suniln/SwiftBox>`_ - C# library using RestSharp
     * `jclouds <http://jclouds.incubator.apache.org/documentation/quickstart/openstack/>`_ - Java library offering bindings for all OpenStack projects
     * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
+    * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
+    * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
+    * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple Openstack Swift storage client.
 
 Authentication
 --------------
 
 * `Keystone <https://github.com/openstack/keystone>`_ - Official Identity Service for OpenStack.
-* `Swauth <https://github.com/gholt/swauth>`_ - Older Swift authentication service that only requires Swift itself.
+* `Swauth <https://github.com/openstack/swauth>`_ - An alternative Swift authentication service that only requires Swift itself.
 * `Basicauth <https://github.com/CloudVPS/swift-basicauth>`_ - HTTP Basic authentication support (keystone backed).
 
 
@@ -60,7 +63,7 @@ Content Distribution Network Integration
 Alternative API
 ---------------
 
-* `Swift3 <https://github.com/stackforge/swift3>`_ - Amazon S3 API emulation.
+* `Swift3 <https://github.com/openstack/swift3>`_ - Amazon S3 API emulation.
 * `CDMI <https://github.com/osaddon/cdmi>`_ - CDMI support
 
 
@@ -81,8 +84,8 @@ Custom Logger Hooks
 
 Storage Backends (DiskFile API implementations)
 -----------------------------------------------
-* `Swift-on-File <https://github.com/stackforge/swiftonfile>`_ - Enables objects created using Swift API to be accessed as files on a POSIX filesystem and vice versa.
-* `swift-ceph-backend <https://github.com/stackforge/swift-ceph-backend>`_ - Ceph RADOS object server implementation for Swift.
+* `Swift-on-File <https://github.com/openstack/swiftonfile>`_ - Enables objects created using Swift API to be accessed as files on a POSIX filesystem and vice versa.
+* `swift-ceph-backend <https://github.com/openstack/swift-ceph-backend>`_ - Ceph RADOS object server implementation for Swift.
 * `kinetic-swift <https://github.com/swiftstack/kinetic-swift>`_ - Seagate Kinetic Drive as backend for Swift
 * `swift-scality-backend <https://github.com/scality/ScalitySproxydSwift>`_ - Scality sproxyd object server implementation for Swift.
 
@@ -95,7 +98,7 @@ Developer Tools
 * `SAIO Ansible playbook <https://github.com/thiagodasilva/swift-aio>`_ -
   Quickly setup a standard development environment using Vagrant and Ansible in
   a Fedora virtual machine (with built-in `Swift-on-File
-  <https://github.com/stackforge/swiftonfile>`_ support).
+  <https://github.com/openstack/swiftonfile>`_ support).
 
 Other
 -----

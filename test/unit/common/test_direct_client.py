@@ -29,6 +29,7 @@ from swift.common.exceptions import ClientException
 from swift.common.utils import Timestamp
 from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
+from six.moves.http_client import HTTPException
 
 from test.unit import patch_policies
 
@@ -68,8 +69,13 @@ class FakeConn(object):
     def getheaders(self):
         return self.resp_headers.items()
 
-    def read(self):
-        return self.body
+    def read(self, amt=None):
+        if isinstance(self.body, six.StringIO):
+            return self.body.read(amt)
+        elif amt is None:
+            return self.body
+        else:
+            return Exception('Not a StringIO entry')
 
     def send(self, data):
         if not self.etag:
@@ -250,6 +256,20 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual('/sda/0/a', path)
             headers = args[4]
             self.assertTrue('X-Timestamp' in headers)
+
+    def test_direct_delete_account_failure(self):
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        part = '0'
+        account = 'a'
+
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_delete_account(node, part, account)
+            except ClientException as err:
+                pass
+            self.assertEqual('DELETE', conn.method)
+            self.assertEqual('/sda/0/a', conn.path)
+            self.assertEqual(err.http_status, 500)
 
     def test_direct_head_container(self):
         headers = HeaderKeyDict(key='value')
@@ -488,7 +508,7 @@ class TestDirectClient(unittest.TestCase):
                 self.node, self.part, self.account, self.container, self.obj)
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.obj_path)
-        self.assertEqual(obj_body, contents)
+        self.assertEqual(obj_body, contents.getvalue())
 
     def test_direct_get_object_error(self):
         with mocked_http_conn(500) as conn:
@@ -505,6 +525,24 @@ class TestDirectClient(unittest.TestCase):
 
         self.assertEqual(err.http_status, 500)
         self.assertTrue('GET' in str(err))
+
+    def test_direct_get_object_chunks(self):
+        contents = six.StringIO('123456')
+        downloaded = b''
+
+        with mocked_http_conn(200, body=contents) as conn:
+            resp_header, obj_body = direct_client.direct_get_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                resp_chunk_size=2)
+            while obj_body:
+                try:
+                    chunk = obj_body.next()
+                except StopIteration:
+                    break
+                downloaded += chunk
+            self.assertEqual('GET', conn.method)
+            self.assertEqual(self.obj_path, conn.path)
+        self.assertEqual('123456', downloaded)
 
     def test_direct_post_object(self):
         headers = {'Key': 'value'}
@@ -617,6 +655,32 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(md5('6\r\n123456\r\n0\r\n\r\n').hexdigest(), resp)
 
+    def test_direct_put_object_args(self):
+        # One test to cover all missing checks
+        contents = ""
+        with mocked_http_conn(200) as conn:
+            resp = direct_client.direct_put_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                contents, etag="testing-etag", content_type='Text')
+            self.assertEqual('PUT', conn.method)
+            self.assertEqual(self.obj_path, conn.path)
+            self.assertEqual(conn.req_headers['Content-Length'], '0')
+            self.assertEqual(conn.req_headers['Content-Type'], 'Text')
+        self.assertEqual(md5('0\r\n\r\n').hexdigest(), resp)
+
+    def test_direct_put_object_header_content_length(self):
+        contents = six.StringIO('123456')
+        stub_headers = HeaderKeyDict({
+            'Content-Length': '6'})
+
+        with mocked_http_conn(200) as conn:
+            resp = direct_client.direct_put_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                contents, headers=stub_headers)
+            self.assertEqual('PUT', conn.method)
+            self.assertEqual(conn.req_headers['Content-length'], '6')
+        self.assertEqual(md5('123456').hexdigest(), resp)
+
     def test_retry(self):
         headers = HeaderKeyDict({'key': 'value'})
 
@@ -630,6 +694,48 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(headers, resp)
         self.assertEqual(attempts, 1)
 
+    def test_retry_client_exception(self):
+        err_log_file = six.StringIO()
+
+        def mock_err_logger(err):
+            err_log_file.write(err)
+
+        with mocked_http_conn(500) as conn:
+            try:
+                attempts, resp = direct_client.retry(
+                    direct_client.direct_delete_object, self.node, self.part,
+                    self.account, self.container, self.obj, retries=2,
+                    error_log=mock_err_logger)
+            except ClientException as err:
+                pass
+            self.assertEqual('DELETE', conn.method)
+            self.assertTrue(err_log_file.len)
+            self.assertEqual(err.http_status, 500)
+        err_log_file.close()
+
+    def test_retry_http_exception(self):
+        err_log_file = six.StringIO()
+
+        def mock_err_logger(err):
+            err_log_file.write(err)
+
+        def mock_direct_delete_object(node, part, account, container, obj,
+                                      conn_timeout=5, response_timeout=15,
+                                      headers=None):
+            resp = "Unable to delete object"
+            raise HTTPException('Object', 'DELETE', resp)
+
+        with mocked_http_conn(500):
+            with mock.patch('swift.common.direct_client.direct_delete_object',
+                            mock_direct_delete_object):
+                try:
+                    attempts, resp = direct_client.retry(
+                        direct_client.direct_delete_object, self.node,
+                        self.part, self.account, self.container, self.obj,
+                        retries=2, error_log=mock_err_logger)
+                except HTTPException:
+                    self.assertTrue(err_log_file.len)
+        err_log_file.close()
 
 if __name__ == '__main__':
     unittest.main()

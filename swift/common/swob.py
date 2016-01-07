@@ -217,6 +217,15 @@ def _header_int_property(header):
                     doc="Retrieve and set the %s header as an int" % header)
 
 
+def header_to_environ_key(header_name):
+    header_name = 'HTTP_' + header_name.replace('-', '_').upper()
+    if header_name == 'HTTP_CONTENT_LENGTH':
+        return 'CONTENT_LENGTH'
+    if header_name == 'HTTP_CONTENT_TYPE':
+        return 'CONTENT_TYPE'
+    return header_name
+
+
 class HeaderEnvironProxy(MutableMapping):
     """
     A dict-like object that proxies requests to a wsgi environ,
@@ -235,30 +244,22 @@ class HeaderEnvironProxy(MutableMapping):
     def __len__(self):
         return len(self.keys())
 
-    def _normalize(self, key):
-        key = 'HTTP_' + key.replace('-', '_').upper()
-        if key == 'HTTP_CONTENT_LENGTH':
-            return 'CONTENT_LENGTH'
-        if key == 'HTTP_CONTENT_TYPE':
-            return 'CONTENT_TYPE'
-        return key
-
     def __getitem__(self, key):
-        return self.environ[self._normalize(key)]
+        return self.environ[header_to_environ_key(key)]
 
     def __setitem__(self, key, value):
         if value is None:
-            self.environ.pop(self._normalize(key), None)
+            self.environ.pop(header_to_environ_key(key), None)
         elif isinstance(value, six.text_type):
-            self.environ[self._normalize(key)] = value.encode('utf-8')
+            self.environ[header_to_environ_key(key)] = value.encode('utf-8')
         else:
-            self.environ[self._normalize(key)] = str(value)
+            self.environ[header_to_environ_key(key)] = str(value)
 
     def __contains__(self, key):
-        return self._normalize(key) in self.environ
+        return header_to_environ_key(key) in self.environ
 
     def __delitem__(self, key):
-        del self.environ[self._normalize(key)]
+        del self.environ[header_to_environ_key(key)]
 
     def keys(self):
         keys = [key[5:].replace('_', '-').title()
@@ -541,14 +542,15 @@ class Range(object):
 
     def __str__(self):
         string = 'bytes='
-        for start, end in self.ranges:
+        for i, (start, end) in enumerate(self.ranges):
             if start is not None:
                 string += str(start)
             string += '-'
             if end is not None:
                 string += str(end)
-            string += ','
-        return string.rstrip(',')
+            if i < len(self.ranges) - 1:
+                string += ','
+        return string
 
     def ranges_for_length(self, length):
         """
@@ -970,7 +972,7 @@ class Request(object):
         the path segment.
         """
         path_info = self.path_info
-        if not path_info or path_info[0] != '/':
+        if not path_info or not path_info.startswith('/'):
             return None
         try:
             slash_loc = path_info.index('/', 1)
@@ -1184,7 +1186,7 @@ class Response(object):
         """
 
         content_size = self.content_length
-        content_type = self.content_type
+        content_type = self.headers.get('content-type')
         self.content_type = ''.join(['multipart/byteranges;',
                                      'boundary=', self.boundary])
 

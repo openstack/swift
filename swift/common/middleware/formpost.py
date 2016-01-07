@@ -272,7 +272,7 @@ class FormPost(object):
                         hdrs['Content-Type'] or 'application/octet-stream'
                 status, subheaders, message = \
                     self._perform_subrequest(env, attributes, fp, keys)
-                if status[:1] != '2':
+                if not status.startswith('2'):
                     break
             else:
                 data = ''
@@ -337,7 +337,7 @@ class FormPost(object):
             del subenv['QUERY_STRING']
         subenv['HTTP_TRANSFER_ENCODING'] = 'chunked'
         subenv['wsgi.input'] = _CappedFileLikeObject(fp, max_file_size)
-        if subenv['PATH_INFO'][-1] != '/' and \
+        if not subenv['PATH_INFO'].endswith('/') and \
                 subenv['PATH_INFO'].count('/') < 4:
             subenv['PATH_INFO'] += '/'
         subenv['PATH_INFO'] += attributes['filename'] or 'filename'

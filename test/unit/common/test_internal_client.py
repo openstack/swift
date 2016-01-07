@@ -628,6 +628,59 @@ class TestInternalClient(unittest.TestCase):
 
         self.assertEqual('one\xc3\xa9 two'.split(), items)
 
+    def test_iter_item_read_response_if_status_is_acceptable(self):
+        class Response(object):
+            def __init__(self, status_int, body, app_iter):
+                self.status_int = status_int
+                self.body = body
+                self.app_iter = app_iter
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test, responses):
+                self.test = test
+                self.responses = responses
+
+            def make_request(
+                self, method, path, headers, acceptable_statuses,
+                    body_file=None):
+                resp = self.responses.pop(0)
+                if resp.status_int in acceptable_statuses or \
+                        resp.status_int // 100 in acceptable_statuses:
+                    return resp
+                if resp:
+                    raise internal_client.UnexpectedResponse(
+                        'Unexpected response: %s' % resp.status_int, resp)
+
+        num_list = []
+
+        def generate_resp_body():
+            for i in range(1, 5):
+                yield str(i)
+                num_list.append(i)
+
+        exp_items = []
+        responses = [Response(204, json.dumps([]), generate_resp_body())]
+        items = []
+        client = InternalClient(self, responses)
+        for item in client._iter_items('/'):
+            items.append(item)
+        self.assertEqual(exp_items, items)
+        self.assertEqual(len(num_list), 0)
+
+        responses = [Response(300, json.dumps([]), generate_resp_body())]
+        client = InternalClient(self, responses)
+        self.assertRaises(internal_client.UnexpectedResponse,
+                          next, client._iter_items('/'))
+
+        exp_items = []
+        responses = [Response(404, json.dumps([]), generate_resp_body())]
+        items = []
+        client = InternalClient(self, responses)
+        for item in client._iter_items('/'):
+            items.append(item)
+        self.assertEqual(exp_items, items)
+        self.assertEqual(len(num_list), 4)
+
     def test_set_metadata(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self, test, path, exp_headers):

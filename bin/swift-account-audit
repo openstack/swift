@@ -20,7 +20,7 @@ from hashlib import md5
 import getopt
 from itertools import chain
 
-import simplejson
+import json
 from eventlet.greenpool import GreenPool
 from eventlet.event import Event
 from six.moves.urllib.parse import quote
@@ -176,7 +176,7 @@ class Auditor(object):
                         break
                     if node['id'] not in responses:
                         responses[node['id']] = dict(resp.getheaders())
-                    results = simplejson.loads(resp.read())
+                    results = json.loads(resp.read())
                 except Exception:
                     self.container_exceptions += 1
                     consistent = False
@@ -249,7 +249,7 @@ class Auditor(object):
                               " from %ss:%ss" %
                               (account, node['ip'], node['device']))
                         break
-                    results = simplejson.loads(resp.read())
+                    results = json.loads(resp.read())
                 except Exception:
                     self.account_exceptions += 1
                     consistent = False

@@ -77,7 +77,14 @@ bind_port = 8080
 # eventlet_debug = false
 
 [pipeline:main]
+# This sample pipeline uses tempauth and is used for SAIO dev work and
+# testing. See below for a pipeline using keystone.
 pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+
+# The following pipeline shows keystone integration. Comment out the one
+# above and uncomment this one. Additional steps for integrating keystone are
+# covered further below in the filter sections for authtoken and keystoneauth.
+#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -277,9 +284,8 @@ user_test5_tester5 = testing5 service
 # refer to the keystone's documentation for details about the
 # different settings.
 #
-# You'll need to have as well the keystoneauth middleware enabled
-# and have it in your main pipeline so instead of having tempauth in
-# there you can change it to: authtoken keystoneauth
+# You'll also need to have the keystoneauth middleware enabled and have it in
+# your main pipeline, as show in the sample pipeline at the top of this file.
 #
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
@@ -499,6 +505,12 @@ use = egg:swift#cname_lookup
 # Note: Put staticweb just after your auth filter(s) in the pipeline
 [filter:staticweb]
 use = egg:swift#staticweb
+# You can override the default log routing for this filter here:
+# set log_name = staticweb
+# set log_facility = LOG_LOCAL0
+# set log_level = INFO
+# set log_headers = false
+# set log_address = /dev/log
 
 # Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
 [filter:tempurl]

@@ -64,14 +64,14 @@ class TestContainerUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '2',
-            'node_timeout': '5',
+            'node_timeout': '5.5',
         })
         self.assertTrue(hasattr(cu, 'logger'))
         self.assertTrue(cu.logger is not None)
         self.assertEqual(cu.devices, self.devices_dir)
         self.assertEqual(cu.interval, 1)
         self.assertEqual(cu.concurrency, 2)
-        self.assertEqual(cu.node_timeout, 5)
+        self.assertEqual(cu.node_timeout, 5.5)
         self.assertTrue(cu.get_account_ring() is not None)
 
     @mock.patch.object(container_updater, 'ismount')

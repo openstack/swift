@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
-import hashlib
 import os
 import shutil
 import tempfile
@@ -27,7 +25,7 @@ import six
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import swob
-from swift.common.storage_policy import POLICIES, REPL_POLICY
+from swift.common.storage_policy import POLICIES
 from swift.common import utils
 from swift.common.swob import HTTPException
 from swift.obj import diskfile
@@ -367,17 +365,12 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(mocked_replication_semaphore.release.called)
 
     def test_SSYNC_mount_check(self):
-        with contextlib.nested(
-                mock.patch.object(
-                    self.controller, 'replication_semaphore'),
+        with mock.patch.object(self.controller, 'replication_semaphore'), \
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
-                    'mount_check', False),
+                    'mount_check', False), \
                 mock.patch('swift.obj.diskfile.check_mount',
-                           return_value=False)) as (
-                mocked_replication_semaphore,
-                mocked_mount_check,
-                mocked_check_mount):
+                           return_value=False) as mocked_check_mount:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -387,17 +380,12 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_check_mount.called)
 
-        with contextlib.nested(
-                mock.patch.object(
-                    self.controller, 'replication_semaphore'),
+        with mock.patch.object(self.controller, 'replication_semaphore'), \
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
-                    'mount_check', True),
+                    'mount_check', True), \
                 mock.patch('swift.obj.diskfile.check_mount',
-                           return_value=False)) as (
-                mocked_replication_semaphore,
-                mocked_mount_check,
-                mocked_check_mount):
+                           return_value=False) as mocked_check_mount:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -932,13 +920,11 @@ class TestReceiver(unittest.TestCase):
                 return self.mock_socket
 
         self.controller.client_timeout = 0.01
-        with contextlib.nested(
-                mock.patch.object(
-                    ssync_receiver.eventlet.greenio, 'shutdown_safe'),
+        with mock.patch.object(ssync_receiver.eventlet.greenio,
+                               'shutdown_safe') as mock_shutdown_safe, \
                 mock.patch.object(
                     self.controller, 'DELETE',
-                    return_value=swob.HTTPNoContent())) as (
-                mock_shutdown_safe, mock_delete):
+                    return_value=swob.HTTPNoContent()):
             req = swob.Request.blank(
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
@@ -1584,10 +1570,9 @@ class TestReceiver(unittest.TestCase):
             _requests.append(request)
             return swob.HTTPNoContent()
 
-        with contextlib.nested(
-                mock.patch.object(self.controller, 'PUT', _PUT),
-                mock.patch.object(self.controller, 'POST', _POST),
-                mock.patch.object(self.controller, 'DELETE', _DELETE)):
+        with mock.patch.object(self.controller, 'PUT', _PUT), \
+                mock.patch.object(self.controller, 'POST', _POST), \
+                mock.patch.object(self.controller, 'DELETE', _DELETE):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
@@ -1823,51 +1808,28 @@ class TestSsyncRxServer(unittest.TestCase):
     # server socket.
 
     def setUp(self):
-        self.ts = unit.make_timestamp_iter()
         self.rx_ip = '127.0.0.1'
         # dirs
         self.tmpdir = tempfile.mkdtemp()
         self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')
 
-        self.rx_devices = os.path.join(self.tempdir, 'rx/node')
-        self.tx_devices = os.path.join(self.tempdir, 'tx/node')
+        self.devices = os.path.join(self.tempdir, 'srv/node')
         for device in ('sda1', 'sdb1'):
-            for root in (self.rx_devices, self.tx_devices):
-                os.makedirs(os.path.join(root, device))
+            os.makedirs(os.path.join(self.devices, device))
 
         self.conf = {
-            'devices': self.rx_devices,
+            'devices': self.devices,
             'swift_dir': self.tempdir,
-            'mount_check': False,
         }
         self.rx_logger = debug_logger('test-object-server')
-        self.rx_app = server.ObjectController(self.conf, logger=self.rx_logger)
+        rx_server = server.ObjectController(self.conf, logger=self.rx_logger)
         self.sock = eventlet.listen((self.rx_ip, 0))
         self.rx_server = eventlet.spawn(
-            eventlet.wsgi.server, self.sock, self.rx_app, utils.NullLogger())
+            eventlet.wsgi.server, self.sock, rx_server, utils.NullLogger())
         self.rx_port = self.sock.getsockname()[1]
-        self.tx_logger = debug_logger('test-daemon')
-        self.policy = POLICIES[0]
-        self.conf['devices'] = self.tx_devices
+        self.tx_logger = debug_logger('test-reconstructor')
         self.daemon = ObjectReconstructor(self.conf, self.tx_logger)
-        self.daemon._diskfile_mgr = self.daemon._df_router[self.policy]
-
-        self.nodes = [
-            {
-                'device': 'sda1',
-                'ip': '127.0.0.1',
-                'replication_ip': '127.0.0.1',
-                'port': self.rx_port,
-                'replication_port': self.rx_port,
-            },
-            {
-                'device': 'sdb1',
-                'ip': '127.0.0.1',
-                'replication_ip': '127.0.0.1',
-                'port': self.rx_port,
-                'replication_port': self.rx_port,
-            },
-        ]
+        self.daemon._diskfile_mgr = self.daemon._df_router[POLICIES[0]]
 
     def tearDown(self):
         self.rx_server.kill()
@@ -1939,89 +1901,6 @@ class TestSsyncRxServer(unittest.TestCase):
         resp.close()
         # sanity check that the receiver did not proceed to missing_check
         self.assertFalse(mock_missing_check.called)
-
-    def test_sender_job_missing_frag_node_indexes(self):
-        # replication jobs don't send frag_index, so we'll use a REPL_POLICY
-        repl_policy = POLICIES[1]
-        self.assertEqual(repl_policy.policy_type, REPL_POLICY)
-        repl_mgr = self.daemon._df_router[repl_policy]
-        self.daemon._diskfile_mgr = repl_mgr
-        device = self.nodes[0]['device']
-        # create a replicated object, on sender
-        df = repl_mgr.get_diskfile(device, '0', 'a', 'c', 'o',
-                                   policy=repl_policy)
-        now = next(self.ts)
-        metadata = {
-            'X-Timestamp': now.internal,
-            'Content-Type': 'text/plain',
-            'Content-Length': '0',
-            'ETag': hashlib.md5('').hexdigest(),
-        }
-        with df.create() as writer:
-            writer.write('')
-            writer.put(metadata)
-        # sanity the object is on the sender
-        self.assertTrue(df._datadir.startswith(self.tx_devices))
-        # setup a ssync job
-        suffix = os.path.basename(os.path.dirname(df._datadir))
-        job = {
-            'partition': 0,
-            'policy': repl_policy,
-            'device': device,
-        }
-        sender = ssync_sender.Sender(
-            self.daemon, self.nodes[0], job, [suffix])
-        success, _ = sender()
-        self.assertTrue(success)
-        # sanity object is synced to receiver
-        remote_df = self.rx_app._diskfile_router[repl_policy].get_diskfile(
-            device, '0', 'a', 'c', 'o', policy=repl_policy)
-        self.assertTrue(remote_df._datadir.startswith(self.rx_devices))
-        self.assertEqual(remote_df.read_metadata(), metadata)
-
-    def test_send_frag_index_none(self):
-        # create an ec fragment on the remote node
-        device = self.nodes[1]['device']
-        remote_df = self.rx_app._diskfile_router[self.policy].get_diskfile(
-            device, '1', 'a', 'c', 'o', policy=self.policy)
-        ts1 = next(self.ts)
-        data = 'frag_archive'
-        metadata = {
-            'ETag': hashlib.md5(data).hexdigest(),
-            'X-Timestamp': ts1.internal,
-            'Content-Length': len(data),
-            'X-Object-Sysmeta-Ec-Frag-Index': '3',
-        }
-        with remote_df.create() as writer:
-            writer.write(data)
-            writer.put(metadata)
-            writer.commit(ts1)
-        # create a tombstone on the local node
-        df = self.daemon._df_router[self.policy].get_diskfile(
-            device, '1', 'a', 'c', 'o', policy=self.policy)
-        suffix = os.path.basename(os.path.dirname(df._datadir))
-        ts2 = next(self.ts)
-        df.delete(ts2)
-        # a reconstructor revert job with only tombstones will have frag_index
-        # explicitly set to None
-        job = {
-            'frag_index': None,
-            'partition': 1,
-            'policy': self.policy,
-            'device': device,
-        }
-        sender = ssync_sender.Sender(
-            self.daemon, self.nodes[1], job, [suffix])
-        success, _ = sender()
-        self.assertTrue(success)
-        # diskfile tombstone synced to receiver's datadir with timestamp
-        self.assertTrue(remote_df._datadir.startswith(self.rx_devices))
-        try:
-            remote_df.read_metadata()
-        except exceptions.DiskFileDeleted as e:
-            self.assertEqual(e.timestamp, ts2)
-        else:
-            self.fail('Successfully opened remote DiskFile')
 
     def test_bad_request_invalid_frag_index(self):
         with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check')\

@@ -79,12 +79,7 @@ class NameCheckMiddleware(object):
         self.logger.debug("name_check: self.forbidden_chars %s" %
                           self.forbidden_chars)
 
-        for c in unquote(req.path):
-            if c in self.forbidden_chars:
-                return True
-            else:
-                pass
-        return False
+        return any((c in unquote(req.path)) for c in self.forbidden_chars)
 
     def check_length(self, req):
         '''
@@ -93,10 +88,7 @@ class NameCheckMiddleware(object):
         Returns False if the length is <= the maximum
         '''
         length = len(unquote(req.path))
-        if length > self.maximum_length:
-            return True
-        else:
-            return False
+        return length > self.maximum_length
 
     def check_regexp(self, req):
         '''

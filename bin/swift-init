@@ -20,7 +20,21 @@ from optparse import OptionParser
 from swift.common.manager import Manager, UnknownCommandError, \
     KILL_WAIT, RUN_DIR
 
-USAGE = """%prog <server>[.config] [<server>[.config] ...] <command> [options]
+USAGE = \
+    """%prog <server>[.<config>] [<server>[.<config>] ...] <command> [options]
+
+where:
+    <server>  is the name of a swift service e.g. proxy-server.
+              The '-server' part of the name may be omitted.
+    <config>  is an explicit configuration filename without the
+              .conf extension. If <config> is specified then <server> should
+              refer to a directory containing the configuration file, e.g.:
+
+                  swift-init object.1 start
+
+              will start an object-server using the configuration file
+              /etc/swift/object-server/1.conf
+    <command> is a command from the list below.
 
 Commands:
 """ + '\n'.join(["%16s: %s" % x for x in Manager.list_commands()])
@@ -50,6 +64,16 @@ def main():
                       dest="run_dir", default=RUN_DIR,
                       help="alternative directory to store running pid files "
                       "default: %s" % RUN_DIR)
+    # Changing behaviour if missing config
+    parser.add_option('--strict', dest='strict', action='store_true',
+                      help="Return non-zero status code if some config is "
+                           "missing. Default mode if all servers are "
+                           "explicitly named.")
+    # a negative option for strict
+    parser.add_option('--non-strict', dest='strict', action='store_false',
+                      help="Return zero status code even if some config is "
+                           "missing. Default mode if any server is a glob or "
+                           "one of aliases `all`, `main` or `rest`.")
 
     options, args = parser.parse_args()
 

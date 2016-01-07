@@ -293,14 +293,14 @@ def _parse_set_info_values(argvish):
             devs = builder.search_devs(parse_search_value(search_value))
             change = {}
             ip = ''
-            if len(change_value) and change_value[0].isdigit():
+            if change_value and change_value[0].isdigit():
                 i = 1
                 while (i < len(change_value) and
                        change_value[i] in '0123456789.'):
                     i += 1
                 ip = change_value[:i]
                 change_value = change_value[i:]
-            elif len(change_value) and change_value[0] == '[':
+            elif change_value and change_value.startswith('['):
                 i = 1
                 while i < len(change_value) and change_value[i] != ']':
                     i += 1
@@ -318,14 +318,14 @@ def _parse_set_info_values(argvish):
             if change_value.startswith('R'):
                 change_value = change_value[1:]
                 replication_ip = ''
-                if len(change_value) and change_value[0].isdigit():
+                if change_value and change_value[0].isdigit():
                     i = 1
                     while (i < len(change_value) and
                            change_value[i] in '0123456789.'):
                         i += 1
                     replication_ip = change_value[:i]
                     change_value = change_value[i:]
-                elif len(change_value) and change_value[0] == '[':
+                elif change_value and change_value.startswith('['):
                     i = 1
                     while i < len(change_value) and change_value[i] != ']':
                         i += 1
@@ -421,6 +421,8 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         """
 swift-ring-builder <builder_file>
     Shows information about the ring and the devices within.
+    Flags:
+        DEL - marked for removal and will be removed next rebalance.
         """
         print('%s, build version %d' % (builder_file, builder.version))
         regions = 0
@@ -446,28 +448,19 @@ swift-ring-builder <builder_file>
         print('The overload factor is %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
         if builder.devs:
+            balance_per_dev = builder._build_balance_per_dev()
             print('Devices:    id  region  zone      ip address  port  '
                   'replication ip  replication port      name '
-                  'weight partitions balance meta')
-            weighted_parts = builder.parts * builder.replicas / \
-                sum(d['weight'] for d in builder.devs if d is not None)
-            for dev in builder.devs:
-                if dev is None:
-                    continue
-                if not dev['weight']:
-                    if dev['parts']:
-                        balance = MAX_BALANCE
-                    else:
-                        balance = 0
-                else:
-                    balance = 100.0 * dev['parts'] / \
-                        (dev['weight'] * weighted_parts) - 100.0
+                  'weight partitions balance flags meta')
+            for dev in builder._iter_devs():
+                flags = 'DEL' if dev in builder._remove_devs else ''
                 print('         %5d %7d %5d %15s %5d %15s %17d %9s %6.02f '
-                      '%10s %7.02f %s' %
+                      '%10s %7.02f %5s %s' %
                       (dev['id'], dev['region'], dev['zone'], dev['ip'],
                        dev['port'], dev['replication_ip'],
                        dev['replication_port'], dev['device'], dev['weight'],
-                       dev['parts'], balance, dev['meta']))
+                       dev['parts'], balance_per_dev[dev['id']], flags,
+                       dev['meta']))
         exit(EXIT_SUCCESS)
 
     def search():
@@ -797,7 +790,7 @@ swift-ring-builder <builder_file> rebalance [options]
         devs_changed = builder.devs_changed
         try:
             last_balance = builder.get_balance()
-            parts, balance = builder.rebalance(seed=get_seed(3))
+            parts, balance, removed_devs = builder.rebalance(seed=get_seed(3))
         except exceptions.RingBuilderError as e:
             print('-' * 79)
             print("An error has occurred during ring validation. Common\n"
@@ -807,7 +800,7 @@ swift-ring-builder <builder_file> rebalance [options]
                   (e,))
             print('-' * 79)
             exit(EXIT_ERROR)
-        if not (parts or options.force):
+        if not (parts or options.force or removed_devs):
             print('No partitions could be reassigned.')
             print('Either none need to be or none can be due to '
                   'min_part_hours [%s].' % builder.min_part_hours)
@@ -921,6 +914,8 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
                                    verbose=options.verbose)
         print('Dispersion is %.06f, Balance is %.06f, Overload is %0.2f%%' % (
             builder.dispersion, builder.get_balance(), builder.overload * 100))
+        print('Required overload is %.6f%%' % (
+            builder.get_required_overload() * 100))
         if report['worst_tier']:
             status = EXIT_WARNING
             print('Worst tier is %.06f (%s)' % (report['max_dispersion'],
@@ -1031,10 +1026,22 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
         for parts in builder._replica2part2dev:
             for dev_id in parts:
                 builder.devs[dev_id]['parts'] += 1
-        builder._set_parts_wanted()
         builder.save(builder_file)
 
     def pretend_min_part_hours_passed():
+        """
+swift-ring-builder <builder_file> pretend_min_part_hours_passed
+    Resets the clock on the last time a rebalance happened, thus
+    circumventing the min_part_hours check.
+
+    *****************************
+    USE THIS WITH EXTREME CAUTION
+    *****************************
+
+    If you run this command and deploy rebalanced rings before a replication
+    pass completes, you may introduce unavailability in your cluster. This
+    has an end-user impact.
+        """
         builder.pretend_min_part_hours_passed()
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
@@ -1144,7 +1151,7 @@ def main(arguments=None):
         print(Commands.default.__doc__.strip())
         print()
         cmds = [c for c, f in Commands.__dict__.items()
-                if f.__doc__ and c[0] != '_' and c != 'default']
+                if f.__doc__ and not c.startswith('_') and c != 'default']
         cmds.sort()
         for cmd in cmds:
             print(Commands.__dict__[cmd].__doc__.strip())

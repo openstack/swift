@@ -92,6 +92,7 @@ Example usage of this middleware via ``swift``:
 
     Turn on listings::
 
+        swift post -r '.r:*,.rlistings' container
         swift post -m 'web-listings: true' container
 
     Now you should see object listings for paths and pseudo paths that have no
@@ -121,8 +122,8 @@ import json
 import time
 
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    quote, register_swift_info
-from swift.common.wsgi import make_pre_authed_env, WSGIContext
+    quote, register_swift_info, get_logger
+from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
 from swift.proxy.controllers.base import get_container_info
@@ -167,7 +168,7 @@ class _StaticWebContext(WSGIContext):
         save_response_status = self._response_status
         save_response_headers = self._response_headers
         save_response_exc_info = self._response_exc_info
-        resp = self._app_call(make_pre_authed_env(
+        resp = self._app_call(make_env(
             env, 'GET', '/%s/%s/%s/%s%s' % (
                 self.version, self.account, self.container,
                 self._get_status_int(), self._error),
@@ -236,7 +237,7 @@ class _StaticWebContext(WSGIContext):
             body += ' </body>\n</html>\n'
             resp = HTTPNotFound(body=body)(env, self._start_response)
             return self._error_response(resp, env, start_response)
-        tmp_env = make_pre_authed_env(
+        tmp_env = make_env(
             env, 'GET', '/%s/%s/%s' % (
                 self.version, self.account, self.container),
             self.agent, swift_source='SW')
@@ -349,7 +350,7 @@ class _StaticWebContext(WSGIContext):
             if config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
                 return HTTPNotFound()(env, start_response)
             return self.app(env, start_response)
-        if env['PATH_INFO'][-1] != '/':
+        if not env['PATH_INFO'].endswith('/'):
             resp = HTTPMovedPermanently(
                 location=(env['PATH_INFO'] + '/'))
             return resp(env, start_response)
@@ -414,13 +415,13 @@ class _StaticWebContext(WSGIContext):
             tmp_env['HTTP_USER_AGENT'] = \
                 '%s StaticWeb' % env.get('HTTP_USER_AGENT')
             tmp_env['swift.source'] = 'SW'
-            if tmp_env['PATH_INFO'][-1] != '/':
+            if not tmp_env['PATH_INFO'].endswith('/'):
                 tmp_env['PATH_INFO'] += '/'
             tmp_env['PATH_INFO'] += self._index
             resp = self._app_call(tmp_env)
             status_int = self._get_status_int()
             if is_success(status_int) or is_redirection(status_int):
-                if env['PATH_INFO'][-1] != '/':
+                if not env['PATH_INFO'].endswith('/'):
                     resp = HTTPMovedPermanently(
                         location=env['PATH_INFO'] + '/')
                     return resp(env, start_response)
@@ -428,8 +429,8 @@ class _StaticWebContext(WSGIContext):
                                self._response_exc_info)
                 return resp
         if status_int == HTTP_NOT_FOUND:
-            if env['PATH_INFO'][-1] != '/':
-                tmp_env = make_pre_authed_env(
+            if not env['PATH_INFO'].endswith('/'):
+                tmp_env = make_env(
                     env, 'GET', '/%s/%s/%s' % (
                         self.version, self.account, self.container),
                     self.agent, swift_source='SW')
@@ -463,6 +464,7 @@ class StaticWeb(object):
         self.app = app
         #: The filter configuration dict.
         self.conf = conf
+        self.logger = get_logger(conf, log_route='staticweb')
 
     def __call__(self, env, start_response):
         """
@@ -472,6 +474,11 @@ class StaticWeb(object):
         :param start_response: The WSGI start_response hook.
         """
         env['staticweb.start_time'] = time.time()
+        if 'swift.authorize' not in env:
+            self.logger.warning(
+                'No authentication middleware authorized request yet. '
+                'Skipping staticweb')
+            return self.app(env, start_response)
         try:
             (version, account, container, obj) = \
                 split_path(env['PATH_INFO'], 2, 4, True)

@@ -14,13 +14,13 @@
 # limitations under the License.
 
 import hashlib
+import json
 import os
 import random
 import socket
 import time
 
-import simplejson as json
-from nose import SkipTest
+from unittest2 import SkipTest
 from xml.dom import minidom
 
 import six
@@ -637,6 +637,7 @@ class File(Base):
 
         self.chunked_write_in_progress = False
         self.content_type = None
+        self.content_range = None
         self.size = None
         self.metadata = {}
 
@@ -838,6 +839,8 @@ class File(Base):
         for hdr in self.conn.response.getheaders():
             if hdr[0].lower() == 'content-type':
                 self.content_type = hdr[1]
+            if hdr[0].lower() == 'content-range':
+                self.content_range = hdr[1]
 
         if hasattr(buffer, 'write'):
             scratch = self.conn.response.read(8192)

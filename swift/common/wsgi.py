@@ -407,7 +407,8 @@ def run_server(conf, logger, sock, global_conf=None):
     wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
 
     eventlet.hubs.use_hub(get_hub())
-    eventlet.patcher.monkey_patch(all=False, socket=True)
+    # NOTE(sileht): monkey-patching thread is required by python-keystoneclient
+    eventlet.patcher.monkey_patch(all=False, socket=True, thread=True)
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
     wsgi_logger = NullLogger()
@@ -597,6 +598,8 @@ class PortPidState(object):
 
     def port_index_pairs(self):
         """
+        Returns current (port, server index) pairs.
+
         :returns: A set of (port, server_idx) tuples for currently-tracked
             ports, sockets, and PIDs.
         """
@@ -711,6 +714,8 @@ class ServersPerPortStrategy(object):
 
     def loop_timeout(self):
         """
+        Return timeout before checking for reloaded rings.
+
         :returns: The time to wait for a child to exit before checking for
                   reloaded rings (new ports).
         """
@@ -1090,7 +1095,8 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'HTTP_ORIGIN', 'HTTP_ACCESS_CONTROL_REQUEST_METHOD',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id', 'swift.authorize_override',
-                 'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID'):
+                 'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID',
+                 'HTTP_REFERER'):
         if name in env:
             newenv[name] = env[name]
     if method:

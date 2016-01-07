@@ -15,9 +15,7 @@ downloads the object directly from Object Storage, eliminating the need
 for the website to act as a proxy for the request.
 
 Ask your cloud administrator to enable the temporary URL feature. For
-information, see `Temporary
-URL <http://docs.openstack.org/havana/config-reference/content/object-storage-tempurl.html>`__
-in the *OpenStack Configuration Reference*.
+information, see :ref:`tempurl` in the *Source Documentation*.
 
 Note
 ~~~~

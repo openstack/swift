@@ -84,13 +84,13 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '2',
-            'node_timeout': '5'})
+            'node_timeout': '5.5'})
         self.assertTrue(hasattr(cu, 'logger'))
         self.assertTrue(cu.logger is not None)
         self.assertEqual(cu.devices, self.devices_dir)
         self.assertEqual(cu.interval, 1)
         self.assertEqual(cu.concurrency, 2)
-        self.assertEqual(cu.node_timeout, 5)
+        self.assertEqual(cu.node_timeout, 5.5)
         self.assertTrue(cu.get_container_ring() is not None)
 
     @mock.patch('os.listdir')
@@ -183,7 +183,7 @@ class TestObjectUpdater(unittest.TestCase):
                 'node_timeout': '5'})
             cu.logger = mock_logger = mock.MagicMock()
             cu.object_sweep(self.sda1)
-            self.assertEqual(mock_logger.warn.call_count, warn)
+            self.assertEqual(mock_logger.warning.call_count, warn)
             self.assertTrue(
                 os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
             if should_skip:

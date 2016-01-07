@@ -412,237 +412,326 @@ The following configuration options are available:
 
 [DEFAULT]
 
-======================== ==========  ==========================================
-Option                   Default     Description
------------------------- ----------  ------------------------------------------
-swift_dir                /etc/swift  Swift configuration directory
-devices                  /srv/node   Parent directory of where devices are
-                                     mounted
-mount_check              true        Whether or not check if the devices are
-                                     mounted to prevent accidentally writing
-                                     to the root device
-bind_ip                  0.0.0.0     IP Address for server to bind to
-bind_port                6000        Port for server to bind to
-bind_timeout             30          Seconds to attempt bind before giving up
-workers                  auto        Override the number of pre-forked workers
-                                     that will accept connections.  If set it
-                                     should be an integer, zero means no fork.
-                                     If unset, it will try to default to the
-                                     number of effective cpu cores and fallback
-                                     to one. Increasing the number of workers
-                                     helps slow filesystem operations in one
-                                     request from negatively impacting other
-                                     requests, but only the
-                                     :ref:`servers_per_port
-                                     <server-per-port-configuration>` option
-                                     provides complete I/O isolation with no
-                                     measurable overhead.
-servers_per_port         0           If each disk in each storage policy ring
-                                     has unique port numbers for its "ip"
-                                     value, you can use this setting to have
-                                     each object-server worker only service
-                                     requests for the single disk matching the
-                                     port in the ring. The value of this
-                                     setting determines how many worker
-                                     processes run for each port (disk) in the
-                                     ring. If you have 24 disks per server, and
-                                     this setting is 4, then each storage node
-                                     will have 1 + (24 * 4) = 97 total
-                                     object-server processes running. This
-                                     gives complete I/O isolation, drastically
-                                     reducing the impact of slow disks on
-                                     storage node performance. The
-                                     object-replicator and object-reconstructor
-                                     need to see this setting too, so it must
-                                     be in the [DEFAULT] section.
-                                     See :ref:`server-per-port-configuration`.
-max_clients              1024        Maximum number of clients one worker can
-                                     process simultaneously (it will actually
-                                     accept(2) N + 1). Setting this to one (1)
-                                     will only handle one request at a time,
-                                     without accepting another request
-                                     concurrently.
-disable_fallocate        false       Disable "fast fail" fallocate checks if
-                                     the underlying filesystem does not support
-                                     it.
-log_max_line_length      0           Caps the length of log lines to the
-                                     value given; no limit if set to 0, the
-                                     default.
-log_custom_handlers      None        Comma-separated list of functions to call
-                                     to setup custom log handlers.
-eventlet_debug           false       If true, turn on debug logging for
-                                     eventlet
-fallocate_reserve        0           You can set fallocate_reserve to the
-                                     number of bytes you'd like fallocate to
-                                     reserve, whether there is space for the
-                                     given file size or not. This is useful for
-                                     systems that behave badly when they
-                                     completely run out of space; you can
-                                     make the services pretend they're out of
-                                     space early.
-conn_timeout             0.5         Time to wait while attempting to connect
-                                     to another backend node.
-node_timeout             3           Time to wait while sending each chunk of
-                                     data to another backend node.
-client_timeout           60          Time to wait while receiving each chunk of
-                                     data from a client or another backend node
-network_chunk_size       65536       Size of chunks to read/write over the
-                                     network
-disk_chunk_size          65536       Size of chunks to read/write to disk
-container_update_timeout 1           Time to wait while sending a container
-                                     update on object update.
-======================== ==========  ==========================================
+================================ ==========  ==========================================
+Option                           Default     Description
+-------------------------------- ----------  ------------------------------------------
+swift_dir                        /etc/swift  Swift configuration directory
+devices                          /srv/node   Parent directory of where devices are
+                                             mounted
+mount_check                      true        Whether or not check if the devices are
+                                             mounted to prevent accidentally writing
+                                             to the root device
+bind_ip                          0.0.0.0     IP Address for server to bind to
+bind_port                        6000        Port for server to bind to
+bind_timeout                     30          Seconds to attempt bind before giving up
+backlog                          4096        Maximum number of allowed pending
+                                             connections
+workers                          auto        Override the number of pre-forked workers
+                                             that will accept connections.  If set it
+                                             should be an integer, zero means no fork.
+                                             If unset, it will try to default to the
+                                             number of effective cpu cores and fallback
+                                             to one. Increasing the number of workers
+                                             helps slow filesystem operations in one
+                                             request from negatively impacting other
+                                             requests, but only the
+                                             :ref:`servers_per_port
+                                             <server-per-port-configuration>` option
+                                             provides complete I/O isolation with no
+                                             measurable overhead.
+servers_per_port                 0           If each disk in each storage policy ring
+                                             has unique port numbers for its "ip"
+                                             value, you can use this setting to have
+                                             each object-server worker only service
+                                             requests for the single disk matching the
+                                             port in the ring. The value of this
+                                             setting determines how many worker
+                                             processes run for each port (disk) in the
+                                             ring. If you have 24 disks per server, and
+                                             this setting is 4, then each storage node
+                                             will have 1 + (24 * 4) = 97 total
+                                             object-server processes running. This
+                                             gives complete I/O isolation, drastically
+                                             reducing the impact of slow disks on
+                                             storage node performance. The
+                                             object-replicator and object-reconstructor
+                                             need to see this setting too, so it must
+                                             be in the [DEFAULT] section.
+                                             See :ref:`server-per-port-configuration`.
+max_clients                      1024        Maximum number of clients one worker can
+                                             process simultaneously (it will actually
+                                             accept(2) N + 1). Setting this to one (1)
+                                             will only handle one request at a time,
+                                             without accepting another request
+                                             concurrently.
+disable_fallocate                false       Disable "fast fail" fallocate checks if
+                                             the underlying filesystem does not support
+                                             it.
+log_name                         swift       Label used when logging
+log_facility                     LOG_LOCAL0  Syslog log facility
+log_level                        INFO        Logging level
+log_address                      /dev/log    Logging directory
+log_max_line_length              0           Caps the length of log lines to the
+                                             value given; no limit if set to 0, the
+                                             default.
+log_custom_handlers              None        Comma-separated list of functions to call
+                                             to setup custom log handlers.
+log_udp_host                                 Override log_address
+log_udp_port                     514         UDP log port
+log_statsd_host                  localhost   StatsD logging
+log_statsd_port                  8125
+log_statsd_default_sample_rate   1.0
+log_statsd_sample_rate_factor    1.0
+log_statsd_metric_prefix
+eventlet_debug                   false       If true, turn on debug logging for
+                                             eventlet
+fallocate_reserve                0           You can set fallocate_reserve to the
+                                             number of bytes you'd like fallocate to
+                                             reserve, whether there is space for the
+                                             given file size or not. This is useful for
+                                             systems that behave badly when they
+                                             completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
+conn_timeout                     0.5         Time to wait while attempting to connect
+                                             to another backend node.
+node_timeout                     3           Time to wait while sending each chunk of
+                                             data to another backend node.
+client_timeout                   60          Time to wait while receiving each chunk of
+                                             data from a client or another backend node
+network_chunk_size               65536       Size of chunks to read/write over the
+                                             network
+disk_chunk_size                  65536       Size of chunks to read/write to disk
+container_update_timeout         1           Time to wait while sending a container
+                                             update on object update.
+================================ ==========  ==========================================
 
 .. _object-server-options:
 
 [object-server]
 
-=============================  =============  =================================
-Option                         Default        Description
------------------------------  -------------  ---------------------------------
-use                                           paste.deploy entry point for the
-                                              object server.  For most cases,
-                                              this should be
-                                              `egg:swift#object`.
-set log_name                   object-server  Label used when logging
-set log_facility               LOG_LOCAL0     Syslog log facility
-set log_level                  INFO           Logging level
-set log_requests               True           Whether or not to log each
-                                              request
-user                           swift          User to run as
-max_upload_time                86400          Maximum time allowed to upload an
-                                              object
-slow                           0              If > 0, Minimum time in seconds
-                                              for a PUT or DELETE request to
-                                              complete
-mb_per_sync                    512            On PUT requests, sync file every
-                                              n MB
-keep_cache_size                5242880        Largest object size to keep in
-                                              buffer cache
-keep_cache_private             false          Allow non-public objects to stay
-                                              in kernel's buffer cache
-threads_per_disk               0              Size of the per-disk thread pool
-                                              used for performing disk I/O. The
-                                              default of 0 means to not use a
-                                              per-disk thread pool.
-                                              This option is no longer
-                                              recommended and the
-                                              :ref:`servers_per_port
-                                              <server-per-port-configuration>`
-                                              should be used instead.
-replication_concurrency        4              Set to restrict the number of
-                                              concurrent incoming REPLICATION
-                                              requests; set to 0 for unlimited
-replication_one_per_device     True           Restricts incoming REPLICATION
-                                              requests to one per device,
-                                              replication_currency above
-                                              allowing. This can help control
-                                              I/O to each device, but you may
-                                              wish to set this to False to
-                                              allow multiple REPLICATION
-                                              requests (up to the above
-                                              replication_concurrency setting)
-                                              per device.
-replication_lock_timeout       15             Number of seconds to wait for an
-                                              existing replication device lock
-                                              before giving up.
-replication_failure_threshold  100            The number of subrequest failures
-                                              before the
-                                              replication_failure_ratio is
-                                              checked
-replication_failure_ratio      1.0            If the value of failures /
-                                              successes of REPLICATION
-                                              subrequests exceeds this ratio,
-                                              the overall REPLICATION request
-                                              will be aborted
-=============================  =============  =================================
+=============================  ====================== ===============================================
+Option                         Default                Description
+-----------------------------  ---------------------- -----------------------------------------------
+use                                                   paste.deploy entry point for the
+                                                      object server.  For most cases,
+                                                      this should be
+                                                      `egg:swift#object`.
+set log_name                   object-server          Label used when logging
+set log_facility               LOG_LOCAL0             Syslog log facility
+set log_level                  INFO                   Logging level
+set log_requests               True                   Whether or not to log each
+                                                      request
+set log_address                /dev/log               Logging directory
+user                           swift                  User to run as
+max_upload_time                86400                  Maximum time allowed to upload an
+                                                      object
+slow                           0                      If > 0, Minimum time in seconds
+                                                      for a PUT or DELETE request to
+                                                      complete
+mb_per_sync                    512                    On PUT requests, sync file every
+                                                      n MB
+keep_cache_size                5242880                Largest object size to keep in
+                                                      buffer cache
+keep_cache_private             false                  Allow non-public objects to stay
+                                                      in kernel's buffer cache
+allowed_headers                Content-Disposition,   Comma separated list of headers
+                               Content-Encoding,      that can be set in metadata on an object.
+                               X-Delete-At,           This list is in addition to
+                               X-Object-Manifest,     X-Object-Meta-* headers and cannot include
+                               X-Static-Large-Object  Content-Type, etag, Content-Length, or deleted
+auto_create_account_prefix     .                      Prefix used when automatically
+                                                      creating accounts.
+threads_per_disk               0                      Size of the per-disk thread pool
+                                                      used for performing disk I/O. The
+                                                      default of 0 means to not use a
+                                                      per-disk thread pool.
+                                                      This option is no longer
+                                                      recommended and the
+                                                      :ref:`servers_per_port
+                                                      <server-per-port-configuration>`
+                                                      should be used instead.
+replication_server                                    Configure parameter for creating
+                                                      specific server. To handle all verbs,
+                                                      including replication verbs, do not
+                                                      specify "replication_server"
+                                                      (this is the default). To only
+                                                      handle replication, set to a True
+                                                      value (e.g. "True" or "1").
+                                                      To handle only non-replication
+                                                      verbs, set to "False". Unless you
+                                                      have a separate replication network, you
+                                                      should not specify any value for
+                                                      "replication_server".
+replication_concurrency        4                      Set to restrict the number of
+                                                      concurrent incoming REPLICATION
+                                                      requests; set to 0 for unlimited
+replication_one_per_device     True                   Restricts incoming REPLICATION
+                                                      requests to one per device,
+                                                      replication_currency above
+                                                      allowing. This can help control
+                                                      I/O to each device, but you may
+                                                      wish to set this to False to
+                                                      allow multiple REPLICATION
+                                                      requests (up to the above
+                                                      replication_concurrency setting)
+                                                      per device.
+replication_lock_timeout       15                     Number of seconds to wait for an
+                                                      existing replication device lock
+                                                      before giving up.
+replication_failure_threshold  100                    The number of subrequest failures
+                                                      before the
+                                                      replication_failure_ratio is
+                                                      checked
+replication_failure_ratio      1.0                    If the value of failures /
+                                                      successes of REPLICATION
+                                                      subrequests exceeds this ratio,
+                                                      the overall REPLICATION request
+                                                      will be aborted
+splice                         no                     Use splice() for zero-copy object
+                                                      GETs. This requires Linux kernel
+                                                      version 3.0 or greater. If you set
+                                                      "splice = yes" but the kernel
+                                                      does not support it, error messages
+                                                      will appear in the object server
+                                                      logs at startup, but your object
+                                                      servers should continue to function.
+=============================  ====================== ===============================================
 
 [object-replicator]
 
-==================  =================  =======================================
-Option              Default            Description
-------------------  -----------------  ---------------------------------------
-log_name            object-replicator  Label used when logging
-log_facility        LOG_LOCAL0         Syslog log facility
-log_level           INFO               Logging level
-daemonize           yes                Whether or not to run replication as a
-                                       daemon
-interval            30                 Time in seconds to wait between
-                                       replication passes
-concurrency         1                  Number of replication workers to spawn
-timeout             5                  Timeout value sent to rsync --timeout
-                                       and --contimeout options
-stats_interval      3600               Interval in seconds between logging
-                                       replication statistics
-reclaim_age         604800             Time elapsed in seconds before an
-                                       object can be reclaimed
-handoffs_first      false              If set to True, partitions that are
-                                       not supposed to be on the node will be
-                                       replicated first.  The default setting
-                                       should not be changed, except for
-                                       extreme situations.
-handoff_delete      auto               By default handoff partitions will be
-                                       removed when it has successfully
-                                       replicated to all the canonical nodes.
-                                       If set to an integer n, it will remove
-                                       the partition if it is successfully
-                                       replicated to n nodes.  The default
-                                       setting should not be changed, except
-                                       for extreme situations.
-node_timeout        DEFAULT or 10      Request timeout to external services.
-                                       This uses what's set here, or what's set
-                                       in the DEFAULT section, or 10 (though
-                                       other sections use 3 as the final
-                                       default).
-rsync_module        {replication_ip}::object
-                                       Format of the rsync module where the
-                                       replicator will send data. The
-                                       configuration value can include some
-                                       variables that will be extracted from
-                                       the ring. Variables must follow the
-                                       format {NAME} where NAME is one of:
-                                       ip, port, replication_ip,
-                                       replication_port, region, zone, device,
-                                       meta. See etc/rsyncd.conf-sample for
-                                       some examples.
-==================  =================  =======================================
+===========================  ========================  ================================
+Option                       Default                   Description
+---------------------------  ------------------------  --------------------------------
+log_name                     object-replicator         Label used when logging
+log_facility                 LOG_LOCAL0                Syslog log facility
+log_level                    INFO                      Logging level
+log_address                  /dev/log                  Logging directory
+daemonize                    yes                       Whether or not to run replication
+                                                       as a daemon
+interval                     30                        Time in seconds to wait between
+                                                       replication passes
+concurrency                  1                         Number of replication workers to
+                                                       spawn
+sync_method                  rsync                     The sync method to use; default
+                                                       is rsync but you can use ssync to
+                                                       try the EXPERIMENTAL
+                                                       all-swift-code-no-rsync-callouts
+                                                       method. Once ssync is verified as
+                                                       or better than, rsync, we plan to
+                                                       deprecate rsync so we can move on
+                                                       with more features for
+                                                       replication.
+rsync_timeout                900                       Max duration of a partition rsync
+rsync_bwlimit                0                         Bandwidth limit for rsync in kB/s.
+                                                       0 means unlimited.
+rsync_io_timeout             30                        Timeout value sent to rsync
+                                                       --timeout and --contimeout
+                                                       options
+rsync_compress               no                        Allow rsync to compress data
+                                                       which is transmitted to destination
+                                                       node during sync. However, this
+                                                       is applicable only when destination
+                                                       node is in a different region
+                                                       than the local one.
+                                                       NOTE: Objects that are already
+                                                       compressed (for example: .tar.gz,
+                                                       .mp3) might slow down the syncing
+                                                       process.
+stats_interval               300                       Interval in seconds between
+                                                       logging replication statistics
+reclaim_age                  604800                    Time elapsed in seconds before an
+                                                       object can be reclaimed
+handoffs_first               false                     If set to True, partitions that
+                                                       are not supposed to be on the
+                                                       node will be replicated first.
+                                                       The default setting should not be
+                                                       changed, except for extreme
+                                                       situations.
+handoff_delete               auto                      By default handoff partitions
+                                                       will be removed when it has
+                                                       successfully replicated to all
+                                                       the canonical nodes. If set to an
+                                                       integer n, it will remove the
+                                                       partition if it is successfully
+                                                       replicated to n nodes.  The
+                                                       default setting should not be
+                                                       changed, except for extreme
+                                                       situations.
+node_timeout                 DEFAULT or 10             Request timeout to external
+                                                       services. This uses what's set
+                                                       here, or what's set in the
+                                                       DEFAULT section, or 10 (though
+                                                       other sections use 3 as the final
+                                                       default).
+http_timeout                 60                        Max duration of an http request.
+                                                       This is for REPLICATE finalization
+                                                       calls and so should be longer
+                                                       than node_timeout.
+lockup_timeout               1800                      Attempts to kill all workers if
+                                                       nothing replicates for
+                                                       lockup_timeout seconds
+rsync_module                 {replication_ip}::object  Format of the rsync module where
+                                                       the replicator will send data.
+                                                       The configuration value can
+                                                       include some variables that will
+                                                       be extracted from the ring.
+                                                       Variables must follow the format
+                                                       {NAME} where NAME is one of: ip,
+                                                       port, replication_ip,
+                                                       replication_port, region, zone,
+                                                       device, meta. See
+                                                       etc/rsyncd.conf-sample for some
+                                                       examples.
+rsync_error_log_line_length  0                         Limits how long rsync error log
+                                                       lines are
+ring_check_interval          15                        Interval for checking new ring
+                                                       file
+recon_cache_path             /var/cache/swift          Path to recon cache
+===========================  ========================  ================================
 
 [object-updater]
 
-==================  ==============  ==========================================
-Option              Default         Description
-------------------  --------------  ------------------------------------------
-log_name            object-updater  Label used when logging
-log_facility        LOG_LOCAL0      Syslog log facility
-log_level           INFO            Logging level
-interval            300             Minimum time for a pass to take
-concurrency         1               Number of updater workers to spawn
-node_timeout        DEFAULT or 10   Request timeout to external services. This
-                                    uses what's set here, or what's set in the
-                                    DEFAULT section, or 10 (though other
-                                    sections use 3 as the final default).
-slowdown            0.01            Time in seconds to wait between objects
-==================  ==============  ==========================================
+==================  =================== ==========================================
+Option              Default             Description
+------------------  ------------------- ------------------------------------------
+log_name            object-updater      Label used when logging
+log_facility        LOG_LOCAL0          Syslog log facility
+log_level           INFO                Logging level
+log_address         /dev/log            Logging directory
+interval            300                 Minimum time for a pass to take
+concurrency         1                   Number of updater workers to spawn
+node_timeout        DEFAULT or 10       Request timeout to external services. This
+                                        uses what's set here, or what's set in the
+                                        DEFAULT section, or 10 (though other
+                                        sections use 3 as the final default).
+slowdown            0.01                Time in seconds to wait between objects
+recon_cache_path    /var/cache/swift    Path to recon cache
+==================  =================== ==========================================
 
 [object-auditor]
 
-==================  ==============  ==========================================
-Option              Default         Description
-------------------  --------------  ------------------------------------------
-log_name            object-auditor  Label used when logging
-log_facility        LOG_LOCAL0      Syslog log facility
-log_level           INFO            Logging level
-log_time            3600            Frequency of status logs in seconds.
-disk_chunk_size     65536           Size of chunks read during auditing
-files_per_second    20              Maximum files audited per second per
-                                    auditor process. Should be tuned according
-                                    to individual system specs. 0 is unlimited.
-bytes_per_second    10000000        Maximum bytes audited per second per
-                                    auditor process. Should be tuned according
-                                    to individual system specs. 0 is unlimited.
-concurrency         1               The number of parallel processes to use
-                                    for checksum auditing.
-==================  ==============  ==========================================
+=========================== =================== ==========================================
+Option                      Default             Description
+--------------------------- ------------------- ------------------------------------------
+log_name                    object-auditor      Label used when logging
+log_facility                LOG_LOCAL0          Syslog log facility
+log_level                   INFO                Logging level
+log_address                 /dev/log            Logging directory
+log_time                    3600                Frequency of status logs in seconds.
+disk_chunk_size             65536               Size of chunks read during auditing
+files_per_second            20                  Maximum files audited per second per
+                                                auditor process. Should be tuned according
+                                                to individual system specs. 0 is unlimited.
+bytes_per_second            10000000            Maximum bytes audited per second per
+                                                auditor process. Should be tuned according
+                                                to individual system specs. 0 is unlimited.
+concurrency                 1                   The number of parallel processes to use
+                                                for checksum auditing.
+zero_byte_files_per_second  50
+object_size_stats
+recon_cache_path            /var/cache/swift    Path to recon cache
+=========================== =================== ==========================================
 
 ------------------------------
 Container Server Configuration
@@ -655,98 +744,161 @@ The following configuration options are available:
 
 [DEFAULT]
 
-===================  ==========  ============================================
-Option               Default     Description
--------------------  ----------  --------------------------------------------
-swift_dir            /etc/swift  Swift configuration directory
-devices              /srv/node   Parent directory of where devices are mounted
-mount_check          true        Whether or not check if the devices are
-                                 mounted to prevent accidentally writing
-                                 to the root device
-bind_ip              0.0.0.0     IP Address for server to bind to
-bind_port            6001        Port for server to bind to
-bind_timeout         30          Seconds to attempt bind before giving up
-workers              auto        Override the number of pre-forked workers
-                                 that will accept connections.  If set it
-                                 should be an integer, zero means no fork.  If
-                                 unset, it will try to default to the number
-                                 of effective cpu cores and fallback to one.
-                                 Increasing the number of workers may reduce
-                                 the possibility of slow file system
-                                 operations in one request from negatively
-                                 impacting other requests.  See
-                                 :ref:`general-service-tuning`.
-max_clients          1024        Maximum number of clients one worker can
-                                 process simultaneously (it will actually
-                                 accept(2) N + 1). Setting this to one (1)
-                                 will only handle one request at a time,
-                                 without accepting another request
-                                 concurrently.
-user                 swift       User to run as
-disable_fallocate    false       Disable "fast fail" fallocate checks if the
-                                 underlying filesystem does not support it.
-log_max_line_length  0           Caps the length of log lines to the
-                                 value given; no limit if set to 0, the
-                                 default.
-log_custom_handlers  None        Comma-separated list of functions to call
-                                 to setup custom log handlers.
-eventlet_debug       false       If true, turn on debug logging for eventlet
-fallocate_reserve    0           You can set fallocate_reserve to the number of
-                                 bytes you'd like fallocate to reserve, whether
-                                 there is space for the given file size or not.
-                                 This is useful for systems that behave badly
-                                 when they completely run out of space; you can
-                                 make the services pretend they're out of space
-                                 early.
-===================  ==========  ============================================
+===============================  ==========  ============================================
+Option                           Default     Description
+-------------------------------  ----------  --------------------------------------------
+swift_dir                        /etc/swift  Swift configuration directory
+devices                          /srv/node   Parent directory of where devices are mounted
+mount_check                      true        Whether or not check if the devices are
+                                             mounted to prevent accidentally writing
+                                             to the root device
+bind_ip                          0.0.0.0     IP Address for server to bind to
+bind_port                        6001        Port for server to bind to
+bind_timeout                     30          Seconds to attempt bind before giving up
+backlog                          4096        Maximum number of allowed pending
+                                             connections
+workers                          auto        Override the number of pre-forked workers
+                                             that will accept connections.  If set it
+                                             should be an integer, zero means no fork.  If
+                                             unset, it will try to default to the number
+                                             of effective cpu cores and fallback to one.
+                                             Increasing the number of workers may reduce
+                                             the possibility of slow file system
+                                             operations in one request from negatively
+                                             impacting other requests.  See
+                                             :ref:`general-service-tuning`.
+max_clients                      1024        Maximum number of clients one worker can
+                                             process simultaneously (it will actually
+                                             accept(2) N + 1). Setting this to one (1)
+                                             will only handle one request at a time,
+                                             without accepting another request
+                                             concurrently.
+user                             swift       User to run as
+disable_fallocate                false       Disable "fast fail" fallocate checks if the
+                                             underlying filesystem does not support it.
+log_name                         swift       Label used when logging
+log_facility                     LOG_LOCAL0  Syslog log facility
+log_level                        INFO        Logging level
+log_address                      /dev/log    Logging directory
+log_max_line_length              0           Caps the length of log lines to the
+                                             value given; no limit if set to 0, the
+                                             default.
+log_custom_handlers              None        Comma-separated list of functions to call
+                                             to setup custom log handlers.
+log_udp_host                                 Override log_address
+log_udp_port                     514         UDP log port
+log_statsd_host                  localhost   StatsD logging
+log_statsd_port                  8125
+log_statsd_default_sample_rate   1.0
+log_statsd_sample_rate_factor    1.0
+log_statsd_metric_prefix
+eventlet_debug                   false       If true, turn on debug logging for eventlet
+fallocate_reserve                0           You can set fallocate_reserve to the number of
+                                             bytes you'd like fallocate to reserve, whether
+                                             there is space for the given file size or not.
+                                             This is useful for systems that behave badly
+                                             when they completely run out of space; you can
+                                             make the services pretend they're out of space
+                                             early.
+db_preallocation                 off         If you don't mind the extra disk space usage
+                                             in overhead, you can turn this on to preallocate
+                                             disk space with SQLite databases to decrease
+                                             fragmentation.
+===============================  ==========  ============================================
 
 [container-server]
 
-==================  ================  ========================================
-Option              Default           Description
-------------------  ----------------  ----------------------------------------
-use                                   paste.deploy entry point for the
-                                      container server.  For most cases, this
-                                      should be `egg:swift#container`.
-set log_name        container-server  Label used when logging
-set log_facility    LOG_LOCAL0        Syslog log facility
-set log_level       INFO              Logging level
-node_timeout        3                 Request timeout to external services
-conn_timeout        0.5               Connection timeout to external services
-allow_versions      false             Enable/Disable object versioning feature
-==================  ================  ========================================
+==============================  ================  ========================================
+Option                          Default           Description
+------------------------------  ----------------  ----------------------------------------
+use                                               paste.deploy entry point for the
+                                                  container server.  For most cases, this
+                                                  should be `egg:swift#container`.
+set log_name                    container-server  Label used when logging
+set log_facility                LOG_LOCAL0        Syslog log facility
+set log_level                   INFO              Logging level
+set log_requests                True              Whether or not to log each
+                                                  request
+set log_address                 /dev/log          Logging directory
+node_timeout                    3                 Request timeout to external services
+conn_timeout                    0.5               Connection timeout to external services
+allow_versions                  false             Enable/Disable object versioning feature
+auto_create_account_prefix      .                 Prefix used when automatically
+replication_server                                Configure parameter for creating
+                                                  specific server. To handle all verbs,
+                                                  including replication verbs, do not
+                                                  specify "replication_server"
+                                                  (this is the default). To only
+                                                  handle replication, set to a True
+                                                  value (e.g. "True" or "1").
+                                                  To handle only non-replication
+                                                  verbs, set to "False". Unless you
+                                                  have a separate replication network, you
+                                                  should not specify any value for
+                                                  "replication_server".
+==============================  ================  ========================================
 
 [container-replicator]
 
-==================  ====================  ====================================
-Option              Default               Description
-------------------  --------------------  ------------------------------------
-log_name            container-replicator  Label used when logging
-log_facility        LOG_LOCAL0            Syslog log facility
-log_level           INFO                  Logging level
-per_diff            1000
-concurrency         8                     Number of replication workers to
-                                          spawn
-interval            30                    Time in seconds to wait between
-                                          replication passes
-node_timeout        10                    Request timeout to external services
-conn_timeout        0.5                   Connection timeout to external
-                                          services
-reclaim_age         604800                Time elapsed in seconds before a
-                                          container can be reclaimed
-rsync_module        {replication_ip}::container
-                                          Format of the rsync module where the
-                                          replicator will send data. The
-                                          configuration value can include some
-                                          variables that will be extracted from
-                                          the ring. Variables must follow the
-                                          format {NAME} where NAME is one of:
-                                          ip, port, replication_ip,
-                                          replication_port, region, zone,
-                                          device, meta. See
-                                          etc/rsyncd.conf-sample for some
-                                          examples.
-==================  ====================  ====================================
+==================  ===========================  =============================
+Option              Default                      Description
+------------------  ---------------------------  -----------------------------
+log_name            container-replicator         Label used when logging
+log_facility        LOG_LOCAL0                   Syslog log facility
+log_level           INFO                         Logging level
+log_address         /dev/log                     Logging directory
+per_diff            1000                         Maximum number of database
+                                                 rows that will be sync'd in a
+                                                 single HTTP replication
+                                                 request. Databases with less
+                                                 than or equal to this number
+                                                 of differing rows will always
+                                                 be sync'd using an HTTP
+                                                 replication request rather
+                                                 than using rsync.
+max_diffs           100                          Maximum number of HTTP
+                                                 replication requests attempted
+                                                 on each replication pass for
+                                                 any one container. This caps
+                                                 how long the replicator will
+                                                 spend trying to sync a given
+                                                 database per pass so the other
+                                                 databases don't get starved.
+concurrency         8                            Number of replication workers
+                                                 to spawn
+interval            30                           Time in seconds to wait
+                                                 between replication passes
+node_timeout        10                           Request timeout to external
+                                                 services
+conn_timeout        0.5                          Connection timeout to external
+                                                 services
+reclaim_age         604800                       Time elapsed in seconds before
+                                                 a container can be reclaimed
+rsync_module        {replication_ip}::container  Format of the rsync module
+                                                 where the replicator will send
+                                                 data. The configuration value
+                                                 can include some variables
+                                                 that will be extracted from
+                                                 the ring. Variables must
+                                                 follow the format {NAME} where
+                                                 NAME is one of: ip, port,
+                                                 replication_ip,
+                                                 replication_port, region,
+                                                 zone, device, meta. See
+                                                 etc/rsyncd.conf-sample for
+                                                 some examples.
+rsync_compress      no                           Allow rsync to compress data
+                                                 which is transmitted to
+                                                 destination node during sync.
+                                                 However, this is applicable
+                                                 only when destination node is
+                                                 in a different region than the
+                                                 local one. NOTE: Objects that
+                                                 are already compressed (for
+                                                 example: .tar.gz, mp3) might
+                                                 slow down the syncing process.
+recon_cache_path    /var/cache/swift             Path to recon cache
+==================  ===========================  =============================
 
 [container-updater]
 
@@ -756,6 +908,7 @@ Option                    Default            Description
 log_name                  container-updater  Label used when logging
 log_facility              LOG_LOCAL0         Syslog log facility
 log_level                 INFO               Logging level
+log_address               /dev/log           Logging directory
 interval                  300                Minimum time for a pass to take
 concurrency               4                  Number of updater workers to spawn
 node_timeout              3                  Request timeout to external
@@ -768,6 +921,7 @@ account_suppression_time  60                 Seconds to suppress updating an
                                              account that has generated an
                                              error (timeout, not yet found,
                                              etc.)
+recon_cache_path          /var/cache/swift   Path to recon cache
 ========================  =================  ==================================
 
 [container-auditor]
@@ -778,10 +932,12 @@ Option                 Default            Description
 log_name               container-auditor  Label used when logging
 log_facility           LOG_LOCAL0         Syslog log facility
 log_level              INFO               Logging level
+log_address            /dev/log           Logging directory
 interval               1800               Minimum time for a pass to take
 containers_per_second  200                Maximum containers audited per second.
                                           Should be tuned according to individual
                                           system specs. 0 is unlimited.
+recon_cache_path       /var/cache/swift   Path to recon cache
 =====================  =================  =======================================
 
 ----------------------------
@@ -795,120 +951,183 @@ The following configuration options are available:
 
 [DEFAULT]
 
-===================  ==========  =============================================
-Option               Default     Description
--------------------  ----------  ---------------------------------------------
-swift_dir            /etc/swift  Swift configuration directory
-devices              /srv/node   Parent directory or where devices are mounted
-mount_check          true        Whether or not check if the devices are
-                                 mounted to prevent accidentally writing
-                                 to the root device
-bind_ip              0.0.0.0     IP Address for server to bind to
-bind_port            6002        Port for server to bind to
-bind_timeout         30          Seconds to attempt bind before giving up
-workers              auto        Override the number of pre-forked workers
-                                 that will accept connections.  If set it
-                                 should be an integer, zero means no fork.  If
-                                 unset, it will try to default to the number
-                                 of effective cpu cores and fallback to one.
-                                 Increasing the number of workers may reduce
-                                 the possibility of slow file system
-                                 operations in one request from negatively
-                                 impacting other requests.  See
-                                 :ref:`general-service-tuning`.
-max_clients          1024        Maximum number of clients one worker can
-                                 process simultaneously (it will actually
-                                 accept(2) N + 1). Setting this to one (1)
-                                 will only handle one request at a time,
-                                 without accepting another request
-                                 concurrently.
-user                 swift       User to run as
-db_preallocation     off         If you don't mind the extra disk space usage in
-                                 overhead, you can turn this on to preallocate
-                                 disk space with SQLite databases to decrease
-                                 fragmentation.
-disable_fallocate    false       Disable "fast fail" fallocate checks if the
-                                 underlying filesystem does not support it.
-log_max_line_length  0           Caps the length of log lines to the
-                                 value given; no limit if set to 0, the
-                                 default.
-log_custom_handlers  None        Comma-separated list of functions to call
-                                 to setup custom log handlers.
-eventlet_debug       false       If true, turn on debug logging for eventlet
-fallocate_reserve    0           You can set fallocate_reserve to the number of
-                                 bytes you'd like fallocate to reserve, whether
-                                 there is space for the given file size or not.
-                                 This is useful for systems that behave badly
-                                 when they completely run out of space; you can
-                                 make the services pretend they're out of space
-                                 early.
-===================  ==========  =============================================
+===============================  ==========  =============================================
+Option                           Default     Description
+-------------------------------  ----------  ---------------------------------------------
+swift_dir                        /etc/swift  Swift configuration directory
+devices                          /srv/node   Parent directory or where devices are mounted
+mount_check                      true        Whether or not check if the devices are
+                                             mounted to prevent accidentally writing
+                                             to the root device
+bind_ip                          0.0.0.0     IP Address for server to bind to
+bind_port                        6002        Port for server to bind to
+bind_timeout                     30          Seconds to attempt bind before giving up
+backlog                          4096        Maximum number of allowed pending
+                                             connections
+workers                          auto        Override the number of pre-forked workers
+                                             that will accept connections.  If set it
+                                             should be an integer, zero means no fork.  If
+                                             unset, it will try to default to the number
+                                             of effective cpu cores and fallback to one.
+                                             Increasing the number of workers may reduce
+                                             the possibility of slow file system
+                                             operations in one request from negatively
+                                             impacting other requests.  See
+                                             :ref:`general-service-tuning`.
+max_clients                      1024        Maximum number of clients one worker can
+                                             process simultaneously (it will actually
+                                             accept(2) N + 1). Setting this to one (1)
+                                             will only handle one request at a time,
+                                             without accepting another request
+                                             concurrently.
+user                             swift       User to run as
+db_preallocation                 off         If you don't mind the extra disk space usage in
+                                             overhead, you can turn this on to preallocate
+                                             disk space with SQLite databases to decrease
+                                             fragmentation.
+disable_fallocate                false       Disable "fast fail" fallocate checks if the
+                                             underlying filesystem does not support it.
+log_name                         swift       Label used when logging
+log_facility                     LOG_LOCAL0  Syslog log facility
+log_level                        INFO        Logging level
+log_address                      /dev/log    Logging directory
+log_max_line_length              0           Caps the length of log lines to the
+                                             value given; no limit if set to 0, the
+                                             default.
+log_custom_handlers              None        Comma-separated list of functions to call
+                                             to setup custom log handlers.
+log_udp_host                                 Override log_address
+log_udp_port                     514         UDP log port
+log_statsd_host                  localhost   StatsD logging
+log_statsd_port                  8125
+log_statsd_default_sample_rate   1.0
+log_statsd_sample_rate_factor    1.0
+log_statsd_metric_prefix
+eventlet_debug                   false       If true, turn on debug logging for eventlet
+fallocate_reserve                0           You can set fallocate_reserve to the number of
+                                             bytes you'd like fallocate to reserve, whether
+                                             there is space for the given file size or not.
+                                             This is useful for systems that behave badly
+                                             when they completely run out of space; you can
+                                             make the services pretend they're out of space
+                                             early.
+===============================  ==========  =============================================
 
 [account-server]
 
-==================  ==============  ==========================================
-Option              Default         Description
-------------------  --------------  ------------------------------------------
-use                                 Entry point for paste.deploy for the account
-                                    server.  For most cases, this should be
-                                    `egg:swift#account`.
-set log_name        account-server  Label used when logging
-set log_facility    LOG_LOCAL0      Syslog log facility
-set log_level       INFO            Logging level
-==================  ==============  ==========================================
+=============================  ==============  ==========================================
+Option                         Default         Description
+-----------------------------  --------------  ------------------------------------------
+use                                            Entry point for paste.deploy for the account
+                                               server.  For most cases, this should be
+                                               `egg:swift#account`.
+set log_name                   account-server  Label used when logging
+set log_facility               LOG_LOCAL0      Syslog log facility
+set log_level                  INFO            Logging level
+set log_requests               True            Whether or not to log each
+                                               request
+set log_address                /dev/log        Logging directory
+auto_create_account_prefix     .               Prefix used when automatically
+                                               creating accounts.
+replication_server                             Configure parameter for creating
+                                               specific server. To handle all verbs,
+                                               including replication verbs, do not
+                                               specify "replication_server"
+                                               (this is the default). To only
+                                               handle replication, set to a True
+                                               value (e.g. "True" or "1").
+                                               To handle only non-replication
+                                               verbs, set to "False". Unless you
+                                               have a separate replication network, you
+                                               should not specify any value for
+                                               "replication_server".
+=============================  ==============  ==========================================
 
 [account-replicator]
 
-==================  ==================  ======================================
-Option              Default             Description
-------------------  ------------------  --------------------------------------
-log_name            account-replicator  Label used when logging
-log_facility        LOG_LOCAL0          Syslog log facility
-log_level           INFO                Logging level
-per_diff            1000
-concurrency         8                   Number of replication workers to spawn
-interval            30                  Time in seconds to wait between
-                                        replication passes
-node_timeout        10                  Request timeout to external services
-conn_timeout        0.5                 Connection timeout to external services
-reclaim_age         604800              Time elapsed in seconds before an
-                                        account can be reclaimed
-rsync_module        {replication_ip}::account
-                                        Format of the rsync module where the
-                                        replicator will send data. The
-                                        configuration value can include some
-                                        variables that will be extracted from
-                                        the ring. Variables must follow the
-                                        format {NAME} where NAME is one of:
-                                        ip, port, replication_ip,
-                                        replication_port, region, zone,
-                                        device, meta. See
-                                        etc/rsyncd.conf-sample for some
-                                        examples.
-==================  ==================  ======================================
+==================  =========================  ===============================
+Option              Default                    Description
+------------------  -------------------------  -------------------------------
+log_name            account-replicator         Label used when logging
+log_facility        LOG_LOCAL0                 Syslog log facility
+log_level           INFO                       Logging level
+log_address         /dev/log                   Logging directory
+per_diff            1000                       Maximum number of database rows
+                                               that will be sync'd in a single
+                                               HTTP replication request.
+                                               Databases with less than or
+                                               equal to this number of
+                                               differing rows will always be
+                                               sync'd using an HTTP replication
+                                               request rather than using rsync.
+max_diffs           100                        Maximum number of HTTP
+                                               replication requests attempted
+                                               on each replication pass for any
+                                               one container. This caps how
+                                               long the replicator will spend
+                                               trying to sync a given database
+                                               per pass so the other databases
+                                               don't get starved.
+concurrency         8                          Number of replication workers
+                                               to spawn
+interval            30                         Time in seconds to wait between
+                                               replication passes
+node_timeout        10                         Request timeout to external
+                                               services
+conn_timeout        0.5                        Connection timeout to external
+                                               services
+reclaim_age         604800                     Time elapsed in seconds before
+                                               an account can be reclaimed
+rsync_module        {replication_ip}::account  Format of the rsync module where
+                                               the replicator will send data.
+                                               The configuration value can
+                                               include some variables that will
+                                               be extracted from the ring.
+                                               Variables must follow the format
+                                               {NAME} where NAME is one of: ip,
+                                               port, replication_ip,
+                                               replication_port, region, zone,
+                                               device, meta. See
+                                               etc/rsyncd.conf-sample for some
+                                               examples.
+rsync_compress      no                         Allow rsync to compress data
+                                               which is transmitted to
+                                               destination node during sync.
+                                               However, this is applicable only
+                                               when destination node is in a
+                                               different region than the local
+                                               one. NOTE: Objects that are
+                                               already compressed (for example:
+                                               .tar.gz, mp3) might slow down
+                                               the syncing process.
+recon_cache_path    /var/cache/swift           Path to recon cache
+==================  =========================  ===============================
 
 [account-auditor]
 
-====================  ===============  =======================================
-Option                Default          Description
---------------------  ---------------  ---------------------------------------
-log_name              account-auditor  Label used when logging
-log_facility          LOG_LOCAL0       Syslog log facility
-log_level             INFO             Logging level
-interval              1800             Minimum time for a pass to take
-accounts_per_second   200              Maximum accounts audited per second.
-                                       Should be tuned according to individual
-                                       system specs. 0 is unlimited.
-====================  ===============  =======================================
+====================  ================  =======================================
+Option                Default           Description
+--------------------  ----------------  ---------------------------------------
+log_name              account-auditor   Label used when logging
+log_facility          LOG_LOCAL0        Syslog log facility
+log_level             INFO              Logging level
+log_address           /dev/log          Logging directory
+interval              1800              Minimum time for a pass to take
+accounts_per_second   200               Maximum accounts audited per second.
+                                        Should be tuned according to individual
+                                        system specs. 0 is unlimited.
+recon_cache_path      /var/cache/swift  Path to recon cache
+====================  ================  =======================================
 
 [account-reaper]
 
 ==================  ===============  =========================================
 Option              Default          Description
 ------------------  ---------------  -----------------------------------------
-log_name            account-auditor  Label used when logging
+log_name            account-reaper   Label used when logging
 log_facility        LOG_LOCAL0       Syslog log facility
 log_level           INFO             Logging level
+log_address         /dev/log         Logging directory
 concurrency         25               Number of replication workers to spawn
 interval            3600             Minimum time for a pass to take
 node_timeout        10               Request timeout to external services
@@ -918,6 +1137,14 @@ delay_reaping       0                Normally, the reaper begins deleting
                                      immediately; you can set this to delay
                                      its work however. The value is in seconds,
                                      2592000 = 30 days, for example.
+reap_warn_after     2892000          If the account fails to be be reaped due
+                                     to a persistent error, the account reaper
+                                     will log a message such as:
+                                     Account <name> has not been reaped since <date>
+                                     You can search logs for this message if
+                                     space is not being reclaimed after you
+                                     delete account(s). This is in addition to
+                                     any time requested by delay_reaping.
 ==================  ===============  =========================================
 
 .. _proxy-server-config:
@@ -933,66 +1160,95 @@ The following configuration options are available:
 
 [DEFAULT]
 
-============================  ===============  =============================
-Option                        Default          Description
-----------------------------  ---------------  -----------------------------
-bind_ip                       0.0.0.0          IP Address for server to
-                                               bind to
-bind_port                     80               Port for server to bind to
-bind_timeout                  30               Seconds to attempt bind before
-                                               giving up
-swift_dir                     /etc/swift       Swift configuration directory
-workers                       auto             Override the number of
-                                               pre-forked workers that will
-                                               accept connections.  If set it
-                                               should be an integer, zero
-                                               means no fork.  If unset, it
-                                               will try to default to the
-                                               number of effective cpu cores
-                                               and fallback to one.  See
-                                               :ref:`general-service-tuning`.
-max_clients                   1024             Maximum number of clients one
-                                               worker can process
-                                               simultaneously (it will
-                                               actually accept(2) N +
-                                               1). Setting this to one (1)
-                                               will only handle one request at
-                                               a time, without accepting
-                                               another request
-                                               concurrently.
-user                          swift            User to run as
-cert_file                                      Path to the ssl .crt. This
-                                               should be enabled for testing
-                                               purposes only.
-key_file                                       Path to the ssl .key. This
-                                               should be enabled for testing
-                                               purposes only.
-cors_allow_origin                              This is a list of hosts that
-                                               are included with any CORS
-                                               request by default and
-                                               returned with the
-                                               Access-Control-Allow-Origin
-                                               header in addition to what
-                                               the container has set.
-log_max_line_length           0                Caps the length of log
-                                               lines to the value given;
-                                               no limit if set to 0, the
-                                               default.
-log_custom_handlers           None             Comma separated list of functions
-                                               to call to setup custom log
-                                               handlers.
-eventlet_debug                false            If true, turn on debug logging
-                                               for eventlet
+====================================  ========================  ========================================
+Option                                Default                   Description
+------------------------------------  ------------------------  ----------------------------------------
+bind_ip                               0.0.0.0                   IP Address for server to
+                                                                bind to
+bind_port                             80                        Port for server to bind to
+bind_timeout                          30                        Seconds to attempt bind before
+                                                                giving up
+backlog                               4096                      Maximum number of allowed pending
+                                                                connections
+swift_dir                             /etc/swift                Swift configuration directory
+workers                               auto                      Override the number of
+                                                                pre-forked workers that will
+                                                                accept connections.  If set it
+                                                                should be an integer, zero
+                                                                means no fork.  If unset, it
+                                                                will try to default to the
+                                                                number of effective cpu cores
+                                                                and fallback to one.  See
+                                                                :ref:`general-service-tuning`.
+max_clients                           1024                      Maximum number of clients one
+                                                                worker can process
+                                                                simultaneously (it will
+                                                                actually accept(2) N +
+                                                                1). Setting this to one (1)
+                                                                will only handle one request at
+                                                                a time, without accepting
+                                                                another request
+                                                                concurrently.
+user                                  swift                     User to run as
+cert_file                                                       Path to the ssl .crt. This
+                                                                should be enabled for testing
+                                                                purposes only.
+key_file                                                        Path to the ssl .key. This
+                                                                should be enabled for testing
+                                                                purposes only.
+cors_allow_origin                                               This is a list of hosts that
+                                                                are included with any CORS
+                                                                request by default and
+                                                                returned with the
+                                                                Access-Control-Allow-Origin
+                                                                header in addition to what
+                                                                the container has set.
+strict_cors_mode                      True
+client_timeout                        60
+trans_id_suffix                                                 This optional suffix (default is empty)
+                                                                that would be appended to the swift
+                                                                transaction id allows one to easily
+                                                                figure out from which cluster that
+                                                                X-Trans-Id belongs to. This is very
+                                                                useful when one is managing more than
+                                                                one swift cluster.
+log_name                              swift                     Label used when logging
+log_facility                          LOG_LOCAL0                Syslog log facility
+log_level                             INFO                      Logging level
+log_headers                           False
+log_address                           /dev/log                  Logging directory
+log_max_line_length                   0                         Caps the length of log
+                                                                lines to the value given;
+                                                                no limit if set to 0, the
+                                                                default.
+log_custom_handlers                   None                      Comma separated list of functions
+                                                                to call to setup custom log
+                                                                handlers.
+log_udp_host                                                    Override log_address
+log_udp_port                          514                       UDP log port
+log_statsd_host                       localhost                 StatsD logging
+log_statsd_port                       8125
+log_statsd_default_sample_rate        1.0
+log_statsd_sample_rate_factor         1.0
+log_statsd_metric_prefix
+eventlet_debug                        false                     If true, turn on debug logging
+                                                                for eventlet
 
-expose_info                   true             Enables exposing configuration
-                                               settings via HTTP GET /info.
-
-admin_key                                      Key to use for admin calls that
-                                               are HMAC signed.  Default
-                                               is empty, which will
-                                               disable admin calls to
-                                               /info.
-============================  ===============  =============================
+expose_info                           true                      Enables exposing configuration
+                                                                settings via HTTP GET /info.
+admin_key                                                       Key to use for admin calls that
+                                                                are HMAC signed.  Default
+                                                                is empty, which will
+                                                                disable admin calls to
+                                                                /info.
+disallowed_sections                   swift.valid_api_versions  Allows the ability to withhold
+                                                                sections from showing up in the
+                                                                public calls to /info. You can
+                                                                withhold subsections by separating
+                                                                the dict level with a ".".
+expiring_objects_container_divisor    86400
+expiring_objects_account_name         expiring_objects
+====================================  ========================  ========================================
 
 [proxy-server]
 

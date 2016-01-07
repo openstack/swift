@@ -57,6 +57,8 @@ IP address the container server should bind to. The default is 0.0.0.0 which wil
 it bind to all available addresses.
 .IP "\fBbind_port\fR"
 TCP port the container server should bind to. The default is 6001.
+.IP "\fBbind_timeout\fR"
+Timeout to bind socket. The default is 30.
 .IP \fBbacklog\fR
 TCP backlog.  Maximum number of allowed pending connections. The default value is 4096.
 .IP \fBworkers\fR
@@ -70,6 +72,12 @@ concurrent requests.
 Maximum number of clients one worker can process simultaneously (it will
 actually accept(2) N + 1). Setting this to one (1) will only handle one request
 at a time, without accepting another request concurrently.  The default is 1024.
+.IP \fBallowed_sync_hosts\fR
+This is a comma separated list of hosts allowed in the X-Container-Sync-To
+field for containers. This is the old-style of using container sync. It is
+strongly recommended to use the new style of a separate
+container-sync-realms.conf -- see container-sync-realms.conf-sample
+allowed_sync_hosts = 127.0.0.1
 .IP \fBuser\fR
 The system user that the container server will run as. The default is swift.
 .IP \fBswift_dir\fR
@@ -79,6 +87,8 @@ Parent directory or where devices are mounted. Default is /srv/node.
 .IP \fBmount_check\fR
 Whether or not check if the devices are mounted to prevent accidentally writing to
 the root device. The default is set to true.
+.IP \fBdisable_fallocate\fR
+Disable pre-allocate disk space for a file. The default is false.
 .IP \fBlog_name\fR
 Label used when logging. The default is swift.
 .IP \fBlog_facility\fR
@@ -87,6 +97,36 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
+.IP \fBlog_max_line_length\fR
+The following caps the length of log lines to the value given; no limit if
+set to 0, the default.
+.IP \fBlog_custom_handlers\fR
+Comma separated list of functions to call to setup custom log handlers.
+functions get passed: conf, name, log_to_console, log_route, fmt, logger,
+adapted_logger. The default is empty.
+.IP \fBlog_udp_host\fR
+If set, log_udp_host will override log_address.
+.IP "\fBlog_udp_port\fR
+UDP log port, the default is 514.
+.IP \fBlog_statsd_host\fR = localhost
+log_statsd_*  enable StatsD logging.
+.IP \fBlog_statsd_port\fR
+The default is 8125.
+.IP \fBlog_statsd_default_sample_rate\fR
+The default is 1.
+.IP \fBlog_statsd_sample_rate_factor\fR
+The default is 1.
+.IP \fBlog_statsd_metric_prefix\fR
+The default is empty.
+.IP \fBdb_preallocation\fR
+If you don't mind the extra disk space usage in overhead, you can turn this
+on to preallocate disk space with SQLite databases to decrease fragmentation.
+The default is false.
+.IP \fBeventlet_debug\fR
+Debug mode for eventlet library. The default is false.
+.IP \fBfallocate_reserve\fR
+You can set fallocate_reserve to the number of bytes you'd like fallocate to
+reserve, whether there is space for the given file size or not. The default is 0.
 .RE
 .PD
 
@@ -129,6 +169,17 @@ Logging address. The default is /dev/log.
 Request timeout to external services. The default is 3 seconds.
 .IP \fBconn_timeout\fR
 Connection timeout to external services. The default is 0.5 seconds.
+.IP \fBallow_versions\fR
+The default is false.
+.IP \fBauto_create_account_prefix\fR
+The default is '.'.
+.IP \fBreplication_server\fR
+Configure parameter for creating specific server.
+To handle all verbs, including replication verbs, do not specify
+"replication_server" (this is the default). To only handle replication,
+set to a True value (e.g. "True" or "1"). To handle only non-replication
+verbs, set to "False". Unless you have a separate replication network, you
+should not specify any value for "replication_server".
 .RE
 .PD
 
@@ -164,6 +215,36 @@ and ensure that swift has read/write. The default is /var/cache/swift.
 .RE
 .PD
 
+.RS 0
+.IP "\fB[filter:xprofile]\fR"
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy for the xprofile middleware. This is the reference to the installed python egg.
+This is normally \fBegg:swift#xprofile\fR.
+.IP "\fBprofile_module\fR"
+This option enable you to switch profilers which should inherit from python
+standard profiler. Currently the supported value can be 'cProfile', 'eventlet.green.profile' etc.
+.IP "\fBlog_filename_prefix\fR"
+This prefix will be used to combine process ID and timestamp to name the
+profile data file.  Make sure the executing user has permission to write
+into this path (missing path segments will be created, if necessary).
+If you enable profiling in more than one type of daemon, you must override
+it with an unique value like, the default is /var/log/swift/profile/account.profile.
+.IP "\fBdump_interval\fR"
+The profile data will be dumped to local disk based on above naming rule
+in this interval. The default is 5.0.
+.IP "\fBdump_timestamp\fR"
+Be careful, this option will enable profiler to dump data into the file with
+time stamp which means there will be lots of files piled up in the directory.
+The default is false
+.IP "\fBpath\fR"
+This is the path of the URL to access the mini web UI. The default is __profile__.
+.IP "\fBflush_at_shutdown\fR"
+Clear the data when the wsgi server shutdown. The default is false.
+.IP "\fBunwind\fR"
+Unwind the iterator of applications. Default is false.
+.RE
+.PD
 
 
 .SH ADDITIONAL SECTIONS
@@ -182,8 +263,8 @@ Syslog log facility. The default is LOG_LOCAL0.
 Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
-.IP \fBer_diff\fR
-The default is 1000.
+.IP \fBper_diff\fR
+Maximum number of database rows that will be sync'd in a single HTTP replication request. The default is 1000.
 .IP \fBmax_diffs\fR
 This caps how long the replicator will spend trying to sync a given database per pass so the other databases don't get starved. The default is 100.
 .IP \fBconcurrency\fR
@@ -199,6 +280,15 @@ Connection timeout to external services. The default is 0.5 seconds.
 .IP \fBreclaim_age\fR
 Time elapsed in seconds before an container can be reclaimed. The default is
 604800 seconds.
+.IP \fBrsync_compress\fR
+Allow rsync to compress data which is transmitted to destination node
+during sync. However, this is applicable only when destination node is in
+a different region than the local one. The default is false.
+.IP \fBrsync_module\fR
+Format of the rysnc module where the replicator will send data. See
+etc/rsyncd.conf-sample for some usage examples.
+.IP \fBrecon_cache_path\fR
+Path to recon cache directory. The default is /var/cache/swift.
 .RE
 
 
@@ -226,6 +316,8 @@ Connection timeout to external services. The default is 0.5 seconds.
 Slowdown will sleep that amount between containers. The default is 0.01 seconds.
 .IP \fBaccount_suppression_time\fR
 Seconds to suppress updating an account that has generated an error. The default is 60 seconds.
+.IP \fBrecon_cache_path\fR
+Path to recon cache directory. The default is /var/cache/swift.
 .RE
 .PD
 
@@ -246,6 +338,8 @@ Logging address. The default is /dev/log.
 Will audit, at most, 1 container per device per interval. The default is 1800 seconds.
 .IP \fBcontainers_per_second\fR
 Maximum containers audited per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 200.
+.IP \fBrecon_cache_path\fR
+Path to recon cache directory. The default is /var/cache/swift.
 .RE
 
 
@@ -268,8 +362,10 @@ If you need to use an HTTP Proxy, set it here; defaults to no proxy.
 Will audit, at most, each container once per interval. The default is 300 seconds.
 .IP \fBcontainer_time\fR
 Maximum amount of time to spend syncing each container per pass. The default is 60 seconds.
-.IP \fBrequest_retries\fR
-Server errors from requests will be retried by default.
+.IP \fBconn_timeout\fR
+Connection timeout to external services. The default is 5 seconds.
+.IP \fBrequest_tries\fR
+Server errors from requests will be retried by default. The default is 3.
 .IP \fBinternal_client_conf_path\fR
 Internal client config file path.
 .RE

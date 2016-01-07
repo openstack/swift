@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from datetime import datetime
+import email.parser
 import hashlib
 import hmac
 import itertools
@@ -24,11 +25,11 @@ import random
 import six
 from six.moves import urllib
 import time
-import unittest
+import unittest2
 import uuid
 from copy import deepcopy
 import eventlet
-from nose import SkipTest
+from unittest2 import SkipTest
 from swift.common.http import is_success, is_client_error
 
 from test.functional import normalized_urls, load_constraint, cluster_info
@@ -36,6 +37,14 @@ from test.functional import check_response, retry, requires_acls
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
+
+
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
 
 
 class Utils(object):
@@ -61,7 +70,7 @@ class Utils(object):
     create_name = create_ascii_name
 
 
-class Base(unittest.TestCase):
+class Base(unittest2.TestCase):
     def setUp(self):
         cls = type(self)
         if not cls.set_up:
@@ -229,6 +238,45 @@ class TestAccount(Base):
 
             self.assertEqual(a, b)
 
+    def testListDelimiter(self):
+        delimiter = '-'
+        containers = ['test', delimiter.join(['test', 'bar']),
+                      delimiter.join(['test', 'foo'])]
+        for c in containers:
+            cont = self.env.account.container(c)
+            self.assertTrue(cont.create())
+
+        results = self.env.account.containers(parms={'delimiter': delimiter})
+        expected = ['test', 'test-']
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'reverse': 'yes'})
+        expected.reverse()
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+    def testListDelimiterAndPrefix(self):
+        delimiter = 'a'
+        containers = ['bar', 'bazar']
+        for c in containers:
+            cont = self.env.account.container(c)
+            self.assertTrue(cont.create())
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'prefix': 'ba'})
+        expected = ['bar', 'baza']
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
+        results = self.env.account.containers(parms={'delimiter': delimiter,
+                                                     'prefix': 'ba',
+                                                     'reverse': 'yes'})
+        expected.reverse()
+        results = [r for r in results if r in expected]
+        self.assertEqual(expected, results)
+
     def testInvalidAuthToken(self):
         hdrs = {'X-Auth-Token': 'bogus_auth_token'}
         self.assertRaises(ResponseError, self.env.account.info, hdrs=hdrs)
@@ -325,6 +373,92 @@ class TestAccountNoContainers(Base):
 
 class TestAccountNoContainersUTF8(Base2, TestAccountNoContainers):
     set_up = False
+
+
+class TestAccountSortingEnv(object):
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
+        cls.account.delete_containers()
+
+        postfix = Utils.create_name()
+        cls.cont_items = ('a1', 'a2', 'A3', 'b1', 'B2', 'a10', 'b10', 'zz')
+        cls.cont_items = ['%s%s' % (x, postfix) for x in cls.cont_items]
+
+        for container in cls.cont_items:
+            c = cls.account.container(container)
+            if not c.create():
+                raise ResponseError(cls.conn.response)
+
+
+class TestAccountSorting(Base):
+    env = TestAccountSortingEnv
+    set_up = False
+
+    def testAccountContainerListSorting(self):
+        # name (byte order) sorting.
+        cont_list = sorted(self.env.cont_items)
+        for reverse in ('false', 'no', 'off', '', 'garbage'):
+            cont_listing = self.env.account.containers(
+                parms={'reverse': reverse})
+            self.assert_status(200)
+            self.assertEqual(cont_list, cont_listing,
+                             'Expected %s but got %s with reverse param %r'
+                             % (cont_list, cont_listing, reverse))
+
+    def testAccountContainerListSortingReverse(self):
+        # name (byte order) sorting.
+        cont_list = sorted(self.env.cont_items)
+        cont_list.reverse()
+        for reverse in ('true', '1', 'yes', 'on', 't', 'y'):
+            cont_listing = self.env.account.containers(
+                parms={'reverse': reverse})
+            self.assert_status(200)
+            self.assertEqual(cont_list, cont_listing,
+                             'Expected %s but got %s with reverse param %r'
+                             % (cont_list, cont_listing, reverse))
+
+    def testAccountContainerListSortingByPrefix(self):
+        cont_list = sorted(c for c in self.env.cont_items if c.startswith('a'))
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'prefix': 'a'})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByMarkersExclusive(self):
+        first_item = self.env.cont_items[3]  # 'b1' + postfix
+        last_item = self.env.cont_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.cont_items
+                           if last_item < c < first_item)
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'marker': first_item, 'end_marker': last_item})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByMarkersInclusive(self):
+        first_item = self.env.cont_items[3]  # 'b1' + postfix
+        last_item = self.env.cont_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.cont_items
+                           if last_item <= c <= first_item)
+        cont_list.reverse()
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'marker': first_item + '\x00',
+            'end_marker': last_item[:-1] + chr(ord(last_item[-1]) - 1)})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testAccountContainerListSortingByReversedMarkers(self):
+        cont_listing = self.env.account.containers(parms={
+            'reverse': 'on', 'marker': 'B', 'end_marker': 'b1'})
+        self.assert_status(204)
+        self.assertEqual([], cont_listing)
 
 
 class TestContainerEnv(object):
@@ -455,6 +589,9 @@ class TestContainer(Base):
         results = cont.files(parms={'delimiter': delimiter})
         self.assertEqual(results, ['test', 'test-'])
 
+        results = cont.files(parms={'delimiter': delimiter, 'reverse': 'yes'})
+        self.assertEqual(results, ['test-', 'test'])
+
     def testListDelimiterAndPrefix(self):
         cont = self.env.account.container(Utils.create_name())
         self.assertTrue(cont.create())
@@ -467,6 +604,11 @@ class TestContainer(Base):
 
         results = cont.files(parms={'delimiter': delimiter, 'prefix': 'ba'})
         self.assertEqual(results, ['bar', 'baza'])
+
+        results = cont.files(parms={'delimiter': delimiter,
+                                    'prefix': 'ba',
+                                    'reverse': 'yes'})
+        self.assertEqual(results, ['baza', 'bar'])
 
     def testCreate(self):
         cont = self.env.account.container(Utils.create_name())
@@ -645,6 +787,118 @@ class TestContainer(Base):
 
 class TestContainerUTF8(Base2, TestContainer):
     set_up = False
+
+
+class TestContainerSortingEnv(object):
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
+        cls.account.delete_containers()
+
+        cls.container = cls.account.container(Utils.create_name())
+        if not cls.container.create():
+            raise ResponseError(cls.conn.response)
+
+        cls.file_items = ('a1', 'a2', 'A3', 'b1', 'B2', 'a10', 'b10', 'zz')
+        cls.files = list()
+        cls.file_size = 128
+        for name in cls.file_items:
+            file_item = cls.container.file(name)
+            file_item.write_random(cls.file_size)
+            cls.files.append(file_item.name)
+
+
+class TestContainerSorting(Base):
+    env = TestContainerSortingEnv
+    set_up = False
+
+    def testContainerFileListSortingReversed(self):
+        file_list = list(sorted(self.env.file_items))
+        file_list.reverse()
+        for reverse in ('true', '1', 'yes', 'on', 't', 'y'):
+            cont_files = self.env.container.files(parms={'reverse': reverse})
+            self.assert_status(200)
+            self.assertEqual(file_list, cont_files,
+                             'Expected %s but got %s with reverse param %r'
+                             % (file_list, cont_files, reverse))
+
+    def testContainerFileSortingByPrefixReversed(self):
+        cont_list = sorted(c for c in self.env.file_items if c.startswith('a'))
+        cont_list.reverse()
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'prefix': 'a'})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testContainerFileSortingByMarkersExclusiveReversed(self):
+        first_item = self.env.file_items[3]  # 'b1' + postfix
+        last_item = self.env.file_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.file_items
+                           if last_item < c < first_item)
+        cont_list.reverse()
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'marker': first_item, 'end_marker': last_item})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testContainerFileSortingByMarkersInclusiveReversed(self):
+        first_item = self.env.file_items[3]  # 'b1' + postfix
+        last_item = self.env.file_items[4]  # 'B2' + postfix
+
+        cont_list = sorted(c for c in self.env.file_items
+                           if last_item <= c <= first_item)
+        cont_list.reverse()
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'marker': first_item + '\x00',
+            'end_marker': last_item[:-1] + chr(ord(last_item[-1]) - 1)})
+        self.assert_status(200)
+        self.assertEqual(cont_list, cont_listing)
+
+    def testContainerFileSortingByReversedMarkersReversed(self):
+        cont_listing = self.env.container.files(parms={
+            'reverse': 'on', 'marker': 'B', 'end_marker': 'b1'})
+        self.assert_status(204)
+        self.assertEqual([], cont_listing)
+
+    def testContainerFileListSorting(self):
+        file_list = list(sorted(self.env.file_items))
+        cont_files = self.env.container.files()
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        # Lets try again but with reverse is specifically turned off
+        cont_files = self.env.container.files(parms={'reverse': 'off'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'false'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'no'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': ''})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        # Lets try again but with a incorrect reverse values
+        cont_files = self.env.container.files(parms={'reverse': 'foo'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'hai'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
+
+        cont_files = self.env.container.files(parms={'reverse': 'o=[]::::>'})
+        self.assert_status(200)
+        self.assertEqual(file_list, cont_files)
 
 
 class TestContainerPathsEnv(object):
@@ -1404,8 +1658,155 @@ class TestFile(Base):
         hdrs = {'Range': range_string}
         self.assertTrue(file_item.read(hdrs=hdrs) == data, range_string)
 
+    def testMultiRangeGets(self):
+        file_length = 10000
+        range_size = file_length / 10
+        subrange_size = range_size / 10
+        file_item = self.env.container.file(Utils.create_name())
+        data = file_item.write_random(
+            file_length, hdrs={"Content-Type":
+                               "lovecraft/rugose; squamous=true"})
+
+        for i in range(0, file_length, range_size):
+            range_string = 'bytes=%d-%d,%d-%d,%d-%d' % (
+                i, i + subrange_size - 1,
+                i + 2 * subrange_size, i + 3 * subrange_size - 1,
+                i + 4 * subrange_size, i + 5 * subrange_size - 1)
+            hdrs = {'Range': range_string}
+
+            fetched = file_item.read(hdrs=hdrs)
+            self.assert_status(206)
+            content_type = file_item.content_type
+            self.assertTrue(content_type.startswith("multipart/byteranges"))
+            self.assertIsNone(file_item.content_range)
+
+            # email.parser.FeedParser wants a message with headers on the
+            # front, then two CRLFs, and then a body (like emails have but
+            # HTTP response bodies don't). We fake it out by constructing a
+            # one-header preamble containing just the Content-Type, then
+            # feeding in the response body.
+            parser = email.parser.FeedParser()
+            parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+            parser.feed(fetched)
+            root_message = parser.close()
+            self.assertTrue(root_message.is_multipart())
+
+            byteranges = root_message.get_payload()
+            self.assertEqual(len(byteranges), 3)
+
+            self.assertEqual(byteranges[0]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
+            self.assertEqual(
+                byteranges[0]['Content-Range'],
+                "bytes %d-%d/%d" % (i, i + subrange_size - 1, file_length))
+            self.assertEqual(
+                byteranges[0].get_payload(),
+                data[i:(i + subrange_size)])
+
+            self.assertEqual(byteranges[1]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
+            self.assertEqual(
+                byteranges[1]['Content-Range'],
+                "bytes %d-%d/%d" % (i + 2 * subrange_size,
+                                    i + 3 * subrange_size - 1, file_length))
+            self.assertEqual(
+                byteranges[1].get_payload(),
+                data[(i + 2 * subrange_size):(i + 3 * subrange_size)])
+
+            self.assertEqual(byteranges[2]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
+            self.assertEqual(
+                byteranges[2]['Content-Range'],
+                "bytes %d-%d/%d" % (i + 4 * subrange_size,
+                                    i + 5 * subrange_size - 1, file_length))
+            self.assertEqual(
+                byteranges[2].get_payload(),
+                data[(i + 4 * subrange_size):(i + 5 * subrange_size)])
+
+        # The first two ranges are satisfiable but the third is not; the
+        # result is a multipart/byteranges response containing only the two
+        # satisfiable byteranges.
+        range_string = 'bytes=%d-%d,%d-%d,%d-%d' % (
+            0, subrange_size - 1,
+            2 * subrange_size, 3 * subrange_size - 1,
+            file_length, file_length + subrange_size - 1)
+        hdrs = {'Range': range_string}
+        fetched = file_item.read(hdrs=hdrs)
+        self.assert_status(206)
+        content_type = file_item.content_type
+        self.assertTrue(content_type.startswith("multipart/byteranges"))
+        self.assertIsNone(file_item.content_range)
+
+        parser = email.parser.FeedParser()
+        parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+        parser.feed(fetched)
+        root_message = parser.close()
+
+        self.assertTrue(root_message.is_multipart())
+        byteranges = root_message.get_payload()
+        self.assertEqual(len(byteranges), 2)
+
+        self.assertEqual(byteranges[0]['Content-Type'],
+                         "lovecraft/rugose; squamous=true")
+        self.assertEqual(
+            byteranges[0]['Content-Range'],
+            "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+        self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
+
+        self.assertEqual(byteranges[1]['Content-Type'],
+                         "lovecraft/rugose; squamous=true")
+        self.assertEqual(
+            byteranges[1]['Content-Range'],
+            "bytes %d-%d/%d" % (2 * subrange_size, 3 * subrange_size - 1,
+                                file_length))
+        self.assertEqual(
+            byteranges[1].get_payload(),
+            data[(2 * subrange_size):(3 * subrange_size)])
+
+        # The first range is satisfiable but the second is not; the
+        # result is either a multipart/byteranges response containing one
+        # byterange or a normal, non-MIME 206 response.
+        range_string = 'bytes=%d-%d,%d-%d' % (
+            0, subrange_size - 1,
+            file_length, file_length + subrange_size - 1)
+        hdrs = {'Range': range_string}
+        fetched = file_item.read(hdrs=hdrs)
+        self.assert_status(206)
+        content_type = file_item.content_type
+        if content_type.startswith("multipart/byteranges"):
+            self.assertIsNone(file_item.content_range)
+            parser = email.parser.FeedParser()
+            parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+            parser.feed(fetched)
+            root_message = parser.close()
+
+            self.assertTrue(root_message.is_multipart())
+            byteranges = root_message.get_payload()
+            self.assertEqual(len(byteranges), 1)
+
+            self.assertEqual(byteranges[0]['Content-Type'],
+                             "lovecraft/rugose; squamous=true")
+            self.assertEqual(
+                byteranges[0]['Content-Range'],
+                "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+            self.assertEqual(byteranges[0].get_payload(), data[:subrange_size])
+        else:
+            self.assertEqual(
+                file_item.content_range,
+                "bytes %d-%d/%d" % (0, subrange_size - 1, file_length))
+            self.assertEqual(content_type, "lovecraft/rugose; squamous=true")
+            self.assertEqual(fetched, data[:subrange_size])
+
+        # No byterange is satisfiable, so we get a 416 response.
+        range_string = 'bytes=%d-%d,%d-%d' % (
+            file_length, file_length + 2,
+            file_length + 100, file_length + 102)
+        hdrs = {'Range': range_string}
+
+        self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+        self.assert_status(416)
+
     def testRangedGetsWithLWSinHeader(self):
-        # Skip this test until webob 1.2 can tolerate LWS in Range header.
         file_length = 10000
         file_item = self.env.container.file(Utils.create_name())
         data = file_item.write_random(file_length)
@@ -1785,14 +2186,23 @@ class TestDloEnv(object):
     def setUp(cls):
         cls.conn = Connection(tf.config)
         cls.conn.authenticate()
+
+        config2 = tf.config.copy()
+        config2['username'] = tf.config['username3']
+        config2['password'] = tf.config['password3']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+
         cls.account = Account(cls.conn, tf.config.get('account',
                                                       tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
+        cls.container2 = cls.account.container(Utils.create_name())
 
-        if not cls.container.create():
-            raise ResponseError(cls.conn.response)
+        for cont in (cls.container, cls.container2):
+            if not cont.create():
+                raise ResponseError(cls.conn.response)
 
         # avoid getting a prefix that stops halfway through an encoded
         # character
@@ -1806,13 +2216,18 @@ class TestDloEnv(object):
             file_item = cls.container.file("%s/seg_upper%s" % (prefix, letter))
             file_item.write(letter.upper() * 10)
 
+        for letter in ('f', 'g', 'h', 'i', 'j'):
+            file_item = cls.container2.file("%s/seg_lower%s" %
+                                            (prefix, letter))
+            file_item.write(letter * 10)
+
         man1 = cls.container.file("man1")
         man1.write('man1-contents',
                    hdrs={"X-Object-Manifest": "%s/%s/seg_lower" %
                          (cls.container.name, prefix)})
 
-        man1 = cls.container.file("man2")
-        man1.write('man2-contents',
+        man2 = cls.container.file("man2")
+        man2.write('man2-contents',
                    hdrs={"X-Object-Manifest": "%s/%s/seg_upper" %
                          (cls.container.name, prefix)})
 
@@ -1820,6 +2235,12 @@ class TestDloEnv(object):
         manall.write('manall-contents',
                      hdrs={"X-Object-Manifest": "%s/%s/seg" %
                            (cls.container.name, prefix)})
+
+        mancont2 = cls.container.file("mancont2")
+        mancont2.write(
+            'mancont2-contents',
+            hdrs={"X-Object-Manifest": "%s/%s/seg_lower" %
+                                       (cls.container2.name, prefix)})
 
 
 class TestDlo(Base):
@@ -1982,6 +2403,31 @@ class TestDlo(Base):
         manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
         self.assert_status(200)
 
+    def test_dlo_referer_on_segment_container(self):
+        # First the account2 (test3) should fail
+        headers = {'X-Auth-Token': self.env.conn2.storage_token,
+                   'Referer': 'http://blah.example.com'}
+        dlo_file = self.env.container.file("mancont2")
+        self.assertRaises(ResponseError, dlo_file.read,
+                          hdrs=headers)
+        self.assert_status(403)
+
+        # Now set the referer on the dlo container only
+        referer_metadata = {'X-Container-Read': '.r:*.example.com,.rlistings'}
+        self.env.container.update_metadata(referer_metadata)
+
+        self.assertRaises(ResponseError, dlo_file.read,
+                          hdrs=headers)
+        self.assert_status(403)
+
+        # Finally set the referer on the segment container
+        self.env.container2.update_metadata(referer_metadata)
+
+        contents = dlo_file.read(hdrs=headers)
+        self.assertEqual(
+            contents,
+            "ffffffffffgggggggggghhhhhhhhhhiiiiiiiiiijjjjjjjjjj")
+
 
 class TestDloUTF8(Base2, TestDlo):
     set_up = False
@@ -2123,6 +2569,11 @@ class TestSloEnv(object):
         cls.conn2.authenticate()
         cls.account2 = cls.conn2.get_account()
         cls.account2.delete_containers()
+        config3 = tf.config.copy()
+        config3['username'] = tf.config['username3']
+        config3['password'] = tf.config['password3']
+        cls.conn3 = Connection(config3)
+        cls.conn3.authenticate()
 
         if cls.slo_enabled is None:
             cls.slo_enabled = 'slo' in cluster_info
@@ -2134,9 +2585,11 @@ class TestSloEnv(object):
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
+        cls.container2 = cls.account.container(Utils.create_name())
 
-        if not cls.container.create():
-            raise ResponseError(cls.conn.response)
+        for cont in (cls.container, cls.container2):
+            if not cont.create():
+                raise ResponseError(cls.conn.response)
 
         cls.seg_info = seg_info = {}
         for letter, size in (('a', 1024 * 1024),
@@ -2153,6 +2606,14 @@ class TestSloEnv(object):
                 'path': '/%s/%s' % (cls.container.name, seg_name)}
 
         file_item = cls.container.file("manifest-abcde")
+        file_item.write(
+            json.dumps([seg_info['seg_a'], seg_info['seg_b'],
+                        seg_info['seg_c'], seg_info['seg_d'],
+                        seg_info['seg_e']]),
+            parms={'multipart-manifest': 'put'})
+
+        # Put the same manifest in the container2
+        file_item = cls.container2.file("manifest-abcde")
         file_item.write(
             json.dumps([seg_info['seg_a'], seg_info['seg_b'],
                         seg_info['seg_c'], seg_info['seg_d'],
@@ -2252,6 +2713,17 @@ class TestSloEnv(object):
                  'size_bytes': None},
             ]), parms={'multipart-manifest': 'put'})
 
+        file_item = cls.container.file("ranged-manifest-repeated-segment")
+        file_item.write(
+            json.dumps([
+                {'path': seg_info['seg_a']['path'], 'etag': None,
+                 'size_bytes': None, 'range': '-1048578'},
+                {'path': seg_info['seg_a']['path'], 'etag': None,
+                 'size_bytes': None},
+                {'path': seg_info['seg_b']['path'], 'etag': None,
+                 'size_bytes': None, 'range': '-1048578'},
+            ]), parms={'multipart-manifest': 'put'})
+
 
 class TestSlo(Base):
     env = TestSloEnv
@@ -2300,6 +2772,15 @@ class TestSlo(Base):
             ('b', 512 * 1024),
             ('c', 1),
             ('d', 1)], grouped_file_contents)
+
+    def test_slo_get_ranged_manifest_repeated_segment(self):
+        file_item = self.env.container.file('ranged-manifest-repeated-segment')
+        grouped_file_contents = [
+            (char, sum(1 for _char in grp))
+            for char, grp in itertools.groupby(file_item.read())]
+        self.assertEqual(
+            [('a', 2097152), ('b', 1048576)],
+            grouped_file_contents)
 
     def test_slo_get_ranged_submanifest(self):
         file_item = self.env.container.file('ranged-submanifest')
@@ -2669,6 +3150,33 @@ class TestSlo(Base):
 
         manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
         self.assert_status(200)
+
+    def test_slo_referer_on_segment_container(self):
+        # First the account2 (test3) should fail
+        headers = {'X-Auth-Token': self.env.conn3.storage_token,
+                   'Referer': 'http://blah.example.com'}
+        slo_file = self.env.container2.file('manifest-abcde')
+        self.assertRaises(ResponseError, slo_file.read,
+                          hdrs=headers)
+        self.assert_status(403)
+
+        # Now set the referer on the slo container only
+        referer_metadata = {'X-Container-Read': '.r:*.example.com,.rlistings'}
+        self.env.container2.update_metadata(referer_metadata)
+
+        self.assertRaises(ResponseError, slo_file.read,
+                          hdrs=headers)
+        self.assert_status(409)
+
+        # Finally set the referer on the segment container
+        self.env.container.update_metadata(referer_metadata)
+        contents = slo_file.read(hdrs=headers)
+        self.assertEqual(4 * 1024 * 1024 + 1, len(contents))
+        self.assertEqual('a', contents[0])
+        self.assertEqual('a', contents[1024 * 1024 - 1])
+        self.assertEqual('b', contents[1024 * 1024])
+        self.assertEqual('d', contents[-2])
+        self.assertEqual('e', contents[-1])
 
 
 class TestSloUTF8(Base2, TestSlo):
@@ -3727,7 +4235,7 @@ class TestSloTempurlUTF8(Base2, TestSloTempurl):
     set_up = False
 
 
-class TestServiceToken(unittest.TestCase):
+class TestServiceToken(unittest2.TestCase):
 
     def setUp(self):
         if tf.skip_service_tokens:
@@ -3895,4 +4403,4 @@ class TestServiceToken(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

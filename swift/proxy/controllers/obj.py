@@ -29,6 +29,7 @@ from six.moves.urllib.parse import unquote, quote
 
 import collections
 import itertools
+import json
 import mimetypes
 import time
 import math
@@ -43,7 +44,7 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
-    GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
+    GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible)
@@ -60,7 +61,8 @@ from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
     HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT,
+    HTTP_UNPROCESSABLE_ENTITY)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -69,7 +71,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
-    HTTPRequestedRangeNotSatisfiable, Range
+    HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
@@ -893,7 +895,9 @@ class ReplicatedObjectController(BaseObjectController):
                     conn.resp = None
                     conn.node = node
                     return conn
-                elif is_success(resp.status) or resp.status == HTTP_CONFLICT:
+                elif (is_success(resp.status)
+                      or resp.status in (HTTP_CONFLICT,
+                                         HTTP_UNPROCESSABLE_ENTITY)):
                     conn.resp = resp
                     conn.node = node
                     return conn
@@ -977,7 +981,7 @@ class ReplicatedObjectController(BaseObjectController):
                 msg='Object PUT exceptions after last send, '
                 '%(conns)s/%(nodes)s required connections')
         except ChunkReadTimeout as err:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
@@ -985,17 +989,22 @@ class ReplicatedObjectController(BaseObjectController):
             raise
         except ChunkReadError:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
-        except (Exception, Timeout):
+        except Timeout:
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
         if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending enough data'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
@@ -1407,7 +1416,7 @@ class ECAppIter(object):
         def put_fragments_in_queue(frag_iter, queue):
             try:
                 for fragment in frag_iter:
-                    if fragment[0] == ' ':
+                    if fragment.startswith(' '):
                         raise Exception('Leading whitespace on fragment.')
                     queue.put(fragment)
             except GreenletExit:
@@ -1423,6 +1432,7 @@ class ECAppIter(object):
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
+                frag_iter.close()
 
         with ContextPool(len(fragment_iters)) as pool:
             for frag_iter, queue in zip(fragment_iters, queues):
@@ -2199,7 +2209,7 @@ class ECObjectController(BaseObjectController):
                 if req.content_length and (
                         bytes_transferred < req.content_length):
                     req.client_disconnect = True
-                    self.app.logger.warn(
+                    self.app.logger.warning(
                         _('Client disconnected without sending enough data'))
                     self.app.logger.increment('client_disconnects')
                     raise HTTPClientDisconnect(request=req)
@@ -2268,22 +2278,27 @@ class ECObjectController(BaseObjectController):
                 for putter in putters:
                     putter.wait()
         except ChunkReadTimeout as err:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
-        except (Exception, Timeout):
+        except Timeout:
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
 
     def _have_adequate_responses(
             self, statuses, min_responses, conditional_func):

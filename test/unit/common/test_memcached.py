@@ -201,16 +201,11 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(
             memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
         self.assertTrue(float(mock.cache.values()[0][1]) == 0)
-        memcache_client.set('some_key', [1, 2, 3], timeout=10)
-        self.assertEqual(mock.cache.values()[0][1], '10')
         memcache_client.set('some_key', [1, 2, 3], time=20)
         self.assertEqual(mock.cache.values()[0][1], '20')
 
         sixtydays = 60 * 24 * 60 * 60
         esttimeout = time.time() + sixtydays
-        memcache_client.set('some_key', [1, 2, 3], timeout=sixtydays)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         memcache_client.set('some_key', [1, 2, 3], time=sixtydays)
         self.assertTrue(
             -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
@@ -315,11 +310,6 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(mock.cache.values()[1][1], '0')
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
-            timeout=10)
-        self.assertEqual(mock.cache.values()[0][1], '10')
-        self.assertEqual(mock.cache.values()[1][1], '10')
-        memcache_client.set_multi(
-            {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=20)
         self.assertEqual(mock.cache.values()[0][1], '20')
         self.assertEqual(mock.cache.values()[1][1], '20')
@@ -328,7 +318,7 @@ class TestMemcached(unittest.TestCase):
         esttimeout = time.time() + fortydays
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
-            timeout=fortydays)
+            time=fortydays)
         self.assertTrue(
             -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         self.assertTrue(

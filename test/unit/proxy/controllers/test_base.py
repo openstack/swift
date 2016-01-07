@@ -342,7 +342,6 @@ class TestFuncs(unittest.TestCase):
     def test_get_container_info_cache(self):
         cache_stub = {
             'status': 404, 'bytes': 3333, 'object_count': 10,
-            # simplejson sometimes hands back strings, sometimes unicodes
             'versions': u"\u1F4A9"}
         req = Request.blank("/v1/account/cont",
                             environ={'swift.cache': FakeCache(cache_stub)})
@@ -452,6 +451,28 @@ class TestFuncs(unittest.TestCase):
             resp = base.OPTIONS(req)
         self.assertEqual(resp.status_int, 200)
 
+    def test_options_with_null_allow_origin(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+
+        def my_container_info(*args):
+            return {
+                'cors': {
+                    'allow_origin': '*',
+                }
+            }
+        base.container_info = my_container_info
+        req = Request.blank('/v1/a/c/o',
+                            environ={'swift.cache': FakeCache()},
+                            headers={'Origin': '*',
+                                     'Access-Control-Request-Method': 'GET'})
+
+        with patch('swift.proxy.controllers.base.'
+                   'http_connect', fake_http_connect(200)):
+            resp = base.OPTIONS(req)
+        self.assertEqual(resp.status_int, 200)
+
     def test_options_unauthorized(self):
         base = Controller(self.app)
         base.account_name = 'a'
@@ -506,6 +527,16 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(
             resp,
             headers_to_container_info(headers.items(), 200))
+
+    def test_container_info_without_req(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+
+        container_info = \
+            base.container_info(base.account_name,
+                                base.container_name)
+        self.assertEqual(container_info['status'], 0)
 
     def test_headers_to_account_info_missing(self):
         resp = headers_to_account_info({}, 404)
@@ -683,6 +714,20 @@ class TestFuncs(unittest.TestCase):
             self.assertEqual(v, dst_headers[k.lower()])
         for k, v in bad_hdrs.items():
             self.assertFalse(k.lower() in dst_headers)
+
+    def test_generate_request_headers_with_no_orig_req(self):
+        base = Controller(self.app)
+        src_headers = {'x-remove-base-meta-owner': 'x',
+                       'x-base-meta-size': '151M',
+                       'new-owner': 'Kun'}
+        dst_headers = base.generate_request_headers(None,
+                                                    additional=src_headers)
+        expected_headers = {'x-base-meta-size': '151M',
+                            'connection': 'close'}
+        for k, v in expected_headers.items():
+            self.assertIn(k, dst_headers)
+            self.assertEqual(v, dst_headers[k])
+        self.assertEqual('', dst_headers['Referer'])
 
     def test_client_chunk_size(self):
 

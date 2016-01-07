@@ -17,26 +17,26 @@
 from six.moves import range
 
 import hashlib
+import json
 import time
 import unittest
-from contextlib import nested
 from mock import patch
 from hashlib import md5
 from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
-from swift.common.utils import quote, json, closing_if_possible
+from swift.common.utils import quote, closing_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
 
 test_xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
 <static_large_object>
-<object_segment>
-<path>/cont/object</path>
-<etag>etagoftheobjectsegment</etag>
-<size_bytes>100</size_bytes>
-</object_segment>
+  <object_segment>
+    <path>/cont/object</path>
+    <etag>etagoftheobjectsegment</etag>
+    <size_bytes>100</size_bytes>
+  </object_segment>
 </static_large_object>
 '''
 test_json_data = json.dumps([{'path': '/cont/object',
@@ -1035,6 +1035,26 @@ class TestSloDeleteManifest(SloTestCase):
         self.assertEqual(resp_data['Errors'],
                          [['/deltest-unauth/q_17', '401 Unauthorized']])
 
+    def test_handle_multipart_delete_client_content_type(self):
+        req = Request.blank(
+            '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=delete',
+            environ={'REQUEST_METHOD': 'DELETE', 'CONTENT_TYPE': 'foo/bar'},
+            headers={'Accept': 'application/json'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        resp_data = json.loads(body)
+        self.assertEqual(resp_data["Number Deleted"], 3)
+
+        self.assertEqual(
+            self.app.calls,
+            [('GET',
+              '/v1/AUTH_test/deltest/man-all-there?multipart-manifest=get'),
+             ('DELETE', '/v1/AUTH_test/deltest/b_2?multipart-manifest=delete'),
+             ('DELETE', '/v1/AUTH_test/deltest/c_3?multipart-manifest=delete'),
+             ('DELETE', ('/v1/AUTH_test/deltest/' +
+                         'man-all-there?multipart-manifest=delete'))])
+
 
 class TestSloHeadManifest(SloTestCase):
     def setUp(self):
@@ -1285,6 +1305,61 @@ class TestSloGetManifest(SloTestCase):
         first_ua = self.app.calls_with_headers[0][2].get("User-Agent")
         self.assertFalse(
             "SLO MultipartGET" in first_ua)
+
+    def test_get_manifest_repeated_segments(self):
+        _aabbccdd_manifest_json = json.dumps(
+            [{'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
+              'content_type': 'text/plain', 'bytes': '5'},
+             {'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
+              'content_type': 'text/plain', 'bytes': '5'},
+
+             {'name': '/gettest/b_10', 'hash': md5hex("b" * 10),
+              'content_type': 'text/plain', 'bytes': '10'},
+             {'name': '/gettest/b_10', 'hash': md5hex("b" * 10),
+              'content_type': 'text/plain', 'bytes': '10'},
+
+             {'name': '/gettest/c_15', 'hash': md5hex("c" * 15),
+              'content_type': 'text/plain', 'bytes': '15'},
+             {'name': '/gettest/c_15', 'hash': md5hex("c" * 15),
+              'content_type': 'text/plain', 'bytes': '15'},
+
+             {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
+              'content_type': 'text/plain', 'bytes': '20'},
+             {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
+              'content_type': 'text/plain', 'bytes': '20'}])
+
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-aabbccdd',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true',
+                          'Etag': md5(_aabbccdd_manifest_json).hexdigest()},
+            _aabbccdd_manifest_json)
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-aabbccdd',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(body, (
+            'aaaaaaaaaabbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccc'
+            'dddddddddddddddddddddddddddddddddddddddd'))
+
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/AUTH_test/gettest/manifest-aabbccdd'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
+
+        ranges = [c[2].get('Range') for c in self.app.calls_with_headers]
+        self.assertEqual(ranges, [
+            None,
+            'bytes=0-4,0-4',
+            'bytes=0-9,0-9',
+            'bytes=0-14,0-14',
+            'bytes=0-19,0-19'])
 
     def test_if_none_match_matches(self):
         req = Request.blank(
@@ -2250,13 +2325,13 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
 
-        with nested(patch.object(slo, 'is_success', mock_is_success),
-                    patch('swift.common.request_helpers.time.time',
-                          mock_time),
-                    patch('swift.common.request_helpers.is_success',
-                          mock_is_success)):
-                status, headers, body, exc = self.call_slo(
-                    req, expect_exception=True)
+        with patch.object(slo, 'is_success', mock_is_success), \
+                patch('swift.common.request_helpers.time.time',
+                      mock_time), \
+                patch('swift.common.request_helpers.is_success',
+                      mock_is_success):
+            status, headers, body, exc = self.call_slo(
+                req, expect_exception=True)
 
         self.assertIsInstance(exc, SegmentError)
         self.assertEqual(status, '200 OK')

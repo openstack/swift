@@ -39,7 +39,7 @@ Installing dependencies
         sudo apt-get install curl gcc memcached rsync sqlite3 xfsprogs \
                              git-core libffi-dev python-setuptools
         sudo apt-get install python-coverage python-dev python-nose \
-                             python-simplejson python-xattr python-eventlet \
+                             python-xattr python-eventlet \
                              python-greenlet python-pastedeploy \
                              python-netifaces python-pip python-dnspython \
                              python-mock
@@ -50,14 +50,14 @@ Installing dependencies
         sudo yum install curl gcc memcached rsync sqlite xfsprogs git-core \
                          libffi-devel xinetd python-setuptools \
                          python-coverage python-devel python-nose \
-                         python-simplejson pyxattr python-eventlet \
+                         pyxattr python-eventlet \
                          python-greenlet python-paste-deploy \
                          python-netifaces python-pip python-dns \
                          python-mock
 
   Note: This installs necessary system dependencies and *most* of the python
   dependencies. Later in the process setuptools/distribute or pip will install
-  and/or upgrade packages. 
+  and/or upgrade packages.
 
 Next, choose either :ref:`partition-section` or :ref:`loopback-section`.
 

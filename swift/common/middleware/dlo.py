@@ -114,6 +114,7 @@ Here's an example using ``curl`` with tiny 1-byte segments::
         http://<storage_url>/container/myobject
 """
 
+import json
 import os
 
 import six
@@ -126,7 +127,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict
-from swift.common.utils import get_logger, json, \
+from swift.common.utils import get_logger, \
     RateLimitedIterator, read_conf_dir, quote, close_if_possible, \
     closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
@@ -415,13 +416,12 @@ class DynamicLargeObject(object):
             return GetContext(self, self.logger).\
                 handle_request(req, start_response)
         elif req.method == 'PUT':
-            error_response = self.validate_x_object_manifest_header(
-                req, start_response)
+            error_response = self._validate_x_object_manifest_header(req)
             if error_response:
                 return error_response(env, start_response)
         return self.app(env, start_response)
 
-    def validate_x_object_manifest_header(self, req, start_response):
+    def _validate_x_object_manifest_header(self, req):
         """
         Make sure that X-Object-Manifest is valid if present.
         """
@@ -433,7 +433,7 @@ class DynamicLargeObject(object):
             except ValueError:
                 pass
             if not container or not prefix or '?' in value or '&' in value or \
-                    prefix[0] == '/':
+                    prefix.startswith('/'):
                 return HTTPBadRequest(
                     request=req,
                     body=('X-Object-Manifest must be in the '

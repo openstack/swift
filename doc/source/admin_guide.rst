@@ -110,8 +110,8 @@ You can create scripts to create the account and container rings and rebalance. 
     cd /etc/swift
     rm -f account.builder account.ring.gz backups/account.builder backups/account.ring.gz
     swift-ring-builder account.builder create 18 3 1
-    swift-ring-builder account.builder add z1-<account-server-1>:6002/sdb1 1
-    swift-ring-builder account.builder add z2-<account-server-2>:6002/sdb1 1
+    swift-ring-builder account.builder add r1z1-<account-server-1>:6002/sdb1 1
+    swift-ring-builder account.builder add r1z2-<account-server-2>:6002/sdb1 1
     swift-ring-builder account.builder rebalance
 
    You need to replace the values of <account-server-1>,
@@ -121,7 +121,8 @@ You can create scripts to create the account and container rings and rebalance. 
    6002, and have a storage device called "sdb1" (this is a directory
    name created under /drives when we setup the account server). The
    "z1", "z2", etc. designate zones, and you can choose whether you
-   put devices in the same or different zones.
+   put devices in the same or different zones. The "r1" designates
+   the region, with different regions specified as "r1", "r2", etc.
 
 2. Make the script file executable and run it to create the account ring file::
 
@@ -588,7 +589,9 @@ This information can also be queried via the swift-recon command line utility::
       --md5                 Get md5sum of servers ring and compare to local copy
       --sockstat            Get cluster socket usage stats
       -T, --time            Check time synchronization
-      --all                 Perform all checks. Equal to -arudlqT --md5 --sockstat
+      --all                 Perform all checks. Equal to
+                            -arudlqT --md5 --sockstat --auditor --updater
+                            --expirer --driveaudit --validate-servers
       -z ZONE, --zone=ZONE  Only query servers in specified zone
       -t SECONDS, --timeout=SECONDS
                             Time to wait for a response from a server

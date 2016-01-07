@@ -16,8 +16,8 @@
 # limitations under the License.
 
 import json
-import unittest
-from nose import SkipTest
+import unittest2
+from unittest2 import SkipTest
 from uuid import uuid4
 
 from six.moves import range
@@ -27,7 +27,15 @@ from test.functional import check_response, retry, requires_acls, \
 import test.functional as tf
 
 
-class TestObject(unittest.TestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestObject(unittest2.TestCase):
 
     def setUp(self):
         if tf.skip:
@@ -1246,4 +1254,4 @@ class TestObject(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

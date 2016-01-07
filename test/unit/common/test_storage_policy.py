@@ -17,10 +17,9 @@ import unittest
 import os
 import mock
 from functools import partial
-
 from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
-from test.unit import patch_policies, FakeRing, temptree
+from test.unit import patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
     reload_storage_policies, get_policy_string, split_policy_string,
@@ -36,6 +35,7 @@ class FakeStoragePolicy(BaseStoragePolicy):
     Test StoragePolicy class - the only user at the moment is
     test_validate_policies_type_invalid()
     """
+
     def __init__(self, idx, name='', is_default=False, is_deprecated=False,
                  object_ring=None):
         super(FakeStoragePolicy, self).__init__(
@@ -43,7 +43,6 @@ class FakeStoragePolicy(BaseStoragePolicy):
 
 
 class TestStoragePolicies(unittest.TestCase):
-
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
         conf = ConfigParser()
@@ -70,15 +69,15 @@ class TestStoragePolicies(unittest.TestCase):
         StoragePolicy(1, 'one'),
         StoragePolicy(2, 'two'),
         StoragePolicy(3, 'three', is_deprecated=True),
-        ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+        ECStoragePolicy(10, 'ten', ec_type=DEFAULT_TEST_EC_TYPE,
                         ec_ndata=10, ec_nparity=4),
     ])
     def test_swift_info(self):
         # the deprecated 'three' should not exist in expect
-        expect = [{'default': True, 'name': 'zero'},
-                  {'name': 'two'},
-                  {'name': 'one'},
-                  {'name': 'ten'}]
+        expect = [{'aliases': 'zero', 'default': True, 'name': 'zero', },
+                  {'aliases': 'two', 'name': 'two'},
+                  {'aliases': 'one', 'name': 'one'},
+                  {'aliases': 'ten', 'name': 'ten'}]
         swift_info = POLICIES.get_policy_info()
         self.assertEqual(sorted(expect, key=lambda k: k['name']),
                          sorted(swift_info, key=lambda k: k['name']))
@@ -144,7 +143,8 @@ class TestStoragePolicies(unittest.TestCase):
         test_policies = [StoragePolicy(0, 'aay', True),
                          StoragePolicy(1, 'bee', False),
                          StoragePolicy(2, 'cee', False),
-                         ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+                         ECStoragePolicy(10, 'ten',
+                                         ec_type=DEFAULT_TEST_EC_TYPE,
                                          ec_ndata=10, ec_nparity=3)]
         policies = StoragePolicyCollection(test_policies)
         for policy in policies:
@@ -285,6 +285,7 @@ class TestStoragePolicies(unittest.TestCase):
     def test_validate_policies_type_invalid(self):
         class BogusStoragePolicy(FakeStoragePolicy):
             policy_type = 'bogus'
+
         # unsupported policy type - initialization with FakeStoragePolicy
         self.assertRaisesWithMessage(PolicyError, 'Invalid type',
                                      BogusStoragePolicy, 1, 'one')
@@ -295,7 +296,7 @@ class TestStoragePolicies(unittest.TestCase):
             StoragePolicy(1, 'one'),
             StoragePolicy(2, 'two'),
             StoragePolicy(3, 'three', is_deprecated=True),
-            ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(10, 'ten', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=3),
         ]
         policies = StoragePolicyCollection(test_policies)
@@ -328,6 +329,221 @@ class TestStoragePolicies(unittest.TestCase):
         for name in ('one', 'ONE', 'oNe', 'OnE'):
             self.assertEqual(pol1, policies.get_by_name(name))
             self.assertEqual(policies.get_by_name(name).name, 'One')
+
+    def test_multiple_names(self):
+        # checking duplicate on insert
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False, aliases='zero')]
+        self.assertRaises(PolicyError, StoragePolicyCollection,
+                          test_policies)
+
+        # checking correct retrival using other names
+        test_policies = [StoragePolicy(0, 'zero', True, aliases='cero, kore'),
+                         StoragePolicy(1, 'one', False, aliases='uno, tahi'),
+                         StoragePolicy(2, 'two', False, aliases='dos, rua')]
+
+        policies = StoragePolicyCollection(test_policies)
+
+        for name in ('zero', 'cero', 'kore'):
+            self.assertEqual(policies.get_by_name(name), test_policies[0])
+        for name in ('two', 'dos', 'rua'):
+            self.assertEqual(policies.get_by_name(name), test_policies[2])
+
+        # Testing parsing of conf files/text
+        good_conf = self._conf("""
+        [storage-policy:0]
+        name = one
+        aliases = uno, tahi
+        default = yes
+        """)
+
+        policies = parse_storage_policies(good_conf)
+        self.assertEqual(policies.get_by_name('one'),
+                         policies[0])
+        self.assertEqual(policies.get_by_name('one'),
+                         policies.get_by_name('tahi'))
+
+        name_repeat_conf = self._conf("""
+        [storage-policy:0]
+        name = one
+        aliases = one
+        default = yes
+        """)
+        # Test on line below should not generate errors. Repeat of main
+        # name under aliases is permitted during construction
+        # but only because automated testing requires it.
+        policies = parse_storage_policies(name_repeat_conf)
+
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = one
+        aliases = uno, uno
+        default = yes
+        """)
+
+        self.assertRaisesWithMessage(PolicyError,
+                                     'is already assigned to this policy',
+                                     parse_storage_policies, bad_conf)
+
+    def test_multiple_names_EC(self):
+        # checking duplicate names on insert
+        test_policies_ec = [
+            ECStoragePolicy(
+                0, 'ec8-2',
+                aliases='zeus, jupiter',
+                ec_type=DEFAULT_TEST_EC_TYPE,
+                ec_ndata=8, ec_nparity=2,
+                object_ring=FakeRing(replicas=8),
+                is_default=True),
+            ECStoragePolicy(
+                1, 'ec10-4',
+                aliases='ec8-2',
+                ec_type=DEFAULT_TEST_EC_TYPE,
+                ec_ndata=10, ec_nparity=4,
+                object_ring=FakeRing(replicas=10))]
+
+        self.assertRaises(PolicyError, StoragePolicyCollection,
+                          test_policies_ec)
+
+        # checking correct retrival using other names
+        good_test_policies_EC = [
+            ECStoragePolicy(0, 'ec8-2', aliases='zeus, jupiter',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
+                            ec_ndata=8, ec_nparity=2,
+                            object_ring=FakeRing(replicas=8),
+                            is_default=True),
+            ECStoragePolicy(1, 'ec10-4', aliases='athena, minerva',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
+                            ec_ndata=10, ec_nparity=4,
+                            object_ring=FakeRing(replicas=10)),
+            ECStoragePolicy(2, 'ec4-2', aliases='poseidon, neptune',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
+                            ec_ndata=4, ec_nparity=2,
+                            object_ring=FakeRing(replicas=7)),
+        ]
+        ec_policies = StoragePolicyCollection(good_test_policies_EC)
+
+        for name in ('ec8-2', 'zeus', 'jupiter'):
+            self.assertEqual(ec_policies.get_by_name(name), ec_policies[0])
+        for name in ('ec10-4', 'athena', 'minerva'):
+            self.assertEqual(ec_policies.get_by_name(name), ec_policies[1])
+
+        # Testing parsing of conf files/text
+        good_ec_conf = self._conf("""
+        [storage-policy:0]
+        name = ec8-2
+        aliases = zeus, jupiter
+        policy_type = erasure_coding
+        ec_type = %(ec_type)s
+        default = yes
+        ec_num_data_fragments = 8
+        ec_num_parity_fragments = 2
+        [storage-policy:1]
+        name = ec10-4
+        aliases = poseidon, neptune
+        policy_type = erasure_coding
+        ec_type = %(ec_type)s
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 4
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
+
+        ec_policies = parse_storage_policies(good_ec_conf)
+        self.assertEqual(ec_policies.get_by_name('ec8-2'),
+                         ec_policies[0])
+        self.assertEqual(ec_policies.get_by_name('ec10-4'),
+                         ec_policies.get_by_name('poseidon'))
+
+        name_repeat_ec_conf = self._conf("""
+        [storage-policy:0]
+        name = ec8-2
+        aliases = ec8-2
+        policy_type = erasure_coding
+        ec_type = %(ec_type)s
+        default = yes
+        ec_num_data_fragments = 8
+        ec_num_parity_fragments = 2
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
+        # Test on line below should not generate errors. Repeat of main
+        # name under aliases is permitted during construction
+        # but only because automated testing requires it.
+        ec_policies = parse_storage_policies(name_repeat_ec_conf)
+
+        bad_ec_conf = self._conf("""
+        [storage-policy:0]
+        name = ec8-2
+        aliases = zeus, zeus
+        policy_type = erasure_coding
+        ec_type = %(ec_type)s
+        default = yes
+        ec_num_data_fragments = 8
+        ec_num_parity_fragments = 2
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
+        self.assertRaisesWithMessage(PolicyError,
+                                     'is already assigned to this policy',
+                                     parse_storage_policies, bad_ec_conf)
+
+    def test_add_remove_names(self):
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', False)]
+        policies = StoragePolicyCollection(test_policies)
+
+        # add names
+        policies.add_policy_alias(1, 'tahi')
+        self.assertEqual(policies.get_by_name('tahi'), test_policies[1])
+
+        policies.add_policy_alias(2, 'rua', 'dos')
+        self.assertEqual(policies.get_by_name('rua'), test_policies[2])
+        self.assertEqual(policies.get_by_name('dos'), test_policies[2])
+
+        self.assertRaisesWithMessage(PolicyError, 'Invalid name',
+                                     policies.add_policy_alias, 2, 'double\n')
+
+        # try to add existing name
+        self.assertRaisesWithMessage(PolicyError, 'Duplicate name',
+                                     policies.add_policy_alias, 2, 'two')
+
+        self.assertRaisesWithMessage(PolicyError, 'Duplicate name',
+                                     policies.add_policy_alias, 1, 'two')
+
+        # remove name
+        policies.remove_policy_alias('tahi')
+        self.assertEqual(policies.get_by_name('tahi'), None)
+
+        # remove only name
+        self.assertRaisesWithMessage(PolicyError,
+                                     'Policies must have at least one name.',
+                                     policies.remove_policy_alias, 'zero')
+
+        # remove non-existent name
+        self.assertRaisesWithMessage(PolicyError,
+                                     'No policy with name',
+                                     policies.remove_policy_alias, 'three')
+
+        # remove default name
+        policies.remove_policy_alias('two')
+        self.assertEqual(policies.get_by_name('two'), None)
+        self.assertEqual(policies.get_by_index(2).name, 'rua')
+
+        # change default name to a new name
+        policies.change_policy_primary_name(2, 'two')
+        self.assertEqual(policies.get_by_name('two'), test_policies[2])
+        self.assertEqual(policies.get_by_index(2).name, 'two')
+
+        # change default name to an existing alias
+        policies.change_policy_primary_name(2, 'dos')
+        self.assertEqual(policies.get_by_index(2).name, 'dos')
+
+        # change default name to a bad new name
+        self.assertRaisesWithMessage(PolicyError, 'Invalid name',
+                                     policies.change_policy_primary_name,
+                                     2, 'bad\nname')
+
+        # change default name to a name belonging to another policy
+        self.assertRaisesWithMessage(PolicyError,
+                                     'Other policy',
+                                     policies.change_policy_primary_name,
+                                     1, 'dos')
 
     def test_deprecated_default(self):
         bad_conf = self._conf("""
@@ -561,9 +777,9 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:1]
         name = ec10-4
         policy_type = erasure_coding
-        ec_type = jerasure_rs_vand
+        ec_type = %(ec_type)s
         ec_num_data_fragments = 10
-        """)
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
 
         self.assertRaisesWithMessage(PolicyError,
                                      'Invalid ec_num_parity_fragments',
@@ -576,10 +792,11 @@ class TestStoragePolicies(unittest.TestCase):
             [storage-policy:1]
             name = ec10-4
             policy_type = erasure_coding
-            ec_type = jerasure_rs_vand
+            ec_type = %(ec_type)s
             ec_num_data_fragments = 10
-            ec_num_parity_fragments = %s
-            """ % num_parity)
+            ec_num_parity_fragments = %(num_parity)s
+            """ % {'ec_type': DEFAULT_TEST_EC_TYPE,
+                   'num_parity': num_parity})
 
             self.assertRaisesWithMessage(PolicyError,
                                          'Invalid ec_num_parity_fragments',
@@ -592,9 +809,9 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:1]
         name = ec10-4
         policy_type = erasure_coding
-        ec_type = jerasure_rs_vand
+        ec_type = %(ec_type)s
         ec_num_parity_fragments = 4
-        """)
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
 
         self.assertRaisesWithMessage(PolicyError,
                                      'Invalid ec_num_data_fragments',
@@ -607,10 +824,10 @@ class TestStoragePolicies(unittest.TestCase):
             [storage-policy:1]
             name = ec10-4
             policy_type = erasure_coding
-            ec_type = jerasure_rs_vand
-            ec_num_data_fragments = %s
+            ec_type = %(ec_type)s
+            ec_num_data_fragments = %(num_data)s
             ec_num_parity_fragments = 4
-            """ % num_data)
+            """ % {'num_data': num_data, 'ec_type': DEFAULT_TEST_EC_TYPE})
 
             self.assertRaisesWithMessage(PolicyError,
                                          'Invalid ec_num_data_fragments',
@@ -624,11 +841,12 @@ class TestStoragePolicies(unittest.TestCase):
             [storage-policy:1]
             name = ec10-4
             policy_type = erasure_coding
-            ec_object_segment_size = %s
-            ec_type = jerasure_rs_vand
+            ec_object_segment_size = %(segment_size)s
+            ec_type = %(ec_type)s
             ec_num_data_fragments = 10
             ec_num_parity_fragments = 4
-            """ % segment_size)
+            """ % {'segment_size': segment_size,
+                   'ec_type': DEFAULT_TEST_EC_TYPE})
 
             self.assertRaisesWithMessage(PolicyError,
                                          'Invalid ec_object_segment_size',
@@ -812,7 +1030,7 @@ class TestStoragePolicies(unittest.TestCase):
                 part_shift=24)
 
         with mock.patch(
-            'swift.common.storage_policy.RingData.load'
+                'swift.common.storage_policy.RingData.load'
         ) as mock_ld, \
                 patch_policies(test_policies), \
                 mock.patch('swift.common.storage_policy.whataremyips') \
@@ -900,7 +1118,7 @@ class TestStoragePolicies(unittest.TestCase):
 
     def test_quorum_size_erasure_coding(self):
         test_ec_policies = [
-            ECStoragePolicy(10, 'ec8-2', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(10, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=8, ec_nparity=2),
             ECStoragePolicy(11, 'df10-6', ec_type='flat_xor_hd_4',
                             ec_ndata=10, ec_nparity=6),
@@ -913,14 +1131,14 @@ class TestStoragePolicies(unittest.TestCase):
 
     def test_validate_ring(self):
         test_policies = [
-            ECStoragePolicy(0, 'ec8-2', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=8, ec_nparity=2,
                             object_ring=FakeRing(replicas=8),
                             is_default=True),
-            ECStoragePolicy(1, 'ec10-4', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(1, 'ec10-4', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=4,
                             object_ring=FakeRing(replicas=10)),
-            ECStoragePolicy(2, 'ec4-2', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(2, 'ec4-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=4, ec_nparity=2,
                             object_ring=FakeRing(replicas=7)),
         ]
@@ -930,19 +1148,19 @@ class TestStoragePolicies(unittest.TestCase):
             msg = 'EC ring for policy %s needs to be configured with ' \
                   'exactly %d nodes.' % \
                   (policy.name, policy.ec_ndata + policy.ec_nparity)
-            self.assertRaisesWithMessage(
-                RingValidationError, msg,
-                policy._validate_ring)
+            self.assertRaisesWithMessage(RingValidationError, msg,
+                                         policy._validate_ring)
 
     def test_storage_policy_get_info(self):
         test_policies = [
             StoragePolicy(0, 'zero', is_default=True),
-            StoragePolicy(1, 'one', is_deprecated=True),
+            StoragePolicy(1, 'one', is_deprecated=True,
+                          aliases='tahi, uno'),
             ECStoragePolicy(10, 'ten',
-                            ec_type='jerasure_rs_vand',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=3),
             ECStoragePolicy(11, 'done', is_deprecated=True,
-                            ec_type='jerasure_rs_vand',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=3),
         ]
         policies = StoragePolicyCollection(test_policies)
@@ -950,52 +1168,60 @@ class TestStoragePolicies(unittest.TestCase):
             # default replication
             (0, True): {
                 'name': 'zero',
+                'aliases': 'zero',
                 'default': True,
                 'deprecated': False,
                 'policy_type': REPL_POLICY
             },
             (0, False): {
                 'name': 'zero',
+                'aliases': 'zero',
                 'default': True,
             },
             # deprecated replication
             (1, True): {
                 'name': 'one',
+                'aliases': 'one, tahi, uno',
                 'default': False,
                 'deprecated': True,
                 'policy_type': REPL_POLICY
             },
             (1, False): {
                 'name': 'one',
+                'aliases': 'one, tahi, uno',
                 'deprecated': True,
             },
             # enabled ec
             (10, True): {
                 'name': 'ten',
+                'aliases': 'ten',
                 'default': False,
                 'deprecated': False,
                 'policy_type': EC_POLICY,
-                'ec_type': 'jerasure_rs_vand',
+                'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
                 'ec_num_parity_fragments': 3,
                 'ec_object_segment_size': DEFAULT_EC_OBJECT_SEGMENT_SIZE,
             },
             (10, False): {
                 'name': 'ten',
+                'aliases': 'ten',
             },
             # deprecated ec
             (11, True): {
                 'name': 'done',
+                'aliases': 'done',
                 'default': False,
                 'deprecated': True,
                 'policy_type': EC_POLICY,
-                'ec_type': 'jerasure_rs_vand',
+                'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
                 'ec_num_parity_fragments': 3,
                 'ec_object_segment_size': DEFAULT_EC_OBJECT_SEGMENT_SIZE,
             },
             (11, False): {
                 'name': 'done',
+                'aliases': 'done',
                 'deprecated': True,
             },
         }

@@ -34,6 +34,14 @@ def fake_check_mount(a, b):
     raise OSError('Input/Output Error')
 
 
+def fail_os_listdir():
+    raise OSError('No such file or directory')
+
+
+def fail_io_open(file_path, open_mode):
+    raise IOError('No such file or directory')
+
+
 class FakeApp(object):
     def __call__(self, env, start_response):
         return "FAKE APP"
@@ -744,6 +752,10 @@ class TestReconSuccess(TestCase):
             "object_replication_time": 0.2615511417388916,
             "object_replication_last": 1357969645.25})
 
+    def test_get_replication_info_unrecognized(self):
+        rv = self.app.get_replication_info('unrecognized_recon_type')
+        self.assertIsNone(rv)
+
     def test_get_updater_info_container(self):
         from_cache_response = {"container_updater_sweep": 18.476239919662476}
         self.fakecache.fakeout_calls = []
@@ -763,6 +775,10 @@ class TestReconSuccess(TestCase):
                          [((['object_updater_sweep'],
                             '/var/cache/swift/object.recon'), {})])
         self.assertEqual(rv, {"object_updater_sweep": 0.79848217964172363})
+
+    def test_get_updater_info_unrecognized(self):
+        rv = self.app.get_updater_info('unrecognized_recon_type')
+        self.assertIsNone(rv)
 
     def test_get_expirer_info_object(self):
         from_cache_response = {'object_expiration_pass': 0.79848217964172363,
@@ -907,6 +923,10 @@ class TestReconSuccess(TestCase):
                 "files_processed": 2310,
                 "quarantined": 0}}})
 
+    def test_get_auditor_info_unrecognized(self):
+        rv = self.app.get_auditor_info('unrecognized_recon_type')
+        self.assertIsNone(rv)
+
     def test_get_unmounted(self):
         unmounted_resp = [{'device': 'fakeone', 'mounted': False},
                           {'device': 'faketwo', 'mounted': False}]
@@ -1048,6 +1068,8 @@ class TestReconMiddleware(unittest.TestCase):
         self.real_listdir = os.listdir
         os.listdir = self.fake_list
         self.app = recon.ReconMiddleware(FakeApp(), {'object_recon': "true"})
+        self.real_app_get_device_info = self.app.get_device_info
+        self.real_app_get_swift_conf_md5 = self.app.get_swift_conf_md5
         os.listdir = self.real_listdir
         # self.app.object_recon = True
         self.app.get_mem = self.frecon.fake_mem
@@ -1307,6 +1329,29 @@ class TestReconMiddleware(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_time_resp)
+
+    def test_get_device_info_function(self):
+        """Test get_device_info function call success"""
+        resp = self.app.get_device_info()
+        self.assertEqual(['sdb1'], resp['/srv/1/node'])
+
+    def test_get_device_info_fail(self):
+        """Test get_device_info failure by failing os.listdir"""
+        os.listdir = fail_os_listdir
+        resp = self.real_app_get_device_info()
+        os.listdir = self.real_listdir
+        device_path = resp.keys()[0]
+        self.assertIsNone(resp[device_path])
+
+    def test_get_swift_conf_md5(self):
+        """Test get_swift_conf_md5 success"""
+        resp = self.app.get_swift_conf_md5()
+        self.assertEqual('abcdef', resp['/etc/swift/swift.conf'])
+
+    def test_get_swift_conf_md5_fail(self):
+        """Test get_swift_conf_md5 failure by failing file open"""
+        resp = self.real_app_get_swift_conf_md5(fail_io_open)
+        self.assertIsNone(resp['/etc/swift/swift.conf'])
 
 if __name__ == '__main__':
     unittest.main()

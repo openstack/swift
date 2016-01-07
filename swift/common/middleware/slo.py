@@ -26,26 +26,31 @@ defined manifest of the object segments is used.
 Uploading the Manifest
 ----------------------
 
-After the user has uploaded the objects to be concatenated a manifest is
+After the user has uploaded the objects to be concatenated, a manifest is
 uploaded. The request must be a PUT with the query parameter::
 
     ?multipart-manifest=put
 
-The body of this request will be an ordered list of files in
-json data format. The data to be supplied for each segment is::
+The body of this request will be an ordered list of segment descriptions in
+JSON format. The data to be supplied for each segment is:
 
-    path: the path to the segment object (not including account)
-          /container/object_name
-    etag: the etag given back when the segment object was PUT,
-          or null
-    size_bytes: the size of the complete segment object in
-                bytes, or null
-    range: (Optional) the range within the object to use as a
-           segment. If omitted, the entire object is used.
+=========== ========================================================
+Key         Description
+=========== ========================================================
+path        the path to the segment object (not including account)
+            /container/object_name
+etag        the ETag given back when the segment object was PUT,
+            or null
+size_bytes  the size of the complete segment object in
+            bytes, or null
+range       (optional) the (inclusive) range within the object to
+            use as a segment. If omitted, the entire object is used.
+=========== ========================================================
 
-The format of the list will be::
+The format of the list will be:
 
-    json:
+  .. code::
+
     [{"path": "/cont/object",
       "etag": "etagoftheobjectsegment",
       "size_bytes": 10485760,
@@ -83,6 +88,42 @@ concurrent upload speed. Objects can be referenced by multiple manifests. The
 segments of a SLO manifest can even be other SLO manifests. Treat them as any
 other object i.e., use the Etag and Content-Length given on the PUT of the
 sub-SLO in the manifest to the parent SLO.
+
+-------------------
+Range Specification
+-------------------
+
+Users now have the ability to specify ranges for SLO segments.
+Users can now include an optional 'range' field in segment descriptions
+to specify which bytes from the underlying object should be used for the
+segment data. Only one range may be specified per segment.
+
+  .. note::
+
+     The 'etag' and 'size_bytes' fields still describe the backing object as a
+     whole.
+
+If a user uploads this manifest:
+
+  .. code::
+
+     [{"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
+       "range": "0-1048576"},
+      {"path": "/con/obj_seg_2", "etag": null, "size_bytes": 2097152,
+       "range": "512-1550000"},
+      {"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
+       "range": "-2048"}]
+
+The segment will consist of the first 1048576 bytes of /con/obj_seg_1,
+followed by bytes 513 through 1550000 (inclusive) of /con/obj_seg_2, and
+finally bytes 2095104 through 2097152 (i.e., the last 2048 bytes) of
+/con/obj_seg_1.
+
+  .. note::
+
+     The minimum sized range is min_segment_size, which by
+     default is 1048576 (1MB).
+
 
 -------------------------
 Retrieving a Large Object
@@ -156,6 +197,7 @@ metadata which can be used for stats purposes.
 from six.moves import range
 
 from datetime import datetime
+import json
 import mimetypes
 import re
 import six
@@ -167,7 +209,7 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
     HTTPUnauthorized, HTTPConflict, HTTPRequestedRangeNotSatisfiable,\
     Response, Range
-from swift.common.utils import json, get_logger, config_true_value, \
+from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
     closing_if_possible
@@ -948,6 +990,7 @@ class StaticLargeObject(object):
         :params req: a swob.Request with an obj in path
         :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
+        req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
         out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
         if out_content_type:

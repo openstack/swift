@@ -21,16 +21,15 @@ import errno
 import fcntl
 import grp
 import hmac
+import json
 import operator
 import os
 import pwd
 import re
 import sys
-import threading as stdlib_threading
 import time
 import uuid
 import functools
-import weakref
 import email.parser
 from hashlib import md5, sha1
 from random import random, shuffle
@@ -40,10 +39,6 @@ import ctypes.util
 from optparse import OptionParser
 
 from tempfile import mkstemp, NamedTemporaryFile
-try:
-    import simplejson as json
-except ImportError:
-    import json
 import glob
 import itertools
 import stat
@@ -63,7 +58,6 @@ import six
 from six.moves import cPickle as pickle
 from six.moves.configparser import (ConfigParser, NoSectionError,
                                     NoOptionError, RawConfigParser)
-from six.moves.queue import Queue, Empty
 from six.moves import range
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
@@ -74,6 +68,11 @@ import swift.common.exceptions
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 
+if six.PY3:
+    stdlib_queue = eventlet.patcher.original('queue')
+else:
+    stdlib_queue = eventlet.patcher.original('Queue')
+stdlib_threading = eventlet.patcher.original('threading')
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -249,7 +248,7 @@ def backward(f, blocksize=4096):
     f.seek(0, os.SEEK_END)
     if f.tell() == 0:
         return
-    last_row = ''
+    last_row = b''
     while f.tell() != 0:
         try:
             f.seek(-blocksize, os.SEEK_CUR)
@@ -258,7 +257,7 @@ def backward(f, blocksize=4096):
             f.seek(-blocksize, os.SEEK_CUR)
         block = f.read(blocksize)
         f.seek(-blocksize, os.SEEK_CUR)
-        rows = block.split('\n')
+        rows = block.split(b'\n')
         rows[-1] = rows[-1] + last_row
         while rows:
             last_row = rows.pop(-1)
@@ -297,7 +296,7 @@ def config_auto_int_value(value, default):
 
 
 def append_underscore(prefix):
-    if prefix and prefix[-1] != '_':
+    if prefix and not prefix.endswith('_'):
         prefix += '_'
     return prefix
 
@@ -390,8 +389,8 @@ def load_libc_function(func_name, log_error=True,
         if fail_if_missing:
             raise
         if log_error:
-            logging.warn(_("Unable to locate %s in libc.  Leaving as a "
-                         "no-op."), func_name)
+            logging.warning(_("Unable to locate %s in libc.  Leaving as a "
+                            "no-op."), func_name)
         return noop_libc_function
 
 
@@ -425,7 +424,7 @@ def get_log_line(req, res, trans_time, additional_info):
     :param trans_time: the time the request took to complete, a float.
     :param additional_info: a string to log at the end of the line
 
-    :returns: a properly formated line for logging.
+    :returns: a properly formatted line for logging.
     """
 
     policy_index = get_policy_index(req.headers, res.headers)
@@ -440,7 +439,8 @@ def get_log_line(req, res, trans_time, additional_info):
 
 
 def get_trans_id_time(trans_id):
-    if len(trans_id) >= 34 and trans_id[:2] == 'tx' and trans_id[23] == '-':
+    if len(trans_id) >= 34 and \
+       trans_id.startswith('tx') and trans_id[23] == '-':
         try:
             return int(trans_id[24:34], 16)
         except ValueError:
@@ -580,8 +580,8 @@ class FallocateWrapper(object):
             if self.fallocate is not noop_libc_function:
                 break
         if self.fallocate is noop_libc_function:
-            logging.warn(_("Unable to locate fallocate, posix_fallocate in "
-                         "libc.  Leaving as a no-op."))
+            logging.warning(_("Unable to locate fallocate, posix_fallocate in "
+                            "libc.  Leaving as a no-op."))
 
     def __call__(self, fd, mode, offset, length):
         """The length parameter must be a ctypes.c_uint64."""
@@ -664,8 +664,8 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warn(_("Unable to perform fsync() on directory %s: %s"),
-                     dirpath, os.strerror(err.errno))
+        logging.warning(_("Unable to perform fsync() on directory %s: %s"),
+                        dirpath, os.strerror(err.errno))
     finally:
         if dirfd:
             os.close(dirfd)
@@ -686,9 +686,9 @@ def drop_buffer_cache(fd, offset, length):
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                          ctypes.c_uint64(length), 4)
     if ret != 0:
-        logging.warn("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
-                     "-> %(ret)s", {'fd': fd, 'offset': offset,
-                                    'length': length, 'ret': ret})
+        logging.warning("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
+                        "-> %(ret)s", {'fd': fd, 'offset': offset,
+                                       'length': length, 'ret': ret})
 
 
 NORMAL_FORMAT = "%016.05f"
@@ -831,6 +831,9 @@ class Timestamp(object):
         if not isinstance(other, Timestamp):
             other = Timestamp(other)
         return cmp(self.internal, other.internal)
+
+    def __hash__(self):
+        return hash(self.internal)
 
 
 def normalize_timestamp(timestamp):
@@ -1166,14 +1169,16 @@ class StatsdClient(object):
                 parts.append('@%s' % (sample_rate,))
             else:
                 return
+        if six.PY3:
+            parts = [part.encode('utf-8') for part in parts]
         # Ideally, we'd cache a sending socket in self, but that
         # results in a socket getting shared by multiple green threads.
         with closing(self._open_socket()) as sock:
             try:
-                return sock.sendto('|'.join(parts), self._target)
+                return sock.sendto(b'|'.join(parts), self._target)
             except IOError as err:
                 if self.logger:
-                    self.logger.warn(
+                    self.logger.warning(
                         'Error sending UDP message to %r: %s',
                         self._target, err)
 
@@ -1227,7 +1232,7 @@ def timing_stats(**dec_kwargs):
     swift's wsgi server controllers, based on response code.
     """
     def decorating_func(func):
-        method = func.func_name
+        method = func.__name__
 
         @functools.wraps(func)
         def _timing_stats(ctrl, *args, **kwargs):
@@ -1245,27 +1250,6 @@ def timing_stats(**dec_kwargs):
     return decorating_func
 
 
-class LoggingHandlerWeakRef(weakref.ref):
-    """
-    Like a weak reference, but passes through a couple methods that logging
-    handlers need.
-    """
-
-    def close(self):
-        referent = self()
-        try:
-            if referent:
-                referent.close()
-        except KeyError:
-            # This is to catch an issue with old py2.6 versions
-            pass
-
-    def flush(self):
-        referent = self()
-        if referent:
-            referent.flush()
-
-
 # double inheritance to support property with setter
 class LogAdapter(logging.LoggerAdapter, object):
     """
@@ -1279,7 +1263,6 @@ class LogAdapter(logging.LoggerAdapter, object):
     def __init__(self, logger, server):
         logging.LoggerAdapter.__init__(self, logger, {})
         self.server = server
-        setattr(self, 'warn', self.warning)
 
     @property
     def txn_id(self):
@@ -1334,13 +1317,10 @@ class LogAdapter(logging.LoggerAdapter, object):
         _junk, exc, _junk = sys.exc_info()
         call = self.error
         emsg = ''
-        if isinstance(exc, OSError):
+        if isinstance(exc, (OSError, socket.error)):
             if exc.errno in (errno.EIO, errno.ENOSPC):
                 emsg = str(exc)
-            else:
-                call = self._exception
-        elif isinstance(exc, socket.error):
-            if exc.errno == errno.ECONNREFUSED:
+            elif exc.errno == errno.ECONNREFUSED:
                 emsg = _('Connection refused')
             elif exc.errno == errno.EHOSTUNREACH:
                 emsg = _('Host unreachable')
@@ -1426,7 +1406,7 @@ class SwiftLogFormatter(logging.Formatter):
                 record.exc_text = self.formatException(
                     record.exc_info).replace('\n', '#012')
         if record.exc_text:
-            if msg[-3:] != '#012':
+            if not msg.endswith('#012'):
                 msg = msg + '#012'
             msg = msg + record.exc_text
 
@@ -1564,31 +1544,6 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
             except ValueError:
                 print('Invalid custom handler format [%s]' % hook,
                       file=sys.stderr)
-
-    # Python 2.6 has the undesirable property of keeping references to all log
-    # handlers around forever in logging._handlers and logging._handlerList.
-    # Combine that with handlers that keep file descriptors, and you get an fd
-    # leak.
-    #
-    # And no, we can't share handlers; a SyslogHandler has a socket, and if
-    # two greenthreads end up logging at the same time, you could get message
-    # overlap that garbles the logs and makes eventlet complain.
-    #
-    # Python 2.7 uses weakrefs to avoid the leak, so let's do that too.
-    if sys.version_info[0] == 2 and sys.version_info[1] <= 6:
-        try:
-            logging._acquireLock()  # some thread-safety thing
-            for handler in adapted_logger.logger.handlers:
-                if handler in logging._handlers:
-                    wr = LoggingHandlerWeakRef(handler)
-                    del logging._handlers[handler]
-                    logging._handlers[wr] = 1
-                for i, handler_ref in enumerate(logging._handlerList):
-                    if handler_ref is handler:
-                        logging._handlerList[i] = LoggingHandlerWeakRef(
-                            handler)
-        finally:
-            logging._releaseLock()
 
     return adapted_logger
 
@@ -1739,7 +1694,7 @@ def expand_ipv6(address):
 def whataremyips(bind_ip=None):
     """
     Get "our" IP addresses ("us" being the set of services configured by
-    one *.conf file). If our REST listens on a specific address, return it.
+    one `*.conf` file). If our REST listens on a specific address, return it.
     Otherwise, if listen on '0.0.0.0' or '::' return all addresses, including
     the loopback.
 
@@ -2085,6 +2040,9 @@ def search_tree(root, glob_match, ext='', exts=None, dir_ext=None):
     :param glob_match: glob to match in root, matching dirs are traversed with
                        os.walk
     :param ext: only files that end in ext will be returned
+    :param exts: a list of file extensions; only files that end in one of these
+                 extensions will be returned; if set this list overrides any
+                 extension specified using the 'ext' param.
     :param dir_ext: if present directories that end with dir_ext will not be
                     traversed and instead will be returned as a matched path
 
@@ -2333,7 +2291,7 @@ class GreenAsyncPile(object):
     def next(self):
         try:
             rv = self._responses.get_nowait()
-        except Empty:
+        except eventlet.queue.Empty:
             if self._inflight == 0:
                 raise StopIteration()
             rv = self._responses.get()
@@ -2984,8 +2942,8 @@ class ThreadPool(object):
 
     def __init__(self, nthreads=2):
         self.nthreads = nthreads
-        self._run_queue = Queue()
-        self._result_queue = Queue()
+        self._run_queue = stdlib_queue.Queue()
+        self._result_queue = stdlib_queue.Queue()
         self._threads = []
         self._alive = True
 
@@ -3010,7 +2968,7 @@ class ThreadPool(object):
         # multiple instances instantiated. Since the object server uses one
         # pool per disk, we have to reimplement this stuff.
         _raw_rpipe, self.wpipe = os.pipe()
-        self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb', bufsize=0)
+        self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb')
 
         for _junk in range(nthreads):
             thr = stdlib_threading.Thread(
@@ -3065,7 +3023,7 @@ class ThreadPool(object):
             while True:
                 try:
                     ev, success, result = queue.get(block=False)
-                except Empty:
+                except stdlib_queue.Empty:
                     break
 
                 try:
@@ -3078,15 +3036,15 @@ class ThreadPool(object):
 
     def run_in_thread(self, func, *args, **kwargs):
         """
-        Runs func(*args, **kwargs) in a thread. Blocks the current greenlet
+        Runs ``func(*args, **kwargs)`` in a thread. Blocks the current greenlet
         until results are available.
 
         Exceptions thrown will be reraised in the calling thread.
 
         If the threadpool was initialized with nthreads=0, it invokes
-        func(*args, **kwargs) directly, followed by eventlet.sleep() to ensure
-        the eventlet hub has a chance to execute. It is more likely the hub
-        will be invoked when queuing operations to an external thread.
+        ``func(*args, **kwargs)`` directly, followed by eventlet.sleep() to
+        ensure the eventlet hub has a chance to execute. It is more likely the
+        hub will be invoked when queuing operations to an external thread.
 
         :returns: result of calling func
         :raises: whatever func raises
@@ -3126,7 +3084,7 @@ class ThreadPool(object):
 
     def force_run_in_thread(self, func, *args, **kwargs):
         """
-        Runs func(*args, **kwargs) in a thread. Blocks the current greenlet
+        Runs ``func(*args, **kwargs)`` in a thread. Blocks the current greenlet
         until results are available.
 
         Exceptions thrown will be reraised in the calling thread.
@@ -3604,7 +3562,8 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
             except StopIteration:
                 pass
             else:
-                logger.warn("More than one part in a single-part response?")
+                logger.warning(
+                    "More than one part in a single-part response?")
 
         return string_along(response_body_iter, ranges_iter, logger)
 

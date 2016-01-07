@@ -30,7 +30,7 @@ from six import BytesIO
 from six.moves import range
 
 import swift
-from swift.common import utils, swob
+from swift.common import utils, swob, exceptions
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import get_info as _real_get_info
@@ -535,6 +535,22 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
 
+    def test_PUT_empty_bad_etag(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
+        req.headers['Content-Length'] = '0'
+        req.headers['Etag'] = '"catbus"'
+
+        # The 2-tuple here makes getexpect() return 422, not 100. For
+        # objects that are >0 bytes, you get a 100 Continue and then a 422
+        # Unprocessable Entity after sending the body. For zero-byte
+        # objects, though, you get the 422 right away.
+        codes = [FakeStatus((422, 422))
+                 for _junk in range(self.replicas())]
+
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 422)
+
     def test_PUT_if_none_match(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         req.headers['if-none-match'] = '*'
@@ -611,6 +627,66 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         self.assertEqual(
             node_error_count(self.app, object_ring.devs[1]),
             self.app.error_suppression_limit + 1)
+
+    def test_PUT_error_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise exceptions.ChunkReadError('exception message')
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        with set_http_connect(201, 201, 201):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 499)
+
+    def test_PUT_chunkreadtimeout_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise exceptions.ChunkReadTimeout()
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        with set_http_connect(201, 201, 201):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 408)
+
+    def test_PUT_timeout_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise Timeout()
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        with set_http_connect(201, 201, 201):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 499)
+
+    def test_PUT_exception_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise Exception('exception message')
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        with set_http_connect(201, 201, 201):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 500)
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -1265,6 +1341,86 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def test_PUT_ec_error_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise exceptions.ChunkReadError('exception message')
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 499)
+
+    def test_PUT_ec_chunkreadtimeout_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise exceptions.ChunkReadTimeout()
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 408)
+
+    def test_PUT_ec_timeout_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise exceptions.Timeout()
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 499)
+
+    def test_PUT_ec_exception_during_transfer_data(self):
+        class FakeReader(object):
+            def read(self, size):
+                raise Exception('exception message')
+
+        req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
+                                 body='test body')
+
+        req.environ['wsgi.input'] = FakeReader()
+        req.headers['content-length'] = '6'
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 500)
 
     def test_PUT_with_body(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -2001,7 +2157,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         try:
             resp.body
         except ECDriverError:
-            pass
+            resp._app_iter.close()
         else:
             self.fail('invalid ec fragment response body did not blow up!')
         error_lines = self.logger.get_lines_for_level('error')

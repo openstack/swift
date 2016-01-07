@@ -306,18 +306,20 @@ def run_scenario(scenario):
             command_f(*command)
 
         rebalance_number = 1
-        parts_moved, old_balance = rb.rebalance(seed=seed)
+        parts_moved, old_balance, removed_devs = rb.rebalance(seed=seed)
         rb.pretend_min_part_hours_passed()
-        print "\tRebalance 1: moved %d parts, balance is %.6f" % (
-            parts_moved, old_balance)
+        print "\tRebalance 1: moved %d parts, balance is %.6f, \
+                %d removed devs" % (
+            parts_moved, old_balance, removed_devs)
 
         while True:
             rebalance_number += 1
-            parts_moved, new_balance = rb.rebalance(seed=seed)
+            parts_moved, new_balance, removed_devs = rb.rebalance(seed=seed)
             rb.pretend_min_part_hours_passed()
-            print "\tRebalance %d: moved %d parts, balance is %.6f" % (
-                rebalance_number, parts_moved, new_balance)
-            if parts_moved == 0:
+            print "\tRebalance %d: moved %d parts, balance is %.6f, \
+                    %d removed devs" % (
+                rebalance_number, parts_moved, new_balance, removed_devs)
+            if parts_moved == 0 and removed_devs == 0:
                 break
             if abs(new_balance - old_balance) < 1 and not (
                     old_balance == builder.MAX_BALANCE and

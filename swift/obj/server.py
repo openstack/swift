@@ -895,7 +895,10 @@ class ObjectController(BaseStorageServer):
                                   container, obj, request, device,
                                   policy)
         if orig_timestamp < req_timestamp:
-            disk_file.delete(req_timestamp)
+            try:
+                disk_file.delete(req_timestamp)
+            except DiskFileNoSpace:
+                return HTTPInsufficientStorage(drive=device, request=request)
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp.internal}),

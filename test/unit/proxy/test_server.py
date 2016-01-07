@@ -17,12 +17,13 @@
 from __future__ import print_function
 import email.parser
 import logging
+import json
 import math
 import os
 import pickle
 import sys
 import unittest
-from contextlib import closing, contextmanager, nested
+from contextlib import closing, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 import gc
@@ -47,14 +48,14 @@ from six import StringIO
 from six.moves import range
 from six.moves.urllib.parse import quote
 
-from swift.common.utils import hash_path, json, storage_directory, \
+from swift.common.utils import hash_path, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn)
+    mocked_http_conn, DEFAULT_TEST_EC_TYPE)
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.account import server as account_server
@@ -139,7 +140,7 @@ def do_setup(the_object_server):
         StoragePolicy(0, 'zero', True),
         StoragePolicy(1, 'one', False),
         StoragePolicy(2, 'two', False),
-        ECStoragePolicy(3, 'ec', ec_type='jerasure_rs_vand',
+        ECStoragePolicy(3, 'ec', ec_type=DEFAULT_TEST_EC_TYPE,
                         ec_ndata=2, ec_nparity=1, ec_segment_size=4096)])
     obj_rings = {
         0: ('sda1', 'sdb1'),
@@ -683,6 +684,16 @@ class TestController(unittest.TestCase):
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestProxyServer(unittest.TestCase):
+
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        app = proxy_server.Application({'node_timeout': '3.5',
+                                        'recoverable_node_timeout': '1.5'},
+                                       FakeMemcache(),
+                                       container_ring=FakeRing(),
+                                       account_ring=FakeRing())
+        self.assertEqual(app.node_timeout, 3.5)
+        self.assertEqual(app.recoverable_node_timeout, 1.5)
 
     def test_get_object_ring(self):
         baseapp = proxy_server.Application({},
@@ -1821,7 +1832,7 @@ class TestObjectController(unittest.TestCase):
                     '4096')
                 self.assertEqual(
                     lmeta['x-object-sysmeta-ec-scheme'],
-                    'jerasure_rs_vand 2+1')
+                    '%s 2+1' % DEFAULT_TEST_EC_TYPE)
                 self.assertEqual(
                     lmeta['etag'],
                     md5(contents).hexdigest())
@@ -2039,10 +2050,8 @@ class TestObjectController(unittest.TestCase):
         commit_confirmation = \
             'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
 
-        with nested(
-                mock.patch('swift.obj.server.md5', busted_md5_constructor),
-                mock.patch(commit_confirmation, mock_committer)) as \
-                (_junk, commit_call):
+        with mock.patch('swift.obj.server.md5', busted_md5_constructor), \
+                mock.patch(commit_confirmation, mock_committer):
             fd = sock.makefile()
             fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
                      'Host: localhost\r\n'
@@ -2092,10 +2101,8 @@ class TestObjectController(unittest.TestCase):
         commit_confirmation = \
             'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
 
-        with nested(
-                mock.patch(read_footer),
-                mock.patch(commit_confirmation, mock_committer)) as \
-                (read_footer_call, commit_call):
+        with mock.patch(read_footer) as read_footer_call, \
+                mock.patch(commit_confirmation, mock_committer):
             # Emulate missing footer MIME doc in all object-servers
             read_footer_call.side_effect = HTTPBadRequest(
                 body="couldn't find footer MIME doc")
@@ -3587,17 +3594,17 @@ class TestObjectController(unittest.TestCase):
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
-            class SlowBody(object):
+            class DisconnectedBody(object):
 
                 def __init__(self):
                     self.sent = 0
 
                 def read(self, size=-1):
-                    raise Exception('Disconnected')
+                    return ''
 
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT',
-                                         'wsgi.input': SlowBody()},
+                                         'wsgi.input': DisconnectedBody()},
                                 headers={'Content-Length': '4',
                                          'Content-Type': 'text/plain'})
             self.app.update_request(req)
@@ -3881,11 +3888,10 @@ class TestObjectController(unittest.TestCase):
 
     def test_iter_nodes_gives_extra_if_error_limited_inline(self):
         object_ring = self.app.get_object_ring(None)
-        with nested(
-                mock.patch.object(self.app, 'sort_nodes', lambda n: n),
+        with mock.patch.object(self.app, 'sort_nodes', lambda n: n), \
                 mock.patch.object(self.app, 'request_node_count',
-                                  lambda r: 6),
-                mock.patch.object(object_ring, 'max_more_nodes', 99)):
+                                  lambda r: 6), \
+                mock.patch.object(object_ring, 'max_more_nodes', 99):
             first_nodes = list(self.app.iter_nodes(object_ring, 0))
             second_nodes = []
             for node in self.app.iter_nodes(object_ring, 0):
@@ -3899,18 +3905,16 @@ class TestObjectController(unittest.TestCase):
         object_ring = self.app.get_object_ring(None)
         node_list = [dict(id=n, ip='1.2.3.4', port=n, device='D')
                      for n in range(10)]
-        with nested(
-                mock.patch.object(self.app, 'sort_nodes', lambda n: n),
+        with mock.patch.object(self.app, 'sort_nodes', lambda n: n), \
                 mock.patch.object(self.app, 'request_node_count',
-                                  lambda r: 3)):
+                                  lambda r: 3):
             got_nodes = list(self.app.iter_nodes(object_ring, 0,
                                                  node_iter=iter(node_list)))
         self.assertEqual(node_list[:3], got_nodes)
 
-        with nested(
-                mock.patch.object(self.app, 'sort_nodes', lambda n: n),
+        with mock.patch.object(self.app, 'sort_nodes', lambda n: n), \
                 mock.patch.object(self.app, 'request_node_count',
-                                  lambda r: 1000000)):
+                                  lambda r: 1000000):
             got_nodes = list(self.app.iter_nodes(object_ring, 0,
                                                  node_iter=iter(node_list)))
         self.assertEqual(node_list, got_nodes)
@@ -5620,15 +5624,53 @@ class TestObjectController(unittest.TestCase):
 
         # read most of the object, and disconnect
         fd.read(10)
-        fd.close()
-        sock.close()
-        sleep(0)
+        sock.fd._sock.close()
+        sleep(0.1)
 
         # check for disconnect message!
         expected = ['Client disconnected on read'] * 2
         self.assertEqual(
             _test_servers[0].logger.get_lines_for_level('warning'),
             expected)
+
+    @unpatch_policies
+    def test_ec_client_put_disconnect(self):
+        prolis = _test_sockets[0]
+
+        # create connection
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+
+        # create container
+        fd.write('PUT /v1/a/ec-discon HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Storage-Policy: ec\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 2'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # create object
+        obj = 'a' * 4 * 64 * 2 ** 10
+        fd.write('PUT /v1/a/ec-discon/test HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: donuts\r\n'
+                 '\r\n%s' % (len(obj), obj[:-10]))
+        fd.flush()
+        fd.close()
+        sock.close()
+        # sleep to trampoline enough
+        sleep(0.1)
+        expected = ['Client disconnected without sending enough data']
+        warns = _test_servers[0].logger.get_lines_for_level('warning')
+        self.assertEqual(expected, warns)
+        errors = _test_servers[0].logger.get_lines_for_level('error')
+        self.assertEqual([], errors)
 
     @unpatch_policies
     def test_leak_1(self):
@@ -5678,8 +5720,7 @@ class TestObjectController(unittest.TestCase):
             exp = 'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
             fd.read(1)
-            fd.close()
-            sock.close()
+            sock.fd._sock.close()
             # Make sure the GC is run again for pythons without reference
             # counting
             for i in range(4):
@@ -5806,7 +5847,9 @@ class TestObjectController(unittest.TestCase):
             def stubContainerInfo(*args):
                 return {
                     'cors': {
-                        'allow_origin': 'http://not.foo.bar'
+                        'allow_origin': 'http://not.foo.bar',
+                        'expose_headers': 'X-Object-Meta-Color '
+                                          'X-Object-Meta-Color-Ex'
                     }
                 }
             controller.container_info = stubContainerInfo
@@ -5831,14 +5874,15 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual('red', resp.headers['x-object-meta-color'])
             # X-Super-Secret is in the response, but not "exposed"
             self.assertEqual('hush', resp.headers['x-super-secret'])
-            self.assertTrue('access-control-expose-headers' in resp.headers)
+            self.assertIn('access-control-expose-headers', resp.headers)
             exposed = set(
                 h.strip() for h in
                 resp.headers['access-control-expose-headers'].split(','))
             expected_exposed = set(['cache-control', 'content-language',
                                     'content-type', 'expires', 'last-modified',
                                     'pragma', 'etag', 'x-timestamp',
-                                    'x-trans-id', 'x-object-meta-color'])
+                                    'x-trans-id', 'x-object-meta-color',
+                                    'x-object-meta-color-ex'])
             self.assertEqual(expected_exposed, exposed)
 
             controller.app.strict_cors_mode = True
@@ -5850,7 +5894,49 @@ class TestObjectController(unittest.TestCase):
             resp = cors_validation(objectGET)(controller, req)
 
             self.assertEqual(200, resp.status_int)
-            self.assertTrue('access-control-allow-origin' not in resp.headers)
+            self.assertNotIn('access-control-expose-headers', resp.headers)
+            self.assertNotIn('access-control-allow-origin', resp.headers)
+
+            controller.app.strict_cors_mode = False
+
+            def stubContainerInfoWithAsteriskAllowOrigin(*args):
+                return {
+                    'cors': {
+                        'allow_origin': '*'
+                    }
+                }
+            controller.container_info = \
+                stubContainerInfoWithAsteriskAllowOrigin
+
+            req = Request.blank(
+                '/v1/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('*',
+                             resp.headers['access-control-allow-origin'])
+
+            def stubContainerInfoWithEmptyAllowOrigin(*args):
+                return {
+                    'cors': {
+                        'allow_origin': ''
+                    }
+                }
+            controller.container_info = stubContainerInfoWithEmptyAllowOrigin
+
+            req = Request.blank(
+                '/v1/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('http://foo.bar',
+                             resp.headers['access-control-allow-origin'])
 
     def test_CORS_valid_with_obj_headers(self):
         with save_globals():
@@ -6142,20 +6228,18 @@ class TestECMismatchedFA(unittest.TestCase):
         # Server obj1 will have the first version of the object (obj2 also
         # gets it, but that gets stepped on later)
         prosrv._error_limiting = {}
-        with nested(
-                mock.patch.object(obj3srv, 'PUT', bad_disk),
+        with mock.patch.object(obj3srv, 'PUT', bad_disk), \
                 mock.patch(
-                    'swift.common.storage_policy.ECStoragePolicy.quorum')):
+                    'swift.common.storage_policy.ECStoragePolicy.quorum'):
             type(ec_policy).quorum = mock.PropertyMock(return_value=2)
             resp = put_req1.get_response(prosrv)
         self.assertEqual(resp.status_int, 201)
 
         # Servers obj2 and obj3 will have the second version of the object.
         prosrv._error_limiting = {}
-        with nested(
-                mock.patch.object(obj1srv, 'PUT', bad_disk),
+        with mock.patch.object(obj1srv, 'PUT', bad_disk), \
                 mock.patch(
-                    'swift.common.storage_policy.ECStoragePolicy.quorum')):
+                    'swift.common.storage_policy.ECStoragePolicy.quorum'):
             type(ec_policy).quorum = mock.PropertyMock(return_value=2)
             resp = put_req2.get_response(prosrv)
         self.assertEqual(resp.status_int, 201)
@@ -6165,9 +6249,8 @@ class TestECMismatchedFA(unittest.TestCase):
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
         prosrv._error_limiting = {}
-        with nested(
-                mock.patch.object(obj1srv, 'GET', bad_disk),
-                mock.patch.object(obj2srv, 'GET', bad_disk)):
+        with mock.patch.object(obj1srv, 'GET', bad_disk), \
+                mock.patch.object(obj2srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 503)
 

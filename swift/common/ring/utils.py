@@ -223,7 +223,7 @@ def is_valid_hostname(hostname):
     """
     if len(hostname) < 1 or len(hostname) > 255:
         return False
-    if hostname[-1] == ".":
+    if hostname.endswith('.'):
         # strip exactly one dot from the right, if present
         hostname = hostname[:-1]
     allowed = re.compile("(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
@@ -328,13 +328,13 @@ def parse_search_value(search_value):
         search_value = search_value[i:]
     if search_value.startswith('-'):
         search_value = search_value[1:]
-    if len(search_value) and search_value[0].isdigit():
+    if search_value and search_value[0].isdigit():
         i = 1
         while i < len(search_value) and search_value[i] in '0123456789.':
             i += 1
         match['ip'] = search_value[:i]
         search_value = search_value[i:]
-    elif len(search_value) and search_value[0] == '[':
+    elif search_value and search_value.startswith('['):
         i = 1
         while i < len(search_value) and search_value[i] != ']':
             i += 1
@@ -356,14 +356,14 @@ def parse_search_value(search_value):
     # replication parameters
     if search_value.startswith('R'):
         search_value = search_value[1:]
-        if len(search_value) and search_value[0].isdigit():
+        if search_value and search_value[0].isdigit():
             i = 1
             while (i < len(search_value) and
                    search_value[i] in '0123456789.'):
                 i += 1
             match['replication_ip'] = search_value[:i]
             search_value = search_value[i:]
-        elif len(search_value) and search_value[0] == '[':
+        elif search_value and search_value.startswith('['):
             i = 1
             while i < len(search_value) and search_value[i] != ']':
                 i += 1

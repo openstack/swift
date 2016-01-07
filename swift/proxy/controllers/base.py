@@ -235,17 +235,17 @@ def cors_validation(func):
             #  - headers provided by the user in
             #    x-container-meta-access-control-expose-headers
             if 'Access-Control-Expose-Headers' not in resp.headers:
-                expose_headers = [
+                expose_headers = set([
                     'cache-control', 'content-language', 'content-type',
                     'expires', 'last-modified', 'pragma', 'etag',
-                    'x-timestamp', 'x-trans-id']
+                    'x-timestamp', 'x-trans-id'])
                 for header in resp.headers:
                     if header.startswith('X-Container-Meta') or \
                             header.startswith('X-Object-Meta'):
-                        expose_headers.append(header.lower())
+                        expose_headers.add(header.lower())
                 if cors_info.get('expose_headers'):
-                    expose_headers.extend(
-                        [header_line.strip()
+                    expose_headers = expose_headers.union(
+                        [header_line.strip().lower()
                          for header_line in
                          cors_info['expose_headers'].split(' ')
                          if header_line.strip()])
@@ -317,6 +317,7 @@ def get_account_info(env, app, swift_source=None):
 
         This call bypasses auth. Success does not imply that the request has
         authorization to the account.
+
     :raises ValueError: when path can't be split(path, 2, 4)
     """
     (version, account, _junk, _junk) = \
@@ -336,9 +337,10 @@ def _get_cache_key(account, container):
     """
     Get the keys for both memcache (cache_key) and env (env_key)
     where info about accounts and containers is cached
+
     :param   account: The name of the account
     :param container: The name of the container (or None if account)
-    :returns a tuple of (cache_key, env_key)
+    :returns: a tuple of (cache_key, env_key)
     """
 
     if container:
@@ -356,10 +358,11 @@ def _get_cache_key(account, container):
 def get_object_env_key(account, container, obj):
     """
     Get the keys for env (env_key) where info about object is cached
+
     :param   account: The name of the account
     :param container: The name of the container
     :param obj: The name of the object
-    :returns a string env_key
+    :returns: a string env_key
     """
     env_key = 'swift.object/%s/%s/%s' % (account,
                                          container, obj)
@@ -460,7 +463,7 @@ def _get_info_cache(app, env, account, container=None):
 
     :param  app: the application object
     :param  env: the environment used by the current request
-    :returns the cached info or None if not cached
+    :returns: the cached info or None if not cached
     """
 
     cache_key, env_key = _get_cache_key(account, container)
@@ -932,20 +935,19 @@ class ResumingGetter(object):
                     self.pop_range()
             except StopIteration:
                 req.environ['swift.non_client_disconnect'] = True
-                return
 
         except ChunkReadTimeout:
             self.app.exception_occurred(node[0], _('Object'),
                                         _('Trying to read during GET'))
             raise
         except ChunkWriteTimeout:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client did not read from proxy within %ss') %
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
             if not req.environ.get('swift.non_client_disconnect'):
-                self.app.logger.warn(_('Client disconnected on read'))
+                self.app.logger.warning(_('Client disconnected on read'))
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise
@@ -1283,7 +1285,7 @@ class Controller(object):
     def generate_request_headers(self, orig_req=None, additional=None,
                                  transfer=False):
         """
-        Create a list of headers to be used in backend requets
+        Create a list of headers to be used in backend requests
 
         :param orig_req: the original request sent by the client to the proxy
         :param additional: additional headers to send to the backend

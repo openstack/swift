@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import time
 import traceback
@@ -30,7 +31,7 @@ from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
-    config_true_value, json, timing_stats, replication, \
+    config_true_value, timing_stats, replication, \
     override_bytes_from_content_type, get_log_line
 from swift.common.constraints import check_mount, valid_timestamp, check_utf8
 from swift.common import constraints
@@ -86,7 +87,7 @@ class ContainerController(BaseStorageServer):
         self.log_requests = config_true_value(conf.get('log_requests', 'true'))
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        self.node_timeout = int(conf.get('node_timeout', 3))
+        self.node_timeout = float(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         #: ContainerSyncCluster instance for validating sync-to values.
         self.realms_conf = ContainerSyncRealms(
@@ -452,6 +453,7 @@ class ContainerController(BaseStorageServer):
         end_marker = get_param(req, 'end_marker')
         limit = constraints.CONTAINER_LISTING_LIMIT
         given_limit = get_param(req, 'limit')
+        reverse = config_true_value(get_param(req, 'reverse'))
         if given_limit and given_limit.isdigit():
             limit = int(given_limit)
             if limit > constraints.CONTAINER_LISTING_LIMIT:
@@ -471,7 +473,7 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound(request=req, headers=resp_headers)
         container_list = broker.list_objects_iter(
             limit, marker, end_marker, prefix, delimiter, path,
-            storage_policy_index=info['storage_policy_index'])
+            storage_policy_index=info['storage_policy_index'], reverse=reverse)
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 

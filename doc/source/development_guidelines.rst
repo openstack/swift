@@ -51,16 +51,16 @@ To execute the unit tests:
 
 .. note::
   As of tox version 2.0.0, most environment variables are not automatically
-  passed to the test environment. Swift's tox.ini overrides this default
-  behavior so that variable names matching SWIFT_* and *_proxy will be passed,
-  but you may need to run tox --recreate for this to take effect after
-  upgrading from tox<2.0.0.
+  passed to the test environment. Swift's `tox.ini` overrides this default
+  behavior so that variable names matching ``SWIFT_*`` and ``*_proxy`` will be
+  passed, but you may need to run `tox --recreate` for this to take effect
+  after upgrading from tox<2.0.0.
 
   Conversely, if you do not want those environment variables to be passed to
   the test environment then you will need to unset them before calling tox.
 
   Also, if you ever encounter DistributionNotFound, try to use `tox --recreate`
-  or remove the .tox directory to force tox to recreate the dependency list.
+  or remove the `.tox` directory to force tox to recreate the dependency list.
 
 The functional tests may be executed against a :doc:`development_saio` or
 other running Swift cluster using the command:

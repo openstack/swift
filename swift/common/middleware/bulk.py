@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from six.moves.urllib.parse import quote, unquote
 import tarfile
 from xml.sax import saxutils
@@ -23,7 +24,7 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
-from swift.common.utils import json, get_logger, register_swift_info
+from swift.common.utils import get_logger, register_swift_info
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 
@@ -32,7 +33,7 @@ class CreateContainerError(Exception):
     def __init__(self, msg, status_int, status):
         self.status_int = status_int
         self.status = status
-        Exception.__init__(self, msg)
+        super(CreateContainerError, self).__init__(msg)
 
 
 ACCEPTABLE_FORMATS = ['text/plain', 'application/json', 'application/xml',
@@ -120,6 +121,67 @@ class Bulk(object):
 
     Only regular files will be uploaded. Empty directories, symlinks, etc will
     not be uploaded.
+
+    Content Type:
+
+    If the content-type header is set in the extract-archive call, Swift will
+    assign that content-type to all the underlying files. The bulk middleware
+    will extract the archive file and send the internal files using PUT
+    operations using the same headers from the original request
+    (e.g. auth-tokens, content-Type, etc.). Notice that any middleware call
+    that follows the bulk middleware does not know if this was a bulk request
+    or if these were individual requests sent by the user.
+
+    In order to make Swift detect the content-type for the files based on the
+    file extension, the content-type in the extract-archive call should not be
+    set. Alternatively, it is possible to explicitly tell swift to detect the
+    content type using this header:
+
+    X-Detect-Content-Type:true
+
+    For example:
+
+    curl -X PUT http://127.0.0.1/v1/AUTH_acc/cont/$?extract-archive=tar -T
+    backup.tar -H "Content-Type: application/x-tar" -H "X-Auth-Token: xxx"
+    -H "X-Detect-Content-Type:true"
+
+    Assigning Metadata:
+
+    The tar file format (1) allows for UTF-8 key/value pairs to be associated
+    with each file in an archive. If a file has extended attributes, then tar
+    will store those as key/value pairs. The bulk middleware can read those
+    extended attributes and convert them to Swift object metadata. Attributes
+    starting with "user.meta" are converted to object metadata, and
+    "user.mime_type" is converted to Content-Type.
+
+    For example:
+
+    setfattr -n user.mime_type -v "application/python-setup" setup.py
+    setfattr -n user.meta.lunch -v "burger and fries" setup.py
+    setfattr -n user.meta.dinner -v "baked ziti" setup.py
+    setfattr -n user.stuff -v "whee" setup.py
+
+    Will get translated to headers:
+
+    Content-Type: application/python-setup
+    X-Object-Meta-Lunch: burger and fries
+    X-Object-Meta-Dinner: baked ziti
+
+    The bulk middleware  will handle xattrs stored by both GNU and BSD tar (2).
+    Only xattrs user.mime_type and user.meta.* are processed. Other attributes
+    are ignored.
+
+    Notes:
+
+    (1) The POSIX 1003.1-2001 (pax) format. The default format on GNU tar
+    1.27.1 or later.
+
+    (2) Even with pax-format tarballs, different encoders store xattrs slightly
+    differently; for example, GNU tar stores the xattr "user.userattribute" as
+    pax header "SCHILY.xattr.user.userattribute", while BSD tar (which uses
+    libarchive) stores it as "LIBARCHIVE.xattr.user.userattribute".
+
+    Response:
 
     The response from bulk operations functions differently from other swift
     responses. This is because a short request body sent from the client could

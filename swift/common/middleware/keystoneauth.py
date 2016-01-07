@@ -31,16 +31,16 @@ UNKNOWN_ID = '_unknown'
 class KeystoneAuth(object):
     """Swift middleware to Keystone authorization system.
 
-    In Swift's proxy-server.conf add this middleware to your pipeline::
-
-        [pipeline:main]
-        pipeline = catch_errors cache authtoken keystoneauth proxy-server
-
-    Make sure you have the authtoken middleware before the
-    keystoneauth middleware.
+    In Swift's proxy-server.conf add this keystoneauth middleware and the
+    authtoken middleware to your pipeline. Make sure you have the authtoken
+    middleware before the keystoneauth middleware.
 
     The authtoken middleware will take care of validating the user and
     keystoneauth will authorize access.
+
+    The sample proxy-server.conf shows a sample pipeline that uses keystone.
+
+    :download:`proxy-server.conf-sample </../../etc/proxy-server.conf-sample>`
 
     The authtoken middleware is shipped with keystonemiddleware - it
     does not have any other dependencies than itself so you can either
@@ -196,7 +196,7 @@ class KeystoneAuth(object):
             conf.get('allow_names_in_acls', 'true'))
 
     def __call__(self, environ, start_response):
-        identity = self._keystone_identity(environ)
+        env_identity = self._keystone_identity(environ)
 
         # Check if one of the middleware like tempurl or formpost have
         # set the swift.authorize_override environ and want to control the
@@ -207,14 +207,13 @@ class KeystoneAuth(object):
             self.logger.debug(msg)
             return self.app(environ, start_response)
 
-        if identity:
-            self.logger.debug('Using identity: %r', identity)
-            environ['keystone.identity'] = identity
-            environ['REMOTE_USER'] = identity.get('tenant')
-            env_identity = self._integral_keystone_identity(environ)
+        if env_identity:
+            self.logger.debug('Using identity: %r', env_identity)
+            environ['REMOTE_USER'] = env_identity.get('tenant')
+            environ['keystone.identity'] = env_identity
             environ['swift.authorize'] = functools.partial(
                 self.authorize, env_identity)
-            user_roles = (r.lower() for r in identity.get('roles', []))
+            user_roles = (r.lower() for r in env_identity.get('roles', []))
             if self.reseller_admin_role in user_roles:
                 environ['reseller_request'] = True
         else:
@@ -238,24 +237,9 @@ class KeystoneAuth(object):
 
     def _keystone_identity(self, environ):
         """Extract the identity from the Keystone auth component."""
-        # In next release, we would add user id in env['keystone.identity'] by
-        # using _integral_keystone_identity to replace current
-        # _keystone_identity. The purpose of keeping it in this release it for
-        # back compatibility.
         if (environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed'
             or environ.get(
                 'HTTP_X_SERVICE_IDENTITY_STATUS') not in (None, 'Confirmed')):
-            return
-        roles = list_from_csv(environ.get('HTTP_X_ROLES', ''))
-        identity = {'user': environ.get('HTTP_X_USER_NAME'),
-                    'tenant': (environ.get('HTTP_X_TENANT_ID'),
-                               environ.get('HTTP_X_TENANT_NAME')),
-                    'roles': roles}
-        return identity
-
-    def _integral_keystone_identity(self, environ):
-        """Extract the identity from the Keystone auth component."""
-        if environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed':
             return
         roles = list_from_csv(environ.get('HTTP_X_ROLES', ''))
         service_roles = list_from_csv(environ.get('HTTP_X_SERVICE_ROLES', ''))
@@ -341,9 +325,9 @@ class KeystoneAuth(object):
             # unknown domain, update if req confirms domain
             new_id = req_id or ''
         elif req_has_id and sysmeta_id != req_id:
-            self.logger.warn("Inconsistent project domain id: " +
-                             "%s in token vs %s in account metadata."
-                             % (req_id, sysmeta_id))
+            self.logger.warning("Inconsistent project domain id: " +
+                                "%s in token vs %s in account metadata."
+                                % (req_id, sysmeta_id))
 
         if new_id is not None:
             req.headers[PROJECT_DOMAIN_ID_SYSMETA_HEADER] = new_id
