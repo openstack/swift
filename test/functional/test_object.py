@@ -529,6 +529,85 @@ class TestObject(unittest2.TestCase):
         resp.read()
         self.assertEqual(resp.status, 204)
 
+    def test_container_write_only(self):
+        if tf.skip or tf.skip3:
+            raise SkipTest
+
+        # Ensure we can't access the object with the third account
+        def get(url, token, parsed, conn):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, self.obj), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # create a shared container writable (but not readable) by account3
+        shared_container = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s' % (
+                parsed.path, shared_container), '',
+                {'X-Auth-Token': token,
+                 'X-Container-Write': tf.swift_test_perm[2]})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # verify third account can write "obj1" to shared container
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, shared_container, 'obj1'), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(put, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # verify third account cannot copy "obj1" to shared container
+        def copy(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s/%s' % (
+                parsed.path, shared_container, 'obj1'), '',
+                {'X-Auth-Token': token,
+                 'Destination': '%s/%s' % (shared_container, 'obj2')})
+            return check_response(conn)
+        resp = retry(copy, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # verify third account can POST to "obj1" in shared container
+        def post(url, token, parsed, conn):
+            conn.request('POST', '%s/%s/%s' % (
+                parsed.path, shared_container, 'obj1'), '',
+                {'X-Auth-Token': token,
+                 'X-Object-Meta-Color': 'blue'})
+            return check_response(conn)
+        resp = retry(post, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 202)
+
+        # verify third account can DELETE from shared container
+        def delete(url, token, parsed, conn):
+            conn.request('DELETE', '%s/%s/%s' % (
+                parsed.path, shared_container, 'obj1'), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(delete, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # clean up shared_container
+        def delete(url, token, parsed, conn):
+            conn.request('DELETE',
+                         parsed.path + '/' + shared_container, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(delete)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
     @requires_acls
     def test_read_only(self):
         if tf.skip3:

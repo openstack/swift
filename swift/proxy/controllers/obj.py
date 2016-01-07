@@ -444,6 +444,11 @@ class BaseObjectController(Controller):
         source_req.headers.pop('X-Backend-Storage-Policy-Index', None)
         source_req.path_info = source_header
         source_req.headers['X-Newest'] = 'true'
+        if 'swift.post_as_copy' in req.environ:
+            # We're COPYing one object over itself because of a POST; rely on
+            # the PUT for write authorization, don't require read authorization
+            source_req.environ['swift.authorize'] = lambda req: None
+            source_req.environ['swift.authorize_override'] = True
 
         orig_obj_name = self.object_name
         orig_container_name = self.container_name
