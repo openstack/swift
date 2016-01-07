@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import unittest
+from swift.common.middleware.crypto import Crypto
 
 from swift.common.middleware import encrypter, decrypter
 from swift.common.swob import Request, HTTPCreated
@@ -75,7 +76,7 @@ class TestEncrypterDecrypter(unittest.TestCase):
 
     def encrypt_value(self, value, key, crypto_meta_json):
         crypto_meta = decrypter._load_crypto_meta(crypto_meta_json)
-        enc_ctxt = encrypter.get_crypto({}).create_encryption_ctxt(
+        enc_ctxt = Crypto({}).create_encryption_ctxt(
             key, crypto_meta.get('iv'))
         return enc_ctxt.update(value)
 

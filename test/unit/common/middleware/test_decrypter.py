@@ -21,57 +21,30 @@ import json
 import urllib
 
 from swift.common.middleware import decrypter
-from swift.common.swob import Request, HTTPException, HTTPOk, \
-    HTTPInternalServerError
-from test.unit.common.middleware.crypto_helpers import FakeCrypto, md5hex, \
-    fake_encrypt, fetch_crypto_keys
+from swift.common.swob import Request, HTTPException, HTTPOk
+from test.unit.common.middleware.crypto_helpers import md5hex, \
+    fetch_crypto_keys, fake_iv, encrypt, fake_get_crypto_meta
+from swift.common.middleware.crypto import Crypto
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
-
-
-class FakeContextThrows(object):
-
-    @staticmethod
-    def get_error_msg():
-        return 'Testing context update exception'
-
-    def update(self, chunk):
-        raise HTTPInternalServerError(self.get_error_msg())
-
-
-class FakeCryptoThrows(FakeCrypto):
-
-    def create_encryption_ctxt(self, key, iv):
-        return FakeCrypto()
-
-    def create_decryption_ctxt(self, key, iv, offset):
-        return FakeContextThrows()
-
-
-def get_crypto_meta():
-    fc = FakeCrypto()
-    return {'iv': 'someIV', 'cipher': fc.get_cipher()}
 
 
 def get_crypto_meta_header(crypto_meta=None):
     if crypto_meta is None:
-        crypto_meta = get_crypto_meta()
+        crypto_meta = fake_get_crypto_meta()
     return urllib.quote_plus(
         json.dumps({key: (base64.b64encode(value).decode()
                           if key == 'iv' else value)
                     for key, value in crypto_meta.items()}))
 
 
-def get_content_type():
-    return 'text/plain'
-
-
-def encrypt_and_append_meta(value, crypto_meta=None):
+def encrypt_and_append_meta(value, key, crypto_meta=None):
     return '%s; meta=%s' % (
-        base64.b64encode(fake_encrypt(value)),
+        base64.b64encode(encrypt(value, key, fake_iv())),
         get_crypto_meta_header(crypto_meta))
 
 
-@mock.patch('swift.common.middleware.decrypter.Crypto', FakeCrypto)
+@mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
+            lambda *args: fake_iv())
 class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_basic_get_req(self):
@@ -79,18 +52,19 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        content_type = encrypt_and_append_meta('text/plain')
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': content_type,
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(fake_encrypt(md5hex(body))),
+                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(fake_encrypt('encrypt me')),
+                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
                 'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -103,77 +77,123 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual(resp.headers['x-object-sysmeta-test'],
                          'do not encrypt me')
 
-    def test_get_req_body_decrypt_throws(self):
-        # simulate headers not being encrypted so that first call to decrypter
-        # context will be when body is read
-        env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
-        req = Request.blank('/v1/a/c/o', environ=env)
-        body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        app = FakeSwift()
-        hdrs = {'Etag': 'hashOfCiphertext',
-                'content-type': 'text/plain',
-                'content-length': len(enc_body),
-                'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
-                'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        with mock.patch('swift.common.middleware.decrypter.Crypto',
-                        FakeCryptoThrows):
-            resp = req.get_response(decrypter.Decrypter(app, {}))
-            with self.assertRaises(HTTPException) as catcher:
-                resp.body
-        self.assertEqual(catcher.exception.body,
-                         FakeContextThrows.get_error_msg())
+    def _test_bad_key(self, method):
+        # use bad key
+        def bad_fetch_crypto_keys():
+            keys = fetch_crypto_keys()
+            keys['object'] = 'bad key'
+            return keys
 
-    def _test_req_hdr_decrypt_throws(self, method):
-        # make headers encrypted so that decrypter context will blow up during
-        # header processing
         env = {'REQUEST_METHOD': method,
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               'swift.crypto.fetch_crypto_keys': bad_fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        content_type = encrypt_and_append_meta('text/plain')
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': content_type,
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
-                'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        with mock.patch('swift.common.middleware.decrypter.Crypto',
-                        FakeCryptoThrows):
-            resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
-        return resp
+                'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
+                'x-object-meta-test':
+                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header()}
+        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
+                     headers=hdrs)
+        return req.get_response(decrypter.Decrypter(app, {}))
 
-    def test_head_req_hdr_decrypt_throws(self):
-        self._test_req_hdr_decrypt_throws('HEAD')
+    def test_head_with_bad_key(self):
+        resp = self._test_bad_key('HEAD')
+        self.assertEqual('500 Internal Error', resp.status)
 
-    def test_get_req_hdr_decrypt_throws(self):
-        resp = self._test_req_hdr_decrypt_throws('GET')
-        self.assertEqual(FakeContextThrows.get_error_msg(), resp.body)
+    def test_get_with_bad_key(self):
+        resp = self._test_bad_key('GET')
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('Error decrypting header value', resp.body)
+
+    def _test_bad_iv_for_user_metadata(self, method):
+        # use bad iv for metadata headers
+        env = {'REQUEST_METHOD': method,
+               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env)
+        body = 'FAKE APP'
+        key = fetch_crypto_keys()['object']
+        bad_crypto_meta = fake_get_crypto_meta()
+        bad_crypto_meta['iv'] = 'bad_iv'
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
+        app = FakeSwift()
+        hdrs = {'Etag': 'hashOfCiphertext',
+                'content-type': content_type,
+                'content-length': len(enc_body),
+                'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
+                'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
+                'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
+                'x-object-meta-test':
+                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                'x-object-sysmeta-crypto-meta-test':
+                    get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
+        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
+                     headers=hdrs)
+        return req.get_response(decrypter.Decrypter(app, {}))
+
+    def test_head_with_bad_iv_for_user_metadata(self):
+        resp = self._test_bad_iv_for_user_metadata('HEAD')
+        self.assertEqual('500 Internal Error', resp.status)
+
+    def test_get_with_bad_iv_for_user_metadata(self):
+        resp = self._test_bad_iv_for_user_metadata('GET')
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('Error decrypting header value', resp.body)
+
+    def test_get_with_bad_iv_for_object_body(self):
+        # use bad iv for object body
+        env = {'REQUEST_METHOD': 'GET',
+               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env)
+        body = 'FAKE APP'
+        key = fetch_crypto_keys()['object']
+        bad_crypto_meta = fake_get_crypto_meta()
+        bad_crypto_meta['iv'] = 'bad_iv'
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
+        app = FakeSwift()
+        hdrs = {'Etag': 'hashOfCiphertext',
+                'content-type': content_type,
+                'content-length': len(enc_body),
+                'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
+                'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
+                'X-Object-Sysmeta-Crypto-Meta':
+                    get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
+        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body,
+                     headers=hdrs)
+        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('Error creating decryption context for object body',
+                         resp.body)
 
     def test_basic_head_req(self):
         env = {'REQUEST_METHOD': 'HEAD',
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        content_type = encrypt_and_append_meta('text/plain')
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
                 'content-type': content_type,
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(fake_encrypt(md5hex(body))),
+                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(fake_encrypt('encrypt me')),
+                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
                 'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('HEAD', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -193,14 +213,15 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(fake_encrypt(md5hex(body))),
+                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -222,15 +243,16 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        content_type = encrypt_and_append_meta('text/plain')
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
                 'content-type': content_type,
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(fake_encrypt(md5hex(body))),
+                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test': 'plaintext'}
@@ -259,7 +281,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'content-type': 'text/plain',
                 'content-length': len(body),
                 'x-object-meta-test':
-                    base64.b64encode(fake_encrypt('encrypt me')),
+                    base64.b64encode(encrypt('encrypt me',
+                                             fetch_crypto_keys()['object'],
+                                             fake_iv())),
                 'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
@@ -280,14 +304,16 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env)
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
-        enc_body = [fake_encrypt(chunk) for chunk in chunks]
-        content_type = encrypt_and_append_meta('text/plain')
+        key = fetch_crypto_keys()['object']
+        ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
+        enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': content_type,
                 'content-length': sum(map(len, enc_body)),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(fake_encrypt(md5hex(body))),
+                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -304,15 +330,19 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req.headers['Content-Range'] = 'bytes 3-10/17'
         chunks = ['0123', '45678', '9abcdef']
         body = ''.join(chunks)
-        enc_body = [fake_encrypt(chunk) for chunk in chunks]
+        key = fetch_crypto_keys()['object']
+        ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
+        enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
         enc_body = [enc_body[0][3:], enc_body[1], enc_body[2][:2]]
-        content_type = encrypt_and_append_meta('text/plain')
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': content_type,
                 'content-length': sum(map(len, enc_body)),
+                'content-range': req.headers['Content-Range'],
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(fake_encrypt(md5hex(body))),
+                    base64.b64encode(encrypt(md5hex(body), key,
+                                             fake_iv())),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -330,8 +360,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        content_type = encrypt_and_append_meta('text/plain')
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': content_type,
@@ -347,7 +378,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {'REQUEST_METHOD': 'GET'}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
+        enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
@@ -368,7 +399,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': raise_exc}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
+        enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
@@ -387,9 +418,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
+        enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
         app = FakeSwift()
-        bad_crypto_meta = get_crypto_meta()
+        bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
@@ -409,10 +440,11 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        bad_crypto_meta = get_crypto_meta()
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
-        content_type = encrypt_and_append_meta('text/plain',
+        content_type = encrypt_and_append_meta('text/plain', key,
                                                crypto_meta=bad_crypto_meta)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
@@ -431,10 +463,11 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = fake_encrypt(body)
-        bad_crypto_meta = get_crypto_meta()
+        key = fetch_crypto_keys()['object']
+        enc_body = encrypt(body, key, fake_iv())
+        bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
-        content_type = encrypt_and_append_meta('text/plain')
+        content_type = encrypt_and_append_meta('text/plain', key)
         app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': content_type,
@@ -442,7 +475,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(fake_encrypt('encrypt me')),
+                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
                 'x-object-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -475,7 +508,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                          'do not encrypt me')
 
 
-@mock.patch('swift.common.middleware.decrypter.Crypto', FakeCrypto)
+@mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
+            lambda *args: fake_iv())
 class TestDecrypterContainerRequests(unittest.TestCase):
     # TODO - update these tests to have etag to be encrypted and have
     # crypto-meta in response, and verify that the etag gets decrypted.
@@ -511,20 +545,23 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def test_cont_get_json_req(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
+        key = fetch_crypto_keys()['container']
 
         obj_dict_1 = {"bytes": 16,
                       "last_modified": "2015-04-14T23:33:06.439040",
                       "hash": "c6e8196d7f0fff6444b90861fe8d609d",
                       "name": "testfile",
                       "content_type":
-                      encrypt_and_append_meta(content_type_1.encode('utf8'))}
+                      encrypt_and_append_meta(
+                          content_type_1.encode('utf-8'), key)}
 
         obj_dict_2 = {"bytes": 24,
                       "last_modified": "2015-04-14T23:33:06.519020",
                       "hash": "ac0374ed4d43635f803c82469d0b5a10",
                       "name": "testfile2",
                       "content_type":
-                      encrypt_and_append_meta(content_type_2.encode('utf8'))}
+                      encrypt_and_append_meta(
+                          content_type_2.encode('utf-8'), key)}
 
         listing = [obj_dict_1, obj_dict_2]
         fake_body = json.dumps(listing)
@@ -574,15 +611,16 @@ class TestDecrypterContainerRequests(unittest.TestCase):
 
     def test_cont_get_json_req_with_cipher_mismatch(self):
         content_type = 'image/jpeg'
-        bad_crypto_meta = get_crypto_meta()
+        bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
+        key = fetch_crypto_keys()['container']
 
         obj_dict_1 = {"bytes": 16,
                       "last_modified": "2015-04-14T23:33:06.439040",
                       "hash": "c6e8196d7f0fff6444b90861fe8d609d",
                       "name": "testfile",
                       "content_type":
-                          encrypt_and_append_meta(content_type,
+                          encrypt_and_append_meta(content_type, key,
                                                   crypto_meta=bad_crypto_meta)}
 
         listing = [obj_dict_1]
@@ -606,15 +644,16 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def test_cont_get_xml_req(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
+        key = fetch_crypto_keys()['container']
 
         fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
 <container name="testc">\
 <object><hash>c6e8196d7f0fff6444b90861fe8d609d</hash><content_type>\
-''' + encrypt_and_append_meta(content_type_1.encode('utf8')) + '''\
+''' + encrypt_and_append_meta(content_type_1.encode('utf8'), key) + '''\
 </content_type><name>testfile</name><bytes>16</bytes>\
 <last_modified>2015-04-19T02:37:39.601660</last_modified></object>\
 <object><hash>ac0374ed4d43635f803c82469d0b5a10</hash><content_type>\
-''' + encrypt_and_append_meta(content_type_2.encode('utf8')) + '''\
+''' + encrypt_and_append_meta(content_type_2.encode('utf8'), key) + '''\
 </content_type><name>testfile2</name><bytes>24</bytes>\
 <last_modified>2015-04-19T02:37:39.684740</last_modified></object>\
 </container>'''
@@ -692,13 +731,15 @@ class TestDecrypterContainerRequests(unittest.TestCase):
 
     def test_cont_get_xml_req_with_cipher_mismatch(self):
         content_type = 'image/jpeg'
-        bad_crypto_meta = get_crypto_meta()
+        bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
 
         fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
 <container name="testc">\
-<object><hash>c6e8196d7f0fff6444b90861fe8d609d</hash><content_type>\
-''' + encrypt_and_append_meta(content_type, crypto_meta=bad_crypto_meta) + '''\
+<object><hash>c6e8196d7f0fff6444b90861fe8d609d</hash>\
+<content_type>''' + encrypt_and_append_meta(content_type,
+                                            fetch_crypto_keys()['container'],
+                                            crypto_meta=bad_crypto_meta) + '''\
 </content_type><name>testfile</name><bytes>16</bytes>\
 <last_modified>2015-04-19T02:37:39.601660</last_modified></object>\
 </container>'''

@@ -279,7 +279,7 @@ class Encrypter(object):
         if config_true_value(env.get('swift.crypto.override')):
             return self.app(env, start_response)
 
-        self.crypto = get_crypto(self.conf)
+        self.crypto = Crypto(self.conf)
 
         try:
             req.split_path(4, 4, True)
@@ -296,10 +296,6 @@ class Encrypter(object):
 
         # anything else
         return self.app(env, start_response)
-
-
-def get_crypto(conf):
-    return Crypto(conf)
 
 
 def filter_factory(global_conf, **local_conf):
