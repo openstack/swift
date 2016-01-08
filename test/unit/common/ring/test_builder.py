@@ -2318,6 +2318,72 @@ class TestRingBuilder(unittest.TestCase):
         msg = 'Replica count of 3 requires more than 2 devices'
         self.assertIn(msg, str(e.exception))
 
+    def _add_dev_delete_first_n(self, add_dev_count, n):
+        rb = ring.RingBuilder(8, 3, 1)
+        dev_names = ['sda', 'sdb', 'sdc', 'sdd', 'sde', 'sdf']
+        for i in range(add_dev_count):
+            if i < len(dev_names):
+                dev_name = dev_names[i]
+            else:
+                dev_name = 'sda'
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                        'port': 6000, 'weight': 1.0, 'device': dev_name})
+        rb.rebalance()
+        if (n > 0):
+            rb.pretend_min_part_hours_passed()
+            # remove first n
+            for i in range(n):
+                rb.remove_dev(i)
+            rb.pretend_min_part_hours_passed()
+            rb.rebalance()
+        return rb
+
+    def test_reuse_of_dev_holes_without_id(self):
+        # try with contiguous holes at beginning
+        add_dev_count = 6
+        rb = self._add_dev_delete_first_n(add_dev_count, add_dev_count - 3)
+        new_dev_id = rb.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                                 'port': 6000, 'weight': 1.0, 'device': 'sda'})
+        self.assertTrue(new_dev_id < add_dev_count)
+
+        # try with non-contiguous holes
+        # [0, 1, None, 3, 4, None]
+        rb2 = ring.RingBuilder(8, 3, 1)
+        for i in range(6):
+            rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                         'port': 6000, 'weight': 1.0, 'device': 'sda'})
+        rb2.rebalance()
+        rb2.pretend_min_part_hours_passed()
+        rb2.remove_dev(2)
+        rb2.remove_dev(5)
+        rb2.pretend_min_part_hours_passed()
+        rb2.rebalance()
+        first = rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                             'port': 6000, 'weight': 1.0, 'device': 'sda'})
+        second = rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                              'port': 6000, 'weight': 1.0, 'device': 'sda'})
+        # add a new one (without reusing a hole)
+        third = rb2.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
+                             'port': 6000, 'weight': 1.0, 'device': 'sda'})
+        self.assertEqual(first, 2)
+        self.assertEqual(second, 5)
+        self.assertEqual(third, 6)
+
+    def test_reuse_of_dev_holes_with_id(self):
+        add_dev_count = 6
+        rb = self._add_dev_delete_first_n(add_dev_count, add_dev_count - 3)
+        # add specifying id
+        exp_new_dev_id = 2
+# [dev, dev, None, dev, dev, None]
+        try:
+            new_dev_id = rb.add_dev({'id': exp_new_dev_id, 'region': 0,
+                                     'zone': 0, 'ip': '127.0.0.1',
+                                     'port': 6000, 'weight': 1.0,
+                                     'device': 'sda'})
+            self.assertEqual(new_dev_id, exp_new_dev_id)
+        except exceptions.DuplicateDeviceError:
+            self.fail("device hole not reused")
+
 
 class TestGetRequiredOverload(unittest.TestCase):
 

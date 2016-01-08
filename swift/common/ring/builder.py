@@ -336,7 +336,10 @@ class RingBuilder(object):
         if 'id' not in dev:
             dev['id'] = 0
             if self.devs:
-                dev['id'] = max(d['id'] for d in self.devs if d) + 1
+                try:
+                    dev['id'] = self.devs.index(None)
+                except ValueError:
+                    dev['id'] = len(self.devs)
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
             raise exceptions.DuplicateDeviceError(
                 'Duplicate device id: %d' % dev['id'])
