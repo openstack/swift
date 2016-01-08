@@ -123,31 +123,30 @@ class MemcacheConnPool(Pool):
 
     def __init__(self, server, size, connect_timeout):
         Pool.__init__(self, max_size=size)
-        self.server = server
+        self.host, self.port = self._get_addr(server)
         self._connect_timeout = connect_timeout
 
-    def _get_addr(self):
+    def _get_addr(self, server):
         port = DEFAULT_MEMCACHED_PORT
         # IPv6 addresses must be between '[]'
-        if self.server.startswith('['):
-            match = MemcacheConnPool.IPV6_RE.match(self.server)
+        if server.startswith('['):
+            match = MemcacheConnPool.IPV6_RE.match(server)
             if not match:
-                raise ValueError("Invalid IPv6 address: %s" % self.server)
+                raise ValueError("Invalid IPv6 address: %s" % server)
             host = match.group('address')
             port = match.group('port') or port
         else:
-            if ':' in self.server:
-                tokens = self.server.split(':')
+            if ':' in server:
+                tokens = server.split(':')
                 if len(tokens) > 2:
                     raise ValueError("IPv6 addresses must be between '[]'")
                 host, port = tokens
             else:
-                host = self.server
+                host = server
         return (host, port)
 
     def create(self):
-        host, port = self._get_addr()
-        addrs = socket.getaddrinfo(host, port, socket.AF_UNSPEC,
+        addrs = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC,
                                    socket.SOCK_STREAM)
         family, socktype, proto, canonname, sockaddr = addrs[0]
         sock = socket.socket(family, socket.SOCK_STREAM)
