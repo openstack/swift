@@ -416,6 +416,11 @@ class BaseObjectController(Controller):
         This method handles copying objects based on values set in the headers
         'X-Copy-From' and 'X-Copy-From-Account'
 
+        Note that if the incomming request has some conditional headers (e.g.
+        'Range', 'If-Match'), *source* object will be evaluated for these
+        headers. i.e. if PUT with both 'X-Copy-From' and 'Range', Swift will
+        make a partial copy as a new object.
+
         This method was added as part of the refactoring of the PUT method and
         the functionality is expected to be moved to middleware
         """
