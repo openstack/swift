@@ -566,26 +566,5 @@ class TestMemcached(unittest.TestCase):
         finally:
             memcached.MemcacheConnPool = orig_conn_pool
 
-    def test_connection_pool_parser(self):
-        default = memcached.DEFAULT_MEMCACHED_PORT
-        addrs = [('1.2.3.4', '1.2.3.4', default),
-                 ('1.2.3.4:5000', '1.2.3.4', 5000),
-                 ('[dead:beef::1]', 'dead:beef::1', default),
-                 ('[dead:beef::1]:5000', 'dead:beef::1', 5000),
-                 ('example.com', 'example.com', default),
-                 ('example.com:5000', 'example.com', 5000),
-                 ('foo.1-2-3.bar.com:5000', 'foo.1-2-3.bar.com', 5000),
-                 ('1.2.3.4:10:20', None, None),
-                 ('dead:beef::1:5000', None, None)]
-
-        for addr, expected_host, expected_port in addrs:
-            if expected_host:
-                pool = memcached.MemcacheConnPool(addr, 1, 0)
-                self.assertEqual(expected_host, pool.host)
-                self.assertEqual(expected_port, int(pool.port))
-            else:
-                with self.assertRaises(ValueError):
-                    memcached.MemcacheConnPool(addr, 1, 0)
-
 if __name__ == '__main__':
     unittest.main()
