@@ -108,15 +108,16 @@ class MemcacheConnPool(Pool):
     The *server* parameter can be a hostname, an IPv4 address, or an IPv6
     address with an optional port. If an IPv6 address is specified it **must**
     be enclosed in [], like *[::1]* or *[::1]:11211*. This follows the accepted
-    prescription for IPv6 host literals:
-    https://tools.ietf.org/html/rfc3986#section-3.2.2.
+    prescription for `IPv6 host literals`_.
 
-    Examples:
+    Examples::
 
-        * memcache.local:11211
-        * 127.0.0.1:11211
-        * [::1]:11211
-        * [::1]
+        memcache.local:11211
+        127.0.0.1:11211
+        [::1]:11211
+        [::1]
+
+    .. _IPv6 host literals: https://tools.ietf.org/html/rfc3986#section-3.2.2
     """
     IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
