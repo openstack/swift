@@ -20,12 +20,12 @@ import base64
 import json
 import urllib
 
-from swift.common.middleware import decrypter
-from swift.common.swob import Request, HTTPException, HTTPOk
 from test.unit.common.middleware.crypto_helpers import md5hex, \
     fetch_crypto_keys, fake_iv, encrypt, fake_get_crypto_meta
 from swift.common.middleware.crypto import Crypto
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
+from swift.common.middleware import decrypter
+from swift.common.swob import Request, HTTPException, HTTPOk
 
 
 def get_crypto_meta_header(crypto_meta=None):
@@ -345,6 +345,72 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # the test actually faking the correct Etag in response?
         self.assertEqual(resp.headers['Etag'], md5hex(body))
         self.assertEqual(resp.headers['Content-Type'], 'text/plain')
+
+    # Force the decrypter context updates to be less than one of our range
+    # sizes to check that the decrypt context offset is setup correctly with
+    # offset to first byte of range for first update and then re-used.
+    # Do mocking here to have the mocked value have effect in the generator
+    # function.
+    @mock.patch.object(decrypter, 'DECRYPT_CHUNK_SIZE', 4)
+    def test_multipart_get_obj(self):
+        # build fake multipart response body
+        key = fetch_crypto_keys()['object']
+        ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
+        plaintext = 'Cwm fjord veg balks nth pyx quiz'
+        ciphertext = encrypt(plaintext, ctxt=ctxt)
+        parts = ((0, 3, 'text/plain'),
+                 (4, 9, 'text/plain; charset=us-ascii'),
+                 (24, 32, 'text/plain'))
+        length = len(ciphertext)
+        body = ''
+        for start, end, ctype in parts:
+            body += '--multipartboundary\r\n'
+            body += 'Content-Type: %s\r\n' % ctype
+            body += 'Content-Range: bytes %s-%s/%s' % (start, end - 1, length)
+            body += '\r\n\r\n' + ciphertext[start:end] + '\r\n'
+        body += '--multipartboundary--'
+
+        # register request with fake swift
+        app = FakeSwift()
+        hdrs = {
+            'Etag': 'hashOfCiphertext',
+            'content-type': 'multipart/byteranges;boundary=multipartboundary',
+            'content-length': len(body),
+            'X-Object-Sysmeta-Crypto-Etag':
+                base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+            'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
+            'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
+        app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
+
+        # issue request
+        env = {'REQUEST_METHOD': 'GET',
+               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env)
+        resp = req.get_response(decrypter.Decrypter(app, {}))
+
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual(len(body), int(resp.headers['Content-Length']))
+        self.assertEqual('multipart/byteranges;boundary=multipartboundary',
+                         resp.headers['Content-Type'])
+
+        # the multipart headers could be re-ordered, so parse response body to
+        # verify expected content
+        resp_lines = resp.body.split('\r\n')
+        resp_lines.reverse()
+        for start, end, ctype in parts:
+            self.assertEqual('--multipartboundary', resp_lines.pop())
+            expected_header_lines = {
+                'Content-Type: %s' % ctype,
+                'Content-Range: bytes %s-%s/%s' % (start, end - 1, length)}
+            resp_header_lines = {resp_lines.pop(), resp_lines.pop()}
+            self.assertEqual(expected_header_lines, resp_header_lines)
+            self.assertEqual('', resp_lines.pop())
+            self.assertEqual(plaintext[start:end], resp_lines.pop())
+        self.assertEqual('--multipartboundary--', resp_lines.pop())
+
+        # we should have consumed the whole response body
+        self.assertFalse(resp_lines)
 
     def test_etag_no_match_on_get(self):
         self.skipTest('Etag verification not yet implemented')
