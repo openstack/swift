@@ -2478,12 +2478,31 @@ class TestFileComparison(Base):
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
 
+    def testIfMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-Match': '"bogus1", "%s", "bogus2"' % file_item.md5}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(412)
+
     def testIfNoneMatch(self):
         for file_item in self.env.files:
             hdrs = {'If-None-Match': 'bogus'}
             self.assertTrue(file_item.read(hdrs=hdrs))
 
             hdrs = {'If-None-Match': file_item.md5}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(304)
+
+    def testIfNoneMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-None-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-None-Match':
+                    '"bogus1", "bogus2", "%s"' % file_item.md5}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
 
