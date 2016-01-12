@@ -282,6 +282,9 @@ use = egg:swift#recon
 # log_level = INFO
 # log_address = /dev/log
 #
+# Time in seconds to wait between auditor passes
+# interval = 30
+#
 # You can set the disk chunk size that the auditor uses making it larger if
 # you like for more efficient local auditing of larger objects
 # disk_chunk_size = 65536
