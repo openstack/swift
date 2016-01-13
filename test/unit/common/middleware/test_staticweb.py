@@ -39,6 +39,8 @@ meta_map = {
                     'web-listings-css': 'listing.css'}},
     'c6': {'meta': {'web-listings': 't',
                     'web-error': 'error.html'}},
+    'c6b': {'meta': {'web-listings': 't',
+                     'web-listings-label': 'foo'}},
     'c7': {'meta': {'web-listings': 'f'}},
     'c8': {'meta': {'web-error': 'error.html',
                     'web-listings': 't',
@@ -185,6 +187,8 @@ class FakeApp(object):
         elif env['PATH_INFO'] == '/v1/a/c5/404error.html':
             return Response(status='404 Not Found')(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c6':
+            return self.listing(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c6b':
             return self.listing(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c6/subdir':
             return Response(status='404 Not Found')(env, start_response)
@@ -650,6 +654,13 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c6/').get_response(test_staticweb)
         self.assertEqual(resp.status_int, 401)
         self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
+
+    def test_container6blisting(self):
+        label = 'Listing of {0}/'.format(
+            meta_map['c6b']['meta']['web-listings-label'])
+        resp = Request.blank('/v1/a/c6b/').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn(label, resp.body)
 
     def test_container7listing(self):
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
