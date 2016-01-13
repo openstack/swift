@@ -25,6 +25,7 @@ from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv as sys_argv, exit, stderr, stdout
 from textwrap import wrap
 from time import time
+from datetime import timedelta
 import optparse
 import math
 
@@ -444,7 +445,9 @@ swift-ring-builder <builder_file>
                   builder.parts, builder.replicas, regions, zones, dev_count,
                   balance, dispersion_trailer))
         print('The minimum number of hours before a partition can be '
-              'reassigned is %s' % builder.min_part_hours)
+              'reassigned is %s (%s remaining)' % (
+                  builder.min_part_hours,
+                  timedelta(seconds=builder.min_part_seconds_left)))
         print('The overload factor is %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
         if builder.devs:
@@ -787,6 +790,14 @@ swift-ring-builder <builder_file> rebalance [options]
             handler.setFormatter(formatter)
             logger.addHandler(handler)
 
+        if builder.min_part_seconds_left > 0 and not options.force:
+            print('No partitions could be reassigned.')
+            print('The time between rebalances must be at least '
+                  'min_part_hours: %s hours (%s remaining)' % (
+                      builder.min_part_hours,
+                      timedelta(seconds=builder.min_part_seconds_left)))
+            exit(EXIT_WARNING)
+
         devs_changed = builder.devs_changed
         try:
             last_balance = builder.get_balance()
@@ -802,8 +813,7 @@ swift-ring-builder <builder_file> rebalance [options]
             exit(EXIT_ERROR)
         if not (parts or options.force or removed_devs):
             print('No partitions could be reassigned.')
-            print('Either none need to be or none can be due to '
-                  'min_part_hours [%s].' % builder.min_part_hours)
+            print('There is no need to do so at this time')
             exit(EXIT_WARNING)
         # If we set device's weight to zero, currently balance will be set
         # special value(MAX_BALANCE) until zero weighted device return all

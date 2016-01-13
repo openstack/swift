@@ -1739,7 +1739,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             "64 partitions, 3.000000 replicas, 4 regions, 4 zones, " \
             "4 devices, 100.00 balance, 0.00 dispersion\n" \
             "The minimum number of hours before a partition can be " \
-            "reassigned is 1\n" \
+            "reassigned is 1 (0:00:00 remaining)\n" \
             "The overload factor is 0.00%% (0.000000)\n" \
             "Devices:    id  region  zone      ip address  port  " \
             "replication ip  replication port      name weight " \
@@ -1796,6 +1796,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring = RingBuilder.load(self.tmpfile)
         ring.set_dev_weight(3, 0.0)
         ring.rebalance()
+        ring.pretend_min_part_hours_passed()
         ring.remove_dev(3)
         ring.save(self.tmpfile)
 
@@ -1805,6 +1806,64 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring = RingBuilder.load(self.tmpfile)
         self.assertTrue(ring.validate())
         self.assertEqual(ring.devs[3], None)
+
+    def test_rebalance_resets_time_remaining(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+
+        time_path = 'swift.common.ring.builder.time'
+        argv = ["", self.tmpfile, "rebalance", "3"]
+        time = 0
+
+        # first rebalance, should have 1 hour left before next rebalance
+        time += 3600
+        with mock.patch(time_path, return_value=time):
+            self.assertEqual(ring.min_part_seconds_left, 0)
+            self.assertRaises(SystemExit, ringbuilder.main, argv)
+            ring = RingBuilder.load(self.tmpfile)
+            self.assertEqual(ring.min_part_seconds_left, 3600)
+
+        # min part hours passed, change ring and save for rebalance
+        ring.set_dev_weight(0, ring.devs[0]['weight'] * 2)
+        ring.save(self.tmpfile)
+
+        # second rebalance, should have 1 hour left
+        time += 3600
+        with mock.patch(time_path, return_value=time):
+            self.assertEqual(ring.min_part_seconds_left, 0)
+            self.assertRaises(SystemExit, ringbuilder.main, argv)
+            ring = RingBuilder.load(self.tmpfile)
+            self.assertTrue(ring.min_part_seconds_left, 3600)
+
+    def test_rebalance_failure_does_not_reset_last_moves_epoch(self):
+        ring = RingBuilder(8, 3, 1)
+        ring.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                      'ip': '127.0.0.1', 'port': 6010, 'device': 'sda1'})
+        ring.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                      'ip': '127.0.0.1', 'port': 6020, 'device': 'sdb1'})
+        ring.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
+                      'ip': '127.0.0.1', 'port': 6030, 'device': 'sdc1'})
+
+        time_path = 'swift.common.ring.builder.time'
+        argv = ["", self.tmpfile, "rebalance", "3"]
+
+        with mock.patch(time_path, return_value=0):
+            ring.rebalance()
+        ring.save(self.tmpfile)
+
+        # min part hours not passed
+        with mock.patch(time_path, return_value=(3600 * 0.6)):
+            self.assertRaises(SystemExit, ringbuilder.main, argv)
+            ring = RingBuilder.load(self.tmpfile)
+            self.assertEqual(ring.min_part_seconds_left, 3600 * 0.4)
+
+        ring.save(self.tmpfile)
+
+        # min part hours passed, no partitions need to be moved
+        with mock.patch(time_path, return_value=(3600 * 1.5)):
+            self.assertRaises(SystemExit, ringbuilder.main, argv)
+            ring = RingBuilder.load(self.tmpfile)
+            self.assertEqual(ring.min_part_seconds_left, 0)
 
     def test_rebalance_with_seed(self):
         self.create_sample_ring()

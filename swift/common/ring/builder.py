@@ -139,6 +139,12 @@ class RingBuilder(object):
         finally:
             self.logger.disabled = True
 
+    @property
+    def min_part_seconds_left(self):
+        """Get the total seconds until a rebalance can be performed"""
+        elapsed_seconds = int(time() - self._last_part_moves_epoch)
+        return max((self.min_part_hours * 3600) - elapsed_seconds, 0)
+
     def weight_of_one_part(self):
         """
         Returns the weight of each partition as calculated from the
@@ -729,11 +735,12 @@ class RingBuilder(object):
     def pretend_min_part_hours_passed(self):
         """
         Override min_part_hours by marking all partitions as having been moved
-        255 hours ago. This can be used to force a full rebalance on the next
-        call to rebalance.
+        255 hours ago and last move epoch to 'the beginning of time'. This can
+        be used to force a full rebalance on the next call to rebalance.
         """
         for part in range(self.parts):
             self._last_part_moves[part] = 0xff
+        self._last_part_moves_epoch = 0
 
     def get_part_devices(self, part):
         """
@@ -835,6 +842,8 @@ class RingBuilder(object):
         more recently than min_part_hours.
         """
         elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
+        if elapsed_hours <= 0:
+            return
         for part in range(self.parts):
             # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"
             # which was here showed up in profiling, so it got inlined.
