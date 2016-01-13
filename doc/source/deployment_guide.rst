@@ -1278,7 +1278,8 @@ object_chunk_size             65536            Chunk size to read from
 client_chunk_size             65536            Chunk size to read from
                                                clients
 memcache_servers              127.0.0.1:11211  Comma separated list of
-                                               memcached servers ip:port
+                                               memcached servers
+                                               ip:port or [ipv6addr]:port
 memcache_max_connections      2                Max number of connections to
                                                each memcached server per
                                                worker

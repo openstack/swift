@@ -388,7 +388,8 @@ use = egg:swift#memcache
 # If not set here, the value for memcache_servers will be read from
 # memcache.conf (see memcache.conf-sample) or lacking that file, it will
 # default to the value below. You can specify multiple servers separated with
-# commas, as in: 10.1.2.3:11211,10.1.2.4:11211
+# commas, as in: 10.1.2.3:11211,10.1.2.4:11211 (IPv6 addresses must
+# follow rfc3986 section-3.2.2, i.e. [::1]:11211)
 # memcache_servers = 127.0.0.1:11211
 #
 # Sets how memcache values are serialized and deserialized:
