@@ -21,12 +21,15 @@ import unittest
 import os
 import shutil
 import uuid
-from swift.common.exceptions import DiskFileDeleted
 
+from swift.common.direct_client import direct_get_suffix_hashes
+from swift.common.exceptions import DiskFileDeleted
+from swift.common.internal_client import UnexpectedResponse
 from swift.container.backend import ContainerBroker
 from swift.common import internal_client, utils
+from swiftclient import client
 from swift.common.ring import Ring
-from swift.common.utils import Timestamp, get_logger
+from swift.common.utils import Timestamp, get_logger, hash_path
 from swift.obj.diskfile import DiskFileManager
 from swift.common.storage_policy import POLICIES
 
@@ -185,6 +188,20 @@ class Test(ReplProbeTest):
         return self.int_client.get_object_metadata(self.account,
                                                    self.container_name,
                                                    self.object_name)
+
+    def _assert_consistent_suffix_hashes(self):
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, self.container_name, self.object_name)
+        name_hash = hash_path(
+            self.account, self.container_name, self.object_name)
+        results = []
+        for node in onodes:
+            results.append(
+                (node,
+                 direct_get_suffix_hashes(node, opart, [name_hash[-3:]])))
+        for (node, hashes) in results[1:]:
+            self.assertEqual(results[0][1], hashes,
+                             'Inconsistent suffix hashes found: %s' % results)
 
     def test_object_delete_is_replicated(self):
         self.brain.put_container(policy_index=int(self.policy))
@@ -419,6 +436,51 @@ class Test(ReplProbeTest):
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
 
+    def test_post_trumped_by_prior_delete(self):
+        # new metadata and content-type posted to subset of nodes should not
+        # cause object to persist after replication of an earlier delete on
+        # other nodes.
+        self.brain.put_container(policy_index=0)
+        # incomplete put
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'oldest',
+                                  'X-Object-Sysmeta-Test': 'oldest',
+                                  'X-Object-Meta-Test': 'oldest'})
+        self.brain.start_primary_half()
+
+        # incomplete put then delete
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'oldest',
+                                  'X-Object-Sysmeta-Test': 'oldest',
+                                  'X-Object-Meta-Test': 'oldest'})
+        self._delete_object()
+        self.brain.start_handoff_half()
+
+        # handoff post
+        self.brain.stop_primary_half()
+        self._post_object(headers={'Content-Type': 'newest',
+                                   'X-Object-Sysmeta-Test': 'ignored',
+                                   'X-Object-Meta-Test': 'newest'})
+
+        # check object metadata
+        metadata = self._get_object_metadata()
+        self.assertEqual(metadata['x-object-sysmeta-test'], 'oldest')
+        self.assertEqual(metadata['x-object-meta-test'], 'newest')
+        self.assertEqual(metadata['content-type'], 'oldest')
+
+        self.brain.start_primary_half()
+
+        # delete trumps later post
+        self.get_to_final_state()
+
+        # check object is now deleted
+        self.assertRaises(UnexpectedResponse, self._get_object_metadata)
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+        self.assertEqual(0, len(objs))
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_deleted_object()
+        self._assert_consistent_suffix_hashes()
 
 if __name__ == "__main__":
     unittest.main()

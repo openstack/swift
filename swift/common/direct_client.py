@@ -25,6 +25,7 @@ from time import time
 
 from eventlet import sleep, Timeout
 import six
+import six.moves.cPickle as pickle
 from six.moves.http_client import HTTPException
 
 from swift.common.bufferedhttp import http_connect
@@ -494,6 +495,34 @@ def direct_delete_object(node, part, account, container, obj,
     if not is_success(resp.status):
         raise DirectClientException('Object', 'DELETE',
                                     node, part, path, resp)
+
+
+def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
+                             response_timeout=15, headers=None):
+    """
+    Get suffix hashes directly from the object server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the container is on
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :param headers: dict to be passed into HTTPConnection headers
+    :returns: dict of suffix hashes
+    :raises ClientException: HTTP REPLICATE request failed
+    """
+    if headers is None:
+        headers = {}
+
+    path = '/%s' % '-'.join(suffixes)
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                            'REPLICATE', path, headers=gen_headers(headers))
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+    if not is_success(resp.status):
+        raise DirectClientException('Object', 'REPLICATE',
+                                    node, part, path, resp)
+    return pickle.loads(resp.read())
 
 
 def retry(func, *args, **kwargs):

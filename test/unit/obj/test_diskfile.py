@@ -4568,6 +4568,37 @@ class TestSuffixHashes(unittest.TestCase):
             }[policy.policy_type]
             self.assertEqual(hashes, expected)
 
+    def test_hash_suffix_one_tombstone_and_one_meta(self):
+        # A tombstone plus a newer meta file can happen if a tombstone is
+        # replicated to a node with a newer meta file but older data file. The
+        # meta file will be ignored when the diskfile is opened so the
+        # effective state of the disk files is equivalent to only having the
+        # tombstone. Replication cannot remove the meta file, and the meta file
+        # cannot be ssync replicated to a node with only the tombstone, so
+        # we want the get_hashes result to be the same as if the meta file was
+        # not there.
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # write a tombstone
+            timestamp = self.ts()
+            df.delete(timestamp)
+            # write a meta file
+            df.write_metadata({'X-Timestamp': self.ts().internal})
+            # sanity check
+            self.assertEqual(2, len(os.listdir(df._datadir)))
+            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            expected = {
+                REPL_POLICY: {suffix: tombstone_hash},
+                EC_POLICY: {suffix: {
+                    # fi is None here because we have a tombstone
+                    None: tombstone_hash}},
+            }[policy.policy_type]
+            self.assertEqual(hashes, expected)
+
     def test_hash_suffix_one_reclaim_tombstone(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
