@@ -862,14 +862,10 @@ def last_modified_date_to_timestamp(last_modified_date_str):
     start = datetime.datetime.strptime(last_modified_date_str,
                                        '%Y-%m-%dT%H:%M:%S.%f')
     delta = start - EPOCH
-    # TODO(sam): after we no longer support py2.6, this expression can
-    # simplify to Timestamp(delta.total_seconds()).
-    #
+
     # This calculation is based on Python 2.7's Modules/datetimemodule.c,
     # function delta_to_microseconds(), but written in Python.
-    return Timestamp(delta.days * 86400 +
-                     delta.seconds +
-                     delta.microseconds / 1000000.0)
+    return Timestamp(delta.total_seconds())
 
 
 def normalize_delete_at_timestamp(timestamp):
