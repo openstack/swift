@@ -181,12 +181,12 @@ class SwiftRecon(object):
     def _ptime(self, timev=None):
         """
         :param timev: a unix timestamp or None
-        :returns: a pretty string of the current time or provided time
+        :returns: a pretty string of the current time or provided time in UTC
         """
         if timev:
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timev))
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(timev))
         else:
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
 
     def _md5_file(self, path):
         """
@@ -495,16 +495,14 @@ class SwiftRecon(object):
                 elapsed = time.time() - least_recent_time
                 elapsed, elapsed_unit = seconds2timeunit(elapsed)
                 print('Oldest completion was %s (%d %s ago) by %s.' % (
-                    time.strftime('%Y-%m-%d %H:%M:%S',
-                                  time.gmtime(least_recent_time)),
+                    self._ptime(least_recent_time),
                     elapsed, elapsed_unit, host))
         if most_recent_url is not None:
             host = urlparse(most_recent_url).netloc
             elapsed = time.time() - most_recent_time
             elapsed, elapsed_unit = seconds2timeunit(elapsed)
             print('Most recent completion was %s (%d %s ago) by %s.' % (
-                time.strftime('%Y-%m-%d %H:%M:%S',
-                              time.gmtime(most_recent_time)),
+                self._ptime(most_recent_time),
                 elapsed, elapsed_unit, host))
         print("=" * 79)
 
@@ -899,12 +897,8 @@ class SwiftRecon(object):
                 continue
             if (ts_remote < ts_start or ts_remote > ts_end):
                 diff = abs(ts_end - ts_remote)
-                ts_end_f = time.strftime(
-                    "%Y-%m-%d %H:%M:%S",
-                    time.localtime(ts_end))
-                ts_remote_f = time.strftime(
-                    "%Y-%m-%d %H:%M:%S",
-                    time.localtime(ts_remote))
+                ts_end_f = self._ptime(ts_end)
+                ts_remote_f = self._ptime(ts_remote)
 
                 print("!! %s current time is %s, but remote is %s, "
                       "differs by %.2f sec" % (
