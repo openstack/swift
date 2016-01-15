@@ -15,7 +15,6 @@
 
 import array
 import six.moves.cPickle as pickle
-import inspect
 import json
 from collections import defaultdict
 from gzip import GzipFile
@@ -135,15 +134,8 @@ class RingData(object):
         # Override the timestamp so that the same ring data creates
         # the same bytes on disk. This makes a checksum comparison a
         # good way to see if two rings are identical.
-        #
-        # This only works on Python 2.7; on 2.6, we always get the
-        # current time in the gzip output.
         tempf = NamedTemporaryFile(dir=".", prefix=filename, delete=False)
-        if 'mtime' in inspect.getargspec(GzipFile.__init__).args:
-            gz_file = GzipFile(filename, mode='wb', fileobj=tempf,
-                               mtime=mtime)
-        else:
-            gz_file = GzipFile(filename, mode='wb', fileobj=tempf)
+        gz_file = GzipFile(filename, mode='wb', fileobj=tempf, mtime=mtime)
         self.serialize_v1(gz_file)
         gz_file.close()
         tempf.flush()
