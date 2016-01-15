@@ -140,10 +140,6 @@ class MockSys(object):
         self.stdio_fds = [self.stdin.fileno(), self.stdout.fileno(),
                           self.stderr.fileno()]
 
-    @property
-    def version_info(self):
-        return sys.version_info
-
 
 def reset_loggers():
     if hasattr(utils.get_logger, 'handler4logger'):
