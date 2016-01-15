@@ -26,7 +26,7 @@ from swift.common.storage_policy import (
     BaseStoragePolicy, StoragePolicy, ECStoragePolicy, REPL_POLICY, EC_POLICY,
     VALID_EC_TYPES, DEFAULT_EC_OBJECT_SEGMENT_SIZE, BindPortsCache)
 from swift.common.ring import RingData
-from swift.common.exceptions import RingValidationError
+from swift.common.exceptions import RingLoadError
 from pyeclib.ec_iface import ECDriver
 
 
@@ -1146,23 +1146,32 @@ class TestStoragePolicies(unittest.TestCase):
         test_policies = [
             ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=8, ec_nparity=2,
-                            object_ring=FakeRing(replicas=8),
                             is_default=True),
             ECStoragePolicy(1, 'ec10-4', ec_type=DEFAULT_TEST_EC_TYPE,
-                            ec_ndata=10, ec_nparity=4,
-                            object_ring=FakeRing(replicas=10)),
+                            ec_ndata=10, ec_nparity=4),
             ECStoragePolicy(2, 'ec4-2', ec_type=DEFAULT_TEST_EC_TYPE,
-                            ec_ndata=4, ec_nparity=2,
-                            object_ring=FakeRing(replicas=7)),
+                            ec_ndata=4, ec_nparity=2),
         ]
+        actual_load_ring_replicas = [8, 10, 7]
         policies = StoragePolicyCollection(test_policies)
 
-        for policy in policies:
-            msg = 'EC ring for policy %s needs to be configured with ' \
-                  'exactly %d nodes.' % \
-                  (policy.name, policy.ec_ndata + policy.ec_nparity)
-            self.assertRaisesWithMessage(RingValidationError, msg,
-                                         policy._validate_ring)
+        def create_mock_ring_data(num_replica):
+            class mock_ring_data_klass(object):
+                def __init__(self):
+                    self._replica2part2dev_id = [0] * num_replica
+
+            return mock_ring_data_klass()
+
+        for policy, ring_replicas in zip(policies, actual_load_ring_replicas):
+            with mock.patch('swift.common.ring.ring.RingData.load',
+                            return_value=create_mock_ring_data(ring_replicas)):
+                with mock.patch(
+                        'swift.common.ring.ring.validate_configuration'):
+                    msg = 'EC ring for policy %s needs to be configured with ' \
+                          'exactly %d replicas.' % \
+                          (policy.name, policy.ec_ndata + policy.ec_nparity)
+                    self.assertRaisesWithMessage(RingLoadError, msg,
+                                                 policy.load_ring, 'mock')
 
     def test_storage_policy_get_info(self):
         test_policies = [

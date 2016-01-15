@@ -51,6 +51,9 @@ class TestObjectController(test_server.TestObjectController):
     def test_PUT_ec_fragment_archive_etag_mismatch(self):
         pass
 
+    def test_reload_ring_ec(self):
+        pass
+
 
 class TestContainerController(test_server.TestContainerController):
     pass

@@ -145,6 +145,10 @@ class LockTimeout(MessageTimeout):
     pass
 
 
+class RingLoadError(SwiftException):
+    pass
+
+
 class RingBuilderError(SwiftException):
     pass
 
