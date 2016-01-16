@@ -195,12 +195,23 @@ class Ring(object):
 
             # Do this now, when we know the data has changed, rather than
             # doing it on every call to get_more_nodes().
+            #
+            # Since this is to speed up the finding of handoffs, we only
+            # consider devices with at least one partition assigned. This
+            # way, a region, zone, or server with no partitions assigned
+            # does not count toward our totals, thereby keeping the early
+            # bailouts in get_more_nodes() working.
+            dev_ids_with_parts = set()
+            for part2dev_id in self._replica2part2dev_id:
+                for dev_id in part2dev_id:
+                    dev_ids_with_parts.add(dev_id)
+
             regions = set()
             zones = set()
             ips = set()
             self._num_devs = 0
             for dev in self._devs:
-                if dev:
+                if dev and dev['id'] in dev_ids_with_parts:
                     regions.add(dev['region'])
                     zones.add((dev['region'], dev['zone']))
                     ips.add((dev['region'], dev['zone'], dev['ip']))
