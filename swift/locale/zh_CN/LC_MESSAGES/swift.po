@@ -1,4 +1,4 @@
-# Chinese (Simplified, China) translations for swift.
+# Translations template for swift.
 # Copyright (C) 2015 ORGANIZATION
 # This file is distributed under the same license as the swift project.
 #
@@ -8,18 +8,19 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.5.1.dev70\n"
+"Project-Id-Version: swift 2.5.1.dev267\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-10-23 06:34+0000\n"
+"POT-Creation-Date: 2016-01-16 12:32+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
 "PO-Revision-Date: 2015-08-11 11:22+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
-"Language: zh_Hans_CN\n"
+"Language: zh-CN\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: Babel 2.0\n"
+"X-Generator: Zanata 3.7.3\n"
 "Language-Team: Chinese (China)\n"
-"Plural-Forms: nplurals=1; plural=0\n"
-"MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
-"Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.1.1\n"
 
 msgid ""
 "\n"
