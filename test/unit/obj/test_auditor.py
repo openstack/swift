@@ -566,10 +566,20 @@ class TestAuditor(unittest.TestCase):
     def test_sleeper(self):
         with mock.patch(
                 'time.sleep', mock.MagicMock()) as mock_sleep:
-            auditor.SLEEP_BETWEEN_AUDITS = 0.10
             my_auditor = auditor.ObjectAuditor(self.conf)
             my_auditor._sleep()
-            mock_sleep.assert_called_with(auditor.SLEEP_BETWEEN_AUDITS)
+            mock_sleep.assert_called_with(30)
+
+            my_conf = dict(interval=2)
+            my_conf.update(self.conf)
+            my_auditor = auditor.ObjectAuditor(my_conf)
+            my_auditor._sleep()
+            mock_sleep.assert_called_with(2)
+
+            my_auditor = auditor.ObjectAuditor(self.conf)
+            my_auditor.interval = 2
+            my_auditor._sleep()
+            mock_sleep.assert_called_with(2)
 
     def test_run_parallel_audit(self):
 

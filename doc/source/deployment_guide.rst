@@ -719,6 +719,8 @@ log_facility                LOG_LOCAL0          Syslog log facility
 log_level                   INFO                Logging level
 log_address                 /dev/log            Logging directory
 log_time                    3600                Frequency of status logs in seconds.
+interval                    30                  Time in seconds to wait between
+                                                auditor passes
 disk_chunk_size             65536               Size of chunks read during auditing
 files_per_second            20                  Maximum files audited per second per
                                                 auditor process. Should be tuned according

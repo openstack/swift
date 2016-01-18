@@ -30,8 +30,6 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES
 
-SLEEP_BETWEEN_AUDITS = 30
-
 
 class AuditorWorker(object):
     """Walk through file system to audit objects"""
@@ -240,9 +238,10 @@ class ObjectAuditor(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.interval = int(conf.get('interval', 30))
 
     def _sleep(self):
-        time.sleep(SLEEP_BETWEEN_AUDITS)
+        time.sleep(self.interval)
 
     def clear_recon_cache(self, auditor_type):
         """Clear recon cache entries"""
