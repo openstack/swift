@@ -769,6 +769,7 @@ class SimpleClient(object):
         req.get_method = lambda: method
         conn = urllib2.urlopen(req, timeout=timeout)
         body = conn.read()
+        info = conn.info()
         try:
             body_data = json.loads(body)
         except ValueError:
@@ -792,13 +793,13 @@ class SimpleClient(object):
                     url,
                     conn.getcode(),
                     sent_content_length,
-                    conn.info()['content-length'],
+                    info['content-length'],
                     trans_start,
                     trans_stop,
                     trans_stop - trans_start,
                     additional_info
                 )))
-        return [None, body_data]
+        return [info, body_data]
 
     def retry_request(self, method, **kwargs):
         retries = kwargs.pop('retries', self.retries)
@@ -835,6 +836,12 @@ class SimpleClient(object):
         # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, name=name,
                                   contents=contents.read(), **kwargs)
+
+
+def head_object(url, **kwargs):
+    """For usage with container sync """
+    client = SimpleClient(url=url)
+    return client.retry_request('HEAD', **kwargs)
 
 
 def put_object(url, **kwargs):

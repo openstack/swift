@@ -29,7 +29,8 @@ from swift.container.backend import ContainerBroker
 from swift.container.sync_store import ContainerSyncStore
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.internal_client import (
-    delete_object, put_object, InternalClient, UnexpectedResponse)
+    delete_object, put_object, head_object,
+    InternalClient, UnexpectedResponse)
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
@@ -396,10 +397,84 @@ class ContainerSync(Daemon):
             self.logger.exception(_('ERROR Syncing %s'),
                                   broker if broker else path)
 
+    def _update_sync_to_headers(self, name, sync_to, user_key,
+                                realm, realm_key, method, headers):
+        """
+        Updates container sync headers
+
+        :param name: The name of the object
+        :param sync_to: The URL to the remote container.
+        :param user_key: The X-Container-Sync-Key to use when sending requests
+                         to the other container.
+        :param realm: The realm from self.realms_conf, if there is one.
+            If None, fallback to using the older allowed_sync_hosts
+            way of syncing.
+        :param realm_key: The realm key from self.realms_conf, if there
+            is one. If None, fallback to using the older
+            allowed_sync_hosts way of syncing.
+        :param method: HTTP method to create sig with
+        :param headers: headers to update with container sync headers
+        """
+        if realm and realm_key:
+            nonce = uuid.uuid4().hex
+            path = urlparse(sync_to).path + '/' + quote(name)
+            sig = self.realms_conf.get_sig(method, path,
+                                           headers.get('x-timestamp', 0),
+                                           nonce, realm_key,
+                                           user_key)
+            headers['x-container-sync-auth'] = '%s %s %s' % (realm,
+                                                             nonce,
+                                                             sig)
+        else:
+            headers['x-container-sync-key'] = user_key
+
+    def _object_in_remote_container(self, name, sync_to, user_key,
+                                    realm, realm_key, timestamp):
+        """
+        Performs head object on remote to eliminate extra remote put and
+        local get object calls
+
+        :param name: The name of the object in the updated row in the local
+                     database triggering the sync update.
+        :param sync_to: The URL to the remote container.
+        :param user_key: The X-Container-Sync-Key to use when sending requests
+                         to the other container.
+        :param realm: The realm from self.realms_conf, if there is one.
+            If None, fallback to using the older allowed_sync_hosts
+            way of syncing.
+        :param realm_key: The realm key from self.realms_conf, if there
+            is one. If None, fallback to using the older
+            allowed_sync_hosts way of syncing.
+        :param timestamp: last modified date of local object
+        :returns: True if object already exists in remote
+        """
+        headers = {'x-timestamp': timestamp.internal}
+        self._update_sync_to_headers(name, sync_to, user_key, realm,
+                                     realm_key, 'HEAD', headers)
+        try:
+            metadata, _ = head_object(sync_to, name=name,
+                                      headers=headers,
+                                      proxy=self.select_http_proxy(),
+                                      logger=self.logger,
+                                      retries=0)
+            remote_ts = Timestamp(metadata.get('x-timestamp', 0))
+            self.logger.debug("remote obj timestamp %s local obj %s" %
+                              (timestamp.internal, remote_ts.internal))
+            if timestamp <= remote_ts:
+                return True
+            # Object in remote should be updated
+            return False
+        except ClientException as http_err:
+            # Object not in remote
+            if http_err.http_status == 404:
+                return False
+            raise http_err
+
     def container_sync_row(self, row, sync_to, user_key, broker, info,
                            realm, realm_key):
         """
         Sends the update the row indicates to the sync_to container.
+        Update can be either delete or put.
 
         :param row: The updated row in the local database triggering the sync
                     update.
@@ -427,17 +502,9 @@ class ContainerSync(Daemon):
                 # timestamp of the source tombstone
                 try:
                     headers = {'x-timestamp': ts_data.internal}
-                    if realm and realm_key:
-                        nonce = uuid.uuid4().hex
-                        path = urlparse(sync_to).path + '/' + quote(
-                            row['name'])
-                        sig = self.realms_conf.get_sig(
-                            'DELETE', path, headers['x-timestamp'], nonce,
-                            realm_key, user_key)
-                        headers['x-container-sync-auth'] = '%s %s %s' % (
-                            realm, nonce, sig)
-                    else:
-                        headers['x-container-sync-key'] = user_key
+                    self._update_sync_to_headers(row['name'], sync_to,
+                                                 user_key, realm, realm_key,
+                                                 'DELETE', headers)
                     delete_object(sync_to, name=row['name'], headers=headers,
                                   proxy=self.select_http_proxy(),
                                   logger=self.logger,
@@ -451,6 +518,10 @@ class ContainerSync(Daemon):
             else:
                 # when sync'ing a live object, use ts_meta - this is the time
                 # at which the source object was last modified by a PUT or POST
+                if self._object_in_remote_container(row['name'],
+                                                    sync_to, user_key, realm,
+                                                    realm_key, ts_meta):
+                    return True
                 exc = None
                 # look up for the newest one
                 headers_out = {'X-Newest': True,
@@ -485,16 +556,8 @@ class ContainerSync(Daemon):
                 if 'content-type' in headers:
                     headers['content-type'] = clean_content_type(
                         headers['content-type'])
-                if realm and realm_key:
-                    nonce = uuid.uuid4().hex
-                    path = urlparse(sync_to).path + '/' + quote(row['name'])
-                    sig = self.realms_conf.get_sig(
-                        'PUT', path, headers['x-timestamp'], nonce, realm_key,
-                        user_key)
-                    headers['x-container-sync-auth'] = '%s %s %s' % (
-                        realm, nonce, sig)
-                else:
-                    headers['x-container-sync-key'] = user_key
+                self._update_sync_to_headers(row['name'], sync_to, user_key,
+                                             realm, realm_key, 'PUT', headers)
                 put_object(sync_to, name=row['name'], headers=headers,
                            contents=FileLikeIter(body),
                            proxy=self.select_http_proxy(), logger=self.logger,
