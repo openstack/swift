@@ -2861,8 +2861,50 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(headers[:len(exp)], exp)
 
     @unpatch_policies
-    def test_PUT_last_modified(self):
+    def test_PUT_POST_last_modified(self):
         prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+
+        def _do_HEAD():
+            # do a HEAD to get reported last modified time
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('HEAD /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     'Host: localhost\r\nConnection: close\r\n'
+                     'X-Storage-Token: t\r\n\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+            last_modified_head = [line for line in headers.split('\r\n')
+                                  if lm_hdr in line][0][len(lm_hdr):]
+            return last_modified_head
+
+        def _do_conditional_GET_checks(last_modified_time):
+            # check If-(Un)Modified-Since GETs
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     'Host: localhost\r\nConnection: close\r\n'
+                     'If-Modified-Since: %s\r\n'
+                     'X-Storage-Token: t\r\n\r\n' % last_modified_time)
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 304'
+            self.assertEqual(headers[:len(exp)], exp)
+
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     'Host: localhost\r\nConnection: close\r\n'
+                     'If-Unmodified-Since: %s\r\n'
+                     'X-Storage-Token: t\r\n\r\n' % last_modified_time)
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+
+        # PUT the object
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/c/o.last_modified HTTP/1.1\r\n'
@@ -2876,40 +2918,50 @@ class TestObjectController(unittest.TestCase):
 
         last_modified_put = [line for line in headers.split('\r\n')
                              if lm_hdr in line][0][len(lm_hdr):]
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('HEAD /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'X-Storage-Token: t\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEqual(headers[:len(exp)], exp)
-        last_modified_head = [line for line in headers.split('\r\n')
-                              if lm_hdr in line][0][len(lm_hdr):]
+
+        last_modified_head = _do_HEAD()
         self.assertEqual(last_modified_put, last_modified_head)
 
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                 'Host: localhost\r\nConnection: close\r\n'
-                 'If-Modified-Since: %s\r\n'
-                 'X-Storage-Token: t\r\n\r\n' % last_modified_put)
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 304'
-        self.assertEqual(headers[:len(exp)], exp)
+        _do_conditional_GET_checks(last_modified_put)
 
+        # now POST to the object using default object_post_as_copy setting
+        orig_post_as_copy = prosrv.object_post_as_copy
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+        fd.write('POST /v1/a/c/o.last_modified HTTP/1.1\r\n'
                  'Host: localhost\r\nConnection: close\r\n'
-                 'If-Unmodified-Since: %s\r\n'
-                 'X-Storage-Token: t\r\n\r\n' % last_modified_put)
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
+        exp = 'HTTP/1.1 202'
         self.assertEqual(headers[:len(exp)], exp)
+        for line in headers.split('\r\n'):
+            self.assertFalse(line.startswith(lm_hdr))
+
+        # last modified time will have changed due to POST
+        last_modified_head = _do_HEAD()
+        _do_conditional_GET_checks(last_modified_head)
+
+        # now POST using non-default object_post_as_copy setting
+        try:
+            prosrv.object_post_as_copy = not orig_post_as_copy
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('POST /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                     'Host: localhost\r\nConnection: close\r\n'
+                     'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 202'
+            self.assertEqual(headers[:len(exp)], exp)
+            for line in headers.split('\r\n'):
+                self.assertFalse(line.startswith(lm_hdr))
+        finally:
+            prosrv.object_post_as_copy = orig_post_as_copy
+
+        # last modified time will have changed due to POST
+        last_modified_head = _do_HEAD()
+        _do_conditional_GET_checks(last_modified_head)
 
     def test_PUT_auto_content_type(self):
         with save_globals():
