@@ -1319,11 +1319,11 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_fractional_replicas_rebalance(self):
         rb = ring.RingBuilder(8, 2.5, 0)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 2, 'weight': 1,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.rebalance()  # passes by not crashing
         rb.validate()   # also passes by not crashing
@@ -1332,13 +1332,13 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_create_add_dev_add_replica_rebalance(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
         rb.set_replicas(4)
         rb.rebalance()  # this would crash since parts_wanted was not set
@@ -1348,15 +1348,15 @@ class TestRingBuilder(unittest.TestCase):
         rb = ring.RingBuilder(8, 3, 1)
         # 5 devices: 5 is the smallest number that does not divide 3 * 2^8,
         # which forces some rounding to happen.
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sde'})
         rb.rebalance()
         rb.validate()
@@ -1381,31 +1381,31 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_add_replicas_then_rebalance_respects_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
 
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 1, 'weight': 3,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 1, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sde'})
-        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 1, 'weight': 3,
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 1, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf'})
-        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdg'})
-        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdh'})
 
-        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 2, 'weight': 3,
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 2, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdi'})
-        rb.add_dev({'id': 9, 'region': 0, 'region': 0, 'zone': 2, 'weight': 3,
+        rb.add_dev({'id': 9, 'region': 0, 'zone': 2, 'weight': 3,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdj'})
-        rb.add_dev({'id': 10, 'region': 0, 'region': 0, 'zone': 2, 'weight': 1,
+        rb.add_dev({'id': 10, 'region': 0, 'zone': 2, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdk'})
-        rb.add_dev({'id': 11, 'region': 0, 'region': 0, 'zone': 2, 'weight': 1,
+        rb.add_dev({'id': 11, 'region': 0, 'zone': 2, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdl'})
 
         rb.rebalance(seed=1)
@@ -1439,31 +1439,31 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_overload(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sde'})
-        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf'})
 
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sdb'})
-        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sdg'})
-        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sdh'})
-        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 1, 'weight': 1,
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 1, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sdi'})
 
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 2, 'weight': 2,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 2,
                     'ip': '127.0.0.2', 'port': 10002, 'device': 'sdc'})
-        rb.add_dev({'id': 9, 'region': 0, 'region': 0, 'zone': 2, 'weight': 2,
+        rb.add_dev({'id': 9, 'region': 0, 'zone': 2, 'weight': 2,
                     'ip': '127.0.0.2', 'port': 10002, 'device': 'sdj'})
-        rb.add_dev({'id': 10, 'region': 0, 'region': 0, 'zone': 2, 'weight': 2,
+        rb.add_dev({'id': 10, 'region': 0, 'zone': 2, 'weight': 2,
                     'ip': '127.0.0.2', 'port': 10002, 'device': 'sdk'})
-        rb.add_dev({'id': 11, 'region': 0, 'region': 0, 'zone': 2, 'weight': 2,
+        rb.add_dev({'id': 11, 'region': 0, 'zone': 2, 'weight': 2,
                     'ip': '127.0.0.2', 'port': 10002, 'device': 'sdl'})
 
         rb.rebalance(seed=12345)
@@ -1517,31 +1517,31 @@ class TestRingBuilder(unittest.TestCase):
         # Overload doesn't prevent optimal balancing.
         rb = ring.RingBuilder(8, 3, 1)
         rb.set_overload(0.125)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
 
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
-        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 2,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 2,
                     'ip': '127.0.0.3', 'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 9, 'region': 0, 'region': 0, 'zone': 0, 'weight': 2,
+        rb.add_dev({'id': 9, 'region': 0, 'zone': 0, 'weight': 2,
                     'ip': '127.0.0.3', 'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 10, 'region': 0, 'region': 0, 'zone': 0, 'weight': 2,
+        rb.add_dev({'id': 10, 'region': 0, 'zone': 0, 'weight': 2,
                     'ip': '127.0.0.3', 'port': 10000, 'device': 'sdc'})
-        rb.add_dev({'id': 11, 'region': 0, 'region': 0, 'zone': 0, 'weight': 2,
+        rb.add_dev({'id': 11, 'region': 0, 'zone': 0, 'weight': 2,
                     'ip': '127.0.0.3', 'port': 10000, 'device': 'sdc'})
         rb.rebalance(seed=12345)
 
@@ -1577,16 +1577,16 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(part_counts['127.0.0.3'], 256)
 
         # Add a new server: balance stays optimal
-        rb.add_dev({'id': 12, 'region': 0, 'region': 0, 'zone': 0,
+        rb.add_dev({'id': 12, 'region': 0, 'zone': 0,
                     'weight': 2,
                     'ip': '127.0.0.4', 'port': 10000, 'device': 'sdd'})
-        rb.add_dev({'id': 13, 'region': 0, 'region': 0, 'zone': 0,
+        rb.add_dev({'id': 13, 'region': 0, 'zone': 0,
                     'weight': 2,
                     'ip': '127.0.0.4', 'port': 10000, 'device': 'sde'})
-        rb.add_dev({'id': 14, 'region': 0, 'region': 0, 'zone': 0,
+        rb.add_dev({'id': 14, 'region': 0, 'zone': 0,
                     'weight': 2,
                     'ip': '127.0.0.4', 'port': 10000, 'device': 'sdf'})
-        rb.add_dev({'id': 15, 'region': 0, 'region': 0, 'zone': 0,
+        rb.add_dev({'id': 15, 'region': 0, 'zone': 0,
                     'weight': 2,
                     'ip': '127.0.0.4', 'port': 10000, 'device': 'sdf'})
 
@@ -1609,29 +1609,29 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_overload_keeps_balanceable_things_balanced_initially(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 8,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 8,
                     'ip': '10.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 8,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 8,
                     'ip': '10.0.0.1', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.2', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.2', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.3', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.3', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.4', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.4', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.5', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 9, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 9, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.5', 'port': 10000, 'device': 'sdb'})
 
         rb.set_overload(99999)
@@ -1653,29 +1653,29 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_overload_keeps_balanceable_things_balanced_on_rebalance(self):
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 8,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 8,
                     'ip': '10.0.0.1', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 8,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 8,
                     'ip': '10.0.0.1', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.2', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.2', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.3', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.3', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.4', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.4', 'port': 10000, 'device': 'sdb'})
 
-        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.5', 'port': 10000, 'device': 'sda'})
-        rb.add_dev({'id': 9, 'region': 0, 'region': 0, 'zone': 0, 'weight': 4,
+        rb.add_dev({'id': 9, 'region': 0, 'zone': 0, 'weight': 4,
                     'ip': '10.0.0.5', 'port': 10000, 'device': 'sdb'})
 
         rb.set_overload(99999)
@@ -1719,28 +1719,28 @@ class TestRingBuilder(unittest.TestCase):
     def test_server_per_port(self):
         # 3 servers, 3 disks each, with each disk on its own port
         rb = ring.RingBuilder(8, 3, 1)
-        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.1', 'port': 10000, 'device': 'sdx'})
-        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.1', 'port': 10001, 'device': 'sdy'})
 
-        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.2', 'port': 10000, 'device': 'sdx'})
-        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.2', 'port': 10001, 'device': 'sdy'})
 
-        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.3', 'port': 10000, 'device': 'sdx'})
-        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.3', 'port': 10001, 'device': 'sdy'})
 
         rb.rebalance(seed=1)
 
-        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.1', 'port': 10002, 'device': 'sdz'})
-        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.2', 'port': 10002, 'device': 'sdz'})
-        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+        rb.add_dev({'id': 8, 'region': 0, 'zone': 0, 'weight': 1,
                     'ip': '10.0.0.3', 'port': 10002, 'device': 'sdz'})
 
         rb.pretend_min_part_hours_passed()
