@@ -2566,17 +2566,19 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 pass
             for cache_key, cache_value in cache_dict.items():
                 put_recon_cache_entry(cache_entry, cache_key, cache_value)
+            tf = None
             try:
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
                     tf.write(json.dumps(cache_entry) + '\n')
                 renamer(tf.name, cache_file, fsync=False)
             finally:
-                try:
-                    os.unlink(tf.name)
-                except OSError as err:
-                    if err.errno != errno.ENOENT:
-                        raise
+                if tf is not None:
+                    try:
+                        os.unlink(tf.name)
+                    except OSError as err:
+                        if err.errno != errno.ENOENT:
+                            raise
     except (Exception, Timeout):
         logger.exception(_('Exception dumping recon cache'))
 
