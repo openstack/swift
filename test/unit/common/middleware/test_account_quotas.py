@@ -59,7 +59,8 @@ class FakeApp(object):
         if env['REQUEST_METHOD'] == "HEAD" and \
                 env['PATH_INFO'] == '/v1/a/c2/o2':
             env_key = get_object_env_key('a', 'c2', 'o2')
-            env[env_key] = headers_to_object_info(self.headers, 200)
+            env.setdefault('swift.infocache', {})[env_key] = \
+                headers_to_object_info(self.headers, 200)
             start_response('200 OK', self.headers)
         elif env['REQUEST_METHOD'] == "HEAD" and \
                 env['PATH_INFO'] == '/v1/a/c2/o3':
@@ -67,7 +68,8 @@ class FakeApp(object):
         else:
             # Cache the account_info (same as a real application)
             cache_key, env_key = _get_cache_key('a', None)
-            env[env_key] = headers_to_account_info(self.headers, 200)
+            env.setdefault('swift.infocache', {})[env_key] = \
+                headers_to_account_info(self.headers, 200)
             start_response('200 OK', self.headers)
         return []
 

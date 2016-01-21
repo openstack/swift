@@ -381,6 +381,7 @@ def _set_info_cache(app, env, account, container, resp):
     :param  container: the unquoted container name or None
     :param resp: the response received or None if info cache should be cleared
     """
+    infocache = env.setdefault('swift.infocache', {})
 
     if container:
         cache_time = app.recheck_container_existence
@@ -399,7 +400,7 @@ def _set_info_cache(app, env, account, container, resp):
     # Next actually set both memcache and the env cache
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if not cache_time:
-        env.pop(env_key, None)
+        infocache.pop(env_key, None)
         if memcache:
             memcache.delete(cache_key)
         return
@@ -410,7 +411,7 @@ def _set_info_cache(app, env, account, container, resp):
         info = headers_to_account_info(resp.headers, resp.status_int)
     if memcache:
         memcache.set(cache_key, info, time=cache_time)
-    env[env_key] = info
+    infocache[env_key] = info
 
 
 def _set_object_info_cache(app, env, account, container, obj, resp):
@@ -433,12 +434,12 @@ def _set_object_info_cache(app, env, account, container, obj, resp):
 
     env_key = get_object_env_key(account, container, obj)
 
-    if not resp:
-        env.pop(env_key, None)
+    if 'swift.infocache' in env and not resp:
+        env['swift.infocache'].pop(env_key, None)
         return
 
     info = headers_to_object_info(resp.headers, resp.status_int)
-    env[env_key] = info
+    env.setdefault('swift.infocache', {})[env_key] = info
 
 
 def clear_info_cache(app, env, account, container=None):
@@ -464,8 +465,8 @@ def _get_info_cache(app, env, account, container=None):
     """
 
     cache_key, env_key = _get_cache_key(account, container)
-    if env_key in env:
-        return env[env_key]
+    if 'swift.infocache' in env and env_key in env['swift.infocache']:
+        return env['swift.infocache'][env_key]
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if memcache:
         info = memcache.get(cache_key)
@@ -473,11 +474,11 @@ def _get_info_cache(app, env, account, container=None):
             for key in info:
                 if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
-                if isinstance(info[key], dict):
+                elif isinstance(info[key], dict):
                     for subkey, value in info[key].items():
                         if isinstance(value, six.text_type):
                             info[key][subkey] = value.encode("utf-8")
-            env[env_key] = info
+            env.setdefault('swift.infocache', {})[env_key] = info
         return info
     return None
 
@@ -497,6 +498,7 @@ def _prepare_pre_auth_info_request(env, path, swift_source):
     # This is a sub request for container metadata- drop the Origin header from
     # the request so the it is not treated as a CORS request.
     newenv.pop('HTTP_ORIGIN', None)
+
     # Note that Request.blank expects quoted path
     return Request.blank(quote(path), environ=newenv)
 
@@ -513,6 +515,10 @@ def get_info(app, env, account, container=None, ret_not_found=False,
     :param env: the environment used by the current request
     :param account: The unquoted name of the account
     :param container: The unquoted name of the container (or None if account)
+    :param ret_not_found: if True, return info dictionary on 404;
+                          if False, return None on 404
+    :param swift_source: swift source logged for any subrequests made while
+                         retrieving the account or container info
     :returns: the cached info or None if cannot be retrieved
     """
     info = _get_info_cache(app, env, account, container)
@@ -531,14 +537,15 @@ def get_info(app, env, account, container=None, ret_not_found=False,
 
     req = _prepare_pre_auth_info_request(
         env, path, (swift_source or 'GET_INFO'))
-    # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
-    # the environment under environ[env_key] and in memcache. We will
-    # pick the one from environ[env_key] and use it to set the caller env
+    # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in the
+    # environment under environ['swift.infocache'][env_key] and in memcache.
+    # We will pick the one from environ['swift.infocache'][env_key] and use
+    # it to set the caller env
     resp = req.get_response(app)
     cache_key, env_key = _get_cache_key(account, container)
     try:
-        info = resp.environ[env_key]
-        env[env_key] = info
+        info = resp.environ['swift.infocache'][env_key]
+        env.setdefault('swift.infocache', {})[env_key] = info
         if ret_not_found or is_success(info['status']):
             return info
     except (KeyError, AttributeError):
@@ -561,7 +568,7 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     :returns: the cached info or None if cannot be retrieved
     """
     env_key = get_object_env_key(account, container, obj)
-    info = env.get(env_key)
+    info = env.get('swift.infocache', {}).get(env_key)
     if info:
         return info
     # Not in cached, let's try the object servers
@@ -572,8 +579,8 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     # pick the one from environ[env_key] and use it to set the caller env
     resp = req.get_response(app)
     try:
-        info = resp.environ[env_key]
-        env[env_key] = info
+        info = resp.environ['swift.infocache'][env_key]
+        env.setdefault('swift.infocache', {})[env_key] = info
         return info
     except (KeyError, AttributeError):
         pass

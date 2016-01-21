@@ -839,6 +839,11 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue('HTTP_REFERER' in newenv)
         self.assertEqual(newenv['HTTP_REFERER'], 'http://blah.example.com')
 
+    def test_make_env_keeps_infocache(self):
+        oldenv = {'swift.infocache': {}}
+        newenv = wsgi.make_env(oldenv)
+        self.assertIs(newenv.get('swift.infocache'), oldenv['swift.infocache'])
+
 
 class TestServersPerPortStrategy(unittest.TestCase):
     def setUp(self):
