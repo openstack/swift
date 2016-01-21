@@ -2374,7 +2374,7 @@ class TestRingBuilder(unittest.TestCase):
         rb = self._add_dev_delete_first_n(add_dev_count, add_dev_count - 3)
         # add specifying id
         exp_new_dev_id = 2
-# [dev, dev, None, dev, dev, None]
+        # [dev, dev, None, dev, dev, None]
         try:
             new_dev_id = rb.add_dev({'id': exp_new_dev_id, 'region': 0,
                                      'zone': 0, 'ip': '127.0.0.1',
