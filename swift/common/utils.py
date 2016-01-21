@@ -1141,9 +1141,43 @@ class StatsdClient(object):
         self.set_prefix(tail_prefix)
         self._default_sample_rate = default_sample_rate
         self._sample_rate_factor = sample_rate_factor
-        self._target = (self._host, self._port)
         self.random = random
         self.logger = logger
+
+        # Determine if host is IPv4 or IPv6
+        addr_info = None
+        try:
+            addr_info = socket.getaddrinfo(host, port, socket.AF_INET)
+            self._sock_family = socket.AF_INET
+        except socket.gaierror:
+            try:
+                addr_info = socket.getaddrinfo(host, port, socket.AF_INET6)
+                self._sock_family = socket.AF_INET6
+            except socket.gaierror:
+                # Don't keep the server from starting from what could be a
+                # transient DNS failure.  Any hostname will get re-resolved as
+                # necessary in the .sendto() calls.
+                # However, we don't know if we're IPv4 or IPv6 in this case, so
+                # we assume legacy IPv4.
+                self._sock_family = socket.AF_INET
+
+        # NOTE: we use the original host value, not the DNS-resolved one
+        # because if host is a hostname, we don't want to cache the DNS
+        # resolution for the entire lifetime of this process.  Let standard
+        # name resolution caching take effect.  This should help operators use
+        # DNS trickery if they want.
+        if addr_info is not None:
+            # addr_info is a list of 5-tuples with the following structure:
+            #     (family, socktype, proto, canonname, sockaddr)
+            # where sockaddr is the only thing of interest to us, and we only
+            # use the first result.  We want to use the originally supplied
+            # host (see note above) and the remainder of the variable-length
+            # sockaddr: IPv4 has (address, port) while IPv6 has (address,
+            # port, flow info, scope id).
+            sockaddr = addr_info[0][-1]
+            self._target = (host,) + (sockaddr[1:])
+        else:
+            self._target = (host, port)
 
     def set_prefix(self, new_prefix):
         if new_prefix and self._base_prefix:
@@ -1179,7 +1213,7 @@ class StatsdClient(object):
                         self._target, err)
 
     def _open_socket(self):
-        return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        return socket.socket(self._sock_family, socket.SOCK_DGRAM)
 
     def update_stats(self, m_name, m_value, sample_rate=None):
         return self._send(m_name, m_value, 'c', sample_rate)
