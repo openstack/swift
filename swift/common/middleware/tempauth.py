@@ -631,7 +631,8 @@ class TempAuth(object):
         req.start_time = time()
         handler = None
         try:
-            version, account, user, _junk = req.split_path(1, 4, True)
+            version, account, user, _junk = split_path(req.path_info,
+                                                       1, 4, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
