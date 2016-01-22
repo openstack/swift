@@ -223,7 +223,7 @@ func TestGetRanges(t *testing.T) {
 	resp, body = getRanges("bytes=20-,-6")
 	assert.Equal(t, http.StatusPartialContent, resp.StatusCode)
 	assert.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "multipart/byteranges;boundary="))
-	assert.Equal(t, "356", resp.Header.Get("Content-Length"))
+	assert.Equal(t, "366", resp.Header.Get("Content-Length"))
 	assert.Equal(t, 2, strings.Count(string(body), "UVWXYZ"))
 }
 

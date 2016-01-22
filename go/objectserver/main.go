@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"log/syslog"
-	"mime/multipart"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -178,8 +177,8 @@ func (server *ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *h
 			hummingbird.CopyN(file, ranges[0].End-ranges[0].Start, writer)
 			return
 		} else if ranges != nil && len(ranges) > 1 {
-			w := multipart.NewWriter(writer)
-			responseLength := int64(6 + len(w.Boundary()) + (len(w.Boundary())+len(metadata["Content-Type"])+47)*len(ranges))
+			w := hummingbird.NewMultiWriter(writer)
+			responseLength := int64(4 + len(w.Boundary()) + (len(w.Boundary())+len(metadata["Content-Type"])+47)*len(ranges))
 			for _, rng := range ranges {
 				responseLength += int64(len(fmt.Sprintf("%d-%d/%d", rng.Start, rng.End-1, contentLength))) + rng.End - rng.Start
 			}
