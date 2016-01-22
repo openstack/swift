@@ -1153,6 +1153,75 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(info['x_container_sync_point1'], -1)
         self.assertEqual(info['x_container_sync_point2'], -1)
 
+    def test_update_sync_store_on_PUT(self):
+        # Create a synced container and validate a link is created
+        self._create_synced_container_and_validate_sync_store('PUT')
+        # remove the sync using PUT and validate the link is deleted
+        self._remove_sync_and_validate_sync_store('PUT')
+
+    def test_update_sync_store_on_POST(self):
+        # Create a container and validate a link is not created
+        self._create_container_and_validate_sync_store()
+        # Update the container to be synced and validate a link is created
+        self._create_synced_container_and_validate_sync_store('POST')
+        # remove the sync using POST and validate the link is deleted
+        self._remove_sync_and_validate_sync_store('POST')
+
+    def test_update_sync_store_on_DELETE(self):
+        # Create a synced container and validate a link is created
+        self._create_synced_container_and_validate_sync_store('PUT')
+        # Remove the container and validate the link is deleted
+        self._remove_sync_and_validate_sync_store('DELETE')
+
+    def _create_container_and_validate_sync_store(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'x-timestamp': '0'})
+        req.get_response(self.controller)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        sync_store = self.controller.sync_store
+        db_path = db.db_file
+        db_link = sync_store._container_to_synced_container_path(db_path)
+        self.assertFalse(os.path.exists(db_link))
+        sync_containers = [c for c in sync_store.synced_containers_generator()]
+        self.assertFalse(sync_containers)
+
+    def _create_synced_container_and_validate_sync_store(self, method):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': method},
+            headers={'x-timestamp': '1',
+                     'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c',
+                     'x-container-sync-key': '1234'})
+        req.get_response(self.controller)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        sync_store = self.controller.sync_store
+        db_path = db.db_file
+        db_link = sync_store._container_to_synced_container_path(db_path)
+        self.assertTrue(os.path.exists(db_link))
+        sync_containers = [c for c in sync_store.synced_containers_generator()]
+        self.assertEqual(1, len(sync_containers))
+        self.assertEqual(db_path, sync_containers[0])
+
+    def _remove_sync_and_validate_sync_store(self, method):
+        if method == 'DELETE':
+            headers = {'x-timestamp': '2'}
+        else:
+            headers = {'x-timestamp': '2',
+                       'x-container-sync-to': '',
+                       'x-container-sync-key': '1234'}
+
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': method},
+            headers=headers)
+        req.get_response(self.controller)
+        db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        sync_store = self.controller.sync_store
+        db_path = db.db_file
+        db_link = sync_store._container_to_synced_container_path(db_path)
+        self.assertFalse(os.path.exists(db_link))
+        sync_containers = [c for c in sync_store.synced_containers_generator()]
+        self.assertFalse(sync_containers)
+
     def test_REPLICATE_insufficient_storage(self):
         conf = {'devices': self.testdir, 'mount_check': 'true'}
         self.container_controller = container_server.ContainerController(

@@ -29,7 +29,7 @@ synchronization key.
 Configuring Container Sync
 --------------------------
 
-Create a container-sync-realms.conf file specifying the allowable clusters
+Create a ``container-sync-realms.conf`` file specifying the allowable clusters
 and their information::
 
     [realm1]
@@ -50,18 +50,18 @@ clusters that have agreed to allow container syncing with each other. Realm
 names will be considered case insensitive.
 
 The key is the overall cluster-to-cluster key used in combination with the
-external users' key that they set on their containers' X-Container-Sync-Key
-metadata header values. These keys will be used to sign each request the
-container sync daemon makes and used to validate each incoming container sync
-request.
+external users' key that they set on their containers'
+``X-Container-Sync-Key`` metadata header values. These keys will be used to
+sign each request the container sync daemon makes and used to validate each
+incoming container sync request.
 
 The key2 is optional and is an additional key incoming requests will be checked
 against. This is so you can rotate keys if you wish; you move the existing key
 to key2 and make a new key value.
 
-Any values in the realm section whose names begin with cluster\_ will indicate
-the name and endpoint of a cluster and will be used by external users in
-their containers' X-Container-Sync-To metadata header values with the format
+Any values in the realm section whose names begin with ``cluster_`` will
+indicate the name and endpoint of a cluster and will be used by external users in
+their containers' ``X-Container-Sync-To`` metadata header values with the format
 "//realm_name/cluster_name/account_name/container_name". Realm and cluster
 names are considered case insensitive.
 
@@ -71,7 +71,7 @@ container servers, since that is where the container sync daemon runs. Note
 that the endpoint ends with /v1/ and that the container sync daemon will then
 add the account/container/obj name after that.
 
-Distribute this container-sync-realms.conf file to all your proxy servers
+Distribute this ``container-sync-realms.conf`` file to all your proxy servers
 and container servers.
 
 You also need to add the container_sync middleware to your proxy pipeline. It
@@ -95,7 +95,7 @@ section, Configuring Container Sync, for the new-style.
 With the old-style, the Swift cluster operator must allow synchronization with
 a set of hosts before the user can enable container synchronization. First, the
 backend container server needs to be given this list of hosts in the
-container-server.conf file::
+``container-server.conf`` file::
 
     [DEFAULT]
     # This is a comma separated list of hosts allowed in the
@@ -170,8 +170,8 @@ we'll make next::
 
 The ``-t`` indicates the cluster to sync to, which is the realm name of the
 section from container-sync-realms.conf, followed by the cluster name from
-that section (without the cluster\_ prefix), followed by the account and container names we want to sync to.
-The ``-k`` specifies the secret key the two containers will share for
+that section (without the cluster\_ prefix), followed by the account and container
+names we want to sync to. The ``-k`` specifies the secret key the two containers will share for
 synchronization; this is the user key, the cluster key in
 container-sync-realms.conf will also be used behind the scenes.
 
@@ -195,8 +195,18 @@ as it gets synchronized over to the second::
       list container2
 
     [Nothing there yet, so we wait a bit...]
-    [If you're an operator running SAIO and just testing, you may need to
-     run 'swift-init container-sync once' to perform a sync scan.]
+
+.. note::
+
+    If you're an operator running SAIO and just testing, each time you
+    configure a container for synchronization and place objects in the
+    source container you will need to ensure that container-sync runs
+    before attempting to retrieve objects from the target container.
+    That is, you need to run::
+
+      swift-init container-sync once
+
+Now expect to see objects copied from the first container to the second::
 
     $ swift -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 \
       list container2
@@ -340,13 +350,34 @@ synchronize to the second, we could have used this curl command::
 What's going on behind the scenes, in the cluster?
 --------------------------------------------------
 
-The swift-container-sync does the job of sending updates to the remote
-container.
+Container ring devices have a directory called ``containers``, where container
+databases reside. In addition to ``containers``, each container ring device
+also has a directory called ``sync-containers``. ``sync-containers`` holds
+symlinks to container databases that were configured for container sync using
+``x-container-sync-to`` and ``x-container-sync-key`` metadata keys.
 
-This is done by scanning the local devices for container databases and
-checking for x-container-sync-to and x-container-sync-key metadata values.
-If they exist, newer rows since the last sync will trigger PUTs or DELETEs
-to the other container.
+The swift-container-sync process does the job of sending updates to the remote
+container. This is done by scanning ``sync-containers`` for container
+databases. For each container db found, newer rows since the last sync will
+trigger PUTs or DELETEs to the other container.
+
+``sync-containers`` is maintained as follows:
+Whenever the container-server processes a PUT or a POST request that carries
+``x-container-sync-to`` and ``x-container-sync-key`` metadata keys the server
+creates a symlink to the container database in ``sync-containers``. Whenever
+the container server deletes a synced container, the appropriate symlink
+is deleted from ``sync-containers``.
+
+In addition to the container-server, the container-replicator process does the
+job of identifying containers that should be synchronized. This is done by
+scanning the local devices for container databases and checking for
+x-container-sync-to and x-container-sync-key metadata values. If they exist
+then a symlink to the container database is created in a sync-containers
+sub-directory on the same device.
+
+Similarly, when the container sync metadata keys are deleted, the container
+server and container-replicator would take care of deleting the symlinks 
+from ``sync-containers``.
 
 .. note::
 
