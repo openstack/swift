@@ -461,13 +461,13 @@ class SloGetContext(WSGIContext):
                 # no bytes are needed from this or any future segment
                 break
 
-            range = seg_dict.get('range')
-            if range is None:
+            seg_range = seg_dict.get('range')
+            if seg_range is None:
                 range_start, range_end = 0, seg_length - 1
             else:
                 # We already validated and supplied concrete values
                 # for the range on upload
-                range_start, range_end = map(int, range.split('-'))
+                range_start, range_end = map(int, seg_range.split('-'))
 
             if config_true_value(seg_dict.get('sub_slo')):
                 # do this check here so that we can avoid fetching this last
