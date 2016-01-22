@@ -558,7 +558,7 @@ class ObjectController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
-            orig_timestamp = 0
+            orig_timestamp = Timestamp(0)
 
         # Checks for If-None-Match
         if request.if_none_match is not None and orig_metadata:

@@ -778,6 +778,10 @@ class Timestamp(object):
                 raise ValueError(
                     'delta must be greater than %d' % (-1 * self.raw))
             self.timestamp = float(self.raw * PRECISION)
+        if self.timestamp < 0:
+            raise ValueError('timestamp cannot be negative')
+        if self.timestamp >= 10000000000:
+            raise ValueError('timestamp too large')
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
