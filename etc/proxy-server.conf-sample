@@ -629,14 +629,17 @@ use = egg:swift#bulk
 use = egg:swift#slo
 # max_manifest_segments = 1000
 # max_manifest_size = 2097152
-# min_segment_size = 1048576
-# Start rate-limiting SLO segment serving after the Nth segment of a
+#
+# Rate limiting applies only to segments smaller than this size (bytes).
+# rate_limit_under_size = 1048576
+#
+# Start rate-limiting SLO segment serving after the Nth small segment of a
 # segmented object.
 # rate_limit_after_segment = 10
 #
 # Once segment rate-limiting kicks in for an object, limit segments served
 # to N per second. 0 means no rate-limiting.
-# rate_limit_segments_per_sec = 0
+# rate_limit_segments_per_sec = 1
 #
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
