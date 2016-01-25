@@ -476,6 +476,10 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 	}
 	r.jobCountIncrement <- uint64(len(partitionList))
 	for _, partition := range partitionList {
+		lockPath := filepath.Join(r.driveRoot, dev.Device, "lock_device")
+		if hummingbird.Exists(lockPath) {
+			break
+		}
 		if len(r.partitions) > 0 {
 			found := false
 			for _, p := range r.partitions {
