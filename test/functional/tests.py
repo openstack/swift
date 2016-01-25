@@ -4309,7 +4309,7 @@ class TestServiceToken(unittest2.TestCase):
         a token from the test service user. We save options here so that
         do_request() can make the appropriate request.
 
-        :param method: The operation (e.g'. 'HEAD')
+        :param method: The operation (e.g. 'HEAD')
         :param use_service_account: Optional. Set True to change the path to
                be the service account
         :param container: Optional. Adds a container name to the path
