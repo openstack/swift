@@ -16,11 +16,9 @@ import os
 import string
 import textwrap
 import six
-
 from six.moves.configparser import ConfigParser
-
 from swift.common.utils import (
-    config_true_value, SWIFT_CONF_FILE, whataremyips)
+    config_true_value, SWIFT_CONF_FILE, whataremyips, list_from_csv)
 from swift.common.ring import Ring, RingData
 from swift.common.utils import quorum_size
 from swift.common.exceptions import RingValidationError
@@ -84,7 +82,6 @@ class BindPortsCache(object):
 
 
 class PolicyError(ValueError):
-
     def __init__(self, msg, index=None):
         if index is not None:
             msg += ', for index %r' % index
@@ -161,7 +158,7 @@ class BaseStoragePolicy(object):
     policy_type_to_policy_cls = {}
 
     def __init__(self, idx, name='', is_default=False, is_deprecated=False,
-                 object_ring=None):
+                 object_ring=None, aliases=''):
         # do not allow BaseStoragePolicy class to be instantiated directly
         if type(self) == BaseStoragePolicy:
             raise TypeError("Can't instantiate BaseStoragePolicy directly")
@@ -172,18 +169,17 @@ class BaseStoragePolicy(object):
             raise PolicyError('Invalid index', idx)
         if self.idx < 0:
             raise PolicyError('Invalid index', idx)
-        if not name:
+        self.alias_list = []
+        if not name or not self._validate_policy_name(name):
             raise PolicyError('Invalid name %r' % name, idx)
-        # this is defensively restrictive, but could be expanded in the future
-        if not all(c in VALID_CHARS for c in name):
-            raise PolicyError('Names are used as HTTP headers, and can not '
-                              'reliably contain any characters not in %r. '
-                              'Invalid name %r' % (VALID_CHARS, name))
-        if name.upper() == LEGACY_POLICY_NAME.upper() and self.idx != 0:
-            msg = 'The name %s is reserved for policy index 0. ' \
-                'Invalid name %r' % (LEGACY_POLICY_NAME, name)
-            raise PolicyError(msg, idx)
-        self.name = name
+        self.alias_list.append(name)
+        if aliases:
+            names_list = list_from_csv(aliases)
+            for alias in names_list:
+                if alias == name:
+                    continue
+                self._validate_policy_name(alias)
+                self.alias_list.append(alias)
         self.is_deprecated = config_true_value(is_deprecated)
         self.is_default = config_true_value(is_default)
         if self.policy_type not in BaseStoragePolicy.policy_type_to_policy_cls:
@@ -191,8 +187,22 @@ class BaseStoragePolicy(object):
         if self.is_deprecated and self.is_default:
             raise PolicyError('Deprecated policy can not be default.  '
                               'Invalid config', self.idx)
+
         self.ring_name = _get_policy_string('object', self.idx)
         self.object_ring = object_ring
+
+    @property
+    def name(self):
+        return self.alias_list[0]
+
+    @name.setter
+    def name_setter(self, name):
+        self._validate_policy_name(name)
+        self.alias_list[0] = name
+
+    @property
+    def aliases(self):
+        return ", ".join(self.alias_list)
 
     def __int__(self):
         return self.idx
@@ -203,8 +213,8 @@ class BaseStoragePolicy(object):
     def __repr__(self):
         return ("%s(%d, %r, is_default=%s, "
                 "is_deprecated=%s, policy_type=%r)") % \
-            (self.__class__.__name__, self.idx, self.name,
-             self.is_default, self.is_deprecated, self.policy_type)
+               (self.__class__.__name__, self.idx, self.alias_list,
+                self.is_default, self.is_deprecated, self.policy_type)
 
     @classmethod
     def register(cls, policy_type):
@@ -213,6 +223,7 @@ class BaseStoragePolicy(object):
         their StoragePolicy class.  This will also set the policy_type
         attribute on the registered implementation.
         """
+
         def register_wrapper(policy_cls):
             if policy_type in cls.policy_type_to_policy_cls:
                 raise PolicyError(
@@ -222,6 +233,7 @@ class BaseStoragePolicy(object):
             cls.policy_type_to_policy_cls[policy_type] = policy_cls
             policy_cls.policy_type = policy_type
             return policy_cls
+
         return register_wrapper
 
     @classmethod
@@ -231,6 +243,7 @@ class BaseStoragePolicy(object):
         """
         return {
             'name': 'name',
+            'aliases': 'aliases',
             'policy_type': 'policy_type',
             'default': 'is_default',
             'deprecated': 'is_deprecated',
@@ -268,6 +281,77 @@ class BaseStoragePolicy(object):
                 info.pop('deprecated')
             info.pop('policy_type')
         return info
+
+    def _validate_policy_name(self, name):
+        """
+        Helper function to determine the validity of a policy name. Used
+        to check policy names before setting them.
+
+        :param name: a name string for a single policy name.
+        :returns: true if the name is valid.
+        :raises: PolicyError if the policy name is invalid.
+        """
+        # this is defensively restrictive, but could be expanded in the future
+        if not all(c in VALID_CHARS for c in name):
+            raise PolicyError('Names are used as HTTP headers, and can not '
+                              'reliably contain any characters not in %r. '
+                              'Invalid name %r' % (VALID_CHARS, name))
+        if name.upper() == LEGACY_POLICY_NAME.upper() and self.idx != 0:
+            msg = 'The name %s is reserved for policy index 0. ' \
+                  'Invalid name %r' % (LEGACY_POLICY_NAME, name)
+            raise PolicyError(msg, self.idx)
+        if name.upper() in (existing_name.upper() for existing_name
+                            in self.alias_list):
+            msg = 'The name %s is already assigned to this policy.' % name
+            raise PolicyError(msg, self.idx)
+
+        return True
+
+    def add_name(self, name):
+        """
+        Adds an alias name to the storage policy. Shouldn't be called
+        directly from the storage policy but instead through the
+        storage policy collection class, so lookups by name resolve
+        correctly.
+
+        :param name: a new alias for the storage policy
+        """
+        if self._validate_policy_name(name):
+            self.alias_list.append(name)
+
+    def remove_name(self, name):
+        """
+        Removes an alias name from the storage policy. Shouldn't be called
+        directly from the storage policy but instead through the storage
+        policy collection class, so lookups by name resolve correctly. If
+        the name removed is the primary name then the next available alias
+        will be adopted as the new primary name.
+
+        :param name: a name assigned to the storage policy
+        """
+        if name not in self.alias_list:
+            raise PolicyError("%s is not a name assigned to policy %s"
+                              % (name, self.idx))
+        if len(self.alias_list) == 1:
+            raise PolicyError("Cannot remove only name %s from policy %s. "
+                              "Policies must have at least one name."
+                              % (name, self.idx))
+        else:
+            self.alias_list.remove(name)
+
+    def change_primary_name(self, name):
+        """
+        Changes the primary/default name of the policy to a specified name.
+
+        :param name: a string name to replace the current primary name.
+        """
+        if name == self.name:
+            return
+        elif name in self.alias_list:
+            self.remove_name(name)
+        else:
+            self._validate_policy_name(name)
+        self.alias_list.insert(0, name)
 
     def _validate_ring(self):
         """
@@ -329,13 +413,15 @@ class ECStoragePolicy(BaseStoragePolicy):
     :func:`~swift.common.storage_policy.reload_storage_policies` to load
     POLICIES from ``swift.conf``.
     """
-    def __init__(self, idx, name='', is_default=False,
+
+    def __init__(self, idx, name='', aliases='', is_default=False,
                  is_deprecated=False, object_ring=None,
                  ec_segment_size=DEFAULT_EC_OBJECT_SEGMENT_SIZE,
                  ec_type=None, ec_ndata=None, ec_nparity=None):
 
         super(ECStoragePolicy, self).__init__(
-            idx, name, is_default, is_deprecated, object_ring)
+            idx=idx, name=name, aliases=aliases, is_default=is_default,
+            is_deprecated=is_deprecated, object_ring=object_ring)
 
         # Validate erasure_coding policy specific members
         # ec_type is one of the EC implementations supported by PyEClib
@@ -441,9 +527,9 @@ class ECStoragePolicy(BaseStoragePolicy):
 
     def __repr__(self):
         return ("%s, EC config(ec_type=%s, ec_segment_size=%d, "
-                "ec_ndata=%d, ec_nparity=%d)") % (
-                    super(ECStoragePolicy, self).__repr__(), self.ec_type,
-                    self.ec_segment_size, self.ec_ndata, self.ec_nparity)
+                "ec_ndata=%d, ec_nparity=%d)") % \
+               (super(ECStoragePolicy, self).__repr__(), self.ec_type,
+                self.ec_segment_size, self.ec_ndata, self.ec_nparity)
 
     @classmethod
     def _config_options_map(cls):
@@ -532,6 +618,7 @@ class StoragePolicyCollection(object):
     * Deprecated policies can not be declared the default
 
     """
+
     def __init__(self, pols):
         self.default = []
         self.by_name = {}
@@ -542,7 +629,8 @@ class StoragePolicyCollection(object):
         """
         Add pre-validated policies to internal indexes.
         """
-        self.by_name[policy.name.upper()] = policy
+        for name in policy.alias_list:
+            self.by_name[name.upper()] = policy
         self.by_index[int(policy)] = policy
 
     def __repr__(self):
@@ -570,9 +658,10 @@ class StoragePolicyCollection(object):
             if int(policy) in self.by_index:
                 raise PolicyError('Duplicate index %s conflicts with %s' % (
                     policy, self.get_by_index(int(policy))))
-            if policy.name.upper() in self.by_name:
-                raise PolicyError('Duplicate name %s conflicts with %s' % (
-                    policy, self.get_by_name(policy.name)))
+            for name in policy.alias_list:
+                if name.upper() in self.by_name:
+                    raise PolicyError('Duplicate name %s conflicts with %s' % (
+                        policy, self.get_by_name(name)))
             if policy.is_default:
                 if not self.default:
                     self.default = policy
@@ -666,6 +755,62 @@ class StoragePolicyCollection(object):
             policy_entry = pol.get_info()
             policy_info.append(policy_entry)
         return policy_info
+
+    def add_policy_alias(self, policy_index, *aliases):
+        """
+        Adds a new name or names to a policy
+
+        :param policy_index: index of a policy in this policy collection.
+        :param *aliases: arbitrary number of string policy names to add.
+        """
+        policy = self.get_by_index(policy_index)
+        for alias in aliases:
+            if alias.upper() in self.by_name:
+                raise PolicyError('Duplicate name %s in use '
+                                  'by policy %s' % (alias,
+                                                    self.get_by_name(alias)))
+            else:
+                policy.add_name(alias)
+                self.by_name[alias.upper()] = policy
+
+    def remove_policy_alias(self, *aliases):
+        """
+        Removes a name or names from a policy. If the name removed is the
+        primary name then the next available alias will be adopted
+        as the new primary name.
+
+        :param *aliases: arbitrary number of existing policy names to remove.
+        """
+        for alias in aliases:
+            policy = self.get_by_name(alias)
+            if not policy:
+                raise PolicyError('No policy with name %s exists.' % alias)
+            if len(policy.alias_list) == 1:
+                raise PolicyError('Policy %s with name %s has only one name. '
+                                  'Policies must have at least one name.' % (
+                                      policy, alias))
+            else:
+                policy.remove_name(alias)
+                del self.by_name[alias.upper()]
+
+    def change_policy_primary_name(self, policy_index, new_name):
+        """
+        Changes the primary or default name of a policy. The new primary
+        name can be an alias that already belongs to the policy or a
+        completely new name.
+
+        :param policy_index: index of a policy in this policy collection.
+        :param new_name: a string name to set as the new default name.
+        """
+        policy = self.get_by_index(policy_index)
+        name_taken = self.get_by_name(new_name)
+        # if the name belongs to some other policy in the collection
+        if name_taken and name_taken != policy:
+            raise PolicyError('Other policy %s with name %s exists.' %
+                              (self.get_by_name(new_name).idx, new_name))
+        else:
+            policy.change_primary_name(new_name)
+            self.by_name[new_name.upper()] = policy
 
 
 def parse_storage_policies(conf):

@@ -15,10 +15,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+import unittest2
 import json
 from uuid import uuid4
-from nose import SkipTest
+from unittest2 import SkipTest
 from string import letters
 
 from six.moves import range
@@ -29,7 +29,15 @@ from test.functional import check_response, retry, requires_acls, \
 import test.functional as tf
 
 
-class TestAccount(unittest.TestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestAccount(unittest2.TestCase):
 
     def setUp(self):
         self.max_meta_count = load_constraint('max_meta_count')
@@ -854,7 +862,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 400)
 
 
-class TestAccountInNonDefaultDomain(unittest.TestCase):
+class TestAccountInNonDefaultDomain(unittest2.TestCase):
     def setUp(self):
         if tf.skip or tf.skip2 or tf.skip_if_not_v3:
             raise SkipTest('AUTH VERSION 3 SPECIFIC TEST')
@@ -883,4 +891,4 @@ class TestAccountInNonDefaultDomain(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

@@ -160,7 +160,7 @@ class FakeFootersContext(WSGIContext):
                 # If there is a duplicate header, then the encrypter
                 # is not starting with a clean slate "crypto-wise",
                 # and needs to remove the associated remnant header.
-                self.logger.warn("Replacing Remnant header: %s" % h.lower())
+                self.logger.warning("Replacing Remnant header: %s" % h.lower())
             else:
                 mod_resp_headers.append((h, v))
 

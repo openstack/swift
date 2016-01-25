@@ -16,7 +16,6 @@
 import array
 import six.moves.cPickle as pickle
 import os
-import sys
 import unittest
 import stat
 from contextlib import closing
@@ -109,11 +108,7 @@ class TestRingData(unittest.TestCase):
     def test_deterministic_serialization(self):
         """
         Two identical rings should produce identical .gz files on disk.
-
-        Only true on Python 2.7 or greater.
         """
-        if sys.version_info[0] == 2 and sys.version_info[1] < 7:
-            return
         os.mkdir(os.path.join(self.testdir, '1'))
         os.mkdir(os.path.join(self.testdir, '2'))
         # These have to have the same filename (not full path,

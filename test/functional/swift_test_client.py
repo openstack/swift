@@ -20,7 +20,7 @@ import random
 import socket
 import time
 
-from nose import SkipTest
+from unittest2 import SkipTest
 from xml.dom import minidom
 
 import six

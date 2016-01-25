@@ -762,6 +762,45 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
+    def test_PUT_new_object_really_old_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '-1',  # 1969-12-31 23:59:59
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '1',  # 1970-01-01 00:00:01
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+    def test_PUT_object_really_new_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '9999999999',  # 2286-11-20 17:46:40
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # roll over to 11 digits before the decimal
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '10000000000',
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
     def test_PUT_no_etag(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -5558,7 +5597,7 @@ class TestObjectServer(unittest.TestCase):
                         object-metadata (e.g.  X-Backend-Obj-Content-Length)
                         is generally expected tomatch the test_doc)
         :param finish_body: boolean, if true send "0\r\n\r\n" after test_doc
-                            and wait for 100-continue before yeilding context
+                            and wait for 100-continue before yielding context
         """
         test_data = 'obj data'
         footer_meta = {

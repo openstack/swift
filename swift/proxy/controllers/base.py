@@ -235,17 +235,17 @@ def cors_validation(func):
             #  - headers provided by the user in
             #    x-container-meta-access-control-expose-headers
             if 'Access-Control-Expose-Headers' not in resp.headers:
-                expose_headers = [
+                expose_headers = set([
                     'cache-control', 'content-language', 'content-type',
                     'expires', 'last-modified', 'pragma', 'etag',
-                    'x-timestamp', 'x-trans-id']
+                    'x-timestamp', 'x-trans-id'])
                 for header in resp.headers:
                     if header.startswith('X-Container-Meta') or \
                             header.startswith('X-Object-Meta'):
-                        expose_headers.append(header.lower())
+                        expose_headers.add(header.lower())
                 if cors_info.get('expose_headers'):
-                    expose_headers.extend(
-                        [header_line.strip()
+                    expose_headers = expose_headers.union(
+                        [header_line.strip().lower()
                          for header_line in
                          cors_info['expose_headers'].split(' ')
                          if header_line.strip()])
@@ -941,13 +941,13 @@ class ResumingGetter(object):
                                         _('Trying to read during GET'))
             raise
         except ChunkWriteTimeout:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client did not read from proxy within %ss') %
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
             if not req.environ.get('swift.non_client_disconnect'):
-                self.app.logger.warn(_('Client disconnected on read'))
+                self.app.logger.warning(_('Client disconnected on read'))
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise

@@ -89,7 +89,7 @@ class ContainerUpdater(Daemon):
         for device in self._listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
             if self.mount_check and not ismount(dev_path):
-                self.logger.warn(_('%s is not mounted'), device)
+                self.logger.warning(_('%s is not mounted'), device)
                 continue
             con_path = os.path.join(dev_path, DATADIR)
             if not os.path.exists(con_path):

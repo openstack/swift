@@ -16,8 +16,8 @@
 # limitations under the License.
 
 import json
-import unittest
-from nose import SkipTest
+import unittest2
+from unittest2 import SkipTest
 from uuid import uuid4
 
 from test.functional import check_response, retry, requires_acls, \
@@ -27,7 +27,15 @@ import test.functional as tf
 from six.moves import range
 
 
-class TestContainer(unittest.TestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestContainer(unittest2.TestCase):
 
     def setUp(self):
         if tf.skip:
@@ -1551,7 +1559,7 @@ class TestContainer(unittest.TestCase):
                          policy['name'])
 
 
-class BaseTestContainerACLs(unittest.TestCase):
+class BaseTestContainerACLs(unittest2.TestCase):
     # subclasses can change the account in which container
     # is created/deleted by setUp/tearDown
     account = 1
@@ -1726,4 +1734,4 @@ class TestContainerACLsAccount4(BaseTestContainerACLs):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

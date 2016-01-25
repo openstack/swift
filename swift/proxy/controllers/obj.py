@@ -415,6 +415,11 @@ class BaseObjectController(Controller):
         This method handles copying objects based on values set in the headers
         'X-Copy-From' and 'X-Copy-From-Account'
 
+        Note that if the incomming request has some conditional headers (e.g.
+        'Range', 'If-Match'), *source* object will be evaluated for these
+        headers. i.e. if PUT with both 'X-Copy-From' and 'Range', Swift will
+        make a partial copy as a new object.
+
         This method was added as part of the refactoring of the PUT method and
         the functionality is expected to be moved to middleware
         """
@@ -968,7 +973,7 @@ class ReplicatedObjectController(BaseObjectController):
                 msg='Object PUT exceptions after last send, '
                 '%(conns)s/%(nodes)s required connections')
         except ChunkReadTimeout as err:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
@@ -976,7 +981,7 @@ class ReplicatedObjectController(BaseObjectController):
             raise
         except ChunkReadError:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
@@ -991,7 +996,7 @@ class ReplicatedObjectController(BaseObjectController):
             raise HTTPInternalServerError(request=req)
         if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending enough data'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
@@ -2196,7 +2201,7 @@ class ECObjectController(BaseObjectController):
                 if req.content_length and (
                         bytes_transferred < req.content_length):
                     req.client_disconnect = True
-                    self.app.logger.warn(
+                    self.app.logger.warning(
                         _('Client disconnected without sending enough data'))
                     self.app.logger.increment('client_disconnects')
                     raise HTTPClientDisconnect(request=req)
@@ -2265,13 +2270,13 @@ class ECObjectController(BaseObjectController):
                 for putter in putters:
                     putter.wait()
         except ChunkReadTimeout as err:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)

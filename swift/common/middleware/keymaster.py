@@ -138,8 +138,8 @@ class KeyMasterContext(WSGIContext):
                 try:
                     obj_key_path = base64.b64decode(obj_key_path)
                 except TypeError:
-                    self.logger.warn("path %s could not be decoded" %
-                                     obj_key_path)
+                    self.logger.warning("path %s could not be decoded" %
+                                        obj_key_path)
                     raise ValueError("path %s could not be decoded" %
                                      obj_key_path)
                 path_acc, path_cont, path_obj = \

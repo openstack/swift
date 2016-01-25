@@ -375,7 +375,7 @@ folks a start on their own code if they want to use repoze.what::
                 expiration = float(resp.getheader('x-auth-ttl'))
                 user = resp.getheader('x-auth-user')
                 memcache_client.set(key, (time(), expiration, user),
-                                    timeout=expiration)
+                                    time=expiration)
                 return user
             return None
 
@@ -487,7 +487,8 @@ folks a start on their own code if they want to use repoze.what::
 Allowing CORS with Auth
 -----------------------
 
-Cross Origin RequestS require that the auth system allow the OPTIONS method to 
-pass through without a token.  The preflight request will make an OPTIONS call 
-against the object or container and will not work if the auth system stops it.
+Cross Origin Resource Sharing (CORS) require that the auth system allow the
+OPTIONS method to pass through without a token.  The preflight request will
+make an OPTIONS call against the object or container and will not work if
+the auth system stops it.
 See TempAuth for an example of how OPTIONS requests are handled.

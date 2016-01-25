@@ -384,7 +384,8 @@ Sets the maximum number of connections to each memcached server per worker.
 If not set in the configuration file, the value for memcache_servers will be
 read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that
 file, it will default to 127.0.0.1:11211. You can specify multiple servers
-separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211.
+separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211.  (IPv6
+addresses must follow rfc3986 section-3.2.2, i.e. [::1]:11211)
 .IP \fBmemcache_serialization_support\fR
 This sets how memcache values are serialized and deserialized:
 .RE

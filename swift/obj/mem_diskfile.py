@@ -254,6 +254,7 @@ class DiskFile(object):
         self._metadata = None
         self._fp = None
         self._filesystem = fs
+        self.fragments = None
 
     def open(self):
         """
@@ -421,3 +422,5 @@ class DiskFile(object):
         return Timestamp(self._metadata.get('X-Timestamp'))
 
     data_timestamp = timestamp
+
+    durable_timestamp = timestamp

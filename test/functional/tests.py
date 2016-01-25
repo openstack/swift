@@ -25,11 +25,11 @@ import random
 import six
 from six.moves import urllib
 import time
-import unittest
+import unittest2
 import uuid
 from copy import deepcopy
 import eventlet
-from nose import SkipTest
+from unittest2 import SkipTest
 from swift.common.http import is_success, is_client_error
 
 from test.functional import normalized_urls, load_constraint, cluster_info
@@ -37,6 +37,14 @@ from test.functional import check_response, retry, requires_acls
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
+
+
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
 
 
 class Utils(object):
@@ -62,7 +70,7 @@ class Utils(object):
     create_name = create_ascii_name
 
 
-class Base(unittest.TestCase):
+class Base(unittest2.TestCase):
     def setUp(self):
         cls = type(self)
         if not cls.set_up:
@@ -2178,14 +2186,23 @@ class TestDloEnv(object):
     def setUp(cls):
         cls.conn = Connection(tf.config)
         cls.conn.authenticate()
+
+        config2 = tf.config.copy()
+        config2['username'] = tf.config['username3']
+        config2['password'] = tf.config['password3']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+
         cls.account = Account(cls.conn, tf.config.get('account',
                                                       tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
+        cls.container2 = cls.account.container(Utils.create_name())
 
-        if not cls.container.create():
-            raise ResponseError(cls.conn.response)
+        for cont in (cls.container, cls.container2):
+            if not cont.create():
+                raise ResponseError(cls.conn.response)
 
         # avoid getting a prefix that stops halfway through an encoded
         # character
@@ -2199,13 +2216,18 @@ class TestDloEnv(object):
             file_item = cls.container.file("%s/seg_upper%s" % (prefix, letter))
             file_item.write(letter.upper() * 10)
 
+        for letter in ('f', 'g', 'h', 'i', 'j'):
+            file_item = cls.container2.file("%s/seg_lower%s" %
+                                            (prefix, letter))
+            file_item.write(letter * 10)
+
         man1 = cls.container.file("man1")
         man1.write('man1-contents',
                    hdrs={"X-Object-Manifest": "%s/%s/seg_lower" %
                          (cls.container.name, prefix)})
 
-        man1 = cls.container.file("man2")
-        man1.write('man2-contents',
+        man2 = cls.container.file("man2")
+        man2.write('man2-contents',
                    hdrs={"X-Object-Manifest": "%s/%s/seg_upper" %
                          (cls.container.name, prefix)})
 
@@ -2213,6 +2235,12 @@ class TestDloEnv(object):
         manall.write('manall-contents',
                      hdrs={"X-Object-Manifest": "%s/%s/seg" %
                            (cls.container.name, prefix)})
+
+        mancont2 = cls.container.file("mancont2")
+        mancont2.write(
+            'mancont2-contents',
+            hdrs={"X-Object-Manifest": "%s/%s/seg_lower" %
+                                       (cls.container2.name, prefix)})
 
 
 class TestDlo(Base):
@@ -2375,6 +2403,31 @@ class TestDlo(Base):
         manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
         self.assert_status(200)
 
+    def test_dlo_referer_on_segment_container(self):
+        # First the account2 (test3) should fail
+        headers = {'X-Auth-Token': self.env.conn2.storage_token,
+                   'Referer': 'http://blah.example.com'}
+        dlo_file = self.env.container.file("mancont2")
+        self.assertRaises(ResponseError, dlo_file.read,
+                          hdrs=headers)
+        self.assert_status(403)
+
+        # Now set the referer on the dlo container only
+        referer_metadata = {'X-Container-Read': '.r:*.example.com,.rlistings'}
+        self.env.container.update_metadata(referer_metadata)
+
+        self.assertRaises(ResponseError, dlo_file.read,
+                          hdrs=headers)
+        self.assert_status(403)
+
+        # Finally set the referer on the segment container
+        self.env.container2.update_metadata(referer_metadata)
+
+        contents = dlo_file.read(hdrs=headers)
+        self.assertEqual(
+            contents,
+            "ffffffffffgggggggggghhhhhhhhhhiiiiiiiiiijjjjjjjjjj")
+
 
 class TestDloUTF8(Base2, TestDlo):
     set_up = False
@@ -2425,12 +2478,31 @@ class TestFileComparison(Base):
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
 
+    def testIfMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-Match': '"bogus1", "%s", "bogus2"' % file_item.md5}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(412)
+
     def testIfNoneMatch(self):
         for file_item in self.env.files:
             hdrs = {'If-None-Match': 'bogus'}
             self.assertTrue(file_item.read(hdrs=hdrs))
 
             hdrs = {'If-None-Match': file_item.md5}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(304)
+
+    def testIfNoneMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-None-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-None-Match':
+                    '"bogus1", "bogus2", "%s"' % file_item.md5}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
 
@@ -2516,6 +2588,11 @@ class TestSloEnv(object):
         cls.conn2.authenticate()
         cls.account2 = cls.conn2.get_account()
         cls.account2.delete_containers()
+        config3 = tf.config.copy()
+        config3['username'] = tf.config['username3']
+        config3['password'] = tf.config['password3']
+        cls.conn3 = Connection(config3)
+        cls.conn3.authenticate()
 
         if cls.slo_enabled is None:
             cls.slo_enabled = 'slo' in cluster_info
@@ -2527,9 +2604,11 @@ class TestSloEnv(object):
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
+        cls.container2 = cls.account.container(Utils.create_name())
 
-        if not cls.container.create():
-            raise ResponseError(cls.conn.response)
+        for cont in (cls.container, cls.container2):
+            if not cont.create():
+                raise ResponseError(cls.conn.response)
 
         cls.seg_info = seg_info = {}
         for letter, size in (('a', 1024 * 1024),
@@ -2546,6 +2625,14 @@ class TestSloEnv(object):
                 'path': '/%s/%s' % (cls.container.name, seg_name)}
 
         file_item = cls.container.file("manifest-abcde")
+        file_item.write(
+            json.dumps([seg_info['seg_a'], seg_info['seg_b'],
+                        seg_info['seg_c'], seg_info['seg_d'],
+                        seg_info['seg_e']]),
+            parms={'multipart-manifest': 'put'})
+
+        # Put the same manifest in the container2
+        file_item = cls.container2.file("manifest-abcde")
         file_item.write(
             json.dumps([seg_info['seg_a'], seg_info['seg_b'],
                         seg_info['seg_c'], seg_info['seg_d'],
@@ -3089,6 +3176,33 @@ class TestSlo(Base):
 
         manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
         self.assert_status(200)
+
+    def test_slo_referer_on_segment_container(self):
+        # First the account2 (test3) should fail
+        headers = {'X-Auth-Token': self.env.conn3.storage_token,
+                   'Referer': 'http://blah.example.com'}
+        slo_file = self.env.container2.file('manifest-abcde')
+        self.assertRaises(ResponseError, slo_file.read,
+                          hdrs=headers)
+        self.assert_status(403)
+
+        # Now set the referer on the slo container only
+        referer_metadata = {'X-Container-Read': '.r:*.example.com,.rlistings'}
+        self.env.container2.update_metadata(referer_metadata)
+
+        self.assertRaises(ResponseError, slo_file.read,
+                          hdrs=headers)
+        self.assert_status(409)
+
+        # Finally set the referer on the segment container
+        self.env.container.update_metadata(referer_metadata)
+        contents = slo_file.read(hdrs=headers)
+        self.assertEqual(4 * 1024 * 1024 + 1, len(contents))
+        self.assertEqual('a', contents[0])
+        self.assertEqual('a', contents[1024 * 1024 - 1])
+        self.assertEqual('b', contents[1024 * 1024])
+        self.assertEqual('d', contents[-2])
+        self.assertEqual('e', contents[-1])
 
 
 class TestSloUTF8(Base2, TestSlo):
@@ -4147,7 +4261,7 @@ class TestSloTempurlUTF8(Base2, TestSloTempurl):
     set_up = False
 
 
-class TestServiceToken(unittest.TestCase):
+class TestServiceToken(unittest2.TestCase):
 
     def setUp(self):
         if tf.skip_service_tokens:
@@ -4315,4 +4429,4 @@ class TestServiceToken(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

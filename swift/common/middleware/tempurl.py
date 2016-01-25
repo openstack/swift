@@ -375,7 +375,7 @@ class TempURL(object):
                 break
         if not is_valid_hmac:
             return self._invalid(env, start_response)
-        # disallowed headers prevent accidently allowing upload of a pointer
+        # disallowed headers prevent accidentally allowing upload of a pointer
         # to data that the PUT tempurl would not otherwise allow access for.
         # It should be safe to provide a GET tempurl for data that an
         # untrusted client just uploaded with a PUT tempurl.
@@ -540,7 +540,7 @@ class TempURL(object):
 
     def _clean_disallowed_headers(self, env, start_response):
         """
-        Validate the absense of disallowed headers for "unsafe" operations.
+        Validate the absence of disallowed headers for "unsafe" operations.
 
         :returns: None for safe operations or swob.HTTPBadResponse if the
                   request includes disallowed headers.

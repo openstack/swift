@@ -85,10 +85,11 @@ class ObjectReplicator(Daemon):
         if not self.rsync_module:
             self.rsync_module = '{replication_ip}::object'
             if config_true_value(conf.get('vm_test_mode', 'no')):
-                self.logger.warn('Option object-replicator/vm_test_mode is '
-                                 'deprecated and will be removed in a future '
-                                 'version. Update your configuration to use '
-                                 'option object-replicator/rsync_module.')
+                self.logger.warning('Option object-replicator/vm_test_mode '
+                                    'is deprecated and will be removed in a '
+                                    'future version. Update your '
+                                    'configuration to use option '
+                                    'object-replicator/rsync_module.')
                 self.rsync_module += '{replication_port}'
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
@@ -109,10 +110,10 @@ class ObjectReplicator(Daemon):
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
         if any((self.handoff_delete, self.handoffs_first)):
-            self.logger.warn('Handoff only mode is not intended for normal '
-                             'operation, please disable handoffs_first and '
-                             'handoff_delete before the next '
-                             'normal rebalance')
+            self.logger.warning('Handoff only mode is not intended for normal '
+                                'operation, please disable handoffs_first and '
+                                'handoff_delete before the next '
+                                'normal rebalance')
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
 
     def _zero_stats(self):
@@ -585,7 +586,8 @@ class ObjectReplicator(Daemon):
                       failure_dev['device'])
                      for failure_dev in policy.object_ring.devs
                      if failure_dev])
-                self.logger.warn(_('%s is not mounted'), local_dev['device'])
+                self.logger.warning(
+                    _('%s is not mounted'), local_dev['device'])
                 continue
             unlink_older_than(tmp_path, time.time() - self.reclaim_age)
             if not os.path.exists(obj_path):
@@ -701,7 +703,7 @@ class ObjectReplicator(Daemon):
                     self._add_failure_stats([(failure_dev['replication_ip'],
                                               failure_dev['device'])
                                              for failure_dev in job['nodes']])
-                    self.logger.warn(_('%s is not mounted'), job['device'])
+                    self.logger.warning(_('%s is not mounted'), job['device'])
                     continue
                 if not self.check_ring(job['policy'].object_ring):
                     self.logger.info(_("Ring change detected. Aborting "

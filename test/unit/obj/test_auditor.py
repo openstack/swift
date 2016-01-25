@@ -22,16 +22,22 @@ import string
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
-from test.unit import FakeLogger, patch_policies, make_timestamp_iter
+from test.unit import FakeLogger, patch_policies, make_timestamp_iter, \
+    DEFAULT_TEST_EC_TYPE
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
-    get_data_dir, DiskFileManager, AuditLocation
+    get_data_dir, DiskFileManager, ECDiskFileManager, AuditLocation
 from swift.common.utils import mkdirs, normalize_timestamp, Timestamp
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import ECStoragePolicy, StoragePolicy, \
+    POLICIES
 
 
-_mocked_policies = [StoragePolicy(0, 'zero', False),
-                    StoragePolicy(1, 'one', True)]
+_mocked_policies = [
+    StoragePolicy(0, 'zero', False),
+    StoragePolicy(1, 'one', True),
+    ECStoragePolicy(2, 'two', ec_type=DEFAULT_TEST_EC_TYPE,
+                    ec_ndata=2, ec_nparity=1, ec_segment_size=4096),
+]
 
 
 @patch_policies(_mocked_policies)
@@ -58,25 +64,38 @@ class TestAuditor(unittest.TestCase):
         self.objects_2_p1 = os.path.join(self.devices, 'sdb',
                                          get_data_dir(POLICIES[1]))
         os.mkdir(self.objects_p1)
+        # policy 2
+        self.objects_p2 = os.path.join(self.devices, 'sda',
+                                       get_data_dir(POLICIES[2]))
+        self.objects_2_p2 = os.path.join(self.devices, 'sdb',
+                                         get_data_dir(POLICIES[2]))
+        os.mkdir(self.objects_p2)
 
-        self.parts = self.parts_p1 = {}
+        self.parts = {}
+        self.parts_p1 = {}
+        self.parts_p2 = {}
         for part in ['0', '1', '2', '3']:
             self.parts[part] = os.path.join(self.objects, part)
             self.parts_p1[part] = os.path.join(self.objects_p1, part)
+            self.parts_p2[part] = os.path.join(self.objects_p2, part)
             os.mkdir(os.path.join(self.objects, part))
             os.mkdir(os.path.join(self.objects_p1, part))
+            os.mkdir(os.path.join(self.objects_p2, part))
 
         self.conf = dict(
             devices=self.devices,
             mount_check='false',
             object_size_stats='10,100,1024,10240')
         self.df_mgr = DiskFileManager(self.conf, self.logger)
+        self.ec_df_mgr = ECDiskFileManager(self.conf, self.logger)
 
-        # diskfiles for policy 0, 1
+        # diskfiles for policy 0, 1, 2
         self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
                                                   policy=POLICIES[0])
         self.disk_file_p1 = self.df_mgr.get_diskfile('sda', '0', 'a', 'c',
                                                      'o', policy=POLICIES[1])
+        self.disk_file_ec = self.ec_df_mgr.get_diskfile(
+            'sda', '0', 'a', 'c', 'o', policy=POLICIES[2], frag_index=1)
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
@@ -95,7 +114,9 @@ class TestAuditor(unittest.TestCase):
         auditor_worker = auditor.AuditorWorker(conf, self.logger,
                                                self.rcache, self.devices)
         check_common_defaults()
-        self.assertEqual(auditor_worker.diskfile_mgr.disk_chunk_size, 65536)
+        for policy in POLICIES:
+            mgr = auditor_worker.diskfile_router[policy]
+            self.assertEqual(mgr.disk_chunk_size, 65536)
         self.assertEqual(auditor_worker.max_files_per_second, 20)
         self.assertEqual(auditor_worker.zero_byte_only_at_fps, 0)
 
@@ -105,7 +126,9 @@ class TestAuditor(unittest.TestCase):
                                                self.rcache, self.devices,
                                                zero_byte_only_at_fps=50)
         check_common_defaults()
-        self.assertEqual(auditor_worker.diskfile_mgr.disk_chunk_size, 4096)
+        for policy in POLICIES:
+            mgr = auditor_worker.diskfile_router[policy]
+            self.assertEqual(mgr.disk_chunk_size, 4096)
         self.assertEqual(auditor_worker.max_files_per_second, 50)
         self.assertEqual(auditor_worker.zero_byte_only_at_fps, 50)
 
@@ -126,22 +149,24 @@ class TestAuditor(unittest.TestCase):
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
                 writer.put(metadata)
+                writer.commit(Timestamp(timestamp))
                 pre_quarantines = auditor_worker.quarantines
 
                 auditor_worker.object_audit(
                     AuditLocation(disk_file._datadir, 'sda', '0',
-                                  policy=POLICIES.legacy))
+                                  policy=disk_file.policy))
                 self.assertEqual(auditor_worker.quarantines, pre_quarantines)
 
                 os.write(writer._fd, 'extra_data')
 
                 auditor_worker.object_audit(
                     AuditLocation(disk_file._datadir, 'sda', '0',
-                                  policy=POLICIES.legacy))
+                                  policy=disk_file.policy))
                 self.assertEqual(auditor_worker.quarantines,
                                  pre_quarantines + 1)
         run_tests(self.disk_file)
         run_tests(self.disk_file_p1)
+        run_tests(self.disk_file_ec)
 
     def test_object_audit_diff_data(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -159,6 +184,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
             pre_quarantines = auditor_worker.quarantines
 
         # remake so it will have metadata
@@ -177,6 +203,7 @@ class TestAuditor(unittest.TestCase):
         with self.disk_file.create() as writer:
             writer.write(data)
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
 
         auditor_worker.object_audit(
             AuditLocation(self.disk_file._datadir, 'sda', '0',
@@ -253,6 +280,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
         with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
                         lambda *_: 1 / 0):
             auditor_worker.audit_all_objects()
@@ -267,59 +295,58 @@ class TestAuditor(unittest.TestCase):
         data = '0' * 1024
 
         def write_file(df):
-            etag = md5()
             with df.create() as writer:
                 writer.write(data)
-                etag.update(data)
-                etag = etag.hexdigest()
                 metadata = {
-                    'ETag': etag,
+                    'ETag': md5(data).hexdigest(),
                     'X-Timestamp': timestamp,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
                 writer.put(metadata)
+                writer.commit(Timestamp(timestamp))
 
         # policy 0
         write_file(self.disk_file)
         # policy 1
         write_file(self.disk_file_p1)
+        # policy 2
+        write_file(self.disk_file_ec)
 
         auditor_worker.audit_all_objects()
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         # 1 object per policy falls into 1024 bucket
-        self.assertEqual(auditor_worker.stats_buckets[1024], 2)
+        self.assertEqual(auditor_worker.stats_buckets[1024], 3)
         self.assertEqual(auditor_worker.stats_buckets[10240], 0)
 
         # pick up some additional code coverage, large file
         data = '0' * 1024 * 1024
-        etag = md5()
-        with self.disk_file.create() as writer:
-            writer.write(data)
-            etag.update(data)
-            etag = etag.hexdigest()
-            metadata = {
-                'ETag': etag,
-                'X-Timestamp': timestamp,
-                'Content-Length': str(os.fstat(writer._fd).st_size),
-            }
-            writer.put(metadata)
+        for df in (self.disk_file, self.disk_file_ec):
+            with df.create() as writer:
+                writer.write(data)
+                metadata = {
+                    'ETag': md5(data).hexdigest(),
+                    'X-Timestamp': timestamp,
+                    'Content-Length': str(os.fstat(writer._fd).st_size),
+                }
+                writer.put(metadata)
+                writer.commit(Timestamp(timestamp))
         auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         # still have the 1024 byte object left in policy-1 (plus the
-        # stats from the original 2)
-        self.assertEqual(auditor_worker.stats_buckets[1024], 3)
+        # stats from the original 3)
+        self.assertEqual(auditor_worker.stats_buckets[1024], 4)
         self.assertEqual(auditor_worker.stats_buckets[10240], 0)
         # and then policy-0 disk_file was re-written as a larger object
-        self.assertEqual(auditor_worker.stats_buckets['OVER'], 1)
+        self.assertEqual(auditor_worker.stats_buckets['OVER'], 2)
 
         # pick up even more additional code coverage, misc paths
         auditor_worker.log_time = -1
         auditor_worker.stats_sizes = []
         auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
-        self.assertEqual(auditor_worker.stats_buckets[1024], 3)
+        self.assertEqual(auditor_worker.stats_buckets[1024], 4)
         self.assertEqual(auditor_worker.stats_buckets[10240], 0)
-        self.assertEqual(auditor_worker.stats_buckets['OVER'], 1)
+        self.assertEqual(auditor_worker.stats_buckets['OVER'], 2)
 
     def test_object_run_logging(self):
         logger = FakeLogger()
@@ -359,6 +386,7 @@ class TestAuditor(unittest.TestCase):
             }
             writer.put(metadata)
             os.write(writer._fd, 'extra_data')
+            writer.commit(Timestamp(timestamp))
         auditor_worker.audit_all_objects()
         self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
@@ -381,6 +409,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
         auditor_worker.audit_all_objects()
         self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'ob',
                                                   policy=POLICIES.legacy)
@@ -396,6 +425,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
             os.write(writer._fd, 'extra_data')
         auditor_worker.audit_all_objects()
         self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
@@ -409,12 +439,14 @@ class TestAuditor(unittest.TestCase):
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
+            timestamp = str(normalize_timestamp(time.time()))
             metadata = {
                 'ETag': etag,
-                'X-Timestamp': str(normalize_timestamp(time.time())),
+                'X-Timestamp': timestamp,
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
             etag = md5()
             etag.update('1' + '0' * 1023)
             etag = etag.hexdigest()
@@ -445,6 +477,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': 10,
             }
             writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
             etag = md5()
             etag = etag.hexdigest()
             metadata['ETag'] = etag
@@ -533,10 +566,20 @@ class TestAuditor(unittest.TestCase):
     def test_sleeper(self):
         with mock.patch(
                 'time.sleep', mock.MagicMock()) as mock_sleep:
-            auditor.SLEEP_BETWEEN_AUDITS = 0.10
             my_auditor = auditor.ObjectAuditor(self.conf)
             my_auditor._sleep()
-            mock_sleep.assert_called_with(auditor.SLEEP_BETWEEN_AUDITS)
+            mock_sleep.assert_called_with(30)
+
+            my_conf = dict(interval=2)
+            my_conf.update(self.conf)
+            my_auditor = auditor.ObjectAuditor(my_conf)
+            my_auditor._sleep()
+            mock_sleep.assert_called_with(2)
+
+            my_auditor = auditor.ObjectAuditor(self.conf)
+            my_auditor.interval = 2
+            my_auditor._sleep()
+            mock_sleep.assert_called_with(2)
 
     def test_run_parallel_audit(self):
 

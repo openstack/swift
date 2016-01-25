@@ -164,17 +164,17 @@ class TestRecon(unittest.TestCase):
         self.assertEqual(stats.get('perc_none'), 25.0)
 
     def test_ptime(self):
-        with mock.patch('time.localtime') as mock_localtime:
-            mock_localtime.return_value = time.struct_time(
+        with mock.patch('time.gmtime') as mock_gmtime:
+            mock_gmtime.return_value = time.struct_time(
                 (2013, 12, 17, 10, 0, 0, 1, 351, 0))
 
             timestamp = self.recon_instance._ptime(1387274400)
             self.assertEqual(timestamp, "2013-12-17 10:00:00")
-            mock_localtime.assert_called_with(1387274400)
+            mock_gmtime.assert_called_with(1387274400)
 
             timestamp2 = self.recon_instance._ptime()
             self.assertEqual(timestamp2, "2013-12-17 10:00:00")
-            mock_localtime.assert_called_with()
+            mock_gmtime.assert_called_with()
 
     def test_get_devices(self):
         ringbuilder = builder.RingBuilder(2, 3, 1)
@@ -750,11 +750,7 @@ class TestReconCommands(unittest.TestCase):
             mock.call('1/2 hosts matched, 0 error[s] while checking hosts.'),
         ]
 
-        def mock_localtime(*args, **kwargs):
-            return time.gmtime(*args, **kwargs)
-
-        with mock.patch("time.localtime", mock_localtime):
-            cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
+        cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
 
         # We need any_order=True because the order of calls depends on the dict
         # that is returned from the recon middleware, thus can't rely on it

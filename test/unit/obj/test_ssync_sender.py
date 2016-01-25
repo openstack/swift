@@ -1499,15 +1499,16 @@ class TestSender(BaseTest):
             '%(body)s\r\n' % expected)
 
     def test_send_post(self):
+        ts_iter = make_timestamp_iter()
         # create .data file
         extra_metadata = {'X-Object-Meta-Foo': 'old_value',
                           'X-Object-Sysmeta-Test': 'test_sysmeta',
                           'Content-Type': 'test_content_type'}
-        ts_0 = next(make_timestamp_iter())
+        ts_0 = next(ts_iter)
         df = self._make_open_diskfile(extra_metadata=extra_metadata,
                                       timestamp=ts_0)
         # create .meta file
-        ts_1 = next(make_timestamp_iter())
+        ts_1 = next(ts_iter)
         newer_metadata = {'X-Object-Meta-Foo': 'new_value',
                           'X-Timestamp': ts_1.internal}
         df.write_metadata(newer_metadata)

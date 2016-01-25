@@ -34,6 +34,7 @@ import sys
 import json
 import math
 
+import six
 from six import BytesIO, StringIO
 from six.moves.queue import Queue, Empty
 from six.moves import range
@@ -138,10 +139,6 @@ class MockSys(object):
         self.__stderr__ = self.stderr
         self.stdio_fds = [self.stdin.fileno(), self.stdout.fileno(),
                           self.stderr.fileno()]
-
-    @property
-    def version_info(self):
-        return sys.version_info
 
 
 def reset_loggers():
@@ -779,6 +776,15 @@ class TestTimestamp(unittest.TestCase):
             self.assertEqual(
                 sorted([t.internal for t in timestamps]), expected)
 
+    def test_hashable(self):
+        ts_0 = utils.Timestamp('1402444821.72589')
+        ts_0_also = utils.Timestamp('1402444821.72589')
+        self.assertEqual(ts_0, ts_0_also)  # sanity
+        self.assertEqual(hash(ts_0), hash(ts_0_also))
+        d = {ts_0: 'whatever'}
+        self.assertIn(ts_0, d)  # sanity
+        self.assertIn(ts_0_also, d)
+
 
 class TestUtils(unittest.TestCase):
     """Tests for swift.common.utils """
@@ -1212,7 +1218,7 @@ class TestUtils(unittest.TestCase):
         logger = logging.getLogger('server')
         logger.addHandler(logging.StreamHandler(sio))
         logger = utils.get_logger(None, 'server', log_route='server')
-        logger.warn('test1')
+        logger.warning('test1')
         self.assertEqual(sio.getvalue(), 'test1\n')
         logger.debug('test2')
         self.assertEqual(sio.getvalue(), 'test1\n')
@@ -1224,7 +1230,7 @@ class TestUtils(unittest.TestCase):
         # way to syslog; but exercises the code.
         logger = utils.get_logger({'log_facility': 'LOG_LOCAL3'}, 'server',
                                   log_route='server')
-        logger.warn('test4')
+        logger.warning('test4')
         self.assertEqual(sio.getvalue(),
                          'test1\ntest3\ntest4\n')
         # make sure debug doesn't log by default
@@ -1482,7 +1488,7 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('12345' not in log_msg)
             # test txn already in message
             self.assertEqual(logger.txn_id, '12345')
-            logger.warn('test 12345 test')
+            logger.warning('test 12345 test')
             self.assertEqual(strip_value(sio), 'test 12345 test\n')
             # Test multi line collapsing
             logger.error('my\nerror\nmessage')
@@ -1508,7 +1514,7 @@ class TestUtils(unittest.TestCase):
             self.assertTrue('1.2.3.4' not in log_msg)
             # test client_ip (and txn) already in message
             self.assertEqual(logger.client_ip, '1.2.3.4')
-            logger.warn('test 1.2.3.4 test 12345')
+            logger.warning('test 1.2.3.4 test 12345')
             self.assertEqual(strip_value(sio), 'test 1.2.3.4 test 12345\n')
         finally:
             logger.logger.removeHandler(handler)
@@ -3663,7 +3669,7 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith("|@0.5"))
+        self.assertTrue(payload.endswith(b"|@0.5"))
 
     def test_sample_rates_with_sample_rate_factor(self):
         logger = utils.get_logger({
@@ -3689,8 +3695,10 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 1)
 
         payload = mock_socket.sent[0][0]
-        self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                        payload)
+        suffix = "|@%s" % effective_sample_rate
+        if six.PY3:
+            suffix = suffix.encode('utf-8')
+        self.assertTrue(payload.endswith(suffix), payload)
 
         effective_sample_rate = 0.587 * 0.91
         statsd_client.random = lambda: effective_sample_rate - 0.001
@@ -3698,8 +3706,10 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(len(mock_socket.sent), 2)
 
         payload = mock_socket.sent[1][0]
-        self.assertTrue(payload.endswith("|@%s" % effective_sample_rate),
-                        payload)
+        suffix = "|@%s" % effective_sample_rate
+        if six.PY3:
+            suffix = suffix.encode('utf-8')
+        self.assertTrue(payload.endswith(suffix), payload)
 
     def test_timing_stats(self):
         class MockController(object):
@@ -3915,6 +3925,26 @@ class TestRateLimitedIterator(unittest.TestCase):
         # first element.
         self.assertEqual(len(got), 11)
 
+    def test_rate_limiting_sometimes(self):
+
+        def testfunc():
+            limited_iterator = utils.RateLimitedIterator(
+                range(9999), 100,
+                ratelimit_if=lambda item: item % 23 != 0)
+            got = []
+            started_at = time.time()
+            try:
+                while time.time() - started_at < 0.5:
+                    got.append(next(limited_iterator))
+            except StopIteration:
+                pass
+            return got
+
+        got = self.run_under_pseudo_time(testfunc)
+        # we'd get 51 without the ratelimit_if, but because 0, 23 and 46
+        # weren't subject to ratelimiting, we get 54 instead
+        self.assertEqual(len(got), 54)
+
     def test_limit_after(self):
 
         def testfunc():
@@ -3996,7 +4026,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         while True:
             try:
                 payload = self.sock.recv(4096)
-                if payload and 'STOP' in payload:
+                if payload and b'STOP' in payload:
                     return 42
                 self.queue.put(payload)
             except Exception as e:
@@ -4019,10 +4049,14 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
 
     def assertStat(self, expected, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
+        if six.PY3:
+            got = got.decode('utf-8')
         return self.assertEqual(expected, got)
 
     def assertStatMatches(self, expected_regexp, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
+        if six.PY3:
+            got = got.decode('utf-8')
         return self.assertTrue(re.search(expected_regexp, got),
                                [got, expected_regexp])
 
@@ -4191,7 +4225,7 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                          utils.get_valid_utf8_str(valid_utf8_str))
         self.assertEqual(valid_utf8_str,
                          utils.get_valid_utf8_str(unicode_sample))
-        self.assertEqual('\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
+        self.assertEqual(b'\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
                          utils.get_valid_utf8_str(invalid_utf8_str))
 
     @reset_logger_state

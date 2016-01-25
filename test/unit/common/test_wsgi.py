@@ -825,6 +825,13 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue('HTTP_X_PROJECT_ID' in newenv)
         self.assertEqual(newenv['HTTP_X_PROJECT_ID'], '5678')
 
+    def test_make_env_keeps_referer(self):
+        oldenv = {'HTTP_REFERER': 'http://blah.example.com'}
+        newenv = wsgi.make_env(oldenv)
+
+        self.assertTrue('HTTP_REFERER' in newenv)
+        self.assertEqual(newenv['HTTP_REFERER'], 'http://blah.example.com')
+
 
 class TestServersPerPortStrategy(unittest.TestCase):
     def setUp(self):

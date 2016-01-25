@@ -57,7 +57,7 @@ deployers.  Each container has a new special immutable metadata element called
 the storage policy index.  Note that internally, Swift relies on policy
 indexes and not policy names.  Policy names exist for human readability and
 translation is managed in the proxy.  When a container is created, one new
-optional header is supported to specify the policy name.  If nothing is
+optional header is supported to specify the policy name. If no name is
 specified, the default policy is used (and if no other policies defined,
 Policy-0 is considered the default).  We will be covering the difference
 between default and Policy-0 in the next section.
@@ -170,12 +170,13 @@ Storage Policies is a versatile feature intended to support both new and
 pre-existing clusters with the same level of flexibility.  For that reason, we
 introduce the ``Policy-0`` concept which is not the same as the "default"
 policy.  As you will see when we begin to configure policies, each policy has
-both a name (human friendly, configurable) as well as an index (or simply
-policy number). Swift reserves index 0 to map to the object ring that's
-present in all installations (e.g., ``/etc/swift/object.ring.gz``).  You can
-name this policy anything you like, and if no policies are defined it will
-report itself as ``Policy-0``, however you cannot change the index as there must
-always be a policy with index 0.
+a single name and an arbitrary number of aliases (human friendly,
+configurable) as well as an index (or simply policy number). Swift reserves
+index 0 to map to the object ring that's present in all installations
+(e.g., ``/etc/swift/object.ring.gz``). You can name this policy anything you
+like, and if no policies are defined it will report itself as ``Policy-0``,
+however you cannot change the index as there must always be a policy with
+index 0.
 
 Another important concept is the default policy which can be any policy
 in the cluster.  The default policy is the policy that is automatically
@@ -273,6 +274,8 @@ file:
     * Policy names must contain only letters, digits or a dash
     * Policy names must be unique
     * The policy name 'Policy-0' can only be used for the policy with index 0
+    * Multiple names can be assigned to one policy using aliases. All names
+      must follow the Swift naming rules.
     * If any policies are defined, exactly one policy must be declared default
     * Deprecated policies cannot be declared the default
     * If no ``policy_type`` is provided, ``replication`` is the default value.
@@ -288,6 +291,7 @@ example configuration.::
 
         [storage-policy:0]
         name = gold
+        aliases = yellow, orange
         policy_type = replication
         default = yes
 
@@ -301,8 +305,10 @@ information about the ``default`` and ``deprecated`` options.
 
 There are some other considerations when managing policies:
 
-    * Policy names can be changed (but be sure that users are aware, aliases are
-      not currently supported but could be implemented in custom middleware!)
+    * Policy names can be changed.
+    * Aliases are supported and can be added and removed. If the primary name
+      of a policy is removed the next available alias will be adopted as the
+      primary name. A policy must always have at least one name.
     * You cannot change the index of a policy once it has been created
     * The default policy can be changed at any time, by adding the
       default directive to the desired policy section
@@ -399,7 +405,7 @@ The module, :ref:`storage_policy`, is responsible for parsing the
 configured policies via class :class:`.StoragePolicyCollection`.  This
 collection is made up of policies of class :class:`.StoragePolicy`. The
 collection class includes handy functions for getting to a policy either by
-name or by index , getting info about the policies, etc.  There's also one
+name or by index , getting info about the policies, etc. There's also one
 very important function, :meth:`~.StoragePolicyCollection.get_object_ring`.
 Object rings are members of the :class:`.StoragePolicy` class and are
 actually not instantiated until the :meth:`~.StoragePolicy.load_ring`

@@ -174,11 +174,12 @@ class Replicator(Daemon):
         if not self.rsync_module:
             self.rsync_module = '{replication_ip}::%s' % self.server_type
             if config_true_value(conf.get('vm_test_mode', 'no')):
-                self.logger.warn('Option %(type)s-replicator/vm_test_mode is '
-                                 'deprecated and will be removed in a future '
-                                 'version. Update your configuration to use '
-                                 'option %(type)s-replicator/rsync_module.'
-                                 % {'type': self.server_type})
+                self.logger.warning('Option %(type)s-replicator/vm_test_mode '
+                                    'is deprecated and will be removed in a '
+                                    'future version. Update your configuration'
+                                    ' to use option %(type)s-replicator/'
+                                    'rsync_module.'
+                                    % {'type': self.server_type})
                 self.rsync_module += '{replication_port}'
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
@@ -632,7 +633,7 @@ class Replicator(Daemon):
                         [(failure_dev['replication_ip'],
                           failure_dev['device'])
                          for failure_dev in self.ring.devs if failure_dev])
-                    self.logger.warn(
+                    self.logger.warning(
                         _('Skipping %(device)s as it is not mounted') % node)
                     continue
                 unlink_older_than(

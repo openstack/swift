@@ -819,8 +819,8 @@ class ObjectReconstructor(Daemon):
                 dev_path = self._df_router[policy].get_dev_path(
                     local_dev['device'])
                 if not dev_path:
-                    self.logger.warn(_('%s is not mounted'),
-                                     local_dev['device'])
+                    self.logger.warning(_('%s is not mounted'),
+                                        local_dev['device'])
                     continue
                 obj_path = join(dev_path, data_dir)
                 tmp_path = join(dev_path, get_tmp_dir(int(policy)))

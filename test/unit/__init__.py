@@ -203,13 +203,6 @@ class FakeRing(Ring):
 
     def __init__(self, replicas=3, max_more_nodes=0, part_power=0,
                  base_port=1000):
-        """
-        :param part_power: make part calculation based on the path
-
-        If you set a part_power when you setup your FakeRing the parts you get
-        out of ring methods will actually be based on the path - otherwise we
-        exercise the real ring code, but ignore the result and return 1.
-        """
         self._base_port = base_port
         self.max_more_nodes = max_more_nodes
         self._part_shift = 32 - part_power
@@ -477,6 +470,12 @@ class UnmockTimeModule(object):
 logging.time = UnmockTimeModule()
 
 
+class WARN_DEPRECATED(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+        print(self.msg)
+
+
 class FakeLogger(logging.Logger, object):
     # a thread safe fake logger
 
@@ -498,6 +497,9 @@ class FakeLogger(logging.Logger, object):
         logging.CRITICAL: 'critical',
         NOTICE: 'notice',
     }
+
+    def warn(self, *args, **kwargs):
+        raise WARN_DEPRECATED("Deprecated Method warn use warning instead")
 
     def notice(self, msg, *args, **kwargs):
         """

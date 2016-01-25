@@ -389,8 +389,8 @@ def load_libc_function(func_name, log_error=True,
         if fail_if_missing:
             raise
         if log_error:
-            logging.warn(_("Unable to locate %s in libc.  Leaving as a "
-                         "no-op."), func_name)
+            logging.warning(_("Unable to locate %s in libc.  Leaving as a "
+                            "no-op."), func_name)
         return noop_libc_function
 
 
@@ -424,7 +424,7 @@ def get_log_line(req, res, trans_time, additional_info):
     :param trans_time: the time the request took to complete, a float.
     :param additional_info: a string to log at the end of the line
 
-    :returns: a properly formated line for logging.
+    :returns: a properly formatted line for logging.
     """
 
     policy_index = get_policy_index(req.headers, res.headers)
@@ -580,8 +580,8 @@ class FallocateWrapper(object):
             if self.fallocate is not noop_libc_function:
                 break
         if self.fallocate is noop_libc_function:
-            logging.warn(_("Unable to locate fallocate, posix_fallocate in "
-                         "libc.  Leaving as a no-op."))
+            logging.warning(_("Unable to locate fallocate, posix_fallocate in "
+                            "libc.  Leaving as a no-op."))
 
     def __call__(self, fd, mode, offset, length):
         """The length parameter must be a ctypes.c_uint64."""
@@ -664,8 +664,8 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warn(_("Unable to perform fsync() on directory %s: %s"),
-                     dirpath, os.strerror(err.errno))
+        logging.warning(_("Unable to perform fsync() on directory %s: %s"),
+                        dirpath, os.strerror(err.errno))
     finally:
         if dirfd:
             os.close(dirfd)
@@ -686,9 +686,9 @@ def drop_buffer_cache(fd, offset, length):
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                          ctypes.c_uint64(length), 4)
     if ret != 0:
-        logging.warn("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
-                     "-> %(ret)s", {'fd': fd, 'offset': offset,
-                                    'length': length, 'ret': ret})
+        logging.warning("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
+                        "-> %(ret)s", {'fd': fd, 'offset': offset,
+                                       'length': length, 'ret': ret})
 
 
 NORMAL_FORMAT = "%016.05f"
@@ -778,6 +778,10 @@ class Timestamp(object):
                 raise ValueError(
                     'delta must be greater than %d' % (-1 * self.raw))
             self.timestamp = float(self.raw * PRECISION)
+        if self.timestamp < 0:
+            raise ValueError('timestamp cannot be negative')
+        if self.timestamp >= 10000000000:
+            raise ValueError('timestamp too large')
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
@@ -832,6 +836,9 @@ class Timestamp(object):
             other = Timestamp(other)
         return cmp(self.internal, other.internal)
 
+    def __hash__(self):
+        return hash(self.internal)
+
 
 def normalize_timestamp(timestamp):
     """
@@ -859,14 +866,10 @@ def last_modified_date_to_timestamp(last_modified_date_str):
     start = datetime.datetime.strptime(last_modified_date_str,
                                        '%Y-%m-%dT%H:%M:%S.%f')
     delta = start - EPOCH
-    # TODO(sam): after we no longer support py2.6, this expression can
-    # simplify to Timestamp(delta.total_seconds()).
-    #
+
     # This calculation is based on Python 2.7's Modules/datetimemodule.c,
     # function delta_to_microseconds(), but written in Python.
-    return Timestamp(delta.days * 86400 +
-                     delta.seconds +
-                     delta.microseconds / 1000000.0)
+    return Timestamp(delta.total_seconds())
 
 
 def normalize_delete_at_timestamp(timestamp):
@@ -1041,22 +1044,27 @@ class RateLimitedIterator(object):
                         this many elements; default is 0 (rate limit
                         immediately)
     """
-    def __init__(self, iterable, elements_per_second, limit_after=0):
+    def __init__(self, iterable, elements_per_second, limit_after=0,
+                 ratelimit_if=lambda _junk: True):
         self.iterator = iter(iterable)
         self.elements_per_second = elements_per_second
         self.limit_after = limit_after
         self.running_time = 0
+        self.ratelimit_if = ratelimit_if
 
     def __iter__(self):
         return self
 
     def next(self):
-        if self.limit_after > 0:
-            self.limit_after -= 1
-        else:
-            self.running_time = ratelimit_sleep(self.running_time,
-                                                self.elements_per_second)
-        return next(self.iterator)
+        next_value = next(self.iterator)
+
+        if self.ratelimit_if(next_value):
+            if self.limit_after > 0:
+                self.limit_after -= 1
+            else:
+                self.running_time = ratelimit_sleep(self.running_time,
+                                                    self.elements_per_second)
+        return next_value
 
 
 class GreenthreadSafeIterator(object):
@@ -1166,14 +1174,16 @@ class StatsdClient(object):
                 parts.append('@%s' % (sample_rate,))
             else:
                 return
+        if six.PY3:
+            parts = [part.encode('utf-8') for part in parts]
         # Ideally, we'd cache a sending socket in self, but that
         # results in a socket getting shared by multiple green threads.
         with closing(self._open_socket()) as sock:
             try:
-                return sock.sendto('|'.join(parts), self._target)
+                return sock.sendto(b'|'.join(parts), self._target)
             except IOError as err:
                 if self.logger:
-                    self.logger.warn(
+                    self.logger.warning(
                         'Error sending UDP message to %r: %s',
                         self._target, err)
 
@@ -1227,7 +1237,7 @@ def timing_stats(**dec_kwargs):
     swift's wsgi server controllers, based on response code.
     """
     def decorating_func(func):
-        method = func.func_name
+        method = func.__name__
 
         @functools.wraps(func)
         def _timing_stats(ctrl, *args, **kwargs):
@@ -1258,7 +1268,6 @@ class LogAdapter(logging.LoggerAdapter, object):
     def __init__(self, logger, server):
         logging.LoggerAdapter.__init__(self, logger, {})
         self.server = server
-        setattr(self, 'warn', self.warning)
 
     @property
     def txn_id(self):
@@ -3581,7 +3590,8 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
             except StopIteration:
                 pass
             else:
-                logger.warn("More than one part in a single-part response?")
+                logger.warning(
+                    "More than one part in a single-part response?")
 
         return string_along(response_body_iter, ranges_iter, logger)
 

@@ -158,120 +158,122 @@ class TestHeaderKeyDict(unittest.TestCase):
 
 class TestRange(unittest.TestCase):
     def test_range(self):
-        range = swift.common.swob.Range('bytes=1-7')
-        self.assertEqual(range.ranges[0], (1, 7))
+        swob_range = swift.common.swob.Range('bytes=1-7')
+        self.assertEqual(swob_range.ranges[0], (1, 7))
 
     def test_upsidedown_range(self):
-        range = swift.common.swob.Range('bytes=5-10')
-        self.assertEqual(range.ranges_for_length(2), [])
+        swob_range = swift.common.swob.Range('bytes=5-10')
+        self.assertEqual(swob_range.ranges_for_length(2), [])
 
     def test_str(self):
         for range_str in ('bytes=1-7', 'bytes=1-', 'bytes=-1',
                           'bytes=1-7,9-12', 'bytes=-7,9-'):
-            range = swift.common.swob.Range(range_str)
-            self.assertEqual(str(range), range_str)
+            swob_range = swift.common.swob.Range(range_str)
+            self.assertEqual(str(swob_range), range_str)
 
     def test_ranges_for_length(self):
-        range = swift.common.swob.Range('bytes=1-7')
-        self.assertEqual(range.ranges_for_length(10), [(1, 8)])
-        self.assertEqual(range.ranges_for_length(5), [(1, 5)])
-        self.assertEqual(range.ranges_for_length(None), None)
+        swob_range = swift.common.swob.Range('bytes=1-7')
+        self.assertEqual(swob_range.ranges_for_length(10), [(1, 8)])
+        self.assertEqual(swob_range.ranges_for_length(5), [(1, 5)])
+        self.assertEqual(swob_range.ranges_for_length(None), None)
 
     def test_ranges_for_large_length(self):
-        range = swift.common.swob.Range('bytes=-1000000000000000000000000000')
-        self.assertEqual(range.ranges_for_length(100), [(0, 100)])
+        swob_range = swift.common.swob.Range('bytes=-100000000000000000000000')
+        self.assertEqual(swob_range.ranges_for_length(100), [(0, 100)])
 
     def test_ranges_for_length_no_end(self):
-        range = swift.common.swob.Range('bytes=1-')
-        self.assertEqual(range.ranges_for_length(10), [(1, 10)])
-        self.assertEqual(range.ranges_for_length(5), [(1, 5)])
-        self.assertEqual(range.ranges_for_length(None), None)
+        swob_range = swift.common.swob.Range('bytes=1-')
+        self.assertEqual(swob_range.ranges_for_length(10), [(1, 10)])
+        self.assertEqual(swob_range.ranges_for_length(5), [(1, 5)])
+        self.assertEqual(swob_range.ranges_for_length(None), None)
         # This used to freak out:
-        range = swift.common.swob.Range('bytes=100-')
-        self.assertEqual(range.ranges_for_length(5), [])
-        self.assertEqual(range.ranges_for_length(None), None)
+        swob_range = swift.common.swob.Range('bytes=100-')
+        self.assertEqual(swob_range.ranges_for_length(5), [])
+        self.assertEqual(swob_range.ranges_for_length(None), None)
 
-        range = swift.common.swob.Range('bytes=4-6,100-')
-        self.assertEqual(range.ranges_for_length(5), [(4, 5)])
+        swob_range = swift.common.swob.Range('bytes=4-6,100-')
+        self.assertEqual(swob_range.ranges_for_length(5), [(4, 5)])
 
     def test_ranges_for_length_no_start(self):
-        range = swift.common.swob.Range('bytes=-7')
-        self.assertEqual(range.ranges_for_length(10), [(3, 10)])
-        self.assertEqual(range.ranges_for_length(5), [(0, 5)])
-        self.assertEqual(range.ranges_for_length(None), None)
+        swob_range = swift.common.swob.Range('bytes=-7')
+        self.assertEqual(swob_range.ranges_for_length(10), [(3, 10)])
+        self.assertEqual(swob_range.ranges_for_length(5), [(0, 5)])
+        self.assertEqual(swob_range.ranges_for_length(None), None)
 
-        range = swift.common.swob.Range('bytes=4-6,-100')
-        self.assertEqual(range.ranges_for_length(5), [(4, 5), (0, 5)])
+        swob_range = swift.common.swob.Range('bytes=4-6,-100')
+        self.assertEqual(swob_range.ranges_for_length(5), [(4, 5), (0, 5)])
 
     def test_ranges_for_length_multi(self):
-        range = swift.common.swob.Range('bytes=-20,4-')
-        self.assertEqual(len(range.ranges_for_length(200)), 2)
+        swob_range = swift.common.swob.Range('bytes=-20,4-')
+        self.assertEqual(len(swob_range.ranges_for_length(200)), 2)
 
         # the actual length greater than each range element
-        self.assertEqual(range.ranges_for_length(200), [(180, 200), (4, 200)])
+        self.assertEqual(swob_range.ranges_for_length(200),
+                         [(180, 200), (4, 200)])
 
-        range = swift.common.swob.Range('bytes=30-150,-10')
-        self.assertEqual(len(range.ranges_for_length(200)), 2)
+        swob_range = swift.common.swob.Range('bytes=30-150,-10')
+        self.assertEqual(len(swob_range.ranges_for_length(200)), 2)
 
         # the actual length lands in the middle of a range
-        self.assertEqual(range.ranges_for_length(90), [(30, 90), (80, 90)])
+        self.assertEqual(swob_range.ranges_for_length(90),
+                         [(30, 90), (80, 90)])
 
         # the actual length greater than any of the range
-        self.assertEqual(range.ranges_for_length(200),
+        self.assertEqual(swob_range.ranges_for_length(200),
                          [(30, 151), (190, 200)])
 
-        self.assertEqual(range.ranges_for_length(None), None)
+        self.assertEqual(swob_range.ranges_for_length(None), None)
 
     def test_ranges_for_length_edges(self):
-        range = swift.common.swob.Range('bytes=0-1, -7')
-        self.assertEqual(range.ranges_for_length(10),
+        swob_range = swift.common.swob.Range('bytes=0-1, -7')
+        self.assertEqual(swob_range.ranges_for_length(10),
                          [(0, 2), (3, 10)])
 
-        range = swift.common.swob.Range('bytes=-7, 0-1')
-        self.assertEqual(range.ranges_for_length(10),
+        swob_range = swift.common.swob.Range('bytes=-7, 0-1')
+        self.assertEqual(swob_range.ranges_for_length(10),
                          [(3, 10), (0, 2)])
 
-        range = swift.common.swob.Range('bytes=-7, 0-1')
-        self.assertEqual(range.ranges_for_length(5),
+        swob_range = swift.common.swob.Range('bytes=-7, 0-1')
+        self.assertEqual(swob_range.ranges_for_length(5),
                          [(0, 5), (0, 2)])
 
     def test_ranges_for_length_overlapping(self):
         # Fewer than 3 overlaps is okay
-        range = swift.common.swob.Range('bytes=10-19,15-24')
-        self.assertEqual(range.ranges_for_length(100),
+        swob_range = swift.common.swob.Range('bytes=10-19,15-24')
+        self.assertEqual(swob_range.ranges_for_length(100),
                          [(10, 20), (15, 25)])
-        range = swift.common.swob.Range('bytes=10-19,15-24,20-29')
-        self.assertEqual(range.ranges_for_length(100),
+        swob_range = swift.common.swob.Range('bytes=10-19,15-24,20-29')
+        self.assertEqual(swob_range.ranges_for_length(100),
                          [(10, 20), (15, 25), (20, 30)])
 
         # Adjacent ranges, though suboptimal, don't overlap
-        range = swift.common.swob.Range('bytes=10-19,20-29,30-39')
-        self.assertEqual(range.ranges_for_length(100),
+        swob_range = swift.common.swob.Range('bytes=10-19,20-29,30-39')
+        self.assertEqual(swob_range.ranges_for_length(100),
                          [(10, 20), (20, 30), (30, 40)])
 
         # Ranges that share a byte do overlap
-        range = swift.common.swob.Range('bytes=10-20,20-30,30-40,40-50')
-        self.assertEqual(range.ranges_for_length(100), [])
+        swob_range = swift.common.swob.Range('bytes=10-20,20-30,30-40,40-50')
+        self.assertEqual(swob_range.ranges_for_length(100), [])
 
         # With suffix byte range specs (e.g. bytes=-2), make sure that we
         # correctly determine overlapping-ness based on the entity length
-        range = swift.common.swob.Range('bytes=10-15,15-20,30-39,-9')
-        self.assertEqual(range.ranges_for_length(100),
+        swob_range = swift.common.swob.Range('bytes=10-15,15-20,30-39,-9')
+        self.assertEqual(swob_range.ranges_for_length(100),
                          [(10, 16), (15, 21), (30, 40), (91, 100)])
-        self.assertEqual(range.ranges_for_length(20), [])
+        self.assertEqual(swob_range.ranges_for_length(20), [])
 
     def test_ranges_for_length_nonascending(self):
         few_ranges = ("bytes=100-109,200-209,300-309,500-509,"
                       "400-409,600-609,700-709")
         many_ranges = few_ranges + ",800-809"
 
-        range = swift.common.swob.Range(few_ranges)
-        self.assertEqual(range.ranges_for_length(100000),
+        swob_range = swift.common.swob.Range(few_ranges)
+        self.assertEqual(swob_range.ranges_for_length(100000),
                          [(100, 110), (200, 210), (300, 310), (500, 510),
                           (400, 410), (600, 610), (700, 710)])
 
-        range = swift.common.swob.Range(many_ranges)
-        self.assertEqual(range.ranges_for_length(100000), [])
+        swob_range = swift.common.swob.Range(many_ranges)
+        self.assertEqual(swob_range.ranges_for_length(100000), [])
 
     def test_ranges_for_length_too_many(self):
         at_the_limit_ranges = (

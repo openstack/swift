@@ -210,7 +210,7 @@ class DecrypterObjContext(BaseDecrypterContext):
         if not body_crypto_meta:
             # TODO should this be an error i.e. should we never expect to get
             # if keymaster is behaving correctly and sets crypto.override flag?
-            self.logger.warn("Warning: No sysmeta-crypto-meta for body.")
+            self.logger.warning("Warning: No sysmeta-crypto-meta for body.")
             return None
 
         content_range = self._response_header_value('Content-Range')
