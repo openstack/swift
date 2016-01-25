@@ -7,7 +7,7 @@ Please refer to the latest official
 for the most up-to-date documentation.
 
 Object Storage installation guide for Openstack Liberty
-----------------------------------------------------
+-------------------------------------------------------
 
  * `openSUSE 13.2 and SUSE Linux Enterprise Server 12 <http://docs.openstack.org/liberty/install-guide-obs/swift.html>`_
  * `RHEL 7, CentOS 7 <http://docs.openstack.org/liberty/install-guide-rdo/swift.html>`_
