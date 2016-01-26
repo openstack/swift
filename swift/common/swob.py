@@ -164,7 +164,7 @@ def _datetime_property(header):
                 return None
 
     def setter(self, value):
-        if isinstance(value, (float, int, long)):
+        if isinstance(value, (float,) + six.integer_types):
             self.headers[header] = time.strftime(
                 "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(value))
         elif isinstance(value, datetime):
