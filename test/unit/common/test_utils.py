@@ -1213,6 +1213,29 @@ class TestUtils(unittest.TestCase):
         finally:
             rmtree(testdir_base)
 
+    def test_dump_recon_cache_permission_denied(self):
+        testdir_base = mkdtemp()
+        testcache_file = os.path.join(testdir_base, 'cache.recon')
+
+        class MockLogger(object):
+            def __init__(self):
+                self._excs = []
+
+            def exception(self, message):
+                _junk, exc, _junk = sys.exc_info()
+                self._excs.append(exc)
+
+        logger = MockLogger()
+        try:
+            submit_dict = {'key1': {'value1': 1, 'value2': 2}}
+            with mock.patch(
+                    'swift.common.utils.NamedTemporaryFile',
+                    side_effect=IOError(13, 'Permission Denied')):
+                utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            self.assertIsInstance(logger._excs[0], IOError)
+        finally:
+            rmtree(testdir_base)
+
     def test_get_logger(self):
         sio = StringIO()
         logger = logging.getLogger('server')
