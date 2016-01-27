@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack Foundation
+# Copyright (c) 2010-2016 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -475,6 +475,10 @@ def _get_info_cache(app, env, account, container=None):
             for key in info:
                 if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
+                if isinstance(info[key], dict):
+                    for subkey, value in info[key].items():
+                        if isinstance(value, six.text_type):
+                            info[key][subkey] = value.encode("utf-8")
             env[env_key] = info
         return info
     return None
