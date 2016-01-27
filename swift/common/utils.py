@@ -1081,6 +1081,7 @@ class RateLimitedIterator(object):
                 self.running_time = ratelimit_sleep(self.running_time,
                                                     self.elements_per_second)
         return next_value
+    __next__ = next
 
 
 class GreenthreadSafeIterator(object):
@@ -1104,6 +1105,7 @@ class GreenthreadSafeIterator(object):
     def next(self):
         with self.semaphore:
             return next(self.unsafe_iter)
+    __next__ = next
 
 
 class NullLogger(object):
@@ -1143,6 +1145,7 @@ class LoggerFileObject(object):
 
     def next(self):
         raise IOError(errno.EBADF, 'Bad file descriptor')
+    __next__ = next
 
     def read(self, size=-1):
         raise IOError(errno.EBADF, 'Bad file descriptor')
@@ -2318,6 +2321,7 @@ class GreenAsyncPile(object):
             rv = self._responses.get()
         self._pending -= 1
         return rv
+    __next__ = next
 
 
 class ModifiedParseResult(ParseResult):
