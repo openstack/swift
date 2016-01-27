@@ -2926,6 +2926,10 @@ class TestObjectController(unittest.TestCase):
 
         # now POST to the object using default object_post_as_copy setting
         orig_post_as_copy = prosrv.object_post_as_copy
+
+        # last-modified rounded in sec so sleep a sec to increment
+        sleep(1)
+
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('POST /v1/a/c/o.last_modified HTTP/1.1\r\n'
@@ -2940,10 +2944,14 @@ class TestObjectController(unittest.TestCase):
 
         # last modified time will have changed due to POST
         last_modified_head = _do_HEAD()
+        self.assertNotEqual(last_modified_put, last_modified_head)
         _do_conditional_GET_checks(last_modified_head)
 
         # now POST using non-default object_post_as_copy setting
         try:
+            # last-modified rounded in sec so sleep a sec to increment
+            last_modified_post = last_modified_head
+            sleep(1)
             prosrv.object_post_as_copy = not orig_post_as_copy
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
@@ -2961,6 +2969,7 @@ class TestObjectController(unittest.TestCase):
 
         # last modified time will have changed due to POST
         last_modified_head = _do_HEAD()
+        self.assertNotEqual(last_modified_post, last_modified_head)
         _do_conditional_GET_checks(last_modified_head)
 
     def test_PUT_auto_content_type(self):
