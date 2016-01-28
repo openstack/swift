@@ -1472,7 +1472,7 @@ At Rackspace, our Proxy servers have dual quad core processors, giving us 8
 cores. Our testing has shown 16 workers to be a pretty good balance when
 saturating a 10g network and gives good CPU utilization.
 
-Our Storage servers all run together on the same servers. These servers have
+Our Storage server processes all run together on the same servers. These servers have
 dual quad core processors, for 8 cores total. We run the Account, Container,
 and Object servers with 8 workers each. Most of the background jobs are run at
 a concurrency of 1, with the exception of the replicators which are run at a
