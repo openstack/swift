@@ -287,6 +287,10 @@ class TestTimestamp(unittest.TestCase):
         for value in test_values:
             self.assertTrue(value != ts)
 
+        self.assertIs(True, utils.Timestamp(ts) == ts)  # sanity
+        self.assertIs(False, utils.Timestamp(ts) != utils.Timestamp(ts))
+        self.assertIs(False, utils.Timestamp(ts) != ts)
+
     def test_no_force_internal_no_offset(self):
         """Test that internal is the same as normal with no offset"""
         with mock.patch('swift.common.utils.FORCE_INTERNAL', new=False):

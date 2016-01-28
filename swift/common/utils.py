@@ -847,6 +847,11 @@ class Timestamp(object):
             other = Timestamp(other)
         return self.internal == other.internal
 
+    def __ne__(self, other):
+        if not isinstance(other, Timestamp):
+            other = Timestamp(other)
+        return self.internal != other.internal
+
     def __lt__(self, other):
         if not isinstance(other, Timestamp):
             other = Timestamp(other)
