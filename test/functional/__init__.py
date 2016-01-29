@@ -388,6 +388,15 @@ def in_process_setup(the_object_server=object_server):
         'SERVICE_require_group': 'service'
     })
 
+    # If an env var explicitly specifies the proxy-server object_post_as_copy
+    # option then use its value, otherwise leave default config unchanged.
+    object_post_as_copy = os.environ.get(
+        'SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY')
+    if object_post_as_copy is not None:
+        object_post_as_copy = config_true_value(object_post_as_copy)
+        config['object_post_as_copy'] = str(object_post_as_copy)
+        _debug('Setting object_post_as_copy to %r' % object_post_as_copy)
+
     acc1lis = eventlet.listen(('localhost', 0))
     acc2lis = eventlet.listen(('localhost', 0))
     con1lis = eventlet.listen(('localhost', 0))
