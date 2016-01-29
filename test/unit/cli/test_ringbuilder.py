@@ -1771,8 +1771,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertRaises(SystemExit, ringbuilder.main, argv)
-        rnf = re.compile("Ring file .*\.ring\.gz not found")
-        self.assertTrue(rnf.findall(mock_stdout.getvalue()))
+        ring_not_found_re = re.compile("Ring file .*\.ring\.gz not found")
+        self.assertTrue(ring_not_found_re.findall(mock_stdout.getvalue()))
 
         # write ring file
         argv = ["", self.tmpfile, "rebalance"]
@@ -1783,8 +1783,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertRaises(SystemExit, ringbuilder.main, argv)
-        rutd = re.compile("Ring file .*\.ring\.gz is up-to-date")
-        self.assertTrue(rutd.findall(mock_stdout.getvalue()))
+        ring_up_to_date_re = re.compile("Ring file .*\.ring\.gz is up-to-date")
+        self.assertTrue(ring_up_to_date_re.findall(mock_stdout.getvalue()))
 
         # change builder (set weight)
         argv = ["", self.tmpfile, "set_weight", "0", "--id", "3"]
@@ -1795,8 +1795,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertRaises(SystemExit, ringbuilder.main, argv)
-        ro = re.compile("Ring file .*\.ring\.gz is obsolete")
-        self.assertTrue(ro.findall(mock_stdout.getvalue()))
+        ring_obsolete_re = re.compile("Ring file .*\.ring\.gz is obsolete")
+        self.assertTrue(ring_obsolete_re.findall(mock_stdout.getvalue()))
 
         # write ring file
         argv = ["", self.tmpfile, "write_ring"]
@@ -1807,7 +1807,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertRaises(SystemExit, ringbuilder.main, argv)
-        self.assertTrue(rutd.findall(mock_stdout.getvalue()))
+        self.assertTrue(ring_up_to_date_re.findall(mock_stdout.getvalue()))
 
         # Break ring file e.g. just make it empty
         open('%s.ring.gz' % self.tmpfile, 'w').close()
@@ -1817,8 +1817,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertRaises(SystemExit, ringbuilder.main, argv)
-        ro = re.compile("Ring file .*\.ring\.gz is invalid")
-        self.assertTrue(ro.findall(mock_stdout.getvalue()))
+        ring_invalid_re = re.compile("Ring file .*\.ring\.gz is invalid")
+        self.assertTrue(ring_invalid_re.findall(mock_stdout.getvalue()))
 
     def test_rebalance(self):
         self.create_sample_ring()
