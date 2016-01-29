@@ -4971,6 +4971,8 @@ class TestObjectController(unittest.TestCase):
                          'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEqual(401, resp.status_int)
+            self.assertNotIn('Access-Control-Allow-Origin', resp.headers)
+            self.assertNotIn('Vary', resp.headers)
 
             def my_empty_origin_container_info(*args):
                 return {'cors': {'allow_origin': None}}
@@ -4982,6 +4984,8 @@ class TestObjectController(unittest.TestCase):
                          'Access-Control-Request-Method': 'GET'})
             resp = controller.OPTIONS(req)
             self.assertEqual(401, resp.status_int)
+            self.assertNotIn('Access-Control-Allow-Origin', resp.headers)
+            self.assertNotIn('Vary', resp.headers)
 
             def my_container_info(*args):
                 return {
@@ -5002,13 +5006,13 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(
                 'https://foo.bar',
                 resp.headers['access-control-allow-origin'])
-            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
-                self.assertIn(verb,
-                              resp.headers['access-control-allow-methods'])
+            self.assertEqual('Origin', resp.headers.get('vary'))
             self.assertEqual(
-                len(resp.headers['access-control-allow-methods'].split(', ')),
-                6)
+                sorted(resp.headers['access-control-allow-methods']
+                       .split(', ')),
+                sorted('OPTIONS GET POST PUT DELETE HEAD'.split()))
             self.assertEqual('999', resp.headers['access-control-max-age'])
+
             req = Request.blank(
                 '/v1/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -5016,19 +5020,28 @@ class TestObjectController(unittest.TestCase):
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEqual(401, resp.status_int)
+            self.assertNotIn('Access-Control-Allow-Origin', resp.headers)
+            self.assertNotIn('Vary', resp.headers)
+
             req = Request.blank('/v1/a/c/o.jpg', {'REQUEST_METHOD': 'OPTIONS'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEqual(200, resp.status_int)
-            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
-                self.assertIn(verb, resp.headers['Allow'])
-            self.assertEqual(len(resp.headers['Allow'].split(', ')), 6)
+            self.assertEqual(
+                sorted(resp.headers['Allow'].split(', ')),
+                sorted('OPTIONS GET POST PUT DELETE HEAD'.split()))
+            self.assertNotIn('Access-Control-Allow-Origin', resp.headers)
+            self.assertNotIn('Vary', resp.headers)
+
             req = Request.blank(
                 '/v1/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
                 headers={'Origin': 'http://foo.com'})
             resp = controller.OPTIONS(req)
             self.assertEqual(401, resp.status_int)
+            self.assertNotIn('Access-Control-Allow-Origin', resp.headers)
+            self.assertNotIn('Vary', resp.headers)
+
             req = Request.blank(
                 '/v1/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -5037,6 +5050,7 @@ class TestObjectController(unittest.TestCase):
             controller.app.cors_allow_origin = ['http://foo.bar', ]
             resp = controller.OPTIONS(req)
             self.assertEqual(200, resp.status_int)
+            self.assertEqual('Origin', resp.headers.get('vary'))
 
             def my_container_info_wildcard(*args):
                 return {
@@ -5055,12 +5069,11 @@ class TestObjectController(unittest.TestCase):
             resp = controller.OPTIONS(req)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('*', resp.headers['access-control-allow-origin'])
-            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
-                self.assertIn(verb,
-                              resp.headers['access-control-allow-methods'])
+            self.assertNotIn('Vary', resp.headers)
             self.assertEqual(
-                len(resp.headers['access-control-allow-methods'].split(', ')),
-                6)
+                sorted(resp.headers['access-control-allow-methods']
+                       .split(', ')),
+                sorted('OPTIONS GET POST PUT DELETE HEAD'.split()))
             self.assertEqual('999', resp.headers['access-control-max-age'])
 
     def _get_CORS_response(self, container_cors, strict_mode, object_get=None):
@@ -7114,11 +7127,13 @@ class TestContainerController(unittest.TestCase):
                 '/v1/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
                 headers={'Origin': 'https://bar.baz',
+                         'Access-Control-Request-Headers': ' , ,,',
                          'Access-Control-Request-Method': 'GET'})
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('*', resp.headers['access-control-allow-origin'])
+            self.assertNotIn('access-control-allow-headers', resp.headers)
             for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
                 self.assertIn(verb,
                               resp.headers['access-control-allow-methods'])
@@ -7132,7 +7147,7 @@ class TestContainerController(unittest.TestCase):
                 {'REQUEST_METHOD': 'OPTIONS'},
                 headers={'Origin': 'https://bar.baz',
                          'Access-Control-Request-Headers':
-                         'x-foo, x-bar, x-auth-token',
+                         'x-foo, x-bar, , x-auth-token',
                          'Access-Control-Request-Method': 'GET'}
             )
             req.content_length = 0
@@ -7141,6 +7156,8 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(
                 sortHeaderNames('x-foo, x-bar, x-auth-token'),
                 sortHeaderNames(resp.headers['access-control-allow-headers']))
+            self.assertEqual('Access-Control-Request-Headers',
+                             resp.headers.get('vary'))
 
     def test_CORS_valid(self):
         with save_globals():
