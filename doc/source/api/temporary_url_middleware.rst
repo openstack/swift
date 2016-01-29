@@ -14,6 +14,10 @@ the object. When the web browser user clicks on the link, the browser
 downloads the object directly from Object Storage, eliminating the need
 for the website to act as a proxy for the request.
 
+Furthermore, a temporary URL can be prefix-based. These URLs
+contain a signature which is is valid for all objects which share
+a common prefix. They are useful for sharing a set of objects.
+
 Ask your cloud administrator to enable the temporary URL feature. For
 information, see :ref:`tempurl` in the *Source Documentation*.
 
@@ -59,6 +63,17 @@ generates a default file name for **GET** temporary URLs that is based on the
 object name. Object Storage returns this value in the ``Content-Disposition``
 response header. Browsers can interpret this file name value as a file
 attachment to be saved.
+
+A prefix-based temporary URL is similar but requires the parameter
+``temp_url_prefix``, which must be equal to the common prefix shared
+by all object names for which the URL is valid.
+
+.. code::
+
+    https://swift-cluster.example.com/v1/my_account/container/my_prefix/object
+    ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709
+    &temp_url_expires=1323479485
+    &temp_url_prefix=my_prefix
 
 .. _secret_keys:
 
@@ -114,17 +129,16 @@ signature includes these elements:
    into the future.
 
 -  The path. Starting with ``/v1/`` onwards and including a container
-   name and object. In the example below, the path is
-   ``/v1/my_account/container/object``. Do not URL-encode the path at
-   this stage.
+   name and object. The path for prefix-based signatures must start with
+   ``prefix:/v1/``. Do not URL-encode the path at this stage.
 
 -  The secret key. Use one of the key values as described
    in :ref:`secret_keys`.
 
-This sample Python code shows how to compute a signature for use with
+These sample Python codes show how to compute a signature for use with
 temporary URLs:
 
-**Example HMAC-SHA1 signature for temporary URLs**
+**Example HMAC-SHA1 signature for object-based temporary URLs**
 
 .. code::
 
@@ -135,6 +149,21 @@ temporary URLs:
     duration_in_seconds = 60*60*24
     expires = int(time() + duration_in_seconds)
     path = '/v1/my_account/container/object'
+    key = 'MYKEY'
+    hmac_body = '%s\n%s\n%s' % (method, expires, path)
+    signature = hmac.new(key, hmac_body, sha1).hexdigest()
+
+**Example HMAC-SHA1 signature for prefix-based temporary URLs**
+
+.. code::
+
+    import hmac
+    from hashlib import sha1
+    from time import time
+    method = 'GET'
+    duration_in_seconds = 60*60*24
+    expires = int(time() + duration_in_seconds)
+    path = 'prefix:/v1/my_account/container/my_prefix'
     key = 'MYKEY'
     hmac_body = '%s\n%s\n%s' % (method, expires, path)
     signature = hmac.new(key, hmac_body, sha1).hexdigest()

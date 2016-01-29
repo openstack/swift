@@ -44,11 +44,16 @@ If the user were to share the link with all his friends, or
 accidentally post it on a forum, etc. the direct access would be
 limited to the expiration time set when the website created the link.
 
+Beyond that, the middleware provides the ability to create URLs, which
+contain signatures which are valid for all objects which share a
+common prefix. These prefix-based URLs are useful for sharing a set
+of objects.
+
 ------------
 Client Usage
 ------------
 
-To create such temporary URLs, first an ``X-Account-Meta-Temp-URL-Key``
+To create temporary URLs, first an ``X-Account-Meta-Temp-URL-Key``
 header must be set on the Swift account. Then, an HMAC-SHA1 (RFC 2104)
 signature is generated using the HTTP method to allow (``GET``, ``PUT``,
 ``DELETE``, etc.), the Unix timestamp the access should be allowed until,
@@ -77,10 +82,32 @@ Let's say ``sig`` ends up equaling
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
     temp_url_expires=1323479485
 
-Any alteration of the resource path or query arguments would result in
-``401 Unauthorized``. Similarly, a ``PUT`` where ``GET`` was the allowed method
-would be rejected with ``401 Unauthorized``. However, ``HEAD`` is allowed if
-``GET``, ``PUT``, or ``POST`` is allowed.
+If a prefix-based signature with the prefix ``pre`` is desired, set path to::
+
+    path = 'prefix:/v1/AUTH_account/container/pre'
+
+The generated signature would be valid for all objects starting
+with ``pre``. The middleware detects a prefix-based temporary URL by
+a query parameter called ``temp_url_prefix``. So, if ``sig`` and ``expires``
+would end up like above, following URL would be valid::
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/pre/object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485&
+    temp_url_prefix=pre
+
+Another valid URL::
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/pre/
+    subfolder/another_object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485&
+    temp_url_prefix=pre
+
+Any alteration of the resource path or query arguments of a temporary URL
+would result in ``401 Unauthorized``. Similarly, a ``PUT`` where ``GET`` was
+the allowed method would be rejected with ``401 Unauthorized``.
+However, ``HEAD`` is allowed if ``GET``, ``PUT``, or ``POST`` is allowed.
 
 Using this in combination with browser form post translation
 middleware could also allow direct-from-browser uploads to specific
@@ -357,28 +384,36 @@ class TempURL(object):
         if env['REQUEST_METHOD'] == 'OPTIONS':
             return self.app(env, start_response)
         info = self._get_temp_url_info(env)
-        temp_url_sig, temp_url_expires, filename, inline_disposition = info
+        temp_url_sig, temp_url_expires, temp_url_prefix, filename,\
+            inline_disposition = info
         if temp_url_sig is None and temp_url_expires is None:
             return self.app(env, start_response)
         if not temp_url_sig or not temp_url_expires:
             return self._invalid(env, start_response)
-        account, container = self._get_account_and_container(env)
+        account, container, obj = self._get_path_parts(env)
         if not account:
             return self._invalid(env, start_response)
         keys = self._get_keys(env)
         if not keys:
             return self._invalid(env, start_response)
+        if temp_url_prefix is None:
+            path = '/v1/%s/%s/%s' % (account, container, obj)
+        else:
+            if not obj.startswith(temp_url_prefix):
+                return self._invalid(env, start_response)
+            path = 'prefix:/v1/%s/%s/%s' % (account, container,
+                                            temp_url_prefix)
         if env['REQUEST_METHOD'] == 'HEAD':
             hmac_vals = (
-                self._get_hmacs(env, temp_url_expires, keys) +
-                self._get_hmacs(env, temp_url_expires, keys,
+                self._get_hmacs(env, temp_url_expires, path, keys) +
+                self._get_hmacs(env, temp_url_expires, path, keys,
                                 request_method='GET') +
-                self._get_hmacs(env, temp_url_expires, keys,
+                self._get_hmacs(env, temp_url_expires, path, keys,
                                 request_method='POST') +
-                self._get_hmacs(env, temp_url_expires, keys,
+                self._get_hmacs(env, temp_url_expires, path, keys,
                                 request_method='PUT'))
         else:
-            hmac_vals = self._get_hmacs(env, temp_url_expires, keys)
+            hmac_vals = self._get_hmacs(env, temp_url_expires, path, keys)
 
         is_valid_hmac = False
         hmac_scope = None
@@ -410,6 +445,8 @@ class TempURL(object):
         env['REMOTE_USER'] = '.wsgi.tempurl'
         qs = {'temp_url_sig': temp_url_sig,
               'temp_url_expires': temp_url_expires}
+        if temp_url_prefix is not None:
+            qs['temp_url_prefix'] = temp_url_prefix
         if filename:
             qs['filename'] = filename
         env['QUERY_STRING'] = urlencode(qs)
@@ -457,36 +494,38 @@ class TempURL(object):
 
         return self.app(env, _start_response)
 
-    def _get_account_and_container(self, env):
+    def _get_path_parts(self, env):
         """
-        Returns just the account and container for the request, if it's an
-        object request and one of the configured methods; otherwise, None is
-        returned.
+        Return the account, container and object name for the request,
+        if it's an object request and one of the configured methods;
+        otherwise, None is returned.
 
         :param env: The WSGI environment for the request.
-        :returns: (Account str, container str) or (None, None).
+        :returns: (Account str, container str, object str) or
+            (None, None, None).
         """
         if env['REQUEST_METHOD'] in self.conf['methods']:
             try:
                 ver, acc, cont, obj = split_path(env['PATH_INFO'], 4, 4, True)
             except ValueError:
-                return (None, None)
+                return (None, None, None)
             if ver == 'v1' and obj.strip('/'):
-                return (acc, cont)
-        return (None, None)
+                return (acc, cont, obj)
+        return (None, None, None)
 
     def _get_temp_url_info(self, env):
         """
-        Returns the provided temporary URL parameters (sig, expires),
-        if given and syntactically valid. Either sig or expires could
+        Returns the provided temporary URL parameters (sig, expires, prefix),
+        if given and syntactically valid. Either sig, expires or prefix could
         be None if not provided. If provided, expires is also
         converted to an int if possible or 0 if not, and checked for
         expiration (returns 0 if expired).
 
         :param env: The WSGI environment for the request.
-        :returns: (sig, expires, filename, inline) as described above.
+        :returns: (sig, expires, prefix, filename, inline) as described above.
         """
-        temp_url_sig = temp_url_expires = filename = inline = None
+        temp_url_sig = temp_url_expires = temp_url_prefix = filename =\
+            inline = None
         qs = parse_qs(env.get('QUERY_STRING', ''), keep_blank_values=True)
         if 'temp_url_sig' in qs:
             temp_url_sig = qs['temp_url_sig'][0]
@@ -497,11 +536,14 @@ class TempURL(object):
                 temp_url_expires = 0
             if temp_url_expires < time():
                 temp_url_expires = 0
+        if 'temp_url_prefix' in qs:
+            temp_url_prefix = qs['temp_url_prefix'][0]
         if 'filename' in qs:
             filename = qs['filename'][0]
         if 'inline' in qs:
             inline = True
-        return temp_url_sig, temp_url_expires, filename, inline
+        return (temp_url_sig, temp_url_expires, temp_url_prefix, filename,
+                inline)
 
     def _get_keys(self, env):
         """
@@ -531,11 +573,13 @@ class TempURL(object):
         return ([(ak, ACCOUNT_SCOPE) for ak in account_keys] +
                 [(ck, CONTAINER_SCOPE) for ck in container_keys])
 
-    def _get_hmacs(self, env, expires, scoped_keys, request_method=None):
+    def _get_hmacs(self, env, expires, path, scoped_keys,
+                   request_method=None):
         """
         :param env: The WSGI environment for the request.
         :param expires: Unix timestamp as an int for when the URL
                         expires.
+        :param path: The path which is used for hashing.
         :param scoped_keys: (key, scope) tuples like _get_keys() returns
         :param request_method: Optional override of the request in
                                the WSGI env. For example, if a HEAD
@@ -547,8 +591,9 @@ class TempURL(object):
         """
         if not request_method:
             request_method = env['REQUEST_METHOD']
+
         return [
-            (get_hmac(request_method, env['PATH_INFO'], expires, key), scope)
+            (get_hmac(request_method, path, expires, key), scope)
             for (key, scope) in scoped_keys]
 
     def _invalid(self, env, start_response):
