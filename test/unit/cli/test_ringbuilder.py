@@ -16,6 +16,7 @@
 import logging
 import mock
 import os
+import re
 import six
 import tempfile
 import unittest
@@ -1741,6 +1742,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             "The minimum number of hours before a partition can be " \
             "reassigned is 1 (0:00:00 remaining)\n" \
             "The overload factor is 0.00%% (0.000000)\n" \
+            "Ring file %s.ring.gz not found, probably " \
+            "it hasn't been written yet\n" \
             "Devices:    id  region  zone      ip address  port  " \
             "replication ip  replication port      name weight " \
             "partitions balance flags meta\n" \
@@ -1755,8 +1758,67 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             "          0 -100.00       \n" \
             "             3       3     3       127.0.0.4  6003       " \
             "127.0.0.4              6003      sdd4   0.00" \
-            "          0    0.00       \n" % self.tmpfile
+            "          0    0.00       \n" % (self.tmpfile, self.tmpfile)
         self.assertEqual(expected, mock_stdout.getvalue())
+
+    def test_default_ringfile_check(self):
+        self.create_sample_ring()
+
+        # ring file not created
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        rnf = re.compile("Ring file .*\.ring\.gz not found")
+        self.assertTrue(rnf.findall(mock_stdout.getvalue()))
+
+        # write ring file
+        argv = ["", self.tmpfile, "rebalance"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        # ring file is up-to-date
+        mock_stdout = six.StringIO()
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        rutd = re.compile("Ring file .*\.ring\.gz is up-to-date")
+        self.assertTrue(rutd.findall(mock_stdout.getvalue()))
+
+        # change builder (set weight)
+        argv = ["", self.tmpfile, "set_weight", "0", "--id", "3"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        # ring file is obsolete after set_weight
+        mock_stdout = six.StringIO()
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        ro = re.compile("Ring file .*\.ring\.gz is obsolete")
+        self.assertTrue(ro.findall(mock_stdout.getvalue()))
+
+        # write ring file
+        argv = ["", self.tmpfile, "write_ring"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        # ring file up-to-date again
+        mock_stdout = six.StringIO()
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertTrue(rutd.findall(mock_stdout.getvalue()))
+
+        # Break ring file e.g. just make it empty
+        open('%s.ring.gz' % self.tmpfile, 'w').close()
+        # ring file is invalid
+        mock_stdout = six.StringIO()
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        ro = re.compile("Ring file .*\.ring\.gz is invalid")
+        self.assertTrue(ro.findall(mock_stdout.getvalue()))
 
     def test_rebalance(self):
         self.create_sample_ring()
