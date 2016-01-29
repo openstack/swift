@@ -950,7 +950,7 @@ chunk of data from the object servers while serving GET / HEAD requests.
 Timeouts from these requests can be recovered from so setting this to
 something lower than node_timeout would provide quicker error recovery
 while allowing for a longer timeout for non-recoverable requests (PUTs).
-Defaults to node_timeout, should be overriden if node_timeout is set to a
+Defaults to node_timeout, should be overridden if node_timeout is set to a
 high number to prevent client timeouts from firing before the proxy server
 has a chance to retry.
 .IP \fBconn_timeout\fR
