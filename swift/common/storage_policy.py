@@ -761,7 +761,7 @@ class StoragePolicyCollection(object):
         Adds a new name or names to a policy
 
         :param policy_index: index of a policy in this policy collection.
-        :param *aliases: arbitrary number of string policy names to add.
+        :param aliases: arbitrary number of string policy names to add.
         """
         policy = self.get_by_index(policy_index)
         for alias in aliases:
@@ -779,7 +779,7 @@ class StoragePolicyCollection(object):
         primary name then the next available alias will be adopted
         as the new primary name.
 
-        :param *aliases: arbitrary number of existing policy names to remove.
+        :param aliases: arbitrary number of existing policy names to remove.
         """
         for alias in aliases:
             policy = self.get_by_name(alias)
