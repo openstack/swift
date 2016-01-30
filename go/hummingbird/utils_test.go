@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseRange(t *testing.T) {
@@ -36,47 +37,62 @@ func TestParseRange(t *testing.T) {
 		exError     string
 		exRanges    []httpRange
 	}{
-		{12345, "bytes=-0", "Zero end with no begin", nil},
-		{12345, "bytes=12346-123457", "Begin bigger than file", nil},
-		{12345, "bytes=12346-", "Begin bigger than file", nil},
-		{12345, " ", "", []httpRange{}},
-		{12345, "nonbytes=1-2", "", []httpRange{}},
-		{12345, "bytes=", "", []httpRange{}},
-		{12345, "bytes=-", "", []httpRange{}},
-		{12345, "bytes=-cv", "", []httpRange{}},
-		{12345, "bytes=cv-", "", []httpRange{}},
+		{12345, "bytes=12346-123457", "Unsatisfiable range", nil},
+		{12345, "bytes=12346-", "Unsatisfiable range", nil},
+		{12345, " ", "", nil},
+		{12345, "nonbytes=1-2", "", nil},
+		{12345, "bytes=", "", nil},
+		{12345, "bytes=-", "", nil},
+		{12345, "bytes=-cv", "", nil},
+		{12345, "bytes=cv-", "", nil},
 		{12345, "bytes=-12346", "", []httpRange{httpRange{0, 12345}}},
+		{12345, "bytes=-12345", "", []httpRange{httpRange{0, 12345}}},
 		{12345, "bytes=-12344", "", []httpRange{httpRange{1, 12345}}},
 		{12345, "bytes=12344-", "", []httpRange{httpRange{12344, 12345}}},
-		{12345, "bytes=12344-cv", "", []httpRange{}},
-		{12345, "bytes=13-12", "", []httpRange{}},
-		{12345, "bytes=cv-12345", "", []httpRange{}},
+		{12345, "bytes=12344-cv", "", nil},
+		{12345, "bytes=13-12", "", nil},
+		{12345, "bytes=cv-12345", "", nil},
 		{12345, "bytes=12342-12343", "", []httpRange{httpRange{12342, 12344}}},
 		{12345, "bytes=12342-12344", "", []httpRange{httpRange{12342, 12345}}},
+		{12345, "bytes=12342-12345", "", []httpRange{httpRange{12342, 12345}}},
 		{12345, "bytes=0-1,2-3", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}}},
-		{12345, "bytes=0-1,x-x", "", []httpRange{httpRange{0, 2}}},
-		{12345, "bytes=0-1,x-x,2-3", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}}},
-		{12345, "bytes=0-1,x-", "", []httpRange{httpRange{0, 2}}},
+		{12345, "bytes=0-1,x-x", "", nil},
+		{12345, "bytes=0-1,x-x,2-3", "", nil},
+		{12345, "bytes=0-1,x-", "", nil},
 		{12345, "bytes=0-1,2-3,4-5", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}, httpRange{4, 6}}},
 		{10000, "bytes=0-99,200-299,10000-10099", "", []httpRange{httpRange{0, 100}, httpRange{200, 300}}},
+		{10000, "bytes=-0", "Unsatisfiable range", nil},
+		{10000, "bytes=-0", "Unsatisfiable range", nil},
+		{10000, "bytes=0-1,-0", "", []httpRange{httpRange{0, 2}}},
+		{0, "bytes=-0", "Unsatisfiable range", nil},
+		{0, "bytes=0-", "Unsatisfiable range", nil},
+		{0, "bytes=0-1", "Unsatisfiable range", nil},
+		{10000, "bytes=0-1,1-2,2-3,3-4,4-5,5-6,6-7,7-8,8-9,9-10,10-11,11-12,12-13,13-14,14-15,15-16,16-17," +
+			"17-18,18-19,19-20,20-21,21-22,22-23,23-24,24-25,25-26,26-27,27-28,28-29,29-30,30-31,31-32," +
+			"32-33,33-34,34-35,35-36,36-37,37-38,38-39,39-40,40-41,41-42,42-43,43-44,44-45,45-46,46-47," +
+			"47-48,48-49,49-50,50-51,51-52,52-53,53-54,54-55,55-56,56-57,57-58,58-59,59-60,60-61,61-62," +
+			"62-63,63-64,64-65,65-66,66-67,67-68,68-69,69-70,70-71,71-72,72-73,73-74,74-75,75-76,76-77," +
+			"77-78,78-79,79-80,80-81,81-82,82-83,83-84,84-85,85-86,86-87,87-88,88-89,89-90,90-91,91-92," +
+			"92-93,93-94,94-95,95-96,96-97,97-98,98-99,99-100,100-101", "Too many ranges", nil},
 	}
 
 	//Run tests with data from above
 	for _, test := range tests {
 		result, err := ParseRange(test.rangeHeader, test.fileSize)
 		if test.rangeHeader == " " {
-			assert.Nil(t, result)
-			assert.Nil(t, err)
+			require.Nil(t, result, test.rangeHeader)
+			require.Nil(t, err, test.rangeHeader)
 			continue
 		}
 		if test.exError == "" {
-			assert.Nil(t, err)
+			require.Nil(t, err, test.rangeHeader)
 		} else {
-			assert.Equal(t, err.Error(), test.exError)
+			require.NotNil(t, err, test.rangeHeader)
+			require.Equal(t, test.exError, err.Error(), test.rangeHeader)
 		}
-		assert.Equal(t, len(result), len(test.exRanges))
+		require.Equal(t, len(result), len(test.exRanges), test.rangeHeader)
 		for i, _ := range result {
-			assert.Equal(t, test.exRanges[i], result[i])
+			require.Equal(t, test.exRanges[i], result[i], test.rangeHeader)
 		}
 	}
 }

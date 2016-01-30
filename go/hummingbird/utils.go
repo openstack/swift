@@ -341,53 +341,56 @@ func HeaderGetDefault(h http.Header, key string, dfl string) string {
 func ParseRange(rangeHeader string, fileSize int64) (reqRanges []httpRange, err error) {
 	rangeHeader = strings.Replace(strings.ToLower(rangeHeader), " ", "", -1)
 	if !strings.HasPrefix(rangeHeader, "bytes=") {
-		return reqRanges, nil
+		return nil, nil
 	}
 	rangeHeader = rangeHeader[6:]
 	rangeStrings := strings.Split(rangeHeader, ",")
 	if len(rangeStrings) > 100 {
 		return nil, errors.New("Too many ranges")
 	}
+	if len(rangeStrings) == 0 {
+		return nil, nil
+	}
 	for _, rng := range rangeStrings {
-		beginend := strings.Split(rng, "-")
-		if len(beginend) != 2 || (beginend[0] == "" && beginend[1] == "") {
-			continue
+		var start, end int64
+		var err error
+		startend := strings.Split(rng, "-")
+		if len(startend) != 2 || (startend[0] == "" && startend[1] == "") {
+			return nil, nil
 		}
-		begin, beginErr := strconv.ParseInt(beginend[0], 10, 64)
-		end, endErr := strconv.ParseInt(beginend[1], 10, 64)
-		if beginend[0] == "" {
-			if endErr != nil {
+		if start, err = strconv.ParseInt(startend[0], 0, 64); err != nil && startend[0] != "" {
+			return nil, nil
+		}
+		if end, err = strconv.ParseInt(startend[1], 0, 64); err != nil && startend[1] != "" {
+			return nil, nil
+		} else if startend[1] != "" && end < start {
+			return nil, nil
+		}
+
+		if startend[0] == "" {
+			if end == 0 {
 				continue
-			} else if end == 0 {
-				return nil, errors.New("Zero end with no begin") // 416 on bytes=-0
 			} else if end > fileSize {
 				reqRanges = append(reqRanges, httpRange{0, fileSize})
 			} else {
 				reqRanges = append(reqRanges, httpRange{fileSize - end, fileSize})
 			}
-		} else if beginend[1] == "" {
-			if beginErr != nil {
-				continue
-			} else if begin > fileSize {
-				return nil, errors.New("Begin bigger than file") // 416 on begin bigger than file size
-			} else if begin == fileSize {
-				continue
+		} else if startend[1] == "" {
+			if start < fileSize {
+				reqRanges = append(reqRanges, httpRange{start, fileSize})
 			} else {
-				reqRanges = append(reqRanges, httpRange{begin, fileSize})
+				continue
 			}
-		} else {
-			if beginErr != nil || endErr != nil || end < begin {
-				continue
-			} else if begin > fileSize {
-				return nil, errors.New("Begin bigger than file") // 416 on begin bigger than file size
-			} else if begin == fileSize {
-				continue
-			} else if end+1 < fileSize {
-				reqRanges = append(reqRanges, httpRange{begin, end + 1})
+		} else if start < fileSize {
+			if end+1 < fileSize {
+				reqRanges = append(reqRanges, httpRange{start, end + 1})
 			} else {
-				reqRanges = append(reqRanges, httpRange{begin, fileSize})
+				reqRanges = append(reqRanges, httpRange{start, fileSize})
 			}
 		}
+	}
+	if len(reqRanges) == 0 {
+		return nil, errors.New("Unsatisfiable range")
 	}
 	return reqRanges, nil
 }
