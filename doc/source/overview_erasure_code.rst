@@ -204,7 +204,7 @@ an EC policy can be setup is shown below::
         [storage-policy:2]
         name = ec104
         policy_type = erasure_coding
-        ec_type = jerasure_rs_vand
+        ec_type = liberasurecode_rs_vand
         ec_num_data_fragments = 10
         ec_num_parity_fragments = 4
         ec_object_segment_size = 1048576
