@@ -417,7 +417,7 @@ def _set_info_cache(app, env, account, container, resp):
 
 def _set_object_info_cache(app, env, account, container, obj, resp):
     """
-    Cache object info env. Do not cache object informations in
+    Cache object info env. Do not cache object information in
     memcache. This is an intentional omission as it would lead
     to cache pressure. This is a per-request cache.
 
