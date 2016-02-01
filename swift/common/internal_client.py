@@ -20,7 +20,7 @@ import six
 from six.moves import range
 from six.moves import urllib
 import struct
-from sys import exc_info
+from sys import exc_info, exit
 import zlib
 from swift import gettext_ as _
 from time import gmtime, strftime, time
