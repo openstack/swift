@@ -20,6 +20,8 @@ from hashlib import md5
 from swift.common import swob
 from swift.common.swob import HTTPException
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.request_helpers import is_user_meta, \
+    is_object_transient_sysmeta
 from swift.common.utils import split_path
 
 from test.unit import FakeLogger, FakeRing
@@ -121,10 +123,26 @@ class FakeSwift(object):
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
+        req = swob.Request(env)
+        # simulate object POST
+        if method == 'POST' and obj:
+            metadata, data = self.uploaded.get(path, ({}, None))
+            # select items to keep from existing...
+            new_metadata = dict(
+                (k, v) for k, v in metadata.items()
+                if (not is_user_meta('object', k) and not
+                    is_object_transient_sysmeta(k)))
+            # apply from new
+            new_metadata.update(
+                dict((k, v) for k, v in req.headers.items()
+                     if (is_user_meta('object', k) or
+                         is_object_transient_sysmeta(k) or
+                         k.lower == 'content-type')))
+            self.uploaded[path] = new_metadata, data
+
         self._calls.append((method, path, req_headers))
 
         # range requests ought to work, hence conditional_response=True
-        req = swob.Request(env)
         if isinstance(body, list):
             resp = resp_class(req=req, headers=headers, app_iter=body,
                               conditional_response=True)
