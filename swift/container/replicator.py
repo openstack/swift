@@ -38,7 +38,7 @@ class ContainerReplicator(db_replicator.Replicator):
     server_type = 'container'
     brokerclass = ContainerBroker
     datadir = DATADIR
-    default_port = 6001
+    default_port = 6201
 
     def report_up_to_date(self, full_info):
         reported_key_map = {

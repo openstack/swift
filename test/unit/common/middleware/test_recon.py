@@ -234,17 +234,17 @@ class TestReconSuccess(TestCase):
 
         self.ring_part_shift = 5
         self.ring_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
-                           'ip': '10.1.1.1', 'port': 6000,
+                           'ip': '10.1.1.1', 'port': 6200,
                            'device': 'sda1'},
                           {'id': 1, 'zone': 0, 'weight': 1.0,
-                           'ip': '10.1.1.1', 'port': 6000,
+                           'ip': '10.1.1.1', 'port': 6200,
                            'device': 'sdb1'},
                           None,
                           {'id': 3, 'zone': 2, 'weight': 1.0,
-                           'ip': '10.1.2.1', 'port': 6000,
+                           'ip': '10.1.2.1', 'port': 6200,
                            'device': 'sdc1'},
                           {'id': 4, 'zone': 2, 'weight': 1.0,
-                           'ip': '10.1.2.2', 'port': 6000,
+                           'ip': '10.1.2.2', 'port': 6200,
                            'device': 'sdd1'}]
         self._create_rings()
 
@@ -314,15 +314,15 @@ class TestReconSuccess(TestCase):
         # We should only see configured and present rings, so to handle the
         # "normal" case just patch the policies to match the existing rings.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '782728be98644fb725e165d4bf5728d4',
                     '%s/object-1.ring.gz' % self.tempdir:
-                    '3f1899b27abf5f2efcc67d6fae1e1c64',
+                    '7c3a4bc9f724d4eb69c9b797cdc28b8c',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+                    '324b9c4da20cf7ef097edbd219d296e0'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-{1,2}.ring.gz should both appear as they are present on disk
@@ -372,7 +372,7 @@ class TestReconSuccess(TestCase):
         expt_out = {'%s/account.ring.gz' % self.tempdir: None,
                     '%s/container.ring.gz' % self.tempdir: None,
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+                    '782728be98644fb725e165d4bf5728d4'}
         ringmd5 = self.app.get_ring_md5(openr=fake_open_objonly)
         self.assertEqual(sorted(ringmd5.items()),
                          sorted(expt_out.items()))
@@ -387,13 +387,13 @@ class TestReconSuccess(TestCase):
         # later moved into place, we shouldn't need to restart object-server
         # for it to appear in recon.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '782728be98644fb725e165d4bf5728d4',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+                    '324b9c4da20cf7ef097edbd219d296e0'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-1.ring.gz should not appear as it's present but unconfigured.
@@ -412,7 +412,7 @@ class TestReconSuccess(TestCase):
                    array.array('H', [1, 1, 0, 3])]
         self._create_ring(os.path.join(self.tempdir, ringfn),
                           ringmap, self.ring_devs, self.ring_part_shift)
-        expt_out[ringpath] = 'acfa4b85396d2a33f361ebc07d23031d'
+        expt_out[ringpath] = 'a7e591642beea6933f64aebd56f357d9'
 
         # We should now see it in the ringmd5 response, without a restart
         # (using the same app instance)
@@ -428,13 +428,13 @@ class TestReconSuccess(TestCase):
         # Object rings that are configured but missing aren't meant to appear
         # in the ringmd5 response.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '782728be98644fb725e165d4bf5728d4',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+                    '324b9c4da20cf7ef097edbd219d296e0'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-1.ring.gz should not appear as it's present but unconfigured.
@@ -451,11 +451,11 @@ class TestReconSuccess(TestCase):
         # Object rings that are present but not configured in swift.conf
         # aren't meant to appear in the ringmd5 response.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+                    '782728be98644fb725e165d4bf5728d4'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-{1,2}.ring.gz should not appear as they are present on disk

@@ -54,9 +54,9 @@ Retrieve metrics from specific function in json format::
     A list of URL examples:
 
     http://localhost:8080/__profile__    (proxy server)
-    http://localhost:6000/__profile__/all    (object server)
-    http://localhost:6001/__profile__/current    (container server)
-    http://localhost:6002/__profile__/12345?format=json    (account server)
+    http://localhost:6200/__profile__/all    (object server)
+    http://localhost:6201/__profile__/current    (container server)
+    http://localhost:6202/__profile__/12345?format=json    (account server)
 
 The profiling middleware can be configured in paste file for WSGI servers such
 as proxy, account, container and object servers. Please refer to the sample

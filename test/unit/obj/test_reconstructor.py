@@ -90,13 +90,13 @@ def _create_test_rings(path):
 
     intended_devs = [
         {'id': 0, 'device': 'sda1', 'zone': 0, 'ip': '127.0.0.0',
-         'port': 6000},
+         'port': 6200},
         {'id': 1, 'device': 'sda1', 'zone': 1, 'ip': '127.0.0.1',
-         'port': 6000},
+         'port': 6200},
         {'id': 2, 'device': 'sda1', 'zone': 2, 'ip': '127.0.0.2',
-         'port': 6000},
+         'port': 6200},
         {'id': 3, 'device': 'sda1', 'zone': 4, 'ip': '127.0.0.3',
-         'port': 6000}
+         'port': 6200}
     ]
     intended_part_shift = 30
     with closing(GzipFile(testgz, 'wb')) as f:
@@ -313,11 +313,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             [{
                 'sync_to': [{
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -328,13 +328,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 2,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
-                    'device': 'sda1', 'port': 6000,
+                    'device': 'sda1', 'port': 6200,
                 },
                 'hashes': {
                     '061': {
@@ -350,20 +350,20 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             }, {
                 'sync_to': [{
                     'index': 0,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 0,
                     'ip': '127.0.0.0',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.0',
                     'device': 'sda1', 'id': 0,
                 }, {
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -375,14 +375,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 1,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes':
                 {
@@ -403,11 +403,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             [{
                 'sync_to': [{
                     'index': 1,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -418,14 +418,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 1,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes':
                 {
@@ -442,20 +442,20 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             }, {
                 'sync_to': [{
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 4,
                     'ip': '127.0.0.3',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.3',
                     'device': 'sda1', 'id': 3,
                 }, {
                     'index': 1,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -467,14 +467,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 0,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes': {
                     '061': {
@@ -494,11 +494,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             [{
                 'sync_to': [{
                     'index': 0,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1', 'id': 2,
                 }],
@@ -508,14 +508,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 0,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes': {
                     '061': {
@@ -530,11 +530,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             }, {
                 'sync_to': [{
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 0,
                     'ip': '127.0.0.0',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.0',
                     'device': 'sda1',
                     'id': 0,
@@ -545,14 +545,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 2,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000
+                    'port': 6200
                 },
                 'hashes': {
                     '061': {

@@ -169,18 +169,18 @@ Here's an example (abbreviated) old-style ring (2 node cluster with 2 disks
 each)::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
-              0       1     1       1.1.0.1    6000       1.1.0.1                6000      d1
-              1       1     1       1.1.0.1    6000       1.1.0.1                6000      d2
-              2       1     2       1.1.0.2    6000       1.1.0.2                6000      d3
-              3       1     2       1.1.0.2    6000       1.1.0.2                6000      d4
+              0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
+              1       1     1       1.1.0.1    6200       1.1.0.1                6200      d2
+              2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
+              3       1     2       1.1.0.2    6200       1.1.0.2                6200      d4
 
 And here's the same ring set up for `servers_per_port`::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
-              0       1     1       1.1.0.1    6000       1.1.0.1                6000      d1
-              1       1     1       1.1.0.1    6001       1.1.0.1                6001      d2
-              2       1     2       1.1.0.2    6000       1.1.0.2                6000      d3
-              3       1     2       1.1.0.2    6001       1.1.0.2                6001      d4
+              0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
+              1       1     1       1.1.0.1    6201       1.1.0.1                6201      d2
+              2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
+              3       1     2       1.1.0.2    6201       1.1.0.2                6201      d4
 
 When migrating from normal to `servers_per_port`, perform these steps in order:
 
@@ -195,7 +195,7 @@ When migrating from normal to `servers_per_port`, perform these steps in order:
 
  #. Push out new rings that actually have different ports per disk on each
     server.  One of the ports in the new ring should be the same as the port
-    used in the old ring ("6000" in the example above).  This will cover
+    used in the old ring ("6200" in the example above).  This will cover
     existing proxy-server processes who haven't loaded the new ring yet.  They
     can still talk to any storage node regardless of whether or not that
     storage node has loaded the ring and started object-server processes on the
@@ -422,7 +422,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6000        Port for server to bind to
+bind_port                        6200        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -765,7 +765,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6001        Port for server to bind to
+bind_port                        6201        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -976,7 +976,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6002        Port for server to bind to
+bind_port                        6202        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections

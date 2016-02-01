@@ -37,9 +37,9 @@ with a JSON-encoded list of endpoints of the form::
 
 correspondingly, e.g.::
 
-    http://10.1.1.1:6000/sda1/2/a/c2/o1
-    http://10.1.1.1:6000/sda1/2/a/c2
-    http://10.1.1.1:6000/sda1/2/a
+    http://10.1.1.1:6200/sda1/2/a/c2/o1
+    http://10.1.1.1:6200/sda1/2/a/c2
+    http://10.1.1.1:6200/sda1/2/a
 
 Using the v2 API, answers requests of the form::
 

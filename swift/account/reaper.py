@@ -73,7 +73,7 @@ class AccountReaper(Daemon):
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.myips = whataremyips(conf.get('bind_ip', '0.0.0.0'))
-        self.bind_port = int(conf.get('bind_port', 6002))
+        self.bind_port = int(conf.get('bind_port', 6202))
         self.concurrency = int(conf.get('concurrency', 25))
         self.container_concurrency = self.object_concurrency = \
             sqrt(self.concurrency)

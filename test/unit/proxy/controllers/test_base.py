@@ -832,7 +832,7 @@ class TestFuncs(unittest.TestCase):
             def getheaders(self):
                 return [('content-length', self.getheader('content-length'))]
 
-        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         source1 = TestSource(['abcd', '1234', 'abc', None])
         source2 = TestSource(['efgh5678'])
@@ -872,7 +872,7 @@ class TestFuncs(unittest.TestCase):
             def getheaders(self):
                 return self.headers
 
-        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         source1 = TestChunkedSource(['abcd', '1234', 'abc', None])
         source2 = TestChunkedSource(['efgh5678'])
