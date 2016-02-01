@@ -1113,6 +1113,46 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         self.assertEqual(rb.get_balance(), 0)
 
+    def test_multiple_duplicate_device_assignment(self):
+        rb = ring.RingBuilder(4, 4, 1)
+        devs = [
+            'r1z1-127.0.0.1:33440/d1',
+            'r1z1-127.0.0.1:33441/d2',
+            'r1z1-127.0.0.1:33442/d3',
+            'r1z1-127.0.0.1:33443/d4',
+            'r1z1-127.0.0.2:33440/d5',
+            'r1z1-127.0.0.2:33441/d6',
+            'r1z1-127.0.0.2:33442/d7',
+            'r1z1-127.0.0.2:33442/d8',
+        ]
+        for add_value in devs:
+            dev = utils.parse_add_value(add_value)
+            dev['weight'] = 1.0
+            rb.add_dev(dev)
+        rb.rebalance()
+        rb._replica2part2dev = [
+            #         these are the relevant one's here
+            #           |  |  |                 |  |
+            #           v  v  v                 v  v
+            array('H', [0, 1, 2, 3, 3, 0, 0, 0, 4, 6, 4, 4, 4, 4, 4, 4]),
+            array('H', [0, 1, 3, 1, 1, 1, 1, 1, 5, 7, 5, 5, 5, 5, 5, 5]),
+            array('H', [0, 1, 2, 2, 2, 2, 2, 2, 4, 6, 6, 6, 6, 6, 6, 6]),
+            array('H', [0, 3, 2, 3, 3, 3, 3, 3, 5, 7, 7, 7, 7, 7, 7, 7])
+            #                    ^
+            #                    |
+            #      this sort of thing worked already
+        ]
+        # fix up bookkeeping
+        new_dev_parts = defaultdict(int)
+        for part2dev_id in rb._replica2part2dev:
+            for dev_id in part2dev_id:
+                new_dev_parts[dev_id] += 1
+        for dev in rb._iter_devs():
+            dev['parts'] = new_dev_parts[dev['id']]
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance()
+        rb.validate()
+
     def test_region_fullness_with_balanceable_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
