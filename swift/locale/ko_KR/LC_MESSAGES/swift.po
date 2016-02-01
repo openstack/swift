@@ -7,16 +7,17 @@
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.5.1.dev267\n"
+"Project-Id-Version: swift 2.6.1.dev32\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-01-16 12:32+0000\n"
+"POT-Creation-Date: 2016-01-30 00:30+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2015-09-09 05:10+0000\n"
-"Last-Translator: Ying Chun Guo <daisy.ycguo@gmail.com>\n"
+"PO-Revision-Date: 2016-01-30 06:54+0000\n"
+"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
 "Language: ko-KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -555,7 +556,7 @@ msgstr "컨테이너 %s %s 삭제 중 예외 발생"
 
 #, python-format
 msgid "Exception while deleting object %s %s %s"
-msgstr "오브젝트 %s %s 삭제 중 예외 발생"
+msgstr "오브젝트 %s %s %s 삭제 중 예외 발생"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
