@@ -349,7 +349,7 @@ class VersionedWritesMiddleware(object):
         if 'X-Versions-Location' in req.headers:
             val = req.headers.get('X-Versions-Location')
             if val:
-                # diferently from previous version, we are actually
+                # differently from previous version, we are actually
                 # returning an error if user tries to set versions location
                 # while feature is explicitly disabled.
                 if not config_true_value(enabled) and \
