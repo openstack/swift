@@ -85,7 +85,8 @@ use = egg:swift#object
 #
 # slow is the total amount of seconds an object PUT/DELETE request takes at
 # least. If it is faster, the object server will sleep this amount of time minus
-# the already passed transaction time.
+# the already passed transaction time.  This is only useful for simulating slow
+# devices on storage nodes during testing and development.
 # slow = 0
 #
 # Objects smaller than this are not evicted from the buffercache once read
