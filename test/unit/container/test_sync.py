@@ -885,6 +885,7 @@ class TestContainerSync(unittest.TestCase):
                 self.assertEqual(logger, self.logger)
 
             sync.put_object = fake_put_object
+            expected_put_count = 0
 
             with mock.patch('swift.container.sync.InternalClient'):
                 cs = sync.ContainerSync({}, container_ring=FakeRing(),
@@ -909,7 +910,8 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 1)
+            expected_put_count += 1
+            self.assertEqual(cs.container_puts, expected_put_count)
 
             def fake_get_object(acct, con, obj, headers, acceptable_statuses):
                 self.assertEqual(headers['X-Newest'], True)
@@ -935,7 +937,21 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 2)
+            expected_put_count += 1
+            self.assertEqual(cs.container_puts, expected_put_count)
+
+            # Success as everything says it worked, also check that PUT
+            # timestamp equals GET timestamp when it is newer than created_at
+            # value.
+            self.assertTrue(cs.container_sync_row(
+                {'deleted': False,
+                 'name': 'object',
+                 'created_at': '1.1'}, 'http://sync/to/path',
+                'key', FakeContainerBroker('broker'),
+                {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
+                realm, realm_key))
+            expected_put_count += 1
+            self.assertEqual(cs.container_puts, expected_put_count)
 
             exc = []
 
@@ -955,7 +971,7 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 2)
+            self.assertEqual(cs.container_puts, expected_put_count)
             self.assertEqual(len(exc), 1)
             self.assertEqual(str(exc[-1]), 'test exception')
 
@@ -978,7 +994,7 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 2)
+            self.assertEqual(cs.container_puts, expected_put_count)
             self.assertEqual(len(exc), 1)
             self.assertEqual(str(exc[-1]), 'test client exception')
 
@@ -1003,7 +1019,7 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 2)
+            self.assertEqual(cs.container_puts, expected_put_count)
             self.assertLogMessage('info', 'Unauth')
 
             def fake_put_object(*args, **kwargs):
@@ -1018,7 +1034,7 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 2)
+            self.assertEqual(cs.container_puts, expected_put_count)
             self.assertLogMessage('info', 'Not found', 1)
 
             def fake_put_object(*args, **kwargs):
@@ -1033,7 +1049,7 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
-            self.assertEqual(cs.container_puts, 2)
+            self.assertEqual(cs.container_puts, expected_put_count)
             self.assertLogMessage('error', 'ERROR Syncing')
         finally:
             sync.uuid = orig_uuid
