@@ -526,9 +526,10 @@ set log_address                /dev/log               Logging directory
 user                           swift                  User to run as
 max_upload_time                86400                  Maximum time allowed to upload an
                                                       object
-slow                           0                      If > 0, Minimum time in seconds
-                                                      for a PUT or DELETE request to
-                                                      complete
+slow                           0                      If > 0, Minimum time in seconds for a PUT or
+                                                      DELETE request to complete.  This is only
+                                                      useful to simulate slow devices during testing
+                                                      and development.
 mb_per_sync                    512                    On PUT requests, sync file every
                                                       n MB
 keep_cache_size                5242880                Largest object size to keep in
