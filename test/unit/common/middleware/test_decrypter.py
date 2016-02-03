@@ -648,8 +648,6 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 @mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
             lambda *args: FAKE_IV)
 class TestDecrypterContainerRequests(unittest.TestCase):
-    # TODO - update these tests to have etag to be encrypted and have
-    # crypto-meta in response, and verify that the etag gets decrypted.
     def _make_cont_get_req(self, resp_body, format, override=False):
         path = '/v1/a/c'
         content_type = 'text/plain'
@@ -682,16 +680,21 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def test_GET_container_json(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
+        pt_etag1 = 'c6e8196d7f0fff6444b90861fe8d609d'
+        pt_etag2 = 'ac0374ed4d43635f803c82469d0b5a10'
+        key = fetch_crypto_keys()['container']
 
         obj_dict_1 = {"bytes": 16,
                       "last_modified": "2015-04-14T23:33:06.439040",
-                      "hash": "c6e8196d7f0fff6444b90861fe8d609d",
+                      "hash": encrypt_and_append_meta(
+                          pt_etag1.encode('utf-8'), key),
                       "name": "testfile",
                       "content_type": content_type_1}
 
         obj_dict_2 = {"bytes": 24,
                       "last_modified": "2015-04-14T23:33:06.519020",
-                      "hash": "ac0374ed4d43635f803c82469d0b5a10",
+                      "hash": encrypt_and_append_meta(
+                          pt_etag2.encode('utf-8'), key),
                       "name": "testfile2",
                       "content_type": content_type_2}
 
@@ -705,24 +708,26 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertEqual(len(body), int(resp.headers['Content-Length']))
         body_json = json.loads(body)
         self.assertEqual(2, len(body_json))
-        obj_dict_1['content_type'] = content_type_1
+        obj_dict_1['hash'] = pt_etag1
         self.assertDictEqual(obj_dict_1, body_json[0])
-        obj_dict_2['content_type'] = content_type_2
+        obj_dict_2['hash'] = pt_etag2
         self.assertDictEqual(obj_dict_2, body_json[1])
 
     def test_GET_container_json_with_crypto_override(self):
         content_type_1 = 'image/jpeg'
         content_type_2 = 'text/plain; param=foo'
+        pt_etag1 = 'c6e8196d7f0fff6444b90861fe8d609d'
+        pt_etag2 = 'ac0374ed4d43635f803c82469d0b5a10'
 
         obj_dict_1 = {"bytes": 16,
                       "last_modified": "2015-04-14T23:33:06.439040",
-                      "hash": "c6e8196d7f0fff6444b90861fe8d609d",
+                      "hash": pt_etag1,
                       "name": "testfile",
                       "content_type": content_type_1}
 
         obj_dict_2 = {"bytes": 24,
                       "last_modified": "2015-04-14T23:33:06.519020",
-                      "hash": "ac0374ed4d43635f803c82469d0b5a10",
+                      "hash": pt_etag2,
                       "name": "testfile2",
                       "content_type": content_type_2}
 
@@ -736,10 +741,31 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertEqual(len(body), int(resp.headers['Content-Length']))
         body_json = json.loads(body)
         self.assertEqual(2, len(body_json))
-        obj_dict_1['content_type'] = content_type_1
         self.assertDictEqual(obj_dict_1, body_json[0])
-        obj_dict_2['content_type'] = content_type_2
         self.assertDictEqual(obj_dict_2, body_json[1])
+
+    def test_cont_get_json_req_with_cipher_mismatch(self):
+        bad_crypto_meta = fake_get_crypto_meta()
+        bad_crypto_meta['cipher'] = 'unknown_cipher'
+        key = fetch_crypto_keys()['container']
+        pt_etag = 'c6e8196d7f0fff6444b90861fe8d609d'
+        ct_etag = encrypt_and_append_meta(pt_etag, key,
+                                          crypto_meta=bad_crypto_meta)
+
+        obj_dict_1 = {"bytes": 16,
+                      "last_modified": "2015-04-14T23:33:06.439040",
+                      "hash": ct_etag,
+                      "name": "testfile",
+                      "content_type": "image/jpeg"}
+
+        listing = [obj_dict_1]
+        fake_body = json.dumps(listing)
+
+        resp = self._make_cont_get_req(fake_body, 'json')
+
+        self.assertEqual('500 Internal Error', resp.status)
+        # TODO: this error message is not appropriate, change
+        self.assertEqual('Error decrypting header value', resp.body)
 
     def _assert_element_contains_dict(self, expected, element):
         for k, v in expected.items():
@@ -753,14 +779,21 @@ class TestDecrypterContainerRequests(unittest.TestCase):
     def test_GET_container_xml(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
+        pt_etag1 = 'c6e8196d7f0fff6444b90861fe8d609d'
+        pt_etag2 = 'ac0374ed4d43635f803c82469d0b5a10'
+        key = fetch_crypto_keys()['container']
 
         fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
 <container name="testc">\
-<object><hash>c6e8196d7f0fff6444b90861fe8d609d</hash><content_type>\
+<object><hash>\
+''' + encrypt_and_append_meta(pt_etag1.encode('utf8'), key) + '''\
+</hash><content_type>\
 ''' + content_type_1 + '''\
 </content_type><name>testfile</name><bytes>16</bytes>\
 <last_modified>2015-04-19T02:37:39.601660</last_modified></object>\
-<object><hash>ac0374ed4d43635f803c82469d0b5a10</hash><content_type>\
+<object><hash>\
+''' + encrypt_and_append_meta(pt_etag2.encode('utf8'), key) + '''\
+</hash><content_type>\
 ''' + content_type_2 + '''\
 </content_type><name>testfile2</name><bytes>24</bytes>\
 <last_modified>2015-04-19T02:37:39.684740</last_modified></object>\
@@ -782,13 +815,13 @@ class TestDecrypterContainerRequests(unittest.TestCase):
 
         obj_dict_1 = {"bytes": "16",
                       "last_modified": "2015-04-19T02:37:39.601660",
-                      "hash": "c6e8196d7f0fff6444b90861fe8d609d",
+                      "hash": pt_etag1,
                       "name": "testfile",
                       "content_type": content_type_1}
         self._assert_element_contains_dict(obj_dict_1, objs[0])
         obj_dict_2 = {"bytes": "24",
                       "last_modified": "2015-04-19T02:37:39.684740",
-                      "hash": "ac0374ed4d43635f803c82469d0b5a10",
+                      "hash": pt_etag2,
                       "name": "testfile2",
                       "content_type": content_type_2}
         self._assert_element_contains_dict(obj_dict_2, objs[1])
@@ -836,6 +869,26 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "name": "testfile2",
                       "content_type": content_type_2}
         self._assert_element_contains_dict(obj_dict_2, objs[1])
+
+    def test_cont_get_xml_req_with_cipher_mismatch(self):
+        bad_crypto_meta = fake_get_crypto_meta()
+        bad_crypto_meta['cipher'] = 'unknown_cipher'
+
+        fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
+<container name="testc"><object>\
+<hash>''' + encrypt_and_append_meta('c6e8196d7f0fff6444b90861fe8d609d',
+                                    fetch_crypto_keys()['container'],
+                                    crypto_meta=bad_crypto_meta) + '''\
+</hash>\
+<content_type>image/jpeg</content_type>\
+<name>testfile</name><bytes>16</bytes>\
+<last_modified>2015-04-19T02:37:39.601660</last_modified></object>\
+</container>'''
+
+        resp = self._make_cont_get_req(fake_body, 'xml')
+
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('Error decrypting header value', resp.body)
 
 
 class TestModuleMethods(unittest.TestCase):

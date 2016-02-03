@@ -102,8 +102,7 @@ class PatchedObjControllerApp(proxy_server.Application):
 def make_footers_callback(body):
     # helper method to create a footers callback that will generate some fake
     # footer metadata
-    # TODO - change when cont_etag is encrypted
-    cont_etag = '20242af0cd21dd7195a10483eb7472c9'
+    cont_etag = 'container update etag may differ'
     crypto_etag = '20242af0cd21dd7195a10483eb7472c9'
     etag_crypto_meta = \
         '{"cipher": "AES_CTR_256", "iv": "sD+PSw/DfqYwpsVGSo0GEw=="}'

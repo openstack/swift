@@ -109,10 +109,12 @@ class EncInputWrapper(object):
             footers['X-Object-Sysmeta-Crypto-Etag'] = val
             footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = crypto_meta
 
-            # TODO: Encrypt the plaintext etag using the container key and use
+            # Encrypt the plaintext etag using the container key and use
             # it to override the container update value, with the crypto
             # parameters appended.
-            val = self.plaintext_md5.hexdigest()
+            val, _ = encrypt_header_val(
+                self.crypto, self.plaintext_md5.hexdigest(),
+                self.keys['container'], append_crypto_meta=True)
             footers['X-Backend-Container-Update-Override-Etag'] = val
 
             if inner_callback:
@@ -211,7 +213,6 @@ class EncrypterObjContext(CryptoWSGIContext):
 
         # If an etag is in the response headers, then replace its value with
         # the plaintext version
-        mod_resp_headers = self._response_headers
         mod_resp_headers = filter(lambda h: h[0].lower() != 'etag',
                                   self._response_headers)
         if len(mod_resp_headers) < len(self._response_headers):

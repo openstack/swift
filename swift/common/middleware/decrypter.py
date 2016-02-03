@@ -16,13 +16,17 @@
 import base64
 import json
 import urllib
+try:
+    import xml.etree.cElementTree as ElementTree
+except ImportError:
+    import xml.etree.ElementTree as ElementTree
 
 from swift.common.http import is_success
 from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.exceptions import EncryptionException
 from swift.common.middleware.crypto import Crypto
 from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
-    get_object_transient_sysmeta
+    get_object_transient_sysmeta, get_listing_content_type
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible, parse_content_type, \
@@ -87,14 +91,14 @@ class BaseDecrypterContext(CryptoWSGIContext):
 
         return _load_crypto_meta(crypto_meta_json)
 
-    def decrypt_value(self, value, key, crypto_meta):
+    def decrypt_value(self, value, key, crypto_meta=None):
         """
         Decrypt a value if suitable crypto_meta is provided or can be extracted
         from the value itself.
 
         :param value: value to decrypt
         :param key: crypto key to use
-        :param crypto_meta: a crypto-meta dict of form returned by
+        :param crypto_meta: an optional crypto-meta dict of form returned by
             :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
         :returns: decrypted value if valid crypto_meta is found, otherwise the
             unmodified value
@@ -314,6 +318,75 @@ class DecrypterObjContext(BaseDecrypterContext):
         return app_resp
 
 
+class DecrypterContContext(BaseDecrypterContext):
+    def __init__(self, decrypter, logger):
+        super(DecrypterContContext, self).__init__(decrypter, logger)
+
+    def GET(self, req, start_response):
+        app_resp = self._app_call(req.environ)
+
+        if is_success(self._get_status_int()):
+            # only decrypt body of 2xx responses
+            keys = self.process_resp(req)
+            if keys:
+                out_content_type = get_listing_content_type(req)
+                if out_content_type == 'application/json':
+                    app_resp = self.process_json_resp(keys, app_resp)
+                elif out_content_type.endswith('/xml'):
+                    app_resp = self.process_xml_resp(keys, app_resp)
+
+        start_response(self._response_status,
+                       self._response_headers,
+                       self._response_exc_info)
+
+        return app_resp
+
+    def update_content_length(self, new_total_len):
+        self._response_headers = [
+            (h, v) for h, v in self._response_headers
+            if h.lower() != 'content-length']
+        self._response_headers.append(('Content-Length', str(new_total_len)))
+
+    def process_json_resp(self, keys, resp_iter):
+        """
+        Parses json body listing and decrypt encrypted entries. Updates
+        Content-Length header with new body length and return a body iter.
+        """
+        with closing_if_possible(resp_iter):
+            resp_body = ''.join(resp_iter)
+        body_json = json.loads(resp_body)
+        new_body = json.dumps([self.decrypt_obj_dict(obj_dict, keys)
+                               for obj_dict in body_json])
+        self.update_content_length(len(new_body))
+        return [new_body]
+
+    def decrypt_obj_dict(self, obj_dict, keys):
+        ciphertext = obj_dict['hash']
+        obj_dict['hash'] = self.decrypt_value(ciphertext, keys['container'])
+
+        # TODO - did we need to use the length to decide to decrypt?
+        # if etag and (len(etag) > constraints.ETAG_LENGTH):
+        return obj_dict
+
+    def process_xml_resp(self, keys, resp_iter):
+        """
+        Parses xml body listing and decrypt encrypted entries. Updates
+        Content-Length header with new body length and return a body iter.
+        """
+        with closing_if_possible(resp_iter):
+            resp_body = ''.join(resp_iter)
+        tree = ElementTree.fromstring(resp_body)
+        for elem in tree.iter('hash'):
+            ciphertext = elem.text.encode('utf8')
+            plain = self.decrypt_value(ciphertext, keys['container'])
+            elem.text = plain.decode('utf8')
+        new_body = ElementTree.tostring(tree, encoding='UTF-8').replace(
+            "<?xml version='1.0' encoding='UTF-8'?>",
+            '<?xml version="1.0" encoding="UTF-8"?>', 1)
+        self.update_content_length(len(new_body))
+        return [new_body]
+
+
 class Decrypter(object):
 
     def __init__(self, app, conf):
@@ -332,6 +405,8 @@ class Decrypter(object):
 
         if parts[3] and hasattr(DecrypterObjContext, req.method):
             dec_context = DecrypterObjContext(self, self.logger)
+        elif parts[2] and hasattr(DecrypterContContext, req.method):
+            dec_context = DecrypterContContext(self, self.logger)
         else:
             # url and/or request verb is not handled by decrypter
             dec_context = None

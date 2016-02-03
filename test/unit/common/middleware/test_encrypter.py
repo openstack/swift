@@ -70,15 +70,32 @@ class TestEncrypter(unittest.TestCase):
         # verify encrypted version of plaintext etag
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
         etag_iv = Crypto().create_iv(iv_base=req.path)
-        self.assertEqual(encrypt(plaintext_etag, key, etag_iv), actual)
+        enc_etag = encrypt(plaintext_etag, key, etag_iv)
+        self.assertEqual(enc_etag, actual)
+        # verify crypto_meta was not appended to this etag
+        parts = req_hdrs['X-Object-Sysmeta-Crypto-Etag'].rsplit(';', 1)
+        self.assertEqual(len(parts), 1)
+
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
-        # verify plaintext etag for container update
-        actual = req_hdrs['X-Backend-Container-Update-Override-Etag']
-        self.assertEqual(plaintext_etag, actual)
+        # verify encrypted etag for container update
+        self.assertIn('X-Backend-Container-Update-Override-Etag', req_hdrs)
+        parts = req_hdrs[
+            'X-Backend-Container-Update-Override-Etag'].rsplit(';', 1)
+        self.assertEqual(2, len(parts))
+        cont_key = fetch_crypto_keys()['container']
+        actual = base64.b64decode(parts[0])
+        self.assertEqual(encrypt(plaintext_etag, cont_key, FAKE_IV), actual)
+
+        # extract crypto_meta from end of etag for container update
+        param = parts[1].strip()
+        self.assertTrue(param.startswith('meta='), param)
+        actual = json.loads(urllib.unquote_plus(param[5:]))
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
         # content-type is not encrypted
         self.assertEqual('text/plain', req_hdrs['Content-Type'])
