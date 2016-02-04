@@ -31,37 +31,39 @@ import (
 func TestParseRange(t *testing.T) {
 	//Setting up individual test data
 	tests := []struct {
+		fileSize    int64
 		rangeHeader string
 		exError     string
 		exRanges    []httpRange
 	}{
-		{"bytes=-0", "Zero end with no begin", nil},
-		{"bytes=12346-123457", "Begin bigger than file", nil},
-		{"bytes=12346-", "Begin bigger than file", nil},
-		{" ", "", []httpRange{}},
-		{"nonbytes=1-2", "", []httpRange{}},
-		{"bytes=", "", []httpRange{}},
-		{"bytes=-", "", []httpRange{}},
-		{"bytes=-cv", "", []httpRange{}},
-		{"bytes=cv-", "", []httpRange{}},
-		{"bytes=-12346", "", []httpRange{httpRange{0, 12345}}},
-		{"bytes=-12344", "", []httpRange{httpRange{1, 12345}}},
-		{"bytes=12344-", "", []httpRange{httpRange{12344, 12345}}},
-		{"bytes=12344-cv", "", []httpRange{}},
-		{"bytes=13-12", "", []httpRange{}},
-		{"bytes=cv-12345", "", []httpRange{}},
-		{"bytes=12342-12343", "", []httpRange{httpRange{12342, 12344}}},
-		{"bytes=12342-12344", "", []httpRange{httpRange{12342, 12345}}},
-		{"bytes=0-1,2-3", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}}},
-		{"bytes=0-1,x-x", "", []httpRange{httpRange{0, 2}}},
-		{"bytes=0-1,x-x,2-3", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}}},
-		{"bytes=0-1,x-", "", []httpRange{httpRange{0, 2}}},
-		{"bytes=0-1,2-3,4-5", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}, httpRange{4, 6}}},
+		{12345, "bytes=-0", "Zero end with no begin", nil},
+		{12345, "bytes=12346-123457", "Begin bigger than file", nil},
+		{12345, "bytes=12346-", "Begin bigger than file", nil},
+		{12345, " ", "", []httpRange{}},
+		{12345, "nonbytes=1-2", "", []httpRange{}},
+		{12345, "bytes=", "", []httpRange{}},
+		{12345, "bytes=-", "", []httpRange{}},
+		{12345, "bytes=-cv", "", []httpRange{}},
+		{12345, "bytes=cv-", "", []httpRange{}},
+		{12345, "bytes=-12346", "", []httpRange{httpRange{0, 12345}}},
+		{12345, "bytes=-12344", "", []httpRange{httpRange{1, 12345}}},
+		{12345, "bytes=12344-", "", []httpRange{httpRange{12344, 12345}}},
+		{12345, "bytes=12344-cv", "", []httpRange{}},
+		{12345, "bytes=13-12", "", []httpRange{}},
+		{12345, "bytes=cv-12345", "", []httpRange{}},
+		{12345, "bytes=12342-12343", "", []httpRange{httpRange{12342, 12344}}},
+		{12345, "bytes=12342-12344", "", []httpRange{httpRange{12342, 12345}}},
+		{12345, "bytes=0-1,2-3", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}}},
+		{12345, "bytes=0-1,x-x", "", []httpRange{httpRange{0, 2}}},
+		{12345, "bytes=0-1,x-x,2-3", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}}},
+		{12345, "bytes=0-1,x-", "", []httpRange{httpRange{0, 2}}},
+		{12345, "bytes=0-1,2-3,4-5", "", []httpRange{httpRange{0, 2}, httpRange{2, 4}, httpRange{4, 6}}},
+		{10000, "bytes=0-99,200-299,10000-10099", "", []httpRange{httpRange{0, 100}, httpRange{200, 300}}},
 	}
 
 	//Run tests with data from above
 	for _, test := range tests {
-		result, err := ParseRange(test.rangeHeader, 12345)
+		result, err := ParseRange(test.rangeHeader, test.fileSize)
 		if test.rangeHeader == " " {
 			assert.Nil(t, result)
 			assert.Nil(t, err)
