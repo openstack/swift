@@ -164,6 +164,14 @@ Installing Sphinx:
   #. Install sphinx (On Ubuntu: `sudo apt-get install python-sphinx`)
   #. `python setup.py build_sphinx`
 
+--------
+Manpages
+--------
+
+For sanity check of your change in manpage, use this command in the root
+of your Swift repo::
+
+  ./.manpages
 
 ---------------------
 License and Copyright
