@@ -89,8 +89,8 @@ Specs
 The [``swift-specs``](https://github.com/openstack/swift-specs) repo
 can be used for collaborative design work before a feature is implemented.
 
-Openstack's gerrit system is used to collaborate on the design spec. Once 
-approved Openstack provides a doc site to easily read these [specs](http://specs.openstack.org/openstack/swift-specs/)
+OpenStack's gerrit system is used to collaborate on the design spec. Once 
+approved OpenStack provides a doc site to easily read these [specs](http://specs.openstack.org/openstack/swift-specs/)
 
 A spec is needed for more impactful features. Coordinating a feature between
 many devs (especially across companies) is a great example of when a spec is
