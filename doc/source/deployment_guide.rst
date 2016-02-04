@@ -478,7 +478,11 @@ log_custom_handlers              None        Comma-separated list of functions t
                                              to setup custom log handlers.
 log_udp_host                                 Override log_address
 log_udp_port                     514         UDP log port
-log_statsd_host                  localhost   StatsD logging
+log_statsd_host                  localhost   StatsD logging; IPv4/IPv6
+                                             address or a hostname.  If a
+                                             hostname resolves to an IPv4 and IPv6
+                                             address, the IPv4 address will be
+                                             used.
 log_statsd_port                  8125
 log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0

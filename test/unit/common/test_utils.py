@@ -3652,6 +3652,95 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(logger.logger.statsd_client._sample_rate_factor,
                          0.81)
 
+    def test_ipv4_or_ipv6_hostname_defaults_to_ipv4(self):
+        def stub_getaddrinfo_both_ipv4_and_ipv6(host, port, family, *rest):
+            if family == socket.AF_INET:
+                return [(socket.AF_INET, 'blah', 'blah', 'blah',
+                        ('127.0.0.1', int(port)))]
+            elif family == socket.AF_INET6:
+                # Implemented so an incorrectly ordered implementation (IPv6
+                # then IPv4) would realistically fail.
+                return [(socket.AF_INET6, 'blah', 'blah', 'blah',
+                        ('::1', int(port), 0, 0))]
+
+        with mock.patch.object(utils.socket, 'getaddrinfo',
+                               new=stub_getaddrinfo_both_ipv4_and_ipv6):
+            logger = utils.get_logger({
+                'log_statsd_host': 'localhost',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET)
+        self.assertEqual(statsd_client._target, ('localhost', 9876))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET)
+
+    def test_ipv4_instantiation_and_socket_creation(self):
+        logger = utils.get_logger({
+            'log_statsd_host': '127.0.0.1',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET)
+        self.assertEqual(statsd_client._target, ('127.0.0.1', 9876))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET)
+
+    def test_ipv6_instantiation_and_socket_creation(self):
+        # We have to check the given hostname or IP for IPv4/IPv6 on logger
+        # instantiation so we don't call getaddrinfo() too often and don't have
+        # to call bind() on our socket to detect IPv4/IPv6 on every send.
+        logger = utils.get_logger({
+            'log_statsd_host': '::1',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET6)
+        self.assertEqual(statsd_client._target, ('::1', 9876, 0, 0))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET6)
+
+    def test_bad_hostname_instantiation(self):
+        logger = utils.get_logger({
+            'log_statsd_host': 'i-am-not-a-hostname-or-ip',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET)
+        self.assertEqual(statsd_client._target,
+                         ('i-am-not-a-hostname-or-ip', 9876))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET)
+        # Maybe the DNS server gets fixed in a bit and it starts working... or
+        # maybe the DNS record hadn't propagated yet.  In any case, failed
+        # statsd sends will warn in the logs until the DNS failure or invalid
+        # IP address in the configuration is fixed.
+
+    def test_sending_ipv6(self):
+        logger = utils.get_logger({
+            'log_statsd_host': '::1',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        fl = FakeLogger()
+        statsd_client.logger = fl
+        mock_socket = MockUdpSocket()
+
+        statsd_client._open_socket = lambda *_: mock_socket
+        logger.increment('tunafish')
+        self.assertEqual(fl.get_lines_for_level('warning'), [])
+        self.assertEqual(mock_socket.sent,
+                         [(b'some-name.tunafish:1|c', ('::1', 9876, 0, 0))])
+
     def test_no_exception_when_cant_send_udp_packet(self):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'})
         statsd_client = logger.logger.statsd_client
