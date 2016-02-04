@@ -2716,11 +2716,7 @@ def public(func):
     :param func: function to make public
     """
     func.publicly_accessible = True
-
-    @functools.wraps(func)
-    def wrapped(*a, **kw):
-        return func(*a, **kw)
-    return wrapped
+    return func
 
 
 def quorum_size(n):

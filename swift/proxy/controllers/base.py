@@ -97,11 +97,7 @@ def delay_denial(func):
     :param func: function for which authorization will be delayed
     """
     func.delay_denial = True
-
-    @functools.wraps(func)
-    def wrapped(*a, **kw):
-        return func(*a, **kw)
-    return wrapped
+    return func
 
 
 def get_account_memcache_key(account):
