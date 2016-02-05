@@ -17,6 +17,7 @@ package bench
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -38,13 +39,20 @@ var client = &http.Client{}
 var storageURL = ""
 var authToken = ""
 
-func Auth(endpoint string, user string, key string) (string, string) {
+func Auth(endpoint string, user string, key string, allowInsecureAuthCert bool) (string, string) {
 	req, err := http.NewRequest("GET", endpoint, nil)
 	req.Header.Set("X-Auth-User", user)
 	req.Header.Set("X-Auth-Key", key)
-	resp, err := client.Do(req)
+	authClient := &http.Client{}
+	if allowInsecureAuthCert {
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		authClient = &http.Client{Transport: tr}
+	}
+	resp, err := authClient.Do(req)
 	if err != nil {
-		fmt.Println("ERROR MAKING AUTH REQUEST")
+		fmt.Println("ERROR MAKING AUTH REQUEST", err)
 		os.Exit(1)
 	}
 	resp.Body.Close()
@@ -168,6 +176,7 @@ func RunBench(args []string) {
 		fmt.Println("    num_objects = 5000")
 		fmt.Println("    num_gets = 30000")
 		fmt.Println("    delete = yes")
+		fmt.Println("    allow_insecure_auth_cert = no")
 		os.Exit(1)
 	}
 
@@ -185,9 +194,10 @@ func RunBench(args []string) {
 	numObjects := benchconf.GetInt("bench", "num_objects", 5000)
 	numGets := benchconf.GetInt("bench", "num_gets", 30000)
 	delete := benchconf.GetBool("bench", "delete", true)
+	allowInsecureAuthCert := benchconf.GetBool("bench", "allow_insecure_auth_cert", false)
 	salt := fmt.Sprintf("%d", rand.Int63())
 
-	storageURL, authToken = Auth(authURL, authUser, authKey)
+	storageURL, authToken = Auth(authURL, authUser, authKey, allowInsecureAuthCert)
 
 	PutContainers(storageURL, authToken, concurrency, salt)
 
@@ -236,6 +246,7 @@ func RunThrash(args []string) {
 		fmt.Println("    object_size = 131072")
 		fmt.Println("    num_objects = 5000")
 		fmt.Println("    gets_per_object = 5")
+		fmt.Println("    allow_insecure_auth_cert = no")
 		os.Exit(1)
 	}
 
@@ -252,8 +263,9 @@ func RunThrash(args []string) {
 	objectSize := thrashconf.GetInt("thrash", "object_size", 131072)
 	numObjects := thrashconf.GetInt("thrash", "num_objects", 5000)
 	numGets := int(thrashconf.GetInt("thrash", "gets_per_object", 5))
+	allowInsecureAuthCert := thrashconf.GetBool("bench", "allow_insecure_auth_cert", false)
 
-	storageURL, authToken = Auth(authURL, authUser, authKey)
+	storageURL, authToken = Auth(authURL, authUser, authKey, allowInsecureAuthCert)
 
 	salt := fmt.Sprintf("%d", rand.Int63())
 
