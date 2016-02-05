@@ -122,6 +122,7 @@ func RunDBench(args []string) {
 		fmt.Println("    delete = yes")
 		fmt.Println("    minimum_partition_number = 1000000000")
 		fmt.Println("    check_mounted = false")
+		fmt.Println("    #drive_list = sdb1,sdb2")
 		os.Exit(1)
 	}
 
@@ -141,17 +142,21 @@ func RunDBench(args []string) {
 	numGets := benchconf.GetInt("dbench", "num_gets", 30000)
 	doReplicates := benchconf.GetBool("dbench", "do_replicates", false)
 	checkMounted := benchconf.GetBool("dbench", "check_mounted", false)
+	driveList := benchconf.GetDefault("dbench", "drive_list", "")
 	numPartitions := int64(100)
 	minPartition := benchconf.GetInt("dbench", "minimum_partition_number", 1000000000)
 	delete := benchconf.GetBool("dbench", "delete", true)
 
 	deviceList := GetDevices(address, checkMounted)
+	if driveList != "" {
+		deviceList = strings.Split(driveList, ",")
+	}
 
 	data := make([]byte, objectSize)
 	objects := make([]DirectObject, numObjects)
 	deviceParts := make(map[string]bool)
 	for i, _ := range objects {
-		device := deviceList[i%len(deviceList)]
+		device := strings.Trim(deviceList[i%len(deviceList)], " ")
 		part := rand.Int63()%numPartitions + minPartition
 		objects[i].Url = fmt.Sprintf("%s%s/%d/%s/%s/%d", address, device, part, "a", "c", rand.Int63())
 		objects[i].Data = data
