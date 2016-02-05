@@ -76,8 +76,10 @@ adapted_logger. The default is empty.
 If set, log_udp_host will override log_address.
 .IP "\fBlog_udp_port\fR
 UDP log port, the default is 514.
-.IP \fBlog_statsd_host\fR = localhost
-log_statsd_*  enable StatsD logging.
+.IP \fBlog_statsd_host\fR
+StatsD server. IPv4/IPv6 addresses and hostnames are
+supported. If a hostname resolves to an IPv4 and IPv6 address, the IPv4
+address will be used.
 .IP \fBlog_statsd_port\fR
 The default is 8125.
 .IP \fBlog_statsd_default_sample_rate\fR
