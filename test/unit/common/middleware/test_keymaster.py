@@ -180,14 +180,14 @@ class TestKeymaster(unittest.TestCase):
     def test_key_loaded(self):
         app = keymaster.KeyMaster(self.swift,
                                   {'encryption_root_secret': 'secret'})
-        self.assertEqual(app.root_secret, 'secret')
+        self.assertEqual('secret', app.root_secret)
 
     def test_no_root_secret_error(self):
         with self.assertRaises(ValueError) as err:
             keymaster.KeyMaster(self.swift, {})
 
-        self.assertEqual(err.exception.message,
-                         'encryption_root_secret not set in proxy-server.conf')
+        self.assertEqual('encryption_root_secret not set in proxy-server.conf',
+                         err.exception.message)
 
 
 if __name__ == '__main__':
