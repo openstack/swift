@@ -59,7 +59,7 @@ Lists old Swift processes.
             listing.append((str(hours), pid, args))
 
     if not listing:
-        exit()
+        sys.exit()
 
     hours_len = len('Hours')
     pid_len = len('PID')
