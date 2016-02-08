@@ -3359,15 +3359,18 @@ class TestObjectVersioning(Base):
                 "Expected versioning_enabled to be True/False, got %r" %
                 (self.env.versioning_enabled,))
 
-    def tearDown(self):
-        super(TestObjectVersioning, self).tearDown()
+    def _tear_down_files(self):
         try:
-            # only delete files and not container
+            # only delete files and not containers
             # as they were configured in self.env
             self.env.versions_container.delete_files()
             self.env.container.delete_files()
         except ResponseError:
             pass
+
+    def tearDown(self):
+        super(TestObjectVersioning, self).tearDown()
+        self._tear_down_files()
 
     def test_clear_version_option(self):
         # sanity
@@ -3601,6 +3604,10 @@ class TestObjectVersioning(Base):
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
     set_up = False
+
+    def tearDown(self):
+        self._tear_down_files()
+        super(TestObjectVersioningUTF8, self).tearDown()
 
 
 class TestCrossPolicyObjectVersioning(TestObjectVersioning):
