@@ -143,7 +143,7 @@ class ContainerUpdater(Daemon):
                     pid2filename[pid] = tmpfilename
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                    patcher.monkey_patch(all=False, socket=True)
+                    patcher.monkey_patch(all=False, socket=True, thread=True)
                     self.no_changes = 0
                     self.successes = 0
                     self.failures = 0
@@ -177,7 +177,7 @@ class ContainerUpdater(Daemon):
         """
         Run the updater once.
         """
-        patcher.monkey_patch(all=False, socket=True)
+        patcher.monkey_patch(all=False, socket=True, thread=True)
         self.logger.info(_('Begin container update single threaded sweep'))
         begin = time.time()
         self.no_changes = 0
