@@ -167,11 +167,28 @@ class TestObject(unittest2.TestCase):
                               'Content-Length': '0',
                               'X-Timestamp': '-1'})
             return check_response(conn)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', '%s/%s/%s' % (parsed.path, self.container,
+                                               'too_small_x_timestamp'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0'})
+            return check_response(conn)
+        ts_before = time.time()
         resp = retry(put)
         body = resp.read()
-        self.assertEqual(resp.status, 400)
-        self.assertIn(
-            'X-Timestamp should be a UNIX timestamp float value', body)
+        ts_after = time.time()
+        if resp.status == 400:
+            # shunt_inbound_x_timestamp must be false
+            self.assertIn(
+                'X-Timestamp should be a UNIX timestamp float value', body)
+        else:
+            self.assertEqual(resp.status, 201)
+            self.assertEqual(body, '')
+            resp = retry(head)
+            resp.read()
+            self.assertGreater(float(resp.headers['x-timestamp']), ts_before)
+            self.assertLess(float(resp.headers['x-timestamp']), ts_after)
 
     def test_too_big_x_timestamp(self):
         def put(url, token, parsed, conn):
@@ -181,11 +198,28 @@ class TestObject(unittest2.TestCase):
                               'Content-Length': '0',
                               'X-Timestamp': '99999999999.9999999999'})
             return check_response(conn)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', '%s/%s/%s' % (parsed.path, self.container,
+                                               'too_big_x_timestamp'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0'})
+            return check_response(conn)
+        ts_before = time.time()
         resp = retry(put)
         body = resp.read()
-        self.assertEqual(resp.status, 400)
-        self.assertIn(
-            'X-Timestamp should be a UNIX timestamp float value', body)
+        ts_after = time.time()
+        if resp.status == 400:
+            # shunt_inbound_x_timestamp must be false
+            self.assertIn(
+                'X-Timestamp should be a UNIX timestamp float value', body)
+        else:
+            self.assertEqual(resp.status, 201)
+            self.assertEqual(body, '')
+            resp = retry(head)
+            resp.read()
+            self.assertGreater(float(resp.headers['x-timestamp']), ts_before)
+            self.assertLess(float(resp.headers['x-timestamp']), ts_after)
 
     def test_x_delete_after(self):
         def put(url, token, parsed, conn):

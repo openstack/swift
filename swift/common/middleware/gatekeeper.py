@@ -32,7 +32,7 @@ automatically inserted close to the start of the pipeline by the proxy server.
 
 
 from swift.common.swob import Request
-from swift.common.utils import get_logger
+from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import remove_items, get_sys_meta_prefix
 import re
 
@@ -69,12 +69,21 @@ class GatekeeperMiddleware(object):
         self.logger = get_logger(conf, log_route='gatekeeper')
         self.inbound_condition = make_exclusion_test(inbound_exclusions)
         self.outbound_condition = make_exclusion_test(outbound_exclusions)
+        self.shunt_x_timestamp = config_true_value(
+            conf.get('shunt_inbound_x_timestamp', 'true'))
 
     def __call__(self, env, start_response):
         req = Request(env)
         removed = remove_items(req.headers, self.inbound_condition)
         if removed:
             self.logger.debug('removed request headers: %s' % removed)
+
+        if 'X-Timestamp' in req.headers and self.shunt_x_timestamp:
+            ts = req.headers.pop('X-Timestamp')
+            req.headers['X-Backend-Inbound-X-Timestamp'] = ts
+            # log in a similar format as the removed headers
+            self.logger.debug('shunted request headers: %s' %
+                              [('X-Timestamp', ts)])
 
         def gatekeeper_response(status, response_headers, exc_info=None):
             removed = filter(

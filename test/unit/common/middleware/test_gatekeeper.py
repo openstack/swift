@@ -74,10 +74,13 @@ class TestGatekeeper(unittest.TestCase):
     x_backend_headers = {'X-Backend-Replication': 'true',
                          'X-Backend-Replication-Headers': 'stuff'}
 
+    x_timestamp_headers = {'X-Timestamp': '1455952805.719739'}
+
     forbidden_headers_out = dict(sysmeta_headers.items() +
                                  x_backend_headers.items())
     forbidden_headers_in = dict(sysmeta_headers.items() +
                                 x_backend_headers.items())
+    shunted_headers_in = dict(x_timestamp_headers.items())
 
     def _assertHeadersEqual(self, expected, actual):
         for key in expected:
@@ -106,19 +109,62 @@ class TestGatekeeper(unittest.TestCase):
     def _test_reserved_header_removed_inbound(self, method):
         headers = dict(self.forbidden_headers_in)
         headers.update(self.allowed_headers)
+        headers.update(self.shunted_headers_in)
         req = Request.blank('/v/a/c', environ={'REQUEST_METHOD': method},
                             headers=headers)
         fake_app = FakeApp()
         app = self.get_app(fake_app, {})
         resp = req.get_response(app)
         self.assertEqual('200 OK', resp.status)
-        self._assertHeadersEqual(self.allowed_headers, fake_app.req.headers)
-        self._assertHeadersAbsent(self.forbidden_headers_in,
-                                  fake_app.req.headers)
+        expected_headers = dict(self.allowed_headers)
+        # shunt_inbound_x_timestamp should be enabled by default
+        expected_headers.update({'X-Backend-Inbound-' + k: v
+                                 for k, v in self.shunted_headers_in.items()})
+        self._assertHeadersEqual(expected_headers, fake_app.req.headers)
+        unexpected_headers = dict(self.forbidden_headers_in.items() +
+                                  self.shunted_headers_in.items())
+        self._assertHeadersAbsent(unexpected_headers, fake_app.req.headers)
 
     def test_reserved_header_removed_inbound(self):
         for method in self.methods:
             self._test_reserved_header_removed_inbound(method)
+
+    def _test_reserved_header_shunted_inbound(self, method):
+        headers = dict(self.shunted_headers_in)
+        headers.update(self.allowed_headers)
+        req = Request.blank('/v/a/c', environ={'REQUEST_METHOD': method},
+                            headers=headers)
+        fake_app = FakeApp()
+        app = self.get_app(fake_app, {}, shunt_inbound_x_timestamp='true')
+        resp = req.get_response(app)
+        self.assertEqual('200 OK', resp.status)
+        expected_headers = dict(self.allowed_headers)
+        expected_headers.update({'X-Backend-Inbound-' + k: v
+                                 for k, v in self.shunted_headers_in.items()})
+        self._assertHeadersEqual(expected_headers, fake_app.req.headers)
+        self._assertHeadersAbsent(self.shunted_headers_in,
+                                  fake_app.req.headers)
+
+    def test_reserved_header_shunted_inbound(self):
+        for method in self.methods:
+            self._test_reserved_header_shunted_inbound(method)
+
+    def _test_reserved_header_shunt_bypassed_inbound(self, method):
+        headers = dict(self.shunted_headers_in)
+        headers.update(self.allowed_headers)
+        req = Request.blank('/v/a/c', environ={'REQUEST_METHOD': method},
+                            headers=headers)
+        fake_app = FakeApp()
+        app = self.get_app(fake_app, {}, shunt_inbound_x_timestamp='false')
+        resp = req.get_response(app)
+        self.assertEqual('200 OK', resp.status)
+        expected_headers = dict(self.allowed_headers.items() +
+                                self.shunted_headers_in.items())
+        self._assertHeadersEqual(expected_headers, fake_app.req.headers)
+
+    def test_reserved_header_shunt_bypassed_inbound(self):
+        for method in self.methods:
+            self._test_reserved_header_shunt_bypassed_inbound(method)
 
     def _test_reserved_header_removed_outbound(self, method):
         headers = dict(self.forbidden_headers_out)
