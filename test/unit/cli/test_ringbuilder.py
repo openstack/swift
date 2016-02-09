@@ -1754,6 +1754,41 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                    (self.tmpfile, ring.id, self.tmpfile)
         self.assertEqual(expected, mock_stdout.getvalue())
 
+    def test_default_sorted_output(self):
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+
+        # Create a sample ring and remove/add some devices.
+        ring = self.create_sample_ring()
+        argv = ["", self.tmpfile, "add",
+                "--region", "1", "--zone", "2",
+                "--ip", "127.0.0.5", "--port", "6004",
+                "--replication-ip", "127.0.0.5",
+                "--replication-port", "6004",
+                "--device", "sda5", "--weight", "100.0"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = ["", self.tmpfile, "remove", "--id", "0"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = ["", self.tmpfile, "remove", "--id", "3"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = ["", self.tmpfile, "rebalance"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = \
+            ["", self.tmpfile, "add",
+             "--region", "2", "--zone", "1",
+             "--ip", "127.0.0.6", "--port", "6005",
+             "--replication-ip", "127.0.0.6",
+             "--replication-port", "6005",
+             "--device", "sdb6", "--weight", "100.0"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        # Check the order of the devices listed the output.
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        self.assertOutputStub(mock_stdout.getvalue(), builder_id=ring.id)
+
     def test_default_ringfile_check(self):
         self.create_sample_ring()
 
