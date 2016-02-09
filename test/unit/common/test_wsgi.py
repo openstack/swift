@@ -1470,6 +1470,45 @@ class TestPipelineModification(unittest.TestCase):
                           'swift.common.middleware.healthcheck',
                           'swift.proxy.server'])
 
+    def test_proxy_modify_wsgi_pipeline_inserts_versioned_writes(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = slo dlo healthcheck proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        conn_timeout = 0.2
+
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+
+        [filter:dlo]
+        use = egg:swift#dlo
+
+        [filter:slo]
+        use = egg:swift#slo
+        """
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            app = wsgi.loadapp(conf_file, global_conf={})
+
+        self.assertEqual(self.pipeline_modules(app),
+                         ['swift.common.middleware.catch_errors',
+                          'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.slo',
+                          'swift.common.middleware.dlo',
+                          'swift.common.middleware.versioned_writes',
+                          'swift.common.middleware.healthcheck',
+                          'swift.proxy.server'])
+
     def test_proxy_modify_wsgi_pipeline_ordering(self):
         config = """
         [DEFAULT]
