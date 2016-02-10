@@ -145,7 +145,7 @@ class TestContainerSyncStore(unittest.TestCase):
     # 133791/625/82...25/82...25.db
     def _db_path_suffix(self):
         def random_hexa_string(length):
-            '%0xlength' % random.randrange(16 ** length)
+            '%0x' % random.randrange(16 ** length)
 
         db = random_hexa_string(32)
         return '%s/%s/%s/%s.db' % (random_hexa_string(5),

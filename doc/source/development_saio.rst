@@ -587,3 +587,7 @@ doesn't work, here are some good starting places to look for issues:
    cannot rate limit (unit tests generate a lot of logs very quickly).
    Open the file ``SWIFT_TEST_CONFIG_FILE`` points to, and change the
    value of ``fake_syslog`` to ``True``.
+#. If you encounter a ``401 Unauthorized`` when following Step 12 where
+   you check that you can ``GET`` account, use ``sudo service memcached status``
+   and check if memcache is running. If memcache is not running, start it using
+   ``sudo service memcached start``. Once memcache is running, rerun ``GET`` account.

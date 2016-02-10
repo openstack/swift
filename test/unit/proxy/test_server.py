@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2010-2012 OpenStack Foundation
+# Copyright (c) 2010-2016 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_container_memcache_key, \
-    get_account_memcache_key, cors_validation
+    get_account_memcache_key, cors_validation, _get_info_cache
 import swift.proxy.controllers
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException, HeaderKeyDict, HTTPBadRequest
@@ -680,6 +680,37 @@ class TestController(unittest.TestCase):
             test(504, 404, 503)
             test(404, 507, 503)
             test(503, 503, 503)
+
+    def test_get_info_cache_returns_values_as_strings(self):
+        app = mock.MagicMock()
+        app.memcache = mock.MagicMock()
+        app.memcache.get = mock.MagicMock()
+        app.memcache.get.return_value = {
+            u'foo': u'\u2603',
+            u'meta': {u'bar': u'\u2603'},
+            u'sysmeta': {u'baz': u'\u2603'},
+            u'cors': {u'expose_headers': u'\u2603'}}
+        env = {}
+        r = _get_info_cache(app, env, 'account', 'container')
+
+        # Test info is returned as strings
+        self.assertEqual(r.get('foo'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(r.get('foo'), str))
+
+        # Test info['meta'] is returned as strings
+        m = r.get('meta', {})
+        self.assertEqual(m.get('bar'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(m.get('bar'), str))
+
+        # Test info['sysmeta'] is returned as strings
+        m = r.get('sysmeta', {})
+        self.assertEqual(m.get('baz'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(m.get('baz'), str))
+
+        # Test info['cors'] is returned as strings
+        m = r.get('cors', {})
+        self.assertEqual(m.get('expose_headers'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(m.get('expose_headers'), str))
 
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])

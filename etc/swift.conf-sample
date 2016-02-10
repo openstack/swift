@@ -73,13 +73,14 @@ aliases = yellow, orange
 # The example 'deepfreeze10-4' policy defined below is a _sample_
 # configuration with an alias of 'df10-4' as well as 10 'data' and 4 'parity'
 # fragments. 'ec_type' defines the Erasure Coding scheme.
-# 'jerasure_rs_vand' (Reed-Solomon Vandermonde) is used as an example below.
+# 'liberasurecode_rs_vand' (Reed-Solomon Vandermonde) is used as an example
+# below.
 #
 #[storage-policy:2]
 #name = deepfreeze10-4
 #aliases = df10-4
 #policy_type = erasure_coding
-#ec_type = jerasure_rs_vand
+#ec_type = liberasurecode_rs_vand
 #ec_num_data_fragments = 10
 #ec_num_parity_fragments = 4
 #ec_object_segment_size = 1048576

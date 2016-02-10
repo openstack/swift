@@ -287,6 +287,10 @@ class TestTimestamp(unittest.TestCase):
         for value in test_values:
             self.assertTrue(value != ts)
 
+        self.assertIs(True, utils.Timestamp(ts) == ts)  # sanity
+        self.assertIs(False, utils.Timestamp(ts) != utils.Timestamp(ts))
+        self.assertIs(False, utils.Timestamp(ts) != ts)
+
     def test_no_force_internal_no_offset(self):
         """Test that internal is the same as normal with no offset"""
         with mock.patch('swift.common.utils.FORCE_INTERNAL', new=False):
@@ -1210,6 +1214,29 @@ class TestUtils(unittest.TestCase):
             file_dict = json.loads(fd.readline())
             fd.close()
             self.assertEqual(result_dict, file_dict)
+        finally:
+            rmtree(testdir_base)
+
+    def test_dump_recon_cache_permission_denied(self):
+        testdir_base = mkdtemp()
+        testcache_file = os.path.join(testdir_base, 'cache.recon')
+
+        class MockLogger(object):
+            def __init__(self):
+                self._excs = []
+
+            def exception(self, message):
+                _junk, exc, _junk = sys.exc_info()
+                self._excs.append(exc)
+
+        logger = MockLogger()
+        try:
+            submit_dict = {'key1': {'value1': 1, 'value2': 2}}
+            with mock.patch(
+                    'swift.common.utils.NamedTemporaryFile',
+                    side_effect=IOError(13, 'Permission Denied')):
+                utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            self.assertIsInstance(logger._excs[0], IOError)
         finally:
             rmtree(testdir_base)
 
@@ -3479,14 +3506,14 @@ class TestSwiftInfo(unittest.TestCase):
 class TestFileLikeIter(unittest.TestCase):
 
     def test_iter_file_iter(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         chunks = []
         for chunk in utils.FileLikeIter(in_iter):
             chunks.append(chunk)
         self.assertEqual(chunks, in_iter)
 
     def test_next(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         chunks = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3498,12 +3525,12 @@ class TestFileLikeIter(unittest.TestCase):
         self.assertEqual(chunks, in_iter)
 
     def test_read(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         iter_file = utils.FileLikeIter(in_iter)
-        self.assertEqual(iter_file.read(), ''.join(in_iter))
+        self.assertEqual(iter_file.read(), b''.join(in_iter))
 
     def test_read_with_size(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         chunks = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3512,14 +3539,15 @@ class TestFileLikeIter(unittest.TestCase):
                 break
             self.assertTrue(len(chunk) <= 2)
             chunks.append(chunk)
-        self.assertEqual(''.join(chunks), ''.join(in_iter))
+        self.assertEqual(b''.join(chunks), b''.join(in_iter))
 
     def test_read_with_size_zero(self):
         # makes little sense, but file supports it, so...
-        self.assertEqual(utils.FileLikeIter('abc').read(0), '')
+        self.assertEqual(utils.FileLikeIter(b'abc').read(0), b'')
 
     def test_readline(self):
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         lines = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3529,22 +3557,23 @@ class TestFileLikeIter(unittest.TestCase):
             lines.append(line)
         self.assertEqual(
             lines,
-            [v if v == 'trailing.' else v + '\n'
-             for v in ''.join(in_iter).split('\n')])
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
 
     def test_readline2(self):
         self.assertEqual(
-            utils.FileLikeIter(['abc', 'def\n']).readline(4),
-            'abcd')
+            utils.FileLikeIter([b'abc', b'def\n']).readline(4),
+            b'abcd')
 
     def test_readline3(self):
         self.assertEqual(
-            utils.FileLikeIter(['a' * 1111, 'bc\ndef']).readline(),
-            ('a' * 1111) + 'bc\n')
+            utils.FileLikeIter([b'a' * 1111, b'bc\ndef']).readline(),
+            (b'a' * 1111) + b'bc\n')
 
     def test_readline_with_size(self):
 
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         lines = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3554,19 +3583,21 @@ class TestFileLikeIter(unittest.TestCase):
             lines.append(line)
         self.assertEqual(
             lines,
-            ['ab', 'c\n', 'd\n', 'ef', 'g\n', 'h\n', 'ij', '\n', '\n', 'k\n',
-             'tr', 'ai', 'li', 'ng', '.'])
+            [b'ab', b'c\n', b'd\n', b'ef', b'g\n', b'h\n', b'ij', b'\n', b'\n',
+             b'k\n', b'tr', b'ai', b'li', b'ng', b'.'])
 
     def test_readlines(self):
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         lines = utils.FileLikeIter(in_iter).readlines()
         self.assertEqual(
             lines,
-            [v if v == 'trailing.' else v + '\n'
-             for v in ''.join(in_iter).split('\n')])
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
 
     def test_readlines_with_size(self):
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         iter_file = utils.FileLikeIter(in_iter)
         lists_of_lines = []
         while True:
@@ -3576,12 +3607,13 @@ class TestFileLikeIter(unittest.TestCase):
             lists_of_lines.append(lines)
         self.assertEqual(
             lists_of_lines,
-            [['ab'], ['c\n'], ['d\n'], ['ef'], ['g\n'], ['h\n'], ['ij'],
-             ['\n', '\n'], ['k\n'], ['tr'], ['ai'], ['li'], ['ng'], ['.']])
+            [[b'ab'], [b'c\n'], [b'd\n'], [b'ef'], [b'g\n'], [b'h\n'], [b'ij'],
+             [b'\n', b'\n'], [b'k\n'], [b'tr'], [b'ai'], [b'li'], [b'ng'],
+             [b'.']])
 
     def test_close(self):
-        iter_file = utils.FileLikeIter('abcdef')
-        self.assertEqual(next(iter_file), 'a')
+        iter_file = utils.FileLikeIter([b'a', b'b', b'c'])
+        self.assertEqual(next(iter_file), b'a')
         iter_file.close()
         self.assertTrue(iter_file.closed)
         self.assertRaises(ValueError, iter_file.next)
@@ -3637,6 +3669,95 @@ class TestStatsdLogging(unittest.TestCase):
                          0.75)
         self.assertEqual(logger.logger.statsd_client._sample_rate_factor,
                          0.81)
+
+    def test_ipv4_or_ipv6_hostname_defaults_to_ipv4(self):
+        def stub_getaddrinfo_both_ipv4_and_ipv6(host, port, family, *rest):
+            if family == socket.AF_INET:
+                return [(socket.AF_INET, 'blah', 'blah', 'blah',
+                        ('127.0.0.1', int(port)))]
+            elif family == socket.AF_INET6:
+                # Implemented so an incorrectly ordered implementation (IPv6
+                # then IPv4) would realistically fail.
+                return [(socket.AF_INET6, 'blah', 'blah', 'blah',
+                        ('::1', int(port), 0, 0))]
+
+        with mock.patch.object(utils.socket, 'getaddrinfo',
+                               new=stub_getaddrinfo_both_ipv4_and_ipv6):
+            logger = utils.get_logger({
+                'log_statsd_host': 'localhost',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET)
+        self.assertEqual(statsd_client._target, ('localhost', 9876))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET)
+
+    def test_ipv4_instantiation_and_socket_creation(self):
+        logger = utils.get_logger({
+            'log_statsd_host': '127.0.0.1',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET)
+        self.assertEqual(statsd_client._target, ('127.0.0.1', 9876))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET)
+
+    def test_ipv6_instantiation_and_socket_creation(self):
+        # We have to check the given hostname or IP for IPv4/IPv6 on logger
+        # instantiation so we don't call getaddrinfo() too often and don't have
+        # to call bind() on our socket to detect IPv4/IPv6 on every send.
+        logger = utils.get_logger({
+            'log_statsd_host': '::1',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET6)
+        self.assertEqual(statsd_client._target, ('::1', 9876, 0, 0))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET6)
+
+    def test_bad_hostname_instantiation(self):
+        logger = utils.get_logger({
+            'log_statsd_host': 'i-am-not-a-hostname-or-ip',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        self.assertEqual(statsd_client._sock_family, socket.AF_INET)
+        self.assertEqual(statsd_client._target,
+                         ('i-am-not-a-hostname-or-ip', 9876))
+
+        got_sock = statsd_client._open_socket()
+        self.assertEqual(got_sock.family, socket.AF_INET)
+        # Maybe the DNS server gets fixed in a bit and it starts working... or
+        # maybe the DNS record hadn't propagated yet.  In any case, failed
+        # statsd sends will warn in the logs until the DNS failure or invalid
+        # IP address in the configuration is fixed.
+
+    def test_sending_ipv6(self):
+        logger = utils.get_logger({
+            'log_statsd_host': '::1',
+            'log_statsd_port': '9876',
+        }, 'some-name', log_route='some-route')
+        statsd_client = logger.logger.statsd_client
+
+        fl = FakeLogger()
+        statsd_client.logger = fl
+        mock_socket = MockUdpSocket()
+
+        statsd_client._open_socket = lambda *_: mock_socket
+        logger.increment('tunafish')
+        self.assertEqual(fl.get_lines_for_level('warning'), [])
+        self.assertEqual(mock_socket.sent,
+                         [(b'some-name.tunafish:1|c', ('::1', 9876, 0, 0))])
 
     def test_no_exception_when_cant_send_udp_packet(self):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'})
@@ -3791,6 +3912,7 @@ class UnsafeXrange(object):
                 return val
         finally:
             self.concurrent_calls -= 1
+    __next__ = next
 
 
 class TestAffinityKeyFunction(unittest.TestCase):

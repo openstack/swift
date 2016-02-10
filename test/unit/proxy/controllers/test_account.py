@@ -220,7 +220,6 @@ class TestAccountController(unittest.TestCase):
         # Verify that a GET/HEAD which receives privileged headers from the
         # account server will strip those headers for non-swift_owners
 
-        hdrs_ext, hdrs_int = self._make_user_and_sys_acl_headers_data()
         headers = {
             'x-account-meta-harmless': 'hi mom',
             'x-account-meta-temp-url-key': 's3kr1t',

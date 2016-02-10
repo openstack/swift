@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
+import os
+import time
 import unittest
 from swift.common import swob
 from swift.common.middleware import versioned_writes
@@ -29,6 +32,26 @@ class FakeCache(object):
 
     def get(self, *args):
         return self.val
+
+
+def local_tz(func):
+    '''
+    Decorator to change the timezone when running a test.
+
+    This uses the Eastern Time Zone definition from the time module's docs.
+    Note that the timezone affects things like time.time() and time.mktime().
+    '''
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        tz = os.environ.get('TZ', '')
+        try:
+            os.environ['TZ'] = 'EST+05EDT,M4.1.0,M10.5.0'
+            time.tzset()
+            return func(*args, **kwargs)
+        finally:
+            os.environ['TZ'] = tz
+            time.tzset()
+    return wrapper
 
 
 class VersionedWritesTestCase(unittest.TestCase):
@@ -327,12 +350,13 @@ class VersionedWritesTestCase(unittest.TestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    @local_tz
     def test_new_version_sysmeta_precedence(self):
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
             'HEAD', '/v1/a/c/o', swob.HTTPOk,
-            {'last-modified': 'Wed, 19 Nov 2014 18:19:02 GMT'}, 'passed')
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:00 GMT'}, 'passed')
         self.app.register(
             'COPY', '/v1/a/c/o', swob.HTTPCreated, {}, None)
 
@@ -354,7 +378,8 @@ class VersionedWritesTestCase(unittest.TestCase):
         method, path, req_headers = calls[1]
         self.assertEqual('COPY', method)
         self.assertEqual('/v1/a/c/o', path)
-        self.assertTrue(req_headers['Destination'].startswith('ver_cont/'))
+        self.assertEqual('ver_cont/001o/0000000000.00000',
+                         req_headers['Destination'])
 
     def test_copy_first_version(self):
         self.app.register(

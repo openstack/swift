@@ -978,12 +978,6 @@ class RingBuilder(object):
                 if dev_id == NONE_DEV:
                     continue
                 dev = self.devs[dev_id]
-                # the min part hour check is ignored iff a device has more
-                # than one replica of a part assigned to it - which would have
-                # only been possible on rings built with older version of code
-                if (self._last_part_moves[part] < self.min_part_hours and
-                        not replicas_at_tier[dev['tiers'][-1]] > 1):
-                    break
                 if all(replicas_at_tier[tier] <=
                        replica_plan[tier]['max']
                        for tier in dev['tiers']):
@@ -996,8 +990,12 @@ class RingBuilder(object):
             undispersed_dev_replicas.sort(
                 key=lambda dr: dr[0]['parts_wanted'])
             for dev, replica in undispersed_dev_replicas:
-                if self._last_part_moves[part] < self.min_part_hours:
-                    break
+                # the min part hour check is ignored iff a device has more
+                # than one replica of a part assigned to it - which would have
+                # only been possible on rings built with older version of code
+                if (self._last_part_moves[part] < self.min_part_hours and
+                        not replicas_at_tier[dev['tiers'][-1]] > 1):
+                    continue
                 dev['parts_wanted'] += 1
                 dev['parts'] -= 1
                 assign_parts[part].append(replica)

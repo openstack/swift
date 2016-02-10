@@ -67,7 +67,7 @@ required_filters = [
         'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']},
     {'name': 'versioned_writes', 'after_fn': lambda _junk: [
-        'staticweb', 'tempauth', 'keystoneauth',
+        'slo', 'dlo', 'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']}]
 
 

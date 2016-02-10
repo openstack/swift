@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack Foundation
+# Copyright (c) 2010-2016 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -97,11 +97,7 @@ def delay_denial(func):
     :param func: function for which authorization will be delayed
     """
     func.delay_denial = True
-
-    @functools.wraps(func)
-    def wrapped(*a, **kw):
-        return func(*a, **kw)
-    return wrapped
+    return func
 
 
 def get_account_memcache_key(account):
@@ -169,8 +165,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),
         'versions': headers.get('x-versions-location'),
-        'storage_policy': headers.get('X-Backend-Storage-Policy-Index'.lower(),
-                                      '0'),
+        'storage_policy': headers.get('x-backend-storage-policy-index', '0'),
         'cors': {
             'allow_origin': meta.get('access-control-allow-origin'),
             'expose_headers': meta.get('access-control-expose-headers'),
@@ -418,7 +413,7 @@ def _set_info_cache(app, env, account, container, resp):
 
 def _set_object_info_cache(app, env, account, container, obj, resp):
     """
-    Cache object info env. Do not cache object informations in
+    Cache object info env. Do not cache object information in
     memcache. This is an intentional omission as it would lead
     to cache pressure. This is a per-request cache.
 
@@ -476,6 +471,10 @@ def _get_info_cache(app, env, account, container=None):
             for key in info:
                 if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
+                if isinstance(info[key], dict):
+                    for subkey, value in info[key].items():
+                        if isinstance(value, six.text_type):
+                            info[key][subkey] = value.encode("utf-8")
             env[env_key] = info
         return info
     return None

@@ -2044,6 +2044,7 @@ class ECObjectController(BaseObjectController):
                     headers=resp_headers,
                     conditional_response=True,
                     app_iter=app_iter)
+                resp.accept_ranges = 'bytes'
                 app_iter.kickoff(req, resp)
             else:
                 statuses = []

@@ -390,6 +390,7 @@ class BaseObjectControllerMixin(object):
         with set_http_connect(200):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
 
     def test_HEAD_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD',
@@ -693,6 +694,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(200):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -1173,6 +1175,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*get_resp):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
 
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
