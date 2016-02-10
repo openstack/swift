@@ -171,9 +171,6 @@ use = egg:swift#proxy
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
 #
-# The maximum time (seconds) that a large object connection is allowed to last.
-# max_large_object_get_time = 86400
-#
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of
 # replicas for the ring being used for the request.
