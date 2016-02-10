@@ -679,6 +679,11 @@ class BaseDiskFileManager(object):
             hsh_path, reclaim_age=reclaim_age)['files']
 
     def _hash_suffix_dir(self, path, mapper, reclaim_age):
+        """
+
+        :param path: full path to directory
+        :param reclaim_age: age in seconds at which to remove tombstones
+        """
         hashes = defaultdict(hashlib.md5)
         try:
             path_contents = sorted(os.listdir(path))
@@ -725,6 +730,7 @@ class BaseDiskFileManager(object):
         """
         Performs reclamation and returns an md5 of all (remaining) files.
 
+        :param path: full path to directory
         :param reclaim_age: age in seconds at which to remove tombstones
         :raises PathNotDir: if given path is not a valid directory
         :raises OSError: for non-ENOTDIR errors
@@ -831,6 +837,7 @@ class BaseDiskFileManager(object):
         A context manager that will lock on the device given, if
         configured to do so.
 
+        :param device: name of target device
         :raises ReplicationLockTimeout: If the lock on the device
             cannot be granted within the configured timeout.
         """
@@ -846,6 +853,18 @@ class BaseDiskFileManager(object):
 
     def pickle_async_update(self, device, account, container, obj, data,
                             timestamp, policy):
+        """
+        Write data describing a container update notification to a pickle file
+        in the async_pending directory.
+
+        :param device: name of target device
+        :param account: account name for the object
+        :param container: container name for the object
+        :param obj: object name for the object
+        :param data: update data to be written to pickle file
+        :param timestamp: a Timestamp
+        :param policy: the StoragePolicy instance
+        """
         device_path = self.construct_dev_path(device)
         async_dir = os.path.join(device_path, get_async_dir(policy))
         ohash = hash_path(account, container, obj)
@@ -859,6 +878,17 @@ class BaseDiskFileManager(object):
 
     def get_diskfile(self, device, partition, account, container, obj,
                      policy, **kwargs):
+        """
+        Returns a BaseDiskFile instance for an object based on the object's
+        partition, path parts and policy.
+
+        :param device: name of target device
+        :param partition: partition on device in which the object lives
+        :param account: account name for the object
+        :param container: container name for the object
+        :param obj: object name for the object
+        :param policy: the StoragePolicy instance
+        """
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
@@ -868,10 +898,21 @@ class BaseDiskFileManager(object):
                                  pipe_size=self.pipe_size, **kwargs)
 
     def object_audit_location_generator(self, device_dirs=None):
+        """
+        Yield an AuditLocation for all objects stored under device_dirs.
+
+        :param device_dirs: directory of target device
+        """
         return object_audit_location_generator(self.devices, self.mount_check,
                                                self.logger, device_dirs)
 
     def get_diskfile_from_audit_location(self, audit_location):
+        """
+        Returns a BaseDiskFile instance for an object at the given
+        AuditLocation.
+
+        :param audit_location: object location to be audited
+        """
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)
         return self.diskfile_cls.from_hash_dir(
             self, audit_location.path, dev_path,
@@ -886,7 +927,12 @@ class BaseDiskFileManager(object):
         instance representing the tombstoned object is returned
         instead.
 
+        :param device: name of target device
+        :param partition: partition on the device in which the object lives
+        :param object_hash: the hash of an object path
+        :param policy: the StoragePolicy instance
         :raises DiskFileNotExist: if the object does not exist
+        :returns: an instance of BaseDiskFile
         """
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -924,6 +970,14 @@ class BaseDiskFileManager(object):
                                  policy=policy, **kwargs)
 
     def get_hashes(self, device, partition, suffixes, policy):
+        """
+
+        :param device: name of target device
+        :param partition: partition name
+        :param suffixes: a list of suffix directories to be recalculated
+        :param policy: the StoragePolicy instance
+        :returns: a dictionary that maps suffix directories
+        """
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
@@ -936,6 +990,9 @@ class BaseDiskFileManager(object):
         return hashes
 
     def _listdir(self, path):
+        """
+        :param path: full path to directory
+        """
         try:
             return os.listdir(path)
         except OSError as err:
@@ -949,6 +1006,10 @@ class BaseDiskFileManager(object):
         """
         Yields tuples of (full_path, suffix_only) for suffixes stored
         on the given device and partition.
+
+        :param device: name of target device
+        :param partition: partition name
+        :param policy: the StoragePolicy instance
         """
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -981,6 +1042,11 @@ class BaseDiskFileManager(object):
 
         where timestamps are instances of
         :class:`~swift.common.utils.Timestamp`
+
+        :param device: name of target device
+        :param partition: partition name
+        :param policy: the StoragePolicy instance
+        :param suffixes: optional list of suffix directories to be searched
         """
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -1360,7 +1426,10 @@ class BaseDiskFileReader(object):
             self.close()
 
     def app_iter_range(self, start, stop):
-        """Returns an iterator over the data file for range (start, stop)"""
+        """
+        Returns an iterator over the data file for range (start, stop)
+
+        """
         if start or start == 0:
             self._fp.seek(start)
         if stop is not None:
@@ -1381,7 +1450,10 @@ class BaseDiskFileReader(object):
                 self.close()
 
     def app_iter_ranges(self, ranges, content_type, boundary, size):
-        """Returns an iterator over the data file for a set of ranges"""
+        """
+        Returns an iterator over the data file for a set of ranges
+
+        """
         if not ranges:
             yield ''
         else:
@@ -1396,7 +1468,11 @@ class BaseDiskFileReader(object):
                 self.close()
 
     def _drop_cache(self, fd, offset, length):
-        """Method for no-oping buffer cache drop method."""
+        """
+        Method for no-oping buffer cache drop method.
+
+        :param fd: file descriptor or filename
+        """
         if not self._keep_cache:
             drop_buffer_cache(fd, offset, length)
 
@@ -1718,6 +1794,10 @@ class BaseDiskFile(object):
         return exc
 
     def _verify_name_matches_hash(self, data_file):
+        """
+
+        :param data_file: data file name, used when quarantines occur
+        """
         hash_from_fs = os.path.basename(self._datadir)
         hash_from_name = hash_path(self._name.lstrip('/'))
         if hash_from_fs != hash_from_name:
@@ -1794,8 +1874,16 @@ class BaseDiskFile(object):
         return obj_size
 
     def _failsafe_read_metadata(self, source, quarantine_filename=None):
-        # Takes source and filename separately so we can read from an open
-        # file if we have one
+        """
+        Read metadata from source object file. In case of failure, quarantine
+        the file.
+
+        Takes source and filename separately so we can read from an open
+        file if we have one.
+
+        :param source: file descriptor or filename to load the metadata from
+        :param quarantine_filename: full path of file to load the metadata from
+        """
         try:
             return read_metadata(source)
         except (DiskFileXattrNotSupported, DiskFileNotExist):
@@ -2111,6 +2199,7 @@ class DiskFileManager(BaseDiskFileManager):
         """
         Performs reclamation and returns an md5 of all (remaining) files.
 
+        :param path: full path to directory
         :param reclaim_age: age in seconds at which to remove tombstones
         :raises PathNotDir: if given path is not a valid directory
         :raises OSError: for non-ENOTDIR errors
@@ -2175,6 +2264,8 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         The only difference between this method and the replication policy
         DiskFileWriter method is the call into manager.make_on_disk_filename
         to construct the data file name.
+
+        :param metadata: dictionary of metadata to be associated with object
         """
         timestamp = Timestamp(metadata['X-Timestamp'])
         fi = None
@@ -2246,6 +2337,8 @@ class ECDiskFile(BaseDiskFile):
         The only difference between this method and the replication policy
         DiskFile method is passing in the frag_index kwarg to our manager's
         get_ondisk_files method.
+
+        :param files: list of file names
         """
         self._ondisk_info = self.manager.get_ondisk_files(
             files, self._datadir, frag_index=self._frag_index)
@@ -2288,6 +2381,8 @@ class ECDiskFileManager(BaseDiskFileManager):
         """
         Return int representation of frag_index, or raise a DiskFileError if
         frag_index is not a whole number.
+
+        :param frag_index: a fragment archive index
         """
         try:
             frag_index = int(str(frag_index))
@@ -2457,6 +2552,9 @@ class ECDiskFileManager(BaseDiskFileManager):
         Instead of all filenames hashed into a single hasher, each file name
         will fall into a bucket either by fragment index for datafiles, or
         None (indicating a durable, metadata or tombstone).
+
+        :param path: full path to directory
+        :param reclaim_age: age in seconds at which to remove tombstones
         """
         # hash_per_fi instead of single hash for whole suffix
         # here we flatten out the hashers hexdigest into a dictionary instead
