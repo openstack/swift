@@ -3493,14 +3493,14 @@ class TestSwiftInfo(unittest.TestCase):
 class TestFileLikeIter(unittest.TestCase):
 
     def test_iter_file_iter(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         chunks = []
         for chunk in utils.FileLikeIter(in_iter):
             chunks.append(chunk)
         self.assertEqual(chunks, in_iter)
 
     def test_next(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         chunks = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3512,12 +3512,12 @@ class TestFileLikeIter(unittest.TestCase):
         self.assertEqual(chunks, in_iter)
 
     def test_read(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         iter_file = utils.FileLikeIter(in_iter)
-        self.assertEqual(iter_file.read(), ''.join(in_iter))
+        self.assertEqual(iter_file.read(), b''.join(in_iter))
 
     def test_read_with_size(self):
-        in_iter = ['abc', 'de', 'fghijk', 'l']
+        in_iter = [b'abc', b'de', b'fghijk', b'l']
         chunks = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3526,14 +3526,15 @@ class TestFileLikeIter(unittest.TestCase):
                 break
             self.assertTrue(len(chunk) <= 2)
             chunks.append(chunk)
-        self.assertEqual(''.join(chunks), ''.join(in_iter))
+        self.assertEqual(b''.join(chunks), b''.join(in_iter))
 
     def test_read_with_size_zero(self):
         # makes little sense, but file supports it, so...
-        self.assertEqual(utils.FileLikeIter('abc').read(0), '')
+        self.assertEqual(utils.FileLikeIter(b'abc').read(0), b'')
 
     def test_readline(self):
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         lines = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3543,22 +3544,23 @@ class TestFileLikeIter(unittest.TestCase):
             lines.append(line)
         self.assertEqual(
             lines,
-            [v if v == 'trailing.' else v + '\n'
-             for v in ''.join(in_iter).split('\n')])
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
 
     def test_readline2(self):
         self.assertEqual(
-            utils.FileLikeIter(['abc', 'def\n']).readline(4),
-            'abcd')
+            utils.FileLikeIter([b'abc', b'def\n']).readline(4),
+            b'abcd')
 
     def test_readline3(self):
         self.assertEqual(
-            utils.FileLikeIter(['a' * 1111, 'bc\ndef']).readline(),
-            ('a' * 1111) + 'bc\n')
+            utils.FileLikeIter([b'a' * 1111, b'bc\ndef']).readline(),
+            (b'a' * 1111) + b'bc\n')
 
     def test_readline_with_size(self):
 
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         lines = []
         iter_file = utils.FileLikeIter(in_iter)
         while True:
@@ -3568,19 +3570,21 @@ class TestFileLikeIter(unittest.TestCase):
             lines.append(line)
         self.assertEqual(
             lines,
-            ['ab', 'c\n', 'd\n', 'ef', 'g\n', 'h\n', 'ij', '\n', '\n', 'k\n',
-             'tr', 'ai', 'li', 'ng', '.'])
+            [b'ab', b'c\n', b'd\n', b'ef', b'g\n', b'h\n', b'ij', b'\n', b'\n',
+             b'k\n', b'tr', b'ai', b'li', b'ng', b'.'])
 
     def test_readlines(self):
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         lines = utils.FileLikeIter(in_iter).readlines()
         self.assertEqual(
             lines,
-            [v if v == 'trailing.' else v + '\n'
-             for v in ''.join(in_iter).split('\n')])
+            [v if v == b'trailing.' else v + b'\n'
+             for v in b''.join(in_iter).split(b'\n')])
 
     def test_readlines_with_size(self):
-        in_iter = ['abc\n', 'd', '\nef', 'g\nh', '\nij\n\nk\n', 'trailing.']
+        in_iter = [b'abc\n', b'd', b'\nef', b'g\nh', b'\nij\n\nk\n',
+                   b'trailing.']
         iter_file = utils.FileLikeIter(in_iter)
         lists_of_lines = []
         while True:
@@ -3590,12 +3594,13 @@ class TestFileLikeIter(unittest.TestCase):
             lists_of_lines.append(lines)
         self.assertEqual(
             lists_of_lines,
-            [['ab'], ['c\n'], ['d\n'], ['ef'], ['g\n'], ['h\n'], ['ij'],
-             ['\n', '\n'], ['k\n'], ['tr'], ['ai'], ['li'], ['ng'], ['.']])
+            [[b'ab'], [b'c\n'], [b'd\n'], [b'ef'], [b'g\n'], [b'h\n'], [b'ij'],
+             [b'\n', b'\n'], [b'k\n'], [b'tr'], [b'ai'], [b'li'], [b'ng'],
+             [b'.']])
 
     def test_close(self):
-        iter_file = utils.FileLikeIter('abcdef')
-        self.assertEqual(next(iter_file), 'a')
+        iter_file = utils.FileLikeIter([b'a', b'b', b'c'])
+        self.assertEqual(next(iter_file), b'a')
         iter_file.close()
         self.assertTrue(iter_file.closed)
         self.assertRaises(ValueError, iter_file.next)
