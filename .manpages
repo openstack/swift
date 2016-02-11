@@ -1,0 +1,18 @@
+#!/bin/sh
+
+RET=0
+for MAN in doc/manpages/* ; do
+    OUTPUT=$(LC_ALL=en_US.UTF-8 MANROFFSEQ='' MANWIDTH=80 man --warnings -E UTF-8 -l \
+        -Tutf8 -Z "$MAN" 2>&1 >/dev/null)
+    if [ -n "$OUTPUT" ] ; then
+        RET=1
+        echo "$MAN:"
+        echo "$OUTPUT"
+    fi
+done
+
+if [ "$RET" -eq "0" ] ; then
+    echo "All manpages are fine"
+fi
+
+exit "$RET"
