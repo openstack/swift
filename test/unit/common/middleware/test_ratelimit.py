@@ -432,7 +432,7 @@ class TestRateLimit(unittest.TestCase):
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].set(
             get_container_memcache_key('a', 'c'),
-            {'container_size': 1})
+            {'object_count': 1})
 
         time_override = [0, 0, 0, 0, None]
         # simulates 4 requests coming in at same time, then sleeping
@@ -466,7 +466,7 @@ class TestRateLimit(unittest.TestCase):
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].set(
             get_container_memcache_key('a', 'c'),
-            {'container_size': 1})
+            {'object_count': 1})
 
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
