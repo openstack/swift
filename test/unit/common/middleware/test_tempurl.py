@@ -30,9 +30,10 @@
 
 import hmac
 import itertools
+import mock
 import unittest
 from hashlib import sha1
-from time import time
+from time import time, strftime, gmtime
 
 from swift.common.middleware import tempauth, tempurl
 from swift.common.header_key_dict import HeaderKeyDict
@@ -134,6 +135,9 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['content-disposition'],
                          'attachment; filename="o"; ' + "filename*=UTF-8''o")
+        self.assertEqual(resp.headers['expires'],
+                         strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                  gmtime(expires)))
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -181,9 +185,10 @@ class TestTempURL(unittest.TestCase):
         for sig in (sig1, sig2):
             self.assert_valid_sig(expires, path, account_keys, sig, environ)
 
-    def test_get_valid_with_filename(self):
+    @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
+    def test_get_valid_with_filename(self, mock_time):
         method = 'GET'
-        expires = int(time() + 86400)
+        expires = (((24 + 1) * 60 + 1) * 60) + 1
         path = '/v1/a/c/o'
         key = 'abc'
         hmac_body = '%s\n%s\n%s' % (method, expires, path)
@@ -197,6 +202,9 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(resp.headers['content-disposition'],
                          'attachment; filename="bob %22killer%22.txt"; ' +
                          "filename*=UTF-8''bob%20%22killer%22.txt")
+        self.assertIn('expires', resp.headers)
+        self.assertEqual('Fri, 02 Jan 1970 01:01:01 GMT',
+                         resp.headers['expires'])
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -240,9 +248,10 @@ class TestTempURL(unittest.TestCase):
         get_resp = get_req.get_response(self.tempurl)
         self.assertEqual(resp.headers, get_resp.headers)
 
-    def test_get_valid_with_filename_and_inline(self):
+    @mock.patch('swift.common.middleware.tempurl.time', return_value=0)
+    def test_get_valid_with_filename_and_inline(self, mock_time):
         method = 'GET'
-        expires = int(time() + 86400)
+        expires = 1
         path = '/v1/a/c/o'
         key = 'abc'
         hmac_body = '%s\n%s\n%s' % (method, expires, path)
@@ -254,6 +263,9 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['content-disposition'], 'inline')
+        self.assertIn('expires', resp.headers)
+        self.assertEqual('Thu, 01 Jan 1970 00:00:01 GMT',
+                         resp.headers['expires'])
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -271,6 +283,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['content-disposition'], 'inline')
+        self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -290,6 +303,7 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(resp.headers['content-disposition'],
                          'attachment; filename="a%0D%0Ab"; ' +
                          "filename*=UTF-8''a%0D%0Ab")
+        self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -309,6 +323,7 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['content-disposition'],
                          'attachment; filename="fu%0Abar"')
+        self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -328,6 +343,7 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(resp.headers['content-disposition'],
                          'attachment; filename="o"; ' +
                          "filename*=UTF-8''o")
+        self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -348,6 +364,7 @@ class TestTempURL(unittest.TestCase):
             resp.headers['content-disposition'],
             'attachment; filename="/i/want/this/just/as/it/is/"; ' +
             "filename*=UTF-8''/i/want/this/just/as/it/is/")
+        self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -364,7 +381,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 404)
-        self.assertFalse('content-disposition' in resp.headers)
+        self.assertNotIn('content-disposition', resp.headers)
+        self.assertNotIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
