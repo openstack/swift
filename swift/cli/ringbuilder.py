@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -1232,7 +1231,3 @@ def main(arguments=None):
             exit(2)
     else:
         Commands.__dict__.get(command, Commands.unknown.__func__)()
-
-
-if __name__ == '__main__':
-    main()
