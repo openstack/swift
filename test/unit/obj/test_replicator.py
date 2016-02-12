@@ -826,7 +826,7 @@ class TestObjectReplicator(unittest.TestCase):
         # stopped after handoffs!
         self.assertEqual(1, self.replicator.handoffs_remaining)
         self.assertEqual(8, self.replicator.job_count)
-        # in addition to the two update_delted jobs as many as "concurrency"
+        # in addition to the two update_deleted jobs as many as "concurrency"
         # jobs may have been spawned into the pool before the failed
         # update_deleted job incremented handoffs_remaining and caused the
         # handoffs_first check to abort the current pass
@@ -843,7 +843,7 @@ class TestObjectReplicator(unittest.TestCase):
                 node_ip = remote_path.split(':', 1)[0]
                 expected_replicate_requests.add(node_ip)
         self.assertEqual(set(handoff_suffix_paths), found_rsync_suffix_paths)
-        # sanity, all successful rsync nodes got REPLCIATE requests
+        # sanity, all successful rsync nodes got REPLICATE requests
         found_replicate_requests = set()
         self.assertEqual(5, len(conn_log.requests))
         for req in conn_log.requests:
