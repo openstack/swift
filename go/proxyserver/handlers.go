@@ -37,8 +37,32 @@ func (server *ProxyServer) HealthcheckHandler(writer http.ResponseWriter, reques
 
 //Account handlers
 func (server *ProxyServer) AccountGetHeadHandler(writer http.ResponseWriter, request *http.Request) {
-	fmt.Println("ACCOUNT GET?!")
-	http.Error(writer, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+	vars := hummingbird.GetVars(request)
+	partition := server.accountRing.GetPartition(vars["account"], "", "")
+	for _, device := range server.accountRing.GetNodes(partition) {
+		url := fmt.Sprintf("http://%s:%d/%s/%d/%s?%s", device.Ip, device.Port, device.Device, partition,
+			hummingbird.Urlencode(vars["account"]), request.URL.RawQuery)
+		req, err := http.NewRequest(request.Method, url, nil)
+		if err != nil {
+			hummingbird.GetLogger(request).LogError("Error creating request for account GET: %s", err.Error())
+			continue
+		}
+		hummingbird.CopyRequestHeaders(request, req)
+		resp, err := server.client.Do(req)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
+		if err == nil && (resp.StatusCode/100) == 2 {
+			hummingbird.CopyResponseHeaders(writer, resp)
+			writer.WriteHeader(http.StatusOK)
+			if request.Method == "GET" {
+				io.Copy(writer, resp.Body)
+			} else {
+				writer.Write([]byte(""))
+			}
+			return
+		}
+	}
 }
 
 func (server *ProxyServer) AccountPutHandler(writer http.ResponseWriter, request *http.Request) {
@@ -103,12 +127,20 @@ func (server *ProxyServer) ObjectGetHeadHandler(writer http.ResponseWriter, requ
 func (server *ProxyServer) ObjectDeleteHandler(writer http.ResponseWriter, request *http.Request) {
 	vars := hummingbird.GetVars(request)
 	partition := server.objectRing.GetPartition(vars["account"], vars["container"], vars["obj"])
+	containerPartition := server.containerRing.GetPartition(vars["account"], vars["container"], "")
+	containerDevices := server.containerRing.GetNodes(containerPartition)
+
 	rs := MultiClient{server.client, 0, nil}
-	for _, device := range server.objectRing.GetNodes(partition) {
+	for i, device := range server.objectRing.GetNodes(partition) {
 		url := fmt.Sprintf("http://%s:%d/%s/%d/%s/%s/%s", device.Ip, device.Port, device.Device, partition,
 			hummingbird.Urlencode(vars["account"]), hummingbird.Urlencode(vars["container"]), hummingbird.Urlencode(vars["obj"]))
 		req, _ := http.NewRequest("DELETE", url, nil)
 		hummingbird.CopyRequestHeaders(request, req)
+		req.ContentLength = request.ContentLength
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("X-Container-Partition", strconv.FormatUint(containerPartition, 10))
+		req.Header.Set("X-Container-Host", fmt.Sprintf("%s:%d", containerDevices[i].Ip, containerDevices[i].Port))
+		req.Header.Set("X-Container-Device", containerDevices[i].Device)
 		rs.Do(hummingbird.GetLogger(request), req)
 	}
 	rs.BestResponse(writer)
@@ -153,6 +185,7 @@ func (server *ProxyServer) ObjectPutHandler(writer http.ResponseWriter, request 
 
 func (server *ProxyServer) ContainerGetHeadHandler(writer http.ResponseWriter, request *http.Request) {
 	vars := hummingbird.GetVars(request)
+
 	partition := server.containerRing.GetPartition(vars["account"], vars["container"], "")
 	for _, device := range server.containerRing.GetNodes(partition) {
 		url := fmt.Sprintf("http://%s:%d/%s/%d/%s/%s?%s", device.Ip, device.Port, device.Device, partition,
@@ -183,12 +216,18 @@ func (server *ProxyServer) ContainerGetHeadHandler(writer http.ResponseWriter, r
 func (server *ProxyServer) ContainerPutHandler(writer http.ResponseWriter, request *http.Request) {
 	vars := hummingbird.GetVars(request)
 	partition := server.containerRing.GetPartition(vars["account"], vars["container"], "")
+	accountPartition := server.accountRing.GetPartition(vars["account"], "", "")
+	accountDevices := server.accountRing.GetNodes(accountPartition)
+
 	rs := MultiClient{server.client, 0, nil}
-	for _, device := range server.containerRing.GetNodes(partition) {
+	for i, device := range server.containerRing.GetNodes(partition) {
 		url := fmt.Sprintf("http://%s:%d/%s/%d/%s/%s", device.Ip, device.Port, device.Device, partition,
 			hummingbird.Urlencode(vars["account"]), hummingbird.Urlencode(vars["container"]))
 		req, _ := http.NewRequest(request.Method, url, nil)
 		hummingbird.CopyRequestHeaders(request, req)
+		req.Header.Set("X-Account-Partition", strconv.FormatUint(accountPartition, 10))
+		req.Header.Set("X-Account-Host", fmt.Sprintf("%s:%d", accountDevices[i].Ip, accountDevices[i].Port))
+		req.Header.Set("X-Account-Device", accountDevices[i].Device)
 		rs.Do(hummingbird.GetLogger(request), req)
 	}
 	rs.BestResponse(writer)
@@ -197,8 +236,11 @@ func (server *ProxyServer) ContainerPutHandler(writer http.ResponseWriter, reque
 func (server *ProxyServer) ContainerDeleteHandler(writer http.ResponseWriter, request *http.Request) {
 	vars := hummingbird.GetVars(request)
 	partition := server.containerRing.GetPartition(vars["account"], vars["container"], "")
+	accountPartition := server.accountRing.GetPartition(vars["account"], "", "")
+	accountDevices := server.accountRing.GetNodes(accountPartition)
+
 	rs := MultiClient{server.client, 0, nil}
-	for _, device := range server.containerRing.GetNodes(partition) {
+	for i, device := range server.containerRing.GetNodes(partition) {
 		url := fmt.Sprintf("http://%s:%d/%s/%d/%s/%s", device.Ip, device.Port, device.Device, partition,
 			hummingbird.Urlencode(vars["account"]), hummingbird.Urlencode(vars["container"]))
 		req, err := http.NewRequest(request.Method, url, nil)
@@ -206,6 +248,9 @@ func (server *ProxyServer) ContainerDeleteHandler(writer http.ResponseWriter, re
 			hummingbird.GetLogger(request).LogError("Error creating request for container DELETE: %s", err.Error())
 		}
 		hummingbird.CopyRequestHeaders(request, req)
+		req.Header.Set("X-Account-Partition", strconv.FormatUint(accountPartition, 10))
+		req.Header.Set("X-Account-Host", fmt.Sprintf("%s:%d", accountDevices[i].Ip, accountDevices[i].Port))
+		req.Header.Set("X-Account-Device", accountDevices[i].Device)
 		rs.Do(hummingbird.GetLogger(request), req)
 	}
 	rs.BestResponse(writer)

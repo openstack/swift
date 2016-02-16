@@ -74,15 +74,29 @@ func (server *ProxyServer) GetHandler() http.Handler {
 	router.Put("/v1/:account/:container/*obj", commonHandlers.ThenFunc(server.ObjectPutHandler))
 	router.Delete("/v1/:account/:container/*obj", commonHandlers.ThenFunc(server.ObjectDeleteHandler))
 
+	router.Get("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
+	router.Head("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
+	router.Put("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerPutHandler))
+	router.Delete("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerDeleteHandler))
+	router.Post("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerPutHandler))
+
 	router.Get("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
 	router.Head("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
 	router.Put("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerPutHandler))
 	router.Delete("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerDeleteHandler))
+	router.Post("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerPutHandler))
+
+	router.Get("/v1/:account/", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
+	router.Head("/v1/:account/", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
+	router.Put("/v1/:account/", commonHandlers.ThenFunc(server.AccountPutHandler))
+	router.Delete("/v1/:account/", commonHandlers.ThenFunc(server.AccountDeleteHandler))
+	router.Post("/v1/:account/", commonHandlers.ThenFunc(server.AccountPutHandler))
 
 	router.Get("/v1/:account", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
 	router.Head("/v1/:account", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
 	router.Put("/v1/:account", commonHandlers.ThenFunc(server.AccountPutHandler))
 	router.Delete("/v1/:account", commonHandlers.ThenFunc(server.AccountDeleteHandler))
+	router.Post("/v1/:account", commonHandlers.ThenFunc(server.AccountPutHandler))
 
 	return router
 }

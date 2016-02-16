@@ -131,11 +131,11 @@ func (r *hashRing) GetJobNodes(partition uint64, localDevice int) (response []*D
 func (r *hashRing) GetPartition(account string, container string, object string) uint64 {
 	d := r.getData()
 	hash := md5.New()
-	hash.Write([]byte(r.prefix + "/" + account + "/"))
+	hash.Write([]byte(r.prefix + "/" + account))
 	if container != "" {
-		hash.Write([]byte(container + "/"))
+		hash.Write([]byte("/" + container))
 		if object != "" {
-			hash.Write([]byte(object + "/"))
+			hash.Write([]byte("/" + object))
 		}
 	}
 	hash.Write([]byte(r.suffix))
