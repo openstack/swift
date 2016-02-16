@@ -8821,7 +8821,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
                 req = make_test_request(verb, swift_owner=False)
                 resp = app.handle_request(req)
                 h = resp.headers
-                self.assertEqual(None, h.get(ext_header))
+                self.assertIsNone(h.get(ext_header))
 
                 # swift_owner unset: GET/HEAD shouldn't return sensitive info
                 make_canned_response(verb)
@@ -8829,7 +8829,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
                 del req.environ['swift_owner']
                 resp = app.handle_request(req)
                 h = resp.headers
-                self.assertEqual(None, h.get(ext_header))
+                self.assertIsNone(h.get(ext_header))
 
         # Verify that PUT/POST requests remap sysmeta headers from acct server
         with patch_account_controller_method('make_requests'):
