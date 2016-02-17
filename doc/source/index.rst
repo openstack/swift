@@ -90,6 +90,10 @@ Administrator Documentation
 Object Storage v1 REST API Documentation
 ========================================
 
+See `Complete Reference for the Object Storage REST API <http://developer.openstack.org/api-ref-objectstorage-v1.html>`_
+
+The following provides supporting information for the REST API:
+
 .. toctree::
     :maxdepth: 1
 
@@ -103,6 +107,14 @@ Object Storage v1 REST API Documentation
     api/form_post_middleware.rst
     api/use_content-encoding_metadata.rst
     api/use_the_content-disposition_metadata.rst
+
+OpenStack End User Guide
+========================
+
+The `OpenStack End User Guide <http://docs.openstack.org/user-guide>`_
+has additional information on using Swift.
+See the `Manage objects and containers <http://docs.openstack.org/user-guide/managing-openstack-object-storage-with-swift-cli.html>`_
+section.
 
 
 Source Documentation
