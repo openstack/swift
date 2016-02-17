@@ -329,7 +329,8 @@ class BaseObjectController(Controller):
             else:
                 return conn.getresponse()
 
-    def _get_conn_response(self, conn, req, **kwargs):
+    def _get_conn_response(self, conn, req, logger_thread_locals, **kwargs):
+        self.app.logger.thread_locals = logger_thread_locals
         try:
             resp = self._await_response(conn, **kwargs)
             return (conn, resp)
@@ -350,7 +351,8 @@ class BaseObjectController(Controller):
 
         pile = GreenAsyncPile(len(conns))
         for conn in conns:
-            pile.spawn(self._get_conn_response, conn, req)
+            pile.spawn(self._get_conn_response, conn,
+                       req, self.app.logger.thread_locals)
 
         def _handle_response(conn, response):
             statuses.append(response.status)
@@ -2340,7 +2342,9 @@ class ECObjectController(BaseObjectController):
         return conn.await_response(
             self.app.node_timeout, not final_phase)
 
-    def _get_conn_response(self, conn, req, final_phase, **kwargs):
+    def _get_conn_response(self, conn, req, logger_thread_locals,
+                           final_phase, **kwargs):
+        self.app.logger.thread_locals = logger_thread_locals
         try:
             resp = self._await_response(conn, final_phase=final_phase,
                                         **kwargs)
@@ -2383,7 +2387,7 @@ class ECObjectController(BaseObjectController):
             if putter.failed:
                 continue
             pile.spawn(self._get_conn_response, putter, req,
-                       final_phase=final_phase)
+                       self.app.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):
             statuses.append(response.status)
