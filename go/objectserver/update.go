@@ -123,6 +123,7 @@ func (server *ObjectServer) updateContainer(metadata map[string]string, request 
 	failures := 0
 	for index := range hosts {
 		if !server.sendContainerUpdate(hosts[index], devices[index], request.Method, partition, vars["account"], vars["container"], vars["obj"], requestHeaders) {
+			hummingbird.GetLogger(request).LogError("ERROR container update failed with %s/%s (saving for async update later)", hosts[index], devices[index])
 			failures++
 		}
 	}
@@ -158,6 +159,7 @@ func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr st
 	failures := 0
 	for index := range hosts {
 		if !server.sendContainerUpdate(hosts[index], devices[index], request.Method, partition, deleteAtAccount, container, obj, requestHeaders) {
+			hummingbird.GetLogger(request).LogError("ERROR container update failed with %s/%s (saving for async update later)", hosts[index], devices[index])
 			failures++
 		}
 	}
