@@ -286,6 +286,7 @@ example configuration.::
 
         [swift-hash]
         # random unique strings that can never change (DO NOT LOSE)
+        # Use only printable chars (python -c "import string; print(string.printable)")
         swift_hash_path_prefix = changeme
         swift_hash_path_suffix = changeme
 
