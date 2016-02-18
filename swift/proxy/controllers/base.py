@@ -1588,7 +1588,7 @@ class Controller(object):
         """
         Autocreate an account
 
-        :param env: the environment of the request leading to this autocreate
+        :param req: request leading to this autocreate
         :param account: the unquoted account name
         """
         partition, nodes = self.app.account_ring.get_nodes(account)

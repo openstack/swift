@@ -71,6 +71,20 @@ class TestObject(unittest2.TestCase):
         resp = retry(put, name, use_account=use_account)
         resp.read()
         self.assertEqual(resp.status, 201)
+
+        # With keystoneauth we need the accounts to have had the project
+        # domain id persisted as sysmeta prior to testing ACLs. This may
+        # not be the case if, for example, the account was created using
+        # a request with reseller_admin role, when project domain id may
+        # not have been known. So we ensure that the project domain id is
+        # in sysmeta by making a POST to the accounts using an admin role.
+        def post(url, token, parsed, conn):
+            conn.request('POST', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(post, use_account=use_account)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
         return name
 
     def tearDown(self):

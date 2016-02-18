@@ -1108,6 +1108,15 @@ class TestFileEnv(object):
 
         cls.file_size = 128
 
+        # With keystoneauth we need the accounts to have had the project
+        # domain id persisted as sysmeta prior to testing ACLs. This may
+        # not be the case if, for example, the account was created using
+        # a request with reseller_admin role, when project domain id may
+        # not have been known. So we ensure that the project domain id is
+        # in sysmeta by making a POST to the accounts using an admin role.
+        cls.account.update_metadata()
+        cls.account2.update_metadata()
+
 
 class TestFileDev(Base):
     env = TestFileEnv

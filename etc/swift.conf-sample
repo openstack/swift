@@ -4,6 +4,7 @@
 # the hashing algorithm when determining data placement in the cluster.
 # These values should remain secret and MUST NOT change
 # once a cluster has been deployed.
+# Use only printable chars (python -c "import string; print(string.printable)")
 
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme

@@ -65,6 +65,7 @@ Alternative API
 
 * `Swift3 <https://github.com/openstack/swift3>`_ - Amazon S3 API emulation.
 * `CDMI <https://github.com/osaddon/cdmi>`_ - CDMI support
+* `SwiftHLM <https://github.com/ibm-research/SwiftHLM>`_ - a middleware for using OpenStack Swift with tape and other high latency media storage backends
 
 
 Benchmarking/Load Generators

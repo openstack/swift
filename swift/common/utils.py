@@ -3513,11 +3513,21 @@ def parse_mime_headers(doc_file):
     headers = []
     while True:
         line = doc_file.readline()
+        done = line in (b'\r\n', b'\n', b'')
+        if six.PY3:
+            try:
+                line = line.decode('utf-8')
+            except UnicodeDecodeError:
+                line = line.decode('latin1')
         headers.append(line)
-        if line in (b'\r\n', b'\n', b''):
+        if done:
             break
-    header_string = b''.join(headers)
-    return HeaderKeyDict(email.parser.Parser().parsestr(header_string))
+    if six.PY3:
+        header_string = ''.join(headers)
+    else:
+        header_string = b''.join(headers)
+    headers = email.parser.Parser().parsestr(header_string)
+    return HeaderKeyDict(headers)
 
 
 def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):

@@ -607,12 +607,19 @@ class FakeLogger(logging.Logger, object):
         pass
 
 
+class DebugSwiftLogFormatter(utils.SwiftLogFormatter):
+
+    def format(self, record):
+        msg = super(DebugSwiftLogFormatter, self).format(record)
+        return msg.replace('#012', '\n')
+
+
 class DebugLogger(FakeLogger):
     """A simple stdout logging version of FakeLogger"""
 
     def __init__(self, *args, **kwargs):
         FakeLogger.__init__(self, *args, **kwargs)
-        self.formatter = logging.Formatter(
+        self.formatter = DebugSwiftLogFormatter(
             "%(server)s %(levelname)s: %(message)s")
 
     def handle(self, record):

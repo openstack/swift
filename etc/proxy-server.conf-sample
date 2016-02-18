@@ -63,7 +63,7 @@ bind_port = 8080
 # log_udp_port = 514
 #
 # You can enable StatsD logging here:
-# log_statsd_host = localhost
+# log_statsd_host =
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
@@ -170,9 +170,6 @@ use = egg:swift#proxy
 # If the "timing" sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
-#
-# The maximum time (seconds) that a large object connection is allowed to last.
-# max_large_object_get_time = 86400
 #
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of
@@ -569,7 +566,7 @@ use = egg:swift#proxy_logging
 # access_log_udp_port = 514
 #
 # You can use log_statsd_* from [DEFAULT] or override them here:
-# access_log_statsd_host = localhost
+# access_log_statsd_host =
 # access_log_statsd_port = 8125
 # access_log_statsd_default_sample_rate = 1.0
 # access_log_statsd_sample_rate_factor = 1.0
