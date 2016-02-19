@@ -32,10 +32,14 @@ from test.unit.proxy.test_server import node_error_count
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestContainerController(TestRingBase):
+
+    CONTAINER_REPLICAS = 3
+
     def setUp(self):
         TestRingBase.setUp(self)
         self.logger = debug_logger()
-        self.container_ring = FakeRing(max_more_nodes=9)
+        self.container_ring = FakeRing(replicas=self.CONTAINER_REPLICAS,
+                                       max_more_nodes=9)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             logger=self.logger,
                                             account_ring=FakeRing(),
@@ -266,41 +270,8 @@ class TestContainerController(TestRingBase):
 @patch_policies(
     [StoragePolicy(0, 'zero', True, object_ring=FakeRing(replicas=4))])
 class TestContainerController4Replicas(TestContainerController):
-    def setUp(self):
-        TestRingBase.setUp(self)
-        self.logger = debug_logger()
-        self.container_ring = FakeRing(replicas=4, max_more_nodes=9)
-        self.app = proxy_server.Application(None, FakeMemcache(),
-                                            logger=self.logger,
-                                            account_ring=FakeRing(replicas=4),
-                                            container_ring=self.container_ring)
 
-        self.account_info = {
-            'status': 200,
-            'container_count': '10',
-            'total_object_count': '100',
-            'bytes': '1000',
-            'meta': {},
-            'sysmeta': {},
-        }
-
-        class FakeAccountInfoContainerController(
-                proxy_server.ContainerController):
-
-            def account_info(controller, *args, **kwargs):
-                patch_path = 'swift.proxy.controllers.base.get_info'
-                with mock.patch(patch_path) as mock_get_info:
-                    mock_get_info.return_value = dict(self.account_info)
-                    return super(FakeAccountInfoContainerController,
-                                 controller).account_info(
-                                     *args, **kwargs)
-        _orig_get_controller = self.app.get_controller
-
-        def wrapped_get_controller(*args, **kwargs):
-            with mock.patch('swift.proxy.server.ContainerController',
-                            new=FakeAccountInfoContainerController):
-                return _orig_get_controller(*args, **kwargs)
-        self.app.get_controller = wrapped_get_controller
+    CONTAINER_REPLICAS = 4
 
     def test_response_code_for_PUT(self):
         PUT_TEST_CASES = [
