@@ -348,6 +348,81 @@ class TestRecon(unittest.TestCase):
                                  % ex)
         self.assertFalse(expected)
 
+    def test_async_check(self):
+        hosts = [('127.0.0.1', 6011), ('127.0.0.1', 6021),
+                 ('127.0.0.1', 6031), ('127.0.0.1', 6041)]
+        # sample json response from http://<host>:<port>/recon/async
+        responses = {6011: {'async_pending': 15},
+                     6021: {'async_pending': 0},
+                     6031: {'async_pending': 257},
+                     6041: {'async_pending': 56}}
+        # <low> <high> <avg> <total> <Failed> <no_result> <reported>
+        expected = (0, 257, 82.0, 328, 0.0, 0, 4)
+
+        def mock_scout_async(app, host):
+            url = 'http://%s:%s/recon/async' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status, 0, 0
+
+        stdout = StringIO()
+        with mock.patch('swift.cli.recon.Scout.scout',
+                        mock_scout_async), \
+                mock.patch('sys.stdout', new=stdout):
+            self.recon_instance.async_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\[async_pending(.*)\](.*)")
+        lines = output.splitlines()
+        self.assertTrue(lines)
+        for line in lines:
+            m = r.match(line)
+            if m:
+                self.assertEqual(m.group(2),
+                                 " low: %s, high: %s, avg: %s, total: %s,"
+                                 " Failed: %s%%, no_result: %s, reported: %s"
+                                 % expected)
+                break
+        else:
+            self.fail('The expected line is not found')
+
+    def test_umount_check(self):
+        hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
+                 ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
+        # sample json response from http://<host>:<port>/recon/unmounted
+        responses = {6010: [{'device': 'sdb1', 'mounted': False}],
+                     6020: [{'device': 'sdb2', 'mounted': False}],
+                     6030: [{'device': 'sdb3', 'mounted': False}],
+                     6040: [{'device': 'sdb4', 'mounted': 'bad'}]}
+
+        expected = ['Not mounted: sdb1 on 127.0.0.1:6010',
+                    'Not mounted: sdb2 on 127.0.0.1:6020',
+                    'Not mounted: sdb3 on 127.0.0.1:6030',
+                    'Device errors: sdb4 on 127.0.0.1:6040']
+
+        def mock_scout_umount(app, host):
+            url = 'http://%s:%s/recon/unmounted' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status, 0, 0
+
+        stdout = StringIO()
+        with mock.patch('swift.cli.recon.Scout.scout',
+                        mock_scout_umount), \
+                mock.patch('sys.stdout', new=stdout):
+            self.recon_instance.umount_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\Not mounted:|Device errors: .*")
+        lines = output.splitlines()
+        self.assertTrue(lines)
+        for line in lines:
+            m = r.match(line)
+            if m:
+                self.assertIn(line, expected)
+                expected.remove(line)
+        self.assertFalse(expected)
+
     def test_drive_audit_check(self):
         hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
                  ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
