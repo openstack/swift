@@ -1483,6 +1483,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             conn_id = kwargs['connection_id']
             put_requests[conn_id]['boundary'] = headers[
                 'X-Backend-Obj-Multipart-Mime-Boundary']
+            put_requests[conn_id]['backend-content-length'] = headers[
+                'X-Backend-Obj-Content-Length']
 
         with set_http_connect(*codes, expect_headers=expect_headers,
                               give_send=capture_body,
@@ -1495,6 +1497,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             body = unchunk_body(''.join(info['chunks']))
             self.assertTrue(info['boundary'] is not None,
                             "didn't get boundary for conn %r" % (
+                                connection_id,))
+            self.assertTrue(size > int(info['backend-content-length']) > 0,
+                            "invalid backend-content-length for conn %r" % (
                                 connection_id,))
 
             # email.parser.FeedParser doesn't know how to take a multipart
@@ -1516,6 +1521,13 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             # attach the body to frag_archives list
             self.assertEqual(obj_part['X-Document'], 'object body')
             frag_archives.append(obj_part.get_payload())
+
+            # assert length was correct for this connection
+            self.assertEqual(int(info['backend-content-length']),
+                             len(frag_archives[-1]))
+            # assert length was the same for all connections
+            self.assertEqual(int(info['backend-content-length']),
+                             len(frag_archives[0]))
 
             # validate some footer metadata
             self.assertEqual(footer_part['X-Document'], 'object metadata')
