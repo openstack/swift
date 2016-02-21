@@ -390,6 +390,47 @@ func TestReplicationHandoff(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 }
 
+func TestReplicationHandoffQuorumDelete(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	ts2, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts2.Close()
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port),
+		bytes.NewBuffer([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "26")
+	req.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+	resp, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 201, resp.StatusCode)
+
+	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
+	flags := flag.NewFlagSet("hbird flags", flag.ContinueOnError)
+	flags.Bool("q", false, "boolean value")
+	flags.Parse([]string{})
+	replicator := makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
+	require.False(t, replicator.quorumDelete)
+
+	flags.Parse([]string{"-q"})
+	replicator = makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
+	require.True(t, replicator.quorumDelete)
+	replicator.driveRoot = ts.objServer.driveRoot
+	replicator.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	replicator.Run()
+
+	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
+	assert.Nil(t, err)
+	resp, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+}
+
 func TestListObjFiles(t *testing.T) {
 	dir, err := ioutil.TempDir("", "")
 	require.Nil(t, err)

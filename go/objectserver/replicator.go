@@ -82,6 +82,7 @@ type Replicator struct {
 	devGroup       sync.WaitGroup
 	partRateTicker *time.Ticker
 	timePerPart    time.Duration
+	quorumDelete   bool
 	concurrencySem chan struct{}
 	devices        []string
 	partitions     []string
@@ -439,7 +440,12 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 		}
 		if syncs, insync, err := r.syncFile(objFile, toSync); err == nil {
 			syncCount += syncs
-			if insync == len(nodes) {
+
+			success := insync == len(nodes)
+			if r.quorumDelete {
+				success = insync >= len(nodes)/2+1
+			}
+			if success {
 				os.Remove(objFile)
 				os.Remove(filepath.Dir(objFile))
 			}
@@ -746,6 +752,7 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	replicator.port = int(serverconf.GetInt("object-replicator", "bind_port", 6000))
 	replicator.bindIp = serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0")
 	replicator.bindPort = int(serverconf.GetInt("object-replicator", "replicator_bind_port", int64(replicator.port+500)))
+	replicator.quorumDelete = serverconf.GetBool("object-replicator", "quorum_delete", false)
 	replicator.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", "")
 	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
 		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 2000)) * time.Millisecond
@@ -766,6 +773,12 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	if partitions_flag != nil {
 		if partitions := partitions_flag.Value.(flag.Getter).Get().(string); len(partitions) > 0 {
 			replicator.partitions = strings.Split(partitions, ",")
+		}
+	}
+	if !replicator.quorumDelete {
+		quorumFlag := flags.Lookup("q")
+		if quorumFlag != nil && quorumFlag.Value.(flag.Getter).Get() == true {
+			replicator.quorumDelete = true
 		}
 	}
 	statsdHost := serverconf.GetDefault("object-replicator", "log_statsd_host", "")
