@@ -157,6 +157,34 @@ class TestObject(unittest2.TestCase):
         resp.read()
         self.assertEqual(resp.status, 400)
 
+    def test_too_small_x_timestamp(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'too_small_x_timestamp'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Timestamp': '-1'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEqual(resp.status, 400)
+        self.assertIn(
+            'X-Timestamp should be a UNIX timestamp float value', body)
+
+    def test_too_big_x_timestamp(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'too_big_x_timestamp'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Timestamp': '99999999999.9999999999'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEqual(resp.status, 400)
+        self.assertIn(
+            'X-Timestamp should be a UNIX timestamp float value', body)
+
     def test_non_integer_x_delete_after(self):
         def put(url, token, parsed, conn):
             conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
