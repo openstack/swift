@@ -112,6 +112,9 @@ SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 AF_ALG = getattr(socket, 'AF_ALG', 38)
 F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
 
+# Used by the parse_socket_string() function to validate IPv6 addresses
+IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
+
 
 class InvalidHashPathConfigError(ValueError):
 
@@ -1797,6 +1800,43 @@ def whataremyips(bind_ip=None):
         except ValueError:
             pass
     return addresses
+
+
+def parse_socket_string(socket_string, default_port):
+    """
+    Given a string representing a socket, returns a tuple of (host, port).
+    Valid strings are DNS names, IPv4 addresses, or IPv6 addresses, with an
+    optional port. If an IPv6 address is specified it **must** be enclosed in
+    [], like *[::1]* or *[::1]:11211*. This follows the accepted prescription
+    for `IPv6 host literals`_.
+
+    Examples::
+
+        server.org
+        server.org:1337
+        127.0.0.1:1337
+        [::1]:1337
+        [::1]
+
+    .. _IPv6 host literals: https://tools.ietf.org/html/rfc3986#section-3.2.2
+    """
+    port = default_port
+    # IPv6 addresses must be between '[]'
+    if socket_string.startswith('['):
+        match = IPV6_RE.match(socket_string)
+        if not match:
+            raise ValueError("Invalid IPv6 address: %s" % socket_string)
+        host = match.group('address')
+        port = match.group('port') or port
+    else:
+        if ':' in socket_string:
+            tokens = socket_string.split(':')
+            if len(tokens) > 2:
+                raise ValueError("IPv6 addresses must be between '[]'")
+            host, port = tokens
+        else:
+            host = socket_string
+    return (host, port)
 
 
 def storage_directory(datadir, partition, name_hash):

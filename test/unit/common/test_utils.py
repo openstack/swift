@@ -5329,5 +5329,28 @@ class TestPairs(unittest.TestCase):
                               (50, 60)]))
 
 
+class TestSocketStringParser(unittest.TestCase):
+    def test_socket_string_parser(self):
+        default = 1337
+        addrs = [('1.2.3.4', '1.2.3.4', default),
+                 ('1.2.3.4:5000', '1.2.3.4', 5000),
+                 ('[dead:beef::1]', 'dead:beef::1', default),
+                 ('[dead:beef::1]:5000', 'dead:beef::1', 5000),
+                 ('example.com', 'example.com', default),
+                 ('example.com:5000', 'example.com', 5000),
+                 ('foo.1-2-3.bar.com:5000', 'foo.1-2-3.bar.com', 5000),
+                 ('1.2.3.4:10:20', None, None),
+                 ('dead:beef::1:5000', None, None)]
+
+        for addr, expected_host, expected_port in addrs:
+            if expected_host:
+                host, port = utils.parse_socket_string(addr, default)
+                self.assertEqual(expected_host, host)
+                self.assertEqual(expected_port, int(port))
+            else:
+                with self.assertRaises(ValueError):
+                    utils.parse_socket_string(addr, default)
+
+
 if __name__ == '__main__':
     unittest.main()
