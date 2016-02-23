@@ -1183,7 +1183,7 @@ swift-ring-builder <builder_file> set_overload <overload>[%]
 
 def main(arguments=None):
     global argv, backup_dir, builder, builder_file, ring_file
-    if arguments:
+    if arguments is not None:
         argv = arguments
     else:
         argv = sys_argv
