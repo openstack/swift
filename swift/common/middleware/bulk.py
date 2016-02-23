@@ -13,6 +13,183 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Middleware that will perform many operations on a single request.
+
+---------------
+Extract Archive
+---------------
+
+Expand tar files into a Swift account. Request must be a PUT with the
+query parameter ``?extract-archive=format`` specifying the format of archive
+file. Accepted formats are tar, tar.gz, and tar.bz2.
+
+For a PUT to the following url::
+
+    /v1/AUTH_Account/$UPLOAD_PATH?extract-archive=tar.gz
+
+UPLOAD_PATH is where the files will be expanded to. UPLOAD_PATH can be a
+container, a pseudo-directory within a container, or an empty string. The
+destination of a file in the archive will be built as follows::
+
+    /v1/AUTH_Account/$UPLOAD_PATH/$FILE_PATH
+
+Where FILE_PATH is the file name from the listing in the tar file.
+
+If the UPLOAD_PATH is an empty string, containers will be auto created
+accordingly and files in the tar that would not map to any container (files
+in the base directory) will be ignored.
+
+Only regular files will be uploaded. Empty directories, symlinks, etc will
+not be uploaded.
+
+------------
+Content Type
+------------
+
+If the content-type header is set in the extract-archive call, Swift will
+assign that content-type to all the underlying files. The bulk middleware
+will extract the archive file and send the internal files using PUT
+operations using the same headers from the original request
+(e.g. auth-tokens, content-Type, etc.). Notice that any middleware call
+that follows the bulk middleware does not know if this was a bulk request
+or if these were individual requests sent by the user.
+
+In order to make Swift detect the content-type for the files based on the
+file extension, the content-type in the extract-archive call should not be
+set. Alternatively, it is possible to explicitly tell Swift to detect the
+content type using this header::
+
+    X-Detect-Content-Type: true
+
+For example::
+
+    curl -X PUT http://127.0.0.1/v1/AUTH_acc/cont/$?extract-archive=tar
+     -T backup.tar
+     -H "Content-Type: application/x-tar"
+     -H "X-Auth-Token: xxx"
+     -H "X-Detect-Content-Type: true"
+
+------------------
+Assigning Metadata
+------------------
+
+The tar file format (1) allows for UTF-8 key/value pairs to be associated
+with each file in an archive. If a file has extended attributes, then tar
+will store those as key/value pairs. The bulk middleware can read those
+extended attributes and convert them to Swift object metadata. Attributes
+starting with "user.meta" are converted to object metadata, and
+"user.mime_type" is converted to Content-Type.
+
+For example::
+
+    setfattr -n user.mime_type -v "application/python-setup" setup.py
+    setfattr -n user.meta.lunch -v "burger and fries" setup.py
+    setfattr -n user.meta.dinner -v "baked ziti" setup.py
+    setfattr -n user.stuff -v "whee" setup.py
+
+Will get translated to headers::
+
+    Content-Type: application/python-setup
+    X-Object-Meta-Lunch: burger and fries
+    X-Object-Meta-Dinner: baked ziti
+
+The bulk middleware  will handle xattrs stored by both GNU and BSD tar (2).
+Only xattrs ``user.mime_type`` and ``user.meta.*`` are processed. Other
+attributes are ignored.
+
+Notes:
+
+(1) The POSIX 1003.1-2001 (pax) format. The default format on GNU tar
+1.27.1 or later.
+
+(2) Even with pax-format tarballs, different encoders store xattrs slightly
+differently; for example, GNU tar stores the xattr "user.userattribute" as
+pax header "SCHILY.xattr.user.userattribute", while BSD tar (which uses
+libarchive) stores it as "LIBARCHIVE.xattr.user.userattribute".
+
+--------
+Response
+--------
+
+The response from bulk operations functions differently from other Swift
+responses. This is because a short request body sent from the client could
+result in many operations on the proxy server and precautions need to be
+made to prevent the request from timing out due to lack of activity. To
+this end, the client will always receive a 200 OK response, regardless of
+the actual success of the call.  The body of the response must be parsed to
+determine the actual success of the operation. In addition to this the
+client may receive zero or more whitespace characters prepended to the
+actual response body while the proxy server is completing the request.
+
+The format of the response body defaults to text/plain but can be either
+json or xml depending on the ``Accept`` header. Acceptable formats are
+``text/plain``, ``application/json``, ``application/xml``, and ``text/xml``.
+An example body is as follows::
+
+    {"Response Status": "201 Created",
+     "Response Body": "",
+     "Errors": [],
+     "Number Files Created": 10}
+
+If all valid files were uploaded successfully the Response Status will be
+201 Created.  If any files failed to be created the response code
+corresponds to the subrequest's error. Possible codes are 400, 401, 502 (on
+server errors), etc. In both cases the response body will specify the
+number of files successfully uploaded and a list of the files that failed.
+
+There are proxy logs created for each file (which becomes a subrequest) in
+the tar. The subrequest's proxy log will have a swift.source set to "EA"
+the log's content length will reflect the unzipped size of the file. If
+double proxy-logging is used the leftmost logger will not have a
+swift.source set and the content length will reflect the size of the
+payload sent to the proxy (the unexpanded size of the tar.gz).
+
+-----------
+Bulk Delete
+-----------
+
+Will delete multiple objects or containers from their account with a
+single request. Responds to POST requests with query parameter
+``?bulk-delete`` set. The request url is your storage url. The Content-Type
+should be set to ``text/plain``. The body of the POST request will be a
+newline separated list of url encoded objects to delete. You can delete
+10,000 (configurable) objects per request. The objects specified in the
+POST request body must be URL encoded and in the form::
+
+    /container_name/obj_name
+
+or for a container (which must be empty at time of delete)::
+
+    /container_name
+
+The response is similar to extract archive as in every response will be a
+200 OK and you must parse the response body for actual results. An example
+response is::
+
+    {"Number Not Found": 0,
+     "Response Status": "200 OK",
+     "Response Body": "",
+     "Errors": [],
+     "Number Deleted": 6}
+
+If all items were successfully deleted (or did not exist), the Response
+Status will be 200 OK. If any failed to delete, the response code
+corresponds to the subrequest's error. Possible codes are 400, 401, 502 (on
+server errors), etc. In all cases the response body will specify the number
+of items successfully deleted, not found, and a list of those that failed.
+The return body will be formatted in the way specified in the request's
+``Accept`` header. Acceptable formats are ``text/plain``, ``application/json``,
+``application/xml``, and ``text/xml``.
+
+There are proxy logs created for each object or container (which becomes a
+subrequest) that is deleted. The subrequest's proxy log will have a
+swift.source set to "BD" the log's content length of 0. If double
+proxy-logging is used the leftmost logger will not have a
+swift.source set and the content length will reflect the size of the
+payload sent to the proxy (the list of objects/containers to be deleted).
+"""
+
 import json
 from six.moves.urllib.parse import quote, unquote
 import tarfile
@@ -94,170 +271,6 @@ def pax_key_to_swift_header(pax_key):
 
 
 class Bulk(object):
-    """
-    Middleware that will do many operations on a single request.
-
-    Extract Archive:
-
-    Expand tar files into a swift account. Request must be a PUT with the
-    query parameter ?extract-archive=format specifying the format of archive
-    file. Accepted formats are tar, tar.gz, and tar.bz2.
-
-    For a PUT to the following url:
-
-    /v1/AUTH_Account/$UPLOAD_PATH?extract-archive=tar.gz
-
-    UPLOAD_PATH is where the files will be expanded to. UPLOAD_PATH can be a
-    container, a pseudo-directory within a container, or an empty string. The
-    destination of a file in the archive will be built as follows:
-
-    /v1/AUTH_Account/$UPLOAD_PATH/$FILE_PATH
-
-    Where FILE_PATH is the file name from the listing in the tar file.
-
-    If the UPLOAD_PATH is an empty string, containers will be auto created
-    accordingly and files in the tar that would not map to any container (files
-    in the base directory) will be ignored.
-
-    Only regular files will be uploaded. Empty directories, symlinks, etc will
-    not be uploaded.
-
-    Content Type:
-
-    If the content-type header is set in the extract-archive call, Swift will
-    assign that content-type to all the underlying files. The bulk middleware
-    will extract the archive file and send the internal files using PUT
-    operations using the same headers from the original request
-    (e.g. auth-tokens, content-Type, etc.). Notice that any middleware call
-    that follows the bulk middleware does not know if this was a bulk request
-    or if these were individual requests sent by the user.
-
-    In order to make Swift detect the content-type for the files based on the
-    file extension, the content-type in the extract-archive call should not be
-    set. Alternatively, it is possible to explicitly tell swift to detect the
-    content type using this header:
-
-    X-Detect-Content-Type:true
-
-    For example:
-
-    curl -X PUT http://127.0.0.1/v1/AUTH_acc/cont/$?extract-archive=tar -T
-    backup.tar -H "Content-Type: application/x-tar" -H "X-Auth-Token: xxx"
-    -H "X-Detect-Content-Type:true"
-
-    Assigning Metadata:
-
-    The tar file format (1) allows for UTF-8 key/value pairs to be associated
-    with each file in an archive. If a file has extended attributes, then tar
-    will store those as key/value pairs. The bulk middleware can read those
-    extended attributes and convert them to Swift object metadata. Attributes
-    starting with "user.meta" are converted to object metadata, and
-    "user.mime_type" is converted to Content-Type.
-
-    For example:
-
-    setfattr -n user.mime_type -v "application/python-setup" setup.py
-    setfattr -n user.meta.lunch -v "burger and fries" setup.py
-    setfattr -n user.meta.dinner -v "baked ziti" setup.py
-    setfattr -n user.stuff -v "whee" setup.py
-
-    Will get translated to headers:
-
-    Content-Type: application/python-setup
-    X-Object-Meta-Lunch: burger and fries
-    X-Object-Meta-Dinner: baked ziti
-
-    The bulk middleware  will handle xattrs stored by both GNU and BSD tar (2).
-    Only xattrs user.mime_type and user.meta.* are processed. Other attributes
-    are ignored.
-
-    Notes:
-
-    (1) The POSIX 1003.1-2001 (pax) format. The default format on GNU tar
-    1.27.1 or later.
-
-    (2) Even with pax-format tarballs, different encoders store xattrs slightly
-    differently; for example, GNU tar stores the xattr "user.userattribute" as
-    pax header "SCHILY.xattr.user.userattribute", while BSD tar (which uses
-    libarchive) stores it as "LIBARCHIVE.xattr.user.userattribute".
-
-    Response:
-
-    The response from bulk operations functions differently from other swift
-    responses. This is because a short request body sent from the client could
-    result in many operations on the proxy server and precautions need to be
-    made to prevent the request from timing out due to lack of activity. To
-    this end, the client will always receive a 200 OK response, regardless of
-    the actual success of the call.  The body of the response must be parsed to
-    determine the actual success of the operation. In addition to this the
-    client may receive zero or more whitespace characters prepended to the
-    actual response body while the proxy server is completing the request.
-
-    The format of the response body defaults to text/plain but can be either
-    json or xml depending on the Accept header. Acceptable formats are
-    text/plain, application/json, application/xml, and text/xml. An example
-    body is as follows:
-
-    {"Response Status": "201 Created",
-     "Response Body": "",
-     "Errors": [],
-     "Number Files Created": 10}
-
-    If all valid files were uploaded successfully the Response Status will be
-    201 Created.  If any files failed to be created the response code
-    corresponds to the subrequest's error. Possible codes are 400, 401, 502 (on
-    server errors), etc. In both cases the response body will specify the
-    number of files successfully uploaded and a list of the files that failed.
-
-    There are proxy logs created for each file (which becomes a subrequest) in
-    the tar. The subrequest's proxy log will have a swift.source set to "EA"
-    the log's content length will reflect the unzipped size of the file. If
-    double proxy-logging is used the leftmost logger will not have a
-    swift.source set and the content length will reflect the size of the
-    payload sent to the proxy (the unexpanded size of the tar.gz).
-
-    Bulk Delete:
-
-    Will delete multiple objects or containers from their account with a
-    single request. Responds to POST requests with query parameter
-    ?bulk-delete set. The request url is your storage url. The Content-Type
-    should be set to text/plain. The body of the POST request will be a
-    newline separated list of url encoded objects to delete. You can delete
-    10,000 (configurable) objects per request. The objects specified in the
-    POST request body must be URL encoded and in the form:
-
-    /container_name/obj_name
-
-    or for a container (which must be empty at time of delete)
-
-    /container_name
-
-    The response is similar to extract archive as in every response will be a
-    200 OK and you must parse the response body for actual results. An example
-    response is:
-
-    {"Number Not Found": 0,
-     "Response Status": "200 OK",
-     "Response Body": "",
-     "Errors": [],
-     "Number Deleted": 6}
-
-    If all items were successfully deleted (or did not exist), the Response
-    Status will be 200 OK. If any failed to delete, the response code
-    corresponds to the subrequest's error. Possible codes are 400, 401, 502 (on
-    server errors), etc. In all cases the response body will specify the number
-    of items successfully deleted, not found, and a list of those that failed.
-    The return body will be formatted in the way specified in the request's
-    Accept header. Acceptable formats are text/plain, application/json,
-    application/xml, and text/xml.
-
-    There are proxy logs created for each object or container (which becomes a
-    subrequest) that is deleted. The subrequest's proxy log will have a
-    swift.source set to "BD" the log's content length of 0. If double
-    proxy-logging is used the leftmost logger will not have a
-    swift.source set and the content length will reflect the size of the
-    payload sent to the proxy (the list of objects/containers to be deleted).
-    """
 
     def __init__(self, app, conf, max_containers_per_extraction=10000,
                  max_failed_extractions=1000, max_deletes_per_request=10000,
