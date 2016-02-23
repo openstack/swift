@@ -675,6 +675,8 @@ class TestObjectExpirer(TestCase):
         ts = '1234'
         x.delete_actual_object('/path/to/object', ts)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
+        self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
+                         got_env[0]['HTTP_X_IF_DELETE_AT'])
 
     def test_delete_actual_object_nourlquoting(self):
         # delete_actual_object should not do its own url quoting because
@@ -692,6 +694,8 @@ class TestObjectExpirer(TestCase):
         ts = '1234'
         x.delete_actual_object('/path/to/object name', ts)
         self.assertEqual(got_env[0]['HTTP_X_IF_DELETE_AT'], ts)
+        self.assertEqual(got_env[0]['HTTP_X_TIMESTAMP'],
+                         got_env[0]['HTTP_X_IF_DELETE_AT'])
         self.assertEqual(got_env[0]['PATH_INFO'], '/v1/path/to/object name')
 
     def test_delete_actual_object_raises_404(self):

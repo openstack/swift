@@ -293,5 +293,6 @@ class ObjectExpirer(Daemon):
         """
         path = '/v1/' + urllib.parse.quote(actual_obj.lstrip('/'))
         self.swift.make_request('DELETE', path,
-                                {'X-If-Delete-At': str(timestamp)},
+                                {'X-If-Delete-At': str(timestamp),
+                                 'X-Timestamp': str(timestamp)},
                                 (2, HTTP_PRECONDITION_FAILED))
