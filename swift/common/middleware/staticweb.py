@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack Foundation
+# Copyright (c) 2010-2016 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -67,6 +67,12 @@ the X-Container-Meta-Web-Listings-CSS header. For instance, setting
 the .../listing.css style sheet. If you "view source" in your browser on a
 listing page, you will see the well defined document structure that can be
 styled.
+
+By default, the listings will be rendered with a label of
+"Listing of /v1/account/container/path".  This can be altered by
+setting a ``X-Container-Meta-Web-Listings-Label: <label>``.  For example,
+if the label is set to "example.com", a label of
+"Listing of example.com/path" will be used instead.
 
 The content-type of directory marker objects can be modified by setting
 the ``X-Container-Meta-Web-Directory-Type`` header.  If the header is not set,
@@ -150,7 +156,7 @@ class _StaticWebContext(WSGIContext):
         self.agent = '%(orig)s StaticWeb'
         # Results from the last call to self._get_container_info.
         self._index = self._error = self._listings = self._listings_css = \
-            self._dir_type = None
+            self._dir_type = self._listings_label = None
 
     def _error_response(self, response, env, start_response):
         """
@@ -199,6 +205,7 @@ class _StaticWebContext(WSGIContext):
             self._index = meta.get('web-index', '').strip()
             self._error = meta.get('web-error', '').strip()
             self._listings = meta.get('web-listings', '').strip()
+            self._listings_label = meta.get('web-listings-label', '').strip()
             self._listings_css = meta.get('web-listings-css', '').strip()
             self._dir_type = meta.get('web-directory-type', '').strip()
 
@@ -210,12 +217,18 @@ class _StaticWebContext(WSGIContext):
         :param start_response: The original WSGI start_response hook.
         :param prefix: Any prefix desired for the container listing.
         """
+        label = env['PATH_INFO']
+        if self._listings_label:
+            groups = env['PATH_INFO'].split('/')
+            label = '{0}/{1}'.format(self._listings_label,
+                                     '/'.join(groups[4:]))
+
         if not config_true_value(self._listings):
             body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ' \
                 'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
                 '<html>\n' \
                 '<head>\n' \
-                '<title>Listing of %s</title>\n' % cgi.escape(env['PATH_INFO'])
+                '<title>Listing of %s</title>\n' % cgi.escape(label)
             if self._listings_css:
                 body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % self._build_css_path(prefix or '')
@@ -261,8 +274,7 @@ class _StaticWebContext(WSGIContext):
                'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
                '<html>\n' \
                ' <head>\n' \
-               '  <title>Listing of %s</title>\n' % \
-               cgi.escape(env['PATH_INFO'])
+               '  <title>Listing of %s</title>\n' % cgi.escape(label)
         if self._listings_css:
             body += '  <link rel="stylesheet" type="text/css" ' \
                     'href="%s" />\n' % (self._build_css_path(prefix))
@@ -281,8 +293,7 @@ class _StaticWebContext(WSGIContext):
                 '    <th class="colname">Name</th>\n' \
                 '    <th class="colsize">Size</th>\n' \
                 '    <th class="coldate">Date</th>\n' \
-                '   </tr>\n' % \
-                cgi.escape(env['PATH_INFO'])
+                '   </tr>\n' % cgi.escape(label)
         if prefix:
             body += '   <tr id="parent" class="item">\n' \
                     '    <td class="colname"><a href="../">../</a></td>\n' \
