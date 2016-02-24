@@ -696,6 +696,88 @@ class TestObjectController(unittest.TestCase):
                           'name': '/a/c/o',
                           'Content-Encoding': 'gzip'})
 
+    def test_PUT_overwrite_to_older_ts_succcess(self):
+        ts_iter = make_timestamp_iter()
+        old_timestamp = next(ts_iter)
+        new_timestamp = next(ts_iter)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': old_timestamp.normal,
+                     'Content-Length': '0',
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': new_timestamp.normal,
+                     'Content-Type': 'text/plain',
+                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY TWO'
+        resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            new_timestamp.internal + '.data')
+        self.assertTrue(os.path.isfile(objfile))
+        self.assertEqual(open(objfile).read(), 'VERIFY TWO')
+        self.assertEqual(
+            diskfile.read_metadata(objfile),
+            {'X-Timestamp': new_timestamp.internal,
+             'Content-Length': '10',
+             'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
+             'Content-Type': 'text/plain',
+             'name': '/a/c/o',
+             'Content-Encoding': 'gzip'})
+
+    def test_PUT_overwrite_to_newer_ts_failed(self):
+        ts_iter = make_timestamp_iter()
+        old_timestamp = next(ts_iter)
+        new_timestamp = next(ts_iter)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': new_timestamp.normal,
+                     'Content-Length': '0',
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': old_timestamp.normal,
+                     'Content-Type': 'text/plain',
+                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY TWO'
+
+        with mock.patch(
+                'swift.obj.diskfile.BaseDiskFile.create') as mock_create:
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 409)
+        self.assertEqual(mock_create.call_count, 0)
+
+        # data file doesn't exist there (This is sanity because
+        # if .data written unexpectedly, it will be removed
+        # by hash_cleanup_list_dir)
+        datafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            old_timestamp.internal + '.data')
+        self.assertFalse(os.path.exists(datafile))
+
+        # ts file sitll exists
+        tsfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            new_timestamp.internal + '.ts')
+        self.assertTrue(os.path.isfile(tsfile))
+
     def test_PUT_overwrite_w_delete_at(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
