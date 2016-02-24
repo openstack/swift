@@ -1563,7 +1563,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 info = mgr.parse_on_disk_filename(fname)
                 self.assertEqual(ts, info['timestamp'])
                 self.assertEqual(ext, info['ext'])
-                self.assertEqual(None, info['frag_index'])
+                self.assertIsNone(info['frag_index'])
                 self.assertEqual(mgr.make_on_disk_filename(**info), fname)
 
     def test_parse_on_disk_filename_errors(self):

@@ -277,7 +277,7 @@ class TestSloMiddleware(SloTestCase):
               'size_bytes': None, 'range': '0-40'}])
         parsed = slo.parse_and_validate_input(data, '/v1/a/cont/man')
         self.assertEqual('/cont/object', parsed[0]['path'])
-        self.assertEqual(None, parsed[0]['size_bytes'])
+        self.assertIsNone(parsed[0]['size_bytes'])
         self.assertEqual([(0, 40)], parsed[0]['range'].ranges)
 
 

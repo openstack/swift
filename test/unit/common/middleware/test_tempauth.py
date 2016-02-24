@@ -1316,7 +1316,7 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, headers=good_headers)
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(None, req.headers.get(sysmeta_hdr))
+        self.assertIsNone(req.headers.get(sysmeta_hdr))
 
         # syntactically valid acls should go through
         update = {'x-account-access-control': good_acl}

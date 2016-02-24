@@ -2945,8 +2945,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             '/sda1/p/a',
             environ={'REQUEST_METHOD': 'GET'})
         res = Response()
-        self.assertEqual(None, utils.get_policy_index(req.headers,
-                                                      res.headers))
+        self.assertIsNone(utils.get_policy_index(req.headers,
+                                                 res.headers))
 
         # The policy of a container can be specified by the response header
         req = Request.blank(
@@ -3006,15 +3006,15 @@ cluster_dfw1 = http://dfw1.host/v1/
         env = {}
         logger = FakeLogger()
         with mock.patch('swift.common.utils.logging', logger):
-            self.assertEqual(None, utils.cache_from_env(env))
+            self.assertIsNone(utils.cache_from_env(env))
             self.assertTrue(err_msg in logger.get_lines_for_level('error'))
         logger = FakeLogger()
         with mock.patch('swift.common.utils.logging', logger):
-            self.assertEqual(None, utils.cache_from_env(env, False))
+            self.assertIsNone(utils.cache_from_env(env, False))
             self.assertTrue(err_msg in logger.get_lines_for_level('error'))
         logger = FakeLogger()
         with mock.patch('swift.common.utils.logging', logger):
-            self.assertEqual(None, utils.cache_from_env(env, True))
+            self.assertIsNone(utils.cache_from_env(env, True))
             self.assertEqual(0, len(logger.get_lines_for_level('error')))
 
     def test_fsync_dir(self):
@@ -3616,7 +3616,7 @@ class TestStatsdLogging(unittest.TestCase):
     def test_get_logger_statsd_client_not_specified(self):
         logger = utils.get_logger({}, 'some-name', log_route='some-route')
         # white-box construction validation
-        self.assertEqual(None, logger.logger.statsd_client)
+        self.assertIsNone(logger.logger.statsd_client)
 
     def test_get_logger_statsd_client_defaults(self):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
@@ -4175,23 +4175,23 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
             'log_statsd_port': str(self.port),
         }, 'some-name')
         # Delegate methods are no-ops
-        self.assertEqual(None, logger.update_stats('foo', 88))
-        self.assertEqual(None, logger.update_stats('foo', 88, 0.57))
-        self.assertEqual(None, logger.update_stats('foo', 88,
-                                                   sample_rate=0.61))
-        self.assertEqual(None, logger.increment('foo'))
-        self.assertEqual(None, logger.increment('foo', 0.57))
-        self.assertEqual(None, logger.increment('foo', sample_rate=0.61))
-        self.assertEqual(None, logger.decrement('foo'))
-        self.assertEqual(None, logger.decrement('foo', 0.57))
-        self.assertEqual(None, logger.decrement('foo', sample_rate=0.61))
-        self.assertEqual(None, logger.timing('foo', 88.048))
-        self.assertEqual(None, logger.timing('foo', 88.57, 0.34))
-        self.assertEqual(None, logger.timing('foo', 88.998, sample_rate=0.82))
-        self.assertEqual(None, logger.timing_since('foo', 8938))
-        self.assertEqual(None, logger.timing_since('foo', 8948, 0.57))
-        self.assertEqual(None, logger.timing_since('foo', 849398,
-                                                   sample_rate=0.61))
+        self.assertIsNone(logger.update_stats('foo', 88))
+        self.assertIsNone(logger.update_stats('foo', 88, 0.57))
+        self.assertIsNone(logger.update_stats('foo', 88,
+                                              sample_rate=0.61))
+        self.assertIsNone(logger.increment('foo'))
+        self.assertIsNone(logger.increment('foo', 0.57))
+        self.assertIsNone(logger.increment('foo', sample_rate=0.61))
+        self.assertIsNone(logger.decrement('foo'))
+        self.assertIsNone(logger.decrement('foo', 0.57))
+        self.assertIsNone(logger.decrement('foo', sample_rate=0.61))
+        self.assertIsNone(logger.timing('foo', 88.048))
+        self.assertIsNone(logger.timing('foo', 88.57, 0.34))
+        self.assertIsNone(logger.timing('foo', 88.998, sample_rate=0.82))
+        self.assertIsNone(logger.timing_since('foo', 8938))
+        self.assertIsNone(logger.timing_since('foo', 8948, 0.57))
+        self.assertIsNone(logger.timing_since('foo', 849398,
+                                              sample_rate=0.61))
         # Now, the queue should be empty (no UDP packets sent)
         self.assertRaises(Empty, self.queue.get_nowait)
 
