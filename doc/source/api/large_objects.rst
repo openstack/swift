@@ -2,7 +2,7 @@
 Large objects
 =============
 
-By default, the content of an object cannot be greater than 5 GB.
+By default, the content of an object cannot be greater than 5 GB.
 However, you can use a number of smaller objects to construct a large
 object. The large object is comprised of two types of objects:
 
@@ -40,9 +40,9 @@ Note
 
 If you make a **COPY** request by using a manifest object as the source,
 the new object is a normal, and not a segment, object. If the total size
-of the source segment objects exceeds 5 GB, the **COPY** request fails.
+of the source segment objects exceeds 5 GB, the **COPY** request fails.
 However, you can make a duplicate of the manifest object and this new
-object can be larger than 5 GB.
+object can be larger than 5 GB.
 
 Static large objects
 ~~~~~~~~~~~~~~~~~~~~
@@ -74,7 +74,7 @@ list, where each element contains the following attributes:
 -  ``size_bytes``. The size of the segment object. This value must match
    the ``Content-Length`` of that object.
 
-**Example Static large object manifest list**
+**Example Static large object manifest list**
 
 This example shows three segment objects. You can use several containers
 and the object names do not have to conform to a specific pattern, in
@@ -142,7 +142,7 @@ way.
 Dynamic large objects
 ~~~~~~~~~~~~~~~~~~~~~
 
-You must segment objects that are larger than 5 GB before you can upload
+You must segment objects that are larger than 5 GB before you can upload
 them. You then upload the segment objects like you would any other
 object and create a dynamic large manifest object. The manifest object
 tells Object Storage how to find the segment objects that comprise the
@@ -168,7 +168,7 @@ of segments to a second location and update the manifest to point to
 this new location. During the upload of the new segments, the original
 manifest is still available to download the first set of segments.
 
-**Example Upload segment of large object request: HTTP**
+**Example Upload segment of large object request: HTTP**
 
 .. code::
 
@@ -190,7 +190,7 @@ Unprocessable Entity response is returned.
 You can continue uploading segments like this example shows, prior to
 uploading the manifest.
 
-**Example Upload next segment of large object request: HTTP**
+**Example Upload next segment of large object request: HTTP**
 
 .. code::
 
@@ -220,7 +220,7 @@ subsequent additional segments.
     X-Object-Manifest: {container}/{prefix}
 
 
-**Example Upload manifest response: HTTP**
+**Example Upload manifest response: HTTP**
 
 .. code::
 
