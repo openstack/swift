@@ -171,7 +171,9 @@ class AccountReaper(Daemon):
             container_shard = None
             for container_shard, node in enumerate(nodes):
                 if is_local_device(self.myips, None, node['ip'], None) and \
-                        (not self.bind_port or self.bind_port == node['port']):
+                        (not self.bind_port or
+                         self.bind_port == node['port']) and \
+                        (device == node['device']):
                     break
             else:
                 continue
