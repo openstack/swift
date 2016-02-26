@@ -3535,7 +3535,7 @@ class TestObjectController(unittest.TestCase):
                  'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
 
-    def test_object_delete_at_aysnc_update(self):
+    def test_object_delete_at_async_update(self):
         policy = random.choice(list(POLICIES))
         ts = (utils.Timestamp(t) for t in
               itertools.count(int(time())))
