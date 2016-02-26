@@ -3613,6 +3613,28 @@ class TestFileLikeIter(unittest.TestCase):
 
 
 class TestStatsdLogging(unittest.TestCase):
+    def setUp(self):
+
+        def fake_getaddrinfo(host, port, *args):
+            # this is what a real getaddrinfo('localhost', port,
+            # socket.AF_INET) returned once
+            return [(socket.AF_INET,      # address family
+                     socket.SOCK_STREAM,  # socket type
+                     socket.IPPROTO_TCP,  # socket protocol
+                     '',                  # canonical name,
+                     ('127.0.0.1', port)),  # socket address
+                    (socket.AF_INET,
+                     socket.SOCK_DGRAM,
+                     socket.IPPROTO_UDP,
+                     '',
+                     ('127.0.0.1', port))]
+
+        self.real_getaddrinfo = utils.socket.getaddrinfo
+        self.getaddrinfo_patcher = mock.patch.object(
+            utils.socket, 'getaddrinfo', fake_getaddrinfo)
+        self.mock_getaddrinfo = self.getaddrinfo_patcher.start()
+        self.addCleanup(self.getaddrinfo_patcher.stop)
+
     def test_get_logger_statsd_client_not_specified(self):
         logger = utils.get_logger({}, 'some-name', log_route='some-route')
         # white-box construction validation
@@ -3699,10 +3721,16 @@ class TestStatsdLogging(unittest.TestCase):
         # We have to check the given hostname or IP for IPv4/IPv6 on logger
         # instantiation so we don't call getaddrinfo() too often and don't have
         # to call bind() on our socket to detect IPv4/IPv6 on every send.
-        logger = utils.get_logger({
-            'log_statsd_host': '::1',
-            'log_statsd_port': '9876',
-        }, 'some-name', log_route='some-route')
+        #
+        # This test uses the real getaddrinfo, so we patch over the mock to
+        # put the real one back. If we just stop the mock, then
+        # unittest.exit() blows up, but stacking real-fake-real works okay.
+        with mock.patch.object(utils.socket, 'getaddrinfo',
+                               self.real_getaddrinfo):
+            logger = utils.get_logger({
+                'log_statsd_host': '::1',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
 
         self.assertEqual(statsd_client._sock_family, socket.AF_INET6)
@@ -3712,10 +3740,12 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(got_sock.family, socket.AF_INET6)
 
     def test_bad_hostname_instantiation(self):
-        logger = utils.get_logger({
-            'log_statsd_host': 'i-am-not-a-hostname-or-ip',
-            'log_statsd_port': '9876',
-        }, 'some-name', log_route='some-route')
+        with mock.patch.object(utils.socket, 'getaddrinfo',
+                               side_effect=utils.socket.gaierror("whoops")):
+            logger = utils.get_logger({
+                'log_statsd_host': 'i-am-not-a-hostname-or-ip',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
 
         self.assertEqual(statsd_client._sock_family, socket.AF_INET)
@@ -3730,10 +3760,24 @@ class TestStatsdLogging(unittest.TestCase):
         # IP address in the configuration is fixed.
 
     def test_sending_ipv6(self):
-        logger = utils.get_logger({
-            'log_statsd_host': '::1',
-            'log_statsd_port': '9876',
-        }, 'some-name', log_route='some-route')
+        def fake_getaddrinfo(host, port, *args):
+            # this is what a real getaddrinfo('::1', port,
+            # socket.AF_INET6) returned once
+            return [(socket.AF_INET6,
+                     socket.SOCK_STREAM,
+                     socket.IPPROTO_TCP,
+                     '', ('::1', port, 0, 0)),
+                    (socket.AF_INET6,
+                     socket.SOCK_DGRAM,
+                     socket.IPPROTO_UDP,
+                     '',
+                     ('::1', port, 0, 0))]
+
+        with mock.patch.object(utils.socket, 'getaddrinfo', fake_getaddrinfo):
+            logger = utils.get_logger({
+                'log_statsd_host': '::1',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
 
         fl = FakeLogger()
