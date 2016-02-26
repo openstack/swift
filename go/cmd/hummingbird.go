@@ -279,6 +279,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n")
 		proxyFlags.Usage()
 		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "hummingbird moveparts [old ring.gz] [new ring.gz]\n")
+		fmt.Fprintf(os.Stderr, "  Prioritize replication for moving partitions after a ring change\n\n")
+		fmt.Fprintf(os.Stderr, "hummingbird restoredevice [ip] [device-name]\n")
+		fmt.Fprintf(os.Stderr, "  Reconstruct a device from its peers\n\n")
 		fmt.Fprintf(os.Stderr, "hummingbird bench CONFIG\n")
 		fmt.Fprintf(os.Stderr, "  Run bench tool\n\n")
 		fmt.Fprintf(os.Stderr, "hummingbird dbench CONFIG\n")
@@ -325,6 +329,10 @@ func main() {
 		bench.RunDBench(flag.Args()[1:])
 	case "thrash":
 		bench.RunThrash(flag.Args()[1:])
+	case "moveparts":
+		objectserver.MoveParts(flag.Args()[1:])
+	case "restoredevice":
+		objectserver.RestoreDevice(flag.Args()[1:])
 	default:
 		flag.Usage()
 	}

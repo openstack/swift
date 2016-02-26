@@ -17,6 +17,7 @@ package objectserver
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -414,4 +415,50 @@ func TestListObjFiles(t *testing.T) {
 	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
 	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1")))
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects")))
+}
+
+func TestPriorityRepHandler(t *testing.T) {
+	t.Parallel()
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator.driveRoot = driveRoot
+	w := httptest.NewRecorder()
+	job := &PriorityRepJob{
+		JobType:    "handoff",
+		Partition:  1,
+		FromDevice: &hummingbird.Device{Id: 1, Device: "sda", Ip: "127.0.0.1", Port: 5000, ReplicationIp: "127.0.0.1", ReplicationPort: 5000},
+		ToDevices: []*hummingbird.Device{
+			&hummingbird.Device{Id: 2, Device: "sdb"},
+		},
+	}
+	jsonned, _ := json.Marshal(job)
+	req, _ := http.NewRequest("POST", "/priorityrep", bytes.NewBuffer(jsonned))
+	go func() {
+		replicator.priorityRepHandler(w, req)
+		require.EqualValues(t, 200, w.Code)
+	}()
+	pri := <-replicator.getPriRepChan(1)
+	require.Equal(t, "handoff", pri.JobType)
+}
+
+func TestPriorityRepHandler404(t *testing.T) {
+	t.Parallel()
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator.driveRoot = driveRoot
+	w := httptest.NewRecorder()
+	job := &PriorityRepJob{
+		JobType:    "handoff",
+		Partition:  0,
+		FromDevice: &hummingbird.Device{Id: 1, Device: "sda", Ip: "127.0.0.1", Port: 5000, ReplicationIp: "127.0.0.1", ReplicationPort: 5000},
+		ToDevices: []*hummingbird.Device{
+			&hummingbird.Device{Id: 2, Device: "sdb"},
+		},
+	}
+	jsonned, _ := json.Marshal(job)
+	req, _ := http.NewRequest("POST", "/priorityrep", bytes.NewBuffer(jsonned))
+	replicator.priorityRepHandler(w, req)
+	require.EqualValues(t, 404, w.Code)
 }

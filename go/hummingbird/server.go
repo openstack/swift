@@ -311,7 +311,7 @@ func RunDaemon(GetDaemon func(string, *flag.FlagSet) (Daemon, error), flags *fla
 	configFile := flags.Lookup("c").Value.(flag.Getter).Get().(string)
 	configFiles, err := filepath.Glob(filepath.Join(configFile, "*.conf"))
 	if err != nil || len(configFiles) <= 0 {
-		configFiles = []string{flags.Arg(0)}
+		configFiles = []string{configFile}
 	}
 
 	once := flags.Lookup("once").Value.(flag.Getter).Get() == true
