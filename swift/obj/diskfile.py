@@ -678,7 +678,18 @@ class BaseDiskFileManager(object):
         return self.cleanup_ondisk_files(
             hsh_path, reclaim_age=reclaim_age)['files']
 
-    def _hash_suffix_dir(self, path, mapper, reclaim_age):
+    def _update_suffix_hashes(self, hashes, ondisk_info):
+        """
+        Applies policy specific updates to the given dict of md5 hashes for
+        the given ondisk_info.
+
+        :param hashes: a dict of md5 hashes to be updated
+        :param ondisk_info: a dict describing the state of ondisk files, as
+                            returned by get_ondisk_files
+        """
+        raise NotImplementedError
+
+    def _hash_suffix_dir(self, path, reclaim_age):
         """
 
         :param path: full path to directory
@@ -694,7 +705,7 @@ class BaseDiskFileManager(object):
         for hsh in path_contents:
             hsh_path = join(path, hsh)
             try:
-                files = self.hash_cleanup_listdir(hsh_path, reclaim_age)
+                ondisk_info = self.cleanup_ondisk_files(hsh_path, reclaim_age)
             except OSError as err:
                 if err.errno == errno.ENOTDIR:
                     partition_path = dirname(path)
@@ -707,14 +718,30 @@ class BaseDiskFileManager(object):
                                                      'quar_path': quar_path})
                     continue
                 raise
-            if not files:
+            if not ondisk_info['files']:
                 try:
                     os.rmdir(hsh_path)
                 except OSError:
                     pass
-            for filename in files:
-                key, value = mapper(filename)
-                hashes[key].update(value)
+                continue
+
+            # ondisk_info has info dicts containing timestamps for those
+            # files that could determine the state of the diskfile if it were
+            # to be opened. We update the suffix hash with the concatenation of
+            # each file's timestamp and extension. The extension is added to
+            # guarantee distinct hash values from two object dirs that have
+            # different file types at the same timestamp(s).
+            #
+            # Files that may be in the object dir but would have no effect on
+            # the state of the diskfile are not used to update the hash.
+            for key in (k for k in ('meta_info', 'ts_info')
+                        if k in ondisk_info):
+                info = ondisk_info[key]
+                hashes[None].update(info['timestamp'].internal + info['ext'])
+
+            # delegate to subclass for data file related updates...
+            self._update_suffix_hashes(hashes, ondisk_info)
+
         try:
             os.rmdir(path)
         except OSError as e:
@@ -2195,6 +2222,20 @@ class DiskFileManager(BaseDiskFileManager):
             # set results
             results['data_info'] = exts['.data'][0]
 
+    def _update_suffix_hashes(self, hashes, ondisk_info):
+        """
+        Applies policy specific updates to the given dict of md5 hashes for
+        the given ondisk_info.
+
+        :param hashes: a dict of md5 hashes to be updated
+        :param ondisk_info: a dict describing the state of ondisk files, as
+                            returned by get_ondisk_files
+        """
+        if 'data_info' in ondisk_info:
+            file_info = ondisk_info['data_info']
+            hashes[None].update(
+                file_info['timestamp'].internal + file_info['ext'])
+
     def _hash_suffix(self, path, reclaim_age):
         """
         Performs reclamation and returns an md5 of all (remaining) files.
@@ -2203,9 +2244,9 @@ class DiskFileManager(BaseDiskFileManager):
         :param reclaim_age: age in seconds at which to remove tombstones
         :raises PathNotDir: if given path is not a valid directory
         :raises OSError: for non-ENOTDIR errors
+        :returns: md5 of files in suffix
         """
-        mapper = lambda filename: (None, filename)
-        hashes = self._hash_suffix_dir(path, mapper, reclaim_age)
+        hashes = self._hash_suffix_dir(path, reclaim_age)
         return hashes[None].hexdigest()
 
 
@@ -2544,28 +2585,41 @@ class ECDiskFileManager(BaseDiskFileManager):
             return have_data_file == have_durable
         return False
 
+    def _update_suffix_hashes(self, hashes, ondisk_info):
+        """
+        Applies policy specific updates to the given dict of md5 hashes for
+        the given ondisk_info.
+
+        The only difference between this method and the replication policy
+        function is the way that data files update hashes dict. Instead of all
+        filenames hashed into a single hasher, each data file name will fall
+        into a bucket keyed by its fragment index.
+
+        :param hashes: a dict of md5 hashes to be updated
+        :param ondisk_info: a dict describing the state of ondisk files, as
+                            returned by get_ondisk_files
+        """
+        for frag_set in ondisk_info['frag_sets'].values():
+            for file_info in frag_set:
+                fi = file_info['frag_index']
+                hashes[fi].update(file_info['timestamp'].internal)
+        if 'durable_frag_set' in ondisk_info:
+            file_info = ondisk_info['durable_frag_set'][0]
+            hashes[None].update(file_info['timestamp'].internal + '.durable')
+
     def _hash_suffix(self, path, reclaim_age):
         """
-        The only difference between this method and the replication policy
-        function is the way that files are updated on the returned hash.
-
-        Instead of all filenames hashed into a single hasher, each file name
-        will fall into a bucket either by fragment index for datafiles, or
-        None (indicating a durable, metadata or tombstone).
+        Performs reclamation and returns an md5 of all (remaining) files.
 
         :param path: full path to directory
         :param reclaim_age: age in seconds at which to remove tombstones
+        :raises PathNotDir: if given path is not a valid directory
+        :raises OSError: for non-ENOTDIR errors
+        :returns: dict of md5 hex digests
         """
         # hash_per_fi instead of single hash for whole suffix
         # here we flatten out the hashers hexdigest into a dictionary instead
         # of just returning the one hexdigest for the whole suffix
-        def mapper(filename):
-            info = self.parse_on_disk_filename(filename)
-            fi = info['frag_index']
-            if fi is None:
-                return None, filename
-            else:
-                return fi, info['timestamp'].internal
 
-        hash_per_fi = self._hash_suffix_dir(path, mapper, reclaim_age)
+        hash_per_fi = self._hash_suffix_dir(path, reclaim_age)
         return dict((fi, md5.hexdigest()) for fi, md5 in hash_per_fi.items())
