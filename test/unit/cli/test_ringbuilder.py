@@ -22,6 +22,7 @@ import tempfile
 import unittest
 import uuid
 import shlex
+import shutil
 
 from swift.cli import ringbuilder
 from swift.common import exceptions
@@ -76,12 +77,15 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                               "127.0.0.1", "z0:6000", ":6000", "R127.0.0.1",
                               "127.0.0.1R127.0.0.1", "R:6000",
                               "_some meta data"]
-        tmpf = tempfile.NamedTemporaryFile()
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        tmpf = tempfile.NamedTemporaryFile(dir=self.tmpdir)
         self.tempfile = self.tmpfile = tmpf.name
 
     def tearDown(self):
         try:
-            os.remove(self.tmpfile)
+            shutil.rmtree(self.tmpdir, True)
         except OSError:
             pass
 
@@ -2092,12 +2096,15 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
 
     def __init__(self, *args, **kwargs):
         super(TestRebalanceCommand, self).__init__(*args, **kwargs)
-        tmpf = tempfile.NamedTemporaryFile()
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        tmpf = tempfile.NamedTemporaryFile(dir=self.tmpdir)
         self.tempfile = self.tmpfile = tmpf.name
 
     def tearDown(self):
         try:
-            os.remove(self.tempfile)
+            shutil.rmtree(self.tmpdir, True)
         except OSError:
             pass
 
