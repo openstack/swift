@@ -129,7 +129,8 @@ def check_metadata(req, target_type):
                         which type the target storage for the metadata is
     :returns: HTTPBadRequest with bad metadata otherwise None
     """
-    prefix = 'x-%s-meta-' % target_type.lower()
+    target_type = target_type.lower()
+    prefix = 'x-%s-meta-' % target_type
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.items():
@@ -144,6 +145,11 @@ def check_metadata(req, target_type):
         key = key[len(prefix):]
         if not key:
             return HTTPBadRequest(body='Metadata name cannot be empty',
+                                  request=req, content_type='text/plain')
+        bad_key = not check_utf8(key)
+        bad_value = value and not check_utf8(value)
+        if target_type in ('account', 'container') and (bad_key or bad_value):
+            return HTTPBadRequest(body='Metadata must be valid UTF-8',
                                   request=req, content_type='text/plain')
         meta_count += 1
         meta_size += len(key) + len(value)

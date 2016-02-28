@@ -383,6 +383,29 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.body, 'Recently deleted')
         self.assertEqual(resp.headers['X-Account-Status'], 'Deleted')
 
+    def test_PUT_non_utf8_metadata(self):
+        # Set metadata header
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(1),
+                     'X-Account-Meta-Test': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        # Set sysmeta header
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(1),
+                     'X-Account-Sysmeta-Access-Control': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        # Send other
+        req = Request.blank(
+            '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': normalize_timestamp(1),
+                     'X-Will-Not-Be-Saved': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 202)
+
     def test_PUT_GET_metadata(self):
         # Set metadata header
         req = Request.blank(
