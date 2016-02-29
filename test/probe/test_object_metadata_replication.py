@@ -45,6 +45,8 @@ class Test(ReplProbeTest):
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
                                    self.object_name, 'object',
                                    policy=self.policy)
+        self.container_brain = BrainSplitter(self.url, self.token,
+                                             self.container_name)
         self.int_client = self.make_internal_client(object_post_as_copy=False)
 
     def tearDown(self):
@@ -182,40 +184,51 @@ class Test(ReplProbeTest):
 
         # put newer object with sysmeta to first server subset
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object()
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # delete object on second server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._delete_object()
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # run replicator
         self.get_to_final_state()
 
         # check object deletion has been replicated on first server set
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._get_object(expect_statuses=(4,))
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # check object deletion persists on second server set
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._get_object(expect_statuses=(4,))
 
         # put newer object to second server set
         self._put_object()
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # run replicator
         self.get_to_final_state()
 
         # check new object  has been replicated on first server set
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._get_object()
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # check new object persists on second server set
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._get_object()
 
     def test_object_after_replication_with_subsequent_post(self):
@@ -226,10 +239,12 @@ class Test(ReplProbeTest):
 
         # put newer object to first server subset
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'bar'}, body=u'newer')
         metadata = self._get_object_metadata()
         etag = metadata['etag']
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # post some user meta to all servers
         self._post_object({'x-object-meta-bar': 'meta-bar'})
@@ -239,11 +254,13 @@ class Test(ReplProbeTest):
 
         # check that newer data has been replicated to second server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         metadata = self._get_object_metadata()
         self.assertEqual(etag, metadata['etag'])
         self.assertEqual('bar', metadata['content-type'])
         self.assertEqual('meta-bar', metadata['x-object-meta-bar'])
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
@@ -257,15 +274,18 @@ class Test(ReplProbeTest):
 
         # put object with sysmeta to first server subset
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers=sysmeta)
         metadata = self._get_object_metadata()
         for key in sysmeta:
             self.assertTrue(key in metadata)
             self.assertEqual(metadata[key], sysmeta[key])
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # put object with updated sysmeta to second server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers=sysmeta2)
         metadata = self._get_object_metadata()
         for key in sysmeta2:
@@ -281,12 +301,14 @@ class Test(ReplProbeTest):
             self.assertEqual(metadata[key], sysmeta2[key])
 
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # run replicator
         self.get_to_final_state()
 
         # check sysmeta has been replicated to first server subset
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         metadata = self._get_object_metadata()
         for key in usermeta:
             self.assertTrue(key in metadata)
@@ -295,9 +317,11 @@ class Test(ReplProbeTest):
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], sysmeta2[key])
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # check user sysmeta ok on second server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         metadata = self._get_object_metadata()
         for key in usermeta:
             self.assertTrue(key in metadata)
@@ -306,6 +330,7 @@ class Test(ReplProbeTest):
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], sysmeta2[key])
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
@@ -319,15 +344,18 @@ class Test(ReplProbeTest):
         self._put_object()
         # put newer object with sysmeta to first server subset
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers=sysmeta)
         metadata = self._get_object_metadata()
         for key in sysmeta:
             self.assertTrue(key in metadata)
             self.assertEqual(metadata[key], sysmeta[key])
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # post some user meta to second server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._post_object(usermeta)
         metadata = self._get_object_metadata()
         for key in usermeta:
@@ -336,6 +364,7 @@ class Test(ReplProbeTest):
         for key in sysmeta:
             self.assertFalse(key in metadata)
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # run replicator
         self.get_to_final_state()
@@ -343,6 +372,7 @@ class Test(ReplProbeTest):
         # check user metadata has been replicated to first server subset
         # and sysmeta is unchanged
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         metadata = self._get_object_metadata()
         expected = dict(sysmeta)
         expected.update(usermeta)
@@ -350,14 +380,17 @@ class Test(ReplProbeTest):
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], expected[key])
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # check user metadata and sysmeta both on second server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         metadata = self._get_object_metadata()
         for key in expected.keys():
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], expected[key])
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
@@ -372,21 +405,25 @@ class Test(ReplProbeTest):
 
         # put user meta to first server subset
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._post_object(headers=usermeta)
         metadata = self._get_object_metadata()
         for key in usermeta:
             self.assertTrue(key in metadata)
             self.assertEqual(metadata[key], usermeta[key])
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # put newer object with sysmeta to second server subset
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers=sysmeta)
         metadata = self._get_object_metadata()
         for key in sysmeta:
             self.assertTrue(key in metadata)
             self.assertEqual(metadata[key], sysmeta[key])
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # run replicator
         self.get_to_final_state()
@@ -394,6 +431,7 @@ class Test(ReplProbeTest):
         # check stale user metadata is not replicated to first server subset
         # and sysmeta is unchanged
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         metadata = self._get_object_metadata()
         for key in sysmeta:
             self.assertTrue(key in metadata)
@@ -401,10 +439,12 @@ class Test(ReplProbeTest):
         for key in usermeta:
             self.assertFalse(key in metadata)
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # check stale user metadata is removed from second server subset
         # and sysmeta is replicated
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         metadata = self._get_object_metadata()
         for key in sysmeta:
             self.assertTrue(key in metadata)
@@ -412,6 +452,7 @@ class Test(ReplProbeTest):
         for key in usermeta:
             self.assertFalse(key in metadata)
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
@@ -432,18 +473,24 @@ class Test(ReplProbeTest):
 
         # incomplete write to primary half
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers={'Content-Type': 'foo'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # handoff write
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'bar'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # content-type update to primary half
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._post_object(headers={'Content-Type': 'baz'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         self.get_to_final_state()
 
@@ -481,18 +528,24 @@ class Test(ReplProbeTest):
 
         # incomplete write
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers={'Content-Type': 'foo'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # handoff write
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'bar'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # metadata update with newest data unavailable
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._post_object(headers={'X-Object-Meta-Color': 'Blue'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         self.get_to_final_state()
 
@@ -535,26 +588,34 @@ class Test(ReplProbeTest):
 
         # incomplete write
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers={'Content-Type': 'foo',
                                   'X-Object-Sysmeta-Test': 'older'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # handoff write
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'bar',
                                   'X-Object-Sysmeta-Test': 'newer'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # incomplete post with content type
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._post_object(headers={'Content-Type': 'bif'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # incomplete post to handoff with content type
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._post_object(headers={'Content-Type': 'baz',
                                    'X-Object-Meta-Color': 'Red'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # complete post with no content type
         self._post_object(headers={'X-Object-Meta-Color': 'Blue',
@@ -601,20 +662,26 @@ class Test(ReplProbeTest):
 
         # incomplete write to handoff half
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'bar',
                                   'X-Object-Sysmeta-Test': 'newer'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # incomplete post with no content type to primary half
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._post_object(headers={'X-Object-Meta-Color': 'Red',
                                    'X-Object-Sysmeta-Test': 'ignored'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # incomplete post with no content type to handoff half
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._post_object(headers={'X-Object-Meta-Color': 'Blue'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         self.get_to_final_state()
 
@@ -645,38 +712,48 @@ class Test(ReplProbeTest):
         self.brain.put_container(policy_index=0)
         # incomplete put to handoff
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'oldest',
                                   'X-Object-Sysmeta-Test': 'oldest',
                                   'X-Object-Meta-Test': 'oldest'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
         # incomplete put to primary
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers={'Content-Type': 'oldest',
                                   'X-Object-Sysmeta-Test': 'oldest',
                                   'X-Object-Meta-Test': 'oldest'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # incomplete post with content-type to handoff
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._post_object(headers={'Content-Type': 'newer',
                                    'X-Object-Meta-Test': 'newer'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # incomplete put to primary
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers={'Content-Type': 'newest',
                                   'X-Object-Sysmeta-Test': 'newest',
                                   'X-Object-Meta-Test': 'newer'})
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # incomplete post with no content-type to handoff which still has
         # out of date content-type
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._post_object(headers={'X-Object-Meta-Test': 'newest'})
         metadata = self._get_object_metadata()
         self.assertEqual(metadata['x-object-meta-test'], 'newest')
         self.assertEqual(metadata['content-type'], 'newer')
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         self.get_to_final_state()
 
@@ -707,21 +784,26 @@ class Test(ReplProbeTest):
         self.brain.put_container(policy_index=0)
         # incomplete put
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._put_object(headers={'Content-Type': 'oldest',
                                   'X-Object-Sysmeta-Test': 'oldest',
                                   'X-Object-Meta-Test': 'oldest'})
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # incomplete put then delete
         self.brain.stop_handoff_half()
+        self.container_brain.stop_handoff_half()
         self._put_object(headers={'Content-Type': 'oldest',
                                   'X-Object-Sysmeta-Test': 'oldest',
                                   'X-Object-Meta-Test': 'oldest'})
         self._delete_object()
         self.brain.start_handoff_half()
+        self.container_brain.start_handoff_half()
 
         # handoff post
         self.brain.stop_primary_half()
+        self.container_brain.stop_primary_half()
         self._post_object(headers={'Content-Type': 'newest',
                                    'X-Object-Sysmeta-Test': 'ignored',
                                    'X-Object-Meta-Test': 'newest'})
@@ -733,6 +815,7 @@ class Test(ReplProbeTest):
         self.assertEqual(metadata['content-type'], 'newest')
 
         self.brain.start_primary_half()
+        self.container_brain.start_primary_half()
 
         # delete trumps later post
         self.get_to_final_state()
