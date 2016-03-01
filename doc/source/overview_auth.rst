@@ -207,7 +207,7 @@ that the user is allowed to operate on project resources.
 OpenStack Service Using Composite Tokens
 ----------------------------------------
 
-Some Openstack services such as Cinder and Glance may use
+Some OpenStack services such as Cinder and Glance may use
 a "service account". In this mode, you configure a separate account where
 the service stores project data that it manages. This account is not used
 directly by the end-user. Instead, all access is done through the service.
@@ -234,19 +234,19 @@ situation as follows:
   (see ``/etc/keystone/default_catalog.templates`` above). Normally
   this is ``AUTH``.
 * The second item in the reseller_prefix list is the prefix used by the
-  Openstack services(s). You must configure this value (``SERVICE`` in the
-  example) with whatever the other Openstack service(s) use.
+  OpenStack services(s). You must configure this value (``SERVICE`` in the
+  example) with whatever the other OpenStack service(s) use.
 * Set the operator_roles option to contain a role or roles that end-user's
   have on project's they use.
 * Set the SERVICE_service_roles value to a role or roles that only the
-  Openstack service user has. Do not use a role that is assigned to
+  OpenStack service user has. Do not use a role that is assigned to
   "normal" end users. In this example, the role ``service`` is used.
   The service user is granted this role to a *single* project only. You do
   not need to make the service user a member of every project.
 
 This configuration works as follows:
 
-* The end-user presents a user token to an Openstack service. The service
+* The end-user presents a user token to an OpenStack service. The service
   then makes a Swift request to the account with the ``SERVICE`` prefix.
 * The service forwards the original user token with the request. It also
   adds it's own service token.
