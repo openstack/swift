@@ -1590,7 +1590,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 fname = '%s#%s.data' % (ts.internal, frag)
                 with self.assertRaises(DiskFileError) as cm:
                     mgr.parse_on_disk_filename(fname)
-                self.assertTrue(msg in str(cm.exception).lower())
+                self.assertIn(msg, str(cm.exception).lower())
 
         with self.assertRaises(DiskFileError) as cm:
             mgr.parse_on_disk_filename('junk')
@@ -2194,7 +2194,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # non-fast-post updateable keys are preserved
             self.assertEqual('text/garbage', df._metadata['Content-Type'])
             # original fast-post updateable keys are removed
-            self.assertTrue('X-Object-Meta-Key1' not in df._metadata)
+            self.assertNotIn('X-Object-Meta-Key1', df._metadata)
             # new fast-post updateable keys are added
             self.assertEqual('Value2', df._metadata['X-Object-Meta-Key2'])
 
@@ -2272,9 +2272,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('0123456789' in value)
-        self.assertTrue('1123456789' in value)
-        self.assertTrue('2123456789' in value)
+        self.assertIn('0123456789', value)
+        self.assertIn('1123456789', value)
+        self.assertIn('2123456789', value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_w_quarantine(self):
@@ -2286,9 +2286,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('0123456789' in value)
-        self.assertTrue('1123456789' in value)
-        self.assertTrue('2123456789' in value)
+        self.assertIn('0123456789', value)
+        self.assertIn('1123456789', value)
+        self.assertIn('2123456789', value)
         self.assertEqual(quarantine_msgs,
                          ["Bytes read: 30, does not match metadata: 31"])
 
@@ -2300,7 +2300,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('0123456789' in value)
+        self.assertIn('0123456789', value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_edges(self):
@@ -2310,8 +2310,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         it = reader.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('3456789' in value)
-        self.assertTrue('01' in value)
+        self.assertIn('3456789', value)
+        self.assertIn('01', value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_large_app_iter_ranges(self):
@@ -2777,7 +2777,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), file_count + 1)
         exp_name = '%s.meta' % timestamp
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
 
     def test_write_metadata_no_xattr(self):
         timestamp = Timestamp(time()).internal
@@ -2994,8 +2994,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             exp_name = '%s.ts' % ts.internal
             dl = os.listdir(df._datadir)
             self.assertEqual(len(dl), 1)
-            self.assertTrue(exp_name in set(dl),
-                            'Expected file %s missing in %s' % (exp_name, dl))
+            self.assertIn(exp_name, set(dl))
             # cleanup before next policy
             os.unlink(os.path.join(df._datadir, exp_name))
 
@@ -3006,7 +3005,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         df = self._simple_get_diskfile()
         self.assertRaises(DiskFileDeleted, df.open)
 
@@ -3017,7 +3016,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         # it's pickle-format, so removing the last byte is sufficient to
         # corrupt it
         ts_fullpath = os.path.join(df._datadir, exp_name)
@@ -3069,8 +3068,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(reader._fp, None)
         error_lines = df._logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
-        self.assertTrue('close failure' in error_lines[0])
-        self.assertTrue('Bad' in error_lines[0])
+        self.assertIn('close failure', error_lines[0])
+        self.assertIn('Bad', error_lines[0])
 
     def test_mount_checking(self):
 
@@ -3128,10 +3127,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._create_ondisk_file(df, '', ext='.ts', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertIn('X-Timestamp', df._metadata)
             self.assertEqual(df._metadata['X-Timestamp'],
                              Timestamp(10).internal)
-            self.assertTrue('deleted' not in df._metadata)
+            self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_data_meta_ts(self):
         df = self._simple_get_diskfile()
@@ -3146,10 +3145,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertIn('X-Timestamp', df._metadata)
             self.assertEqual(df._metadata['X-Timestamp'],
                              Timestamp(10).internal)
-            self.assertTrue('deleted' not in df._metadata)
+            self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
         df = self._simple_get_diskfile()
@@ -3165,10 +3164,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertIn('X-Timestamp', df._metadata)
             self.assertEqual(df._metadata['X-Timestamp'],
                              Timestamp(10).internal)
-            self.assertTrue('deleted' not in df._metadata)
+            self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_listdir_error(self):
         df = self._simple_get_diskfile()
@@ -3202,7 +3201,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
-        self.assertTrue('a very special error' in log_lines[-1])
+        self.assertIn('a very special error', log_lines[-1])
 
     def test_diskfile_names(self):
         df = self._simple_get_diskfile()
@@ -3226,7 +3225,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         df = self._simple_get_diskfile()
         exc = None
         try:
@@ -3258,7 +3257,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         df = self._simple_get_diskfile()
         exc = None
         try:
@@ -3338,7 +3337,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), file_count + 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
 
     def _system_can_zero_copy(self):
         if not splice.available:
@@ -3381,7 +3380,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertFalse(reader.can_zero_copy_send())
 
             log_lines = df_mgr.logger.get_lines_for_level('warning')
-            self.assertTrue('MD5 sockets' in log_lines[-1])
+            self.assertIn('MD5 sockets', log_lines[-1])
 
     def test_tee_to_md5_pipe_length_mismatch(self):
         if not self._system_can_zero_copy():
@@ -3492,7 +3491,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     self.fail("Expected exception DiskFileNoSpace")
         self.assertTrue(_m_fallocate.called)
         self.assertTrue(_m_unlink.called)
-        self.assertTrue('error' not in self.logger.all_log_lines())
+        self.assertNotIn('error', self.logger.all_log_lines())
 
     def test_create_unlink_cleanup_renamer_fails(self):
         # Test cleanup when renamer fails
@@ -3519,7 +3518,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertFalse(writer.put_succeeded)
         self.assertTrue(_m_renamer.called)
         self.assertTrue(_m_unlink.called)
-        self.assertTrue('error' not in self.logger.all_log_lines())
+        self.assertNotIn('error', self.logger.all_log_lines())
 
     def test_create_unlink_cleanup_logging(self):
         # Test logging of os.unlink() failures.
@@ -4489,12 +4488,15 @@ class TestSuffixHashes(unittest.TestCase):
             part_path = os.path.join(self.devices, 'sda1',
                                      diskfile.get_data_dir(policy), '0')
             hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            inv_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
             self.assertFalse(os.path.exists(hashes_file))  # sanity
             with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
                 df_mgr.invalidate_hash(suffix_dir)
             self.assertFalse(mock_lock.called)
-            # does not create file
+            # does not create files
             self.assertFalse(os.path.exists(hashes_file))
+            self.assertFalse(os.path.exists(inv_file))
 
     def test_invalidate_hash_file_exists(self):
         for policy in self.iter_policies():
@@ -4506,19 +4508,32 @@ class TestSuffixHashes(unittest.TestCase):
             suffix_dir = os.path.dirname(df._datadir)
             suffix = os.path.basename(suffix_dir)
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertTrue(suffix in hashes)  # sanity
+            self.assertIn(suffix, hashes)  # sanity
             # sanity check hashes file
             part_path = os.path.join(self.devices, 'sda1',
                                      diskfile.get_data_dir(policy), '0')
             hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            invalidations_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
             with open(hashes_file, 'rb') as f:
                 self.assertEqual(hashes, pickle.load(f))
+
             # invalidate the hash
             with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
                 df_mgr.invalidate_hash(suffix_dir)
             self.assertTrue(mock_lock.called)
+            with open(invalidations_file, 'rb') as f:
+                self.assertEqual(suffix + "\n", f.read())
+
+            # consolidate the hash and the invalidations
+            with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
+                hashes = df_mgr.consolidate_hashes(part_path)
+            self.assertIsNone(hashes.get(suffix))
+
             with open(hashes_file, 'rb') as f:
-                self.assertEqual({suffix: None}, pickle.load(f))
+                self.assertEqual(hashes, pickle.load(f))
+            with open(invalidations_file, 'rb') as f:
+                self.assertEqual("", f.read())
 
     # invalidate_hash tests - error handling
 
@@ -4545,7 +4560,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual(f.read(), 'asdf')
             # ... but get_hashes will
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
 
     # get_hashes tests - hash_suffix behaviors
 
@@ -4803,7 +4818,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertTrue(os.path.exists(hsh_path))  # sanity
             # get_hashes will cleanup empty hsh_path and leave valid one
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
             self.assertTrue(os.path.exists(df._datadir))
             for hsh_path in empty_hsh_paths:
                 self.assertFalse(os.path.exists(hsh_path))
@@ -5029,7 +5044,7 @@ class TestSuffixHashes(unittest.TestCase):
             # get_hashes will find the untracked suffix dir
             self.assertFalse(os.path.exists(hashes_file))  # sanity
             hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
             # ... and create a hashes pickle for it
             self.assertTrue(os.path.exists(hashes_file))
 
@@ -5059,7 +5074,7 @@ class TestSuffixHashes(unittest.TestCase):
             # ... unless remote end asks for a recalc
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
 
     def test_get_hashes_does_not_rehash_known_suffix_dirs(self):
         for policy in self.iter_policies():
@@ -5071,7 +5086,7 @@ class TestSuffixHashes(unittest.TestCase):
             df.delete(timestamp)
             # create the baseline hashes file
             hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
             # now change the contents of the suffix w/o calling
             # invalidate_hash
             rmtree(df._datadir)
@@ -5253,8 +5268,8 @@ class TestSuffixHashes(unittest.TestCase):
                                     diskfile.get_data_dir(policy), '0')
             open(os.path.join(part_dir, 'bad'), 'w').close()
             hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
-            self.assertTrue(suffix in hashes)
-            self.assertFalse('bad' in hashes)
+            self.assertIn(suffix, hashes)
+            self.assertNotIn('bad', hashes)
 
     def test_get_hashes_hash_suffix_other_oserror(self):
         for policy in self.iter_policies():
