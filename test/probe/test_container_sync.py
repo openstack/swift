@@ -22,6 +22,7 @@ from swiftclient import client, ClientException
 
 from swift.common.http import HTTP_NOT_FOUND
 from swift.common.manager import Manager
+from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 
@@ -148,6 +149,71 @@ class TestContainerSync(ReplProbeTest):
         _junk, body = client.get_object(self.url, self.token,
                                         dest_container, object_name)
         self.assertEqual(body, 'test-body')
+
+    def test_sync_with_stale_container_rows(self):
+        source_container, dest_container = self._setup_synced_containers()
+        brain = BrainSplitter(self.url, self.token, source_container,
+                              None, 'container')
+
+        # upload to source
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'test-body')
+
+        # check source container listing
+        _, listing = client.get_container(
+            self.url, self.token, source_container)
+        for expected_obj_dict in listing:
+            if expected_obj_dict['name'] == object_name:
+                break
+        else:
+            self.fail('Failed to find source object %r in container listing %r'
+                      % (object_name, listing))
+
+        # stop all container servers
+        brain.stop_primary_half()
+        brain.stop_handoff_half()
+
+        # upload new object content to source - container updates will fail
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'new-test-body')
+        source_headers = client.head_object(
+            self.url, self.token, source_container, object_name)
+
+        # start all container servers
+        brain.start_primary_half()
+        brain.start_handoff_half()
+
+        # sanity check: source container listing should not have changed
+        _, listing = client.get_container(
+            self.url, self.token, source_container)
+        for actual_obj_dict in listing:
+            if actual_obj_dict['name'] == object_name:
+                self.assertDictEqual(expected_obj_dict, actual_obj_dict)
+                break
+        else:
+            self.fail('Failed to find source object %r in container listing %r'
+                      % (object_name, listing))
+
+        # cycle container-sync - object should be correctly sync'd despite
+        # stale info in container row
+        Manager(['container-sync']).once()
+
+        # verify sync'd object has same content and headers
+        dest_headers, body = client.get_object(self.url, self.token,
+                                               dest_container, object_name)
+        self.assertEqual(body, 'new-test-body')
+        mismatched_headers = []
+        for k in ('etag', 'content-length', 'content-type', 'x-timestamp',
+                  'last-modified'):
+            if source_headers[k] == dest_headers[k]:
+                continue
+            mismatched_headers.append((k, source_headers[k], dest_headers[k]))
+        if mismatched_headers:
+            msg = '\n'.join([('Mismatched header %r, expected %r but got %r'
+                              % item) for item in mismatched_headers])
+            self.fail(msg)
+
 
 if __name__ == "__main__":
     unittest.main()

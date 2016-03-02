@@ -170,7 +170,7 @@ class ContainerSync(Daemon):
         #: running wild on near empty systems.
         self.interval = int(conf.get('interval', 300))
         #: Maximum amount of time to spend syncing a container before moving on
-        #: to the next one. If a conatiner sync hasn't finished in this time,
+        #: to the next one. If a container sync hasn't finished in this time,
         #: it'll just be resumed next scan.
         self.container_time = int(conf.get('container_time', 60))
         #: ContainerSyncCluster instance for validating sync-to values.
@@ -463,27 +463,22 @@ class ContainerSync(Daemon):
                 shuffle(nodes)
                 exc = None
                 looking_for_timestamp = Timestamp(row['created_at'])
-                timestamp = -1
-                headers = body = None
                 # look up for the newest one
                 headers_out = {'X-Newest': True,
                                'X-Backend-Storage-Policy-Index':
                                str(info['storage_policy_index'])}
                 try:
-                    source_obj_status, source_obj_info, source_obj_iter = \
+                    source_obj_status, headers, body = \
                         self.swift.get_object(info['account'],
                                               info['container'], row['name'],
                                               headers=headers_out,
                                               acceptable_statuses=(2, 4))
 
                 except (Exception, UnexpectedResponse, Timeout) as err:
-                    source_obj_info = {}
-                    source_obj_iter = None
+                    headers = {}
+                    body = None
                     exc = err
-                timestamp = Timestamp(source_obj_info.get(
-                                      'x-timestamp', 0))
-                headers = source_obj_info
-                body = source_obj_iter
+                timestamp = Timestamp(headers.get('x-timestamp', 0))
                 if timestamp < looking_for_timestamp:
                     if exc:
                         raise exc
@@ -501,7 +496,6 @@ class ContainerSync(Daemon):
                 if 'content-type' in headers:
                     headers['content-type'] = clean_content_type(
                         headers['content-type'])
-                headers['x-timestamp'] = row['created_at']
                 if realm and realm_key:
                     nonce = uuid.uuid4().hex
                     path = urlparse(sync_to).path + '/' + quote(row['name'])
