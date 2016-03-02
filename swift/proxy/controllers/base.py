@@ -47,11 +47,12 @@ from swift.common.utils import Timestamp, config_true_value, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
-from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
+from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \

@@ -23,10 +23,10 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     get_object_env_key, get_info, get_object_info, \
     Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache, \
     bytes_to_skip
-from swift.common.swob import Request, HTTPException, HeaderKeyDict, \
-    RESPONSE_REASONS
+from swift.common.swob import Request, HTTPException, RESPONSE_REASONS
 from swift.common import exceptions
 from swift.common.utils import split_path
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy
 from test.unit import fake_http_connect, FakeRing, FakeMemcache

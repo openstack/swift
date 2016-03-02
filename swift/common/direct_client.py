@@ -33,7 +33,7 @@ from swift.common.exceptions import ClientException
 from swift.common.utils import Timestamp, FileLikeIter
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
-from swift.common.swob import HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import quote
 
 

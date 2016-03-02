@@ -27,6 +27,7 @@ from six.moves.urllib.parse import quote
 from test.unit import FakeLogger
 from eventlet.green import urllib2
 from swift.common import exceptions, internal_client, swob
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
@@ -1027,7 +1028,7 @@ class TestInternalClient(unittest.TestCase):
             'user-agent': 'test',   # from InternalClient.make_request
         })
         self.assertEqual(app.calls_with_headers, [(
-            'GET', path_info, swob.HeaderKeyDict(req_headers))])
+            'GET', path_info, HeaderKeyDict(req_headers))])
 
     def test_iter_object_lines(self):
         class InternalClient(internal_client.InternalClient):

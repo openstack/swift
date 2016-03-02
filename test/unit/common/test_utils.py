@@ -60,7 +60,8 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     MimeInvalid, ThreadPoolDead
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
-from swift.common.swob import Request, Response, HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import Request, Response
 from test.unit import FakeLogger
 
 threading = eventlet.patcher.original('threading')

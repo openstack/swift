@@ -50,11 +50,12 @@ from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
 from swift.common import utils, bufferedhttp
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication, encode_timestamps, \
     Timestamp
 from swift.common import constraints
-from swift.common.swob import Request, HeaderKeyDict, WsgiBytesIO
+from swift.common.swob import Request, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)

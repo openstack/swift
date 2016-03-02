@@ -44,14 +44,15 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.base_storage_server import BaseStorageServer
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
-    HTTPConflict, HTTPServerError
+    HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
+    HTTPServerError
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
 
 
