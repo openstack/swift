@@ -2185,6 +2185,56 @@ class TestFile(Base):
             info = file_item.info()
             self.assertEqual(etag, info['etag'])
 
+    def test_POST(self):
+        # verify consistency between object and container listing metadata
+        file_name = Utils.create_name()
+        file_item = self.env.container.file(file_name)
+        file_item.content_type = 'text/foobar'
+        file_item.write_random(1024)
+
+        # sanity check
+        file_item = self.env.container.file(file_name)
+        file_item.initialize()
+        self.assertEqual('text/foobar', file_item.content_type)
+        self.assertEqual(1024, file_item.size)
+        etag = file_item.etag
+
+        # check container listing is consistent
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
+            if f_dict['name'] == file_name:
+                break
+        else:
+            self.fail('Failed to find file %r in listing' % file_name)
+        self.assertEqual(1024, f_dict['bytes'])
+        self.assertEqual('text/foobar', f_dict['content_type'])
+        self.assertEqual(etag, f_dict['hash'])
+
+        # now POST updated content-type to each file
+        file_item = self.env.container.file(file_name)
+        file_item.content_type = 'image/foobarbaz'
+        file_item.sync_metadata({'Test': 'blah'})
+
+        # sanity check object metadata
+        file_item = self.env.container.file(file_name)
+        file_item.initialize()
+
+        self.assertEqual(1024, file_item.size)
+        self.assertEqual('image/foobarbaz', file_item.content_type)
+        self.assertEqual(etag, file_item.etag)
+        self.assertIn('test', file_item.metadata)
+
+        # check for consistency between object and container listing
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
+            if f_dict['name'] == file_name:
+                break
+        else:
+            self.fail('Failed to find file %r in listing' % file_name)
+        self.assertEqual(1024, f_dict['bytes'])
+        self.assertEqual('image/foobarbaz', f_dict['content_type'])
+        self.assertEqual(etag, f_dict['hash'])
+
 
 class TestFileUTF8(Base2, TestFile):
     set_up = False
@@ -2776,6 +2826,42 @@ class TestSlo(Base):
         self.assertEqual('b', file_contents[1024 * 1024])
         self.assertEqual('d', file_contents[-2])
         self.assertEqual('e', file_contents[-1])
+
+    def test_slo_container_listing(self):
+        # the listing object size should equal the sum of the size of the
+        # segments, not the size of the manifest body
+        raise SkipTest('Only passes with object_post_as_copy=False')
+        file_item = self.env.container.file(Utils.create_name)
+        file_item.write(
+            json.dumps([self.env.seg_info['seg_a']]),
+            parms={'multipart-manifest': 'put'})
+
+        files = self.env.container.files(parms={'format': 'json'})
+        for f_dict in files:
+            if f_dict['name'] == file_item.name:
+                self.assertEqual(1024 * 1024, f_dict['bytes'])
+                self.assertEqual('application/octet-stream',
+                                 f_dict['content_type'])
+                break
+        else:
+            self.fail('Failed to find manifest file in container listing')
+
+        # now POST updated content-type file
+        file_item.content_type = 'image/jpeg'
+        file_item.sync_metadata({'X-Object-Meta-Test': 'blah'})
+        file_item.initialize()
+        self.assertEqual('image/jpeg', file_item.content_type)  # sanity
+
+        # verify that the container listing is consistent with the file
+        files = self.env.container.files(parms={'format': 'json'})
+        for f_dict in files:
+            if f_dict['name'] == file_item.name:
+                self.assertEqual(1024 * 1024, f_dict['bytes'])
+                self.assertEqual(file_item.content_type,
+                                 f_dict['content_type'])
+                break
+        else:
+            self.fail('Failed to find manifest file in container listing')
 
     def test_slo_get_nested_manifest(self):
         file_item = self.env.container.file('manifest-abcde-submanifest')

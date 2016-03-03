@@ -17,6 +17,8 @@ from __future__ import print_function
 import os
 from subprocess import Popen, PIPE
 import sys
+from tempfile import mkdtemp
+from textwrap import dedent
 from time import sleep, time
 from collections import defaultdict
 import unittest
@@ -25,8 +27,10 @@ from uuid import uuid4
 from nose import SkipTest
 
 from six.moves.http_client import HTTPConnection
+import shutil
 
 from swiftclient import get_auth, head_account
+from swift.common import internal_client
 from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
 from swift.common.utils import readconf, renamer, \
@@ -429,6 +433,33 @@ class ProbeTest(unittest.TestCase):
             renamer(device + "X", device)
         else:
             os.system('sudo mount %s' % device)
+
+    def make_internal_client(self, object_post_as_copy=True):
+        tempdir = mkdtemp()
+        try:
+            conf_path = os.path.join(tempdir, 'internal_client.conf')
+            conf_body = """
+            [DEFAULT]
+            swift_dir = /etc/swift
+
+            [pipeline:main]
+            pipeline = catch_errors cache proxy-server
+
+            [app:proxy-server]
+            use = egg:swift#proxy
+            object_post_as_copy = %s
+
+            [filter:cache]
+            use = egg:swift#memcache
+
+            [filter:catch_errors]
+            use = egg:swift#catch_errors
+            """ % object_post_as_copy
+            with open(conf_path, 'w') as f:
+                f.write(dedent(conf_body))
+            return internal_client.InternalClient(conf_path, 'test', 1)
+        finally:
+            shutil.rmtree(tempdir)
 
 
 class ReplProbeTest(ProbeTest):

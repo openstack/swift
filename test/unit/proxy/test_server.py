@@ -3210,7 +3210,8 @@ class TestObjectController(unittest.TestCase):
             backend_requests.append((method, path, headers))
 
         req = Request.blank('/v1/a/c/o', {}, method='POST',
-                            headers={'X-Object-Meta-Color': 'Blue'})
+                            headers={'X-Object-Meta-Color': 'Blue',
+                                     'Content-Type': 'text/plain'})
 
         # we want the container_info response to says a policy index of 1
         resp_headers = {'X-Backend-Storage-Policy-Index': 1}
@@ -3271,6 +3272,7 @@ class TestObjectController(unittest.TestCase):
         backend_requests = []
         req = Request.blank('/v1/a/c/o', {}, method='POST',
                             headers={'X-Object-Meta-Color': 'Blue',
+                                     'Content-Type': 'text/plain',
                                      'X-Backend-Storage-Policy-Index': 0})
         with mocked_http_conn(
                 200, 200, 202, 202, 202,

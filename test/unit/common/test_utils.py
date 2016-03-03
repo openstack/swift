@@ -289,6 +289,8 @@ class TestTimestamp(unittest.TestCase):
         self.assertIs(True, utils.Timestamp(ts) == ts)  # sanity
         self.assertIs(False, utils.Timestamp(ts) != utils.Timestamp(ts))
         self.assertIs(False, utils.Timestamp(ts) != ts)
+        self.assertIs(False, utils.Timestamp(ts) is None)
+        self.assertIs(True, utils.Timestamp(ts) is not None)
 
     def test_no_force_internal_no_offset(self):
         """Test that internal is the same as normal with no offset"""
@@ -405,6 +407,15 @@ class TestTimestamp(unittest.TestCase):
             self.assertTrue(timestamp > float(normal),
                             '%r is not bigger than %f given %r' % (
                                 timestamp, float(normal), value))
+
+    def test_short_format_with_offset(self):
+        expected = '1402436408.91203_f0'
+        timestamp = utils.Timestamp(1402436408.91203, 0xf0)
+        self.assertEqual(expected, timestamp.short)
+
+        expected = '1402436408.91203'
+        timestamp = utils.Timestamp(1402436408.91203)
+        self.assertEqual(expected, timestamp.short)
 
     def test_raw(self):
         expected = 140243640891203
@@ -694,6 +705,11 @@ class TestTimestamp(unittest.TestCase):
                                 '%r is not smaller than %r given %r' % (
                                     timestamp, int(other), value))
 
+    def test_cmp_with_none(self):
+        self.assertGreater(utils.Timestamp(0), None)
+        self.assertGreater(utils.Timestamp(1.0), None)
+        self.assertGreater(utils.Timestamp(1.0, 42), None)
+
     def test_ordering(self):
         given = [
             '1402444820.62590_000000000000000a',
@@ -787,6 +803,107 @@ class TestTimestamp(unittest.TestCase):
         d = {ts_0: 'whatever'}
         self.assertIn(ts_0, d)  # sanity
         self.assertIn(ts_0_also, d)
+
+
+class TestTimestampEncoding(unittest.TestCase):
+
+    def setUp(self):
+        t0 = utils.Timestamp(0.0)
+        t1 = utils.Timestamp(997.9996)
+        t2 = utils.Timestamp(999)
+        t3 = utils.Timestamp(1000, 24)
+        t4 = utils.Timestamp(1001)
+        t5 = utils.Timestamp(1002.00040)
+
+        # encodings that are expected when explicit = False
+        self.non_explicit_encodings = (
+            ('0000001000.00000_18', (t3, t3, t3)),
+            ('0000001000.00000_18', (t3, t3, None)),
+        )
+
+        # mappings that are expected when explicit = True
+        self.explicit_encodings = (
+            ('0000001000.00000_18+0+0', (t3, t3, t3)),
+            ('0000001000.00000_18+0', (t3, t3, None)),
+        )
+
+        # mappings that are expected when explicit = True or False
+        self.encodings = (
+            ('0000001000.00000_18+0+186a0', (t3, t3, t4)),
+            ('0000001000.00000_18+186a0+186c8', (t3, t4, t5)),
+            ('0000001000.00000_18-186a0+0', (t3, t2, t2)),
+            ('0000001000.00000_18+0-186a0', (t3, t3, t2)),
+            ('0000001000.00000_18-186a0-186c8', (t3, t2, t1)),
+            ('0000001000.00000_18', (t3, None, None)),
+            ('0000001000.00000_18+186a0', (t3, t4, None)),
+            ('0000001000.00000_18-186a0', (t3, t2, None)),
+            ('0000001000.00000_18', (t3, None, t1)),
+            ('0000001000.00000_18-5f5e100', (t3, t0, None)),
+            ('0000001000.00000_18+0-5f5e100', (t3, t3, t0)),
+            ('0000001000.00000_18-5f5e100+5f45a60', (t3, t0, t2)),
+        )
+
+        # decodings that are expected when explicit = False
+        self.non_explicit_decodings = (
+            ('0000001000.00000_18', (t3, t3, t3)),
+            ('0000001000.00000_18+186a0', (t3, t4, t4)),
+            ('0000001000.00000_18-186a0', (t3, t2, t2)),
+            ('0000001000.00000_18+186a0', (t3, t4, t4)),
+            ('0000001000.00000_18-186a0', (t3, t2, t2)),
+            ('0000001000.00000_18-5f5e100', (t3, t0, t0)),
+        )
+
+        # decodings that are expected when explicit = True
+        self.explicit_decodings = (
+            ('0000001000.00000_18+0+0', (t3, t3, t3)),
+            ('0000001000.00000_18+0', (t3, t3, None)),
+            ('0000001000.00000_18', (t3, None, None)),
+            ('0000001000.00000_18+186a0', (t3, t4, None)),
+            ('0000001000.00000_18-186a0', (t3, t2, None)),
+            ('0000001000.00000_18-5f5e100', (t3, t0, None)),
+        )
+
+        # decodings that are expected when explicit = True or False
+        self.decodings = (
+            ('0000001000.00000_18+0+186a0', (t3, t3, t4)),
+            ('0000001000.00000_18+186a0+186c8', (t3, t4, t5)),
+            ('0000001000.00000_18-186a0+0', (t3, t2, t2)),
+            ('0000001000.00000_18+0-186a0', (t3, t3, t2)),
+            ('0000001000.00000_18-186a0-186c8', (t3, t2, t1)),
+            ('0000001000.00000_18-5f5e100+5f45a60', (t3, t0, t2)),
+        )
+
+    def _assertEqual(self, expected, actual, test):
+        self.assertEqual(expected, actual,
+                         'Got %s but expected %s for parameters %s'
+                         % (actual, expected, test))
+
+    def test_encoding(self):
+        for test in self.explicit_encodings:
+            actual = utils.encode_timestamps(test[1][0], test[1][1],
+                                             test[1][2], True)
+            self._assertEqual(test[0], actual, test[1])
+        for test in self.non_explicit_encodings:
+            actual = utils.encode_timestamps(test[1][0], test[1][1],
+                                             test[1][2], False)
+            self._assertEqual(test[0], actual, test[1])
+        for explicit in (True, False):
+            for test in self.encodings:
+                actual = utils.encode_timestamps(test[1][0], test[1][1],
+                                                 test[1][2], explicit)
+                self._assertEqual(test[0], actual, test[1])
+
+    def test_decoding(self):
+        for test in self.explicit_decodings:
+            actual = utils.decode_timestamps(test[0], True)
+            self._assertEqual(test[1], actual, test[0])
+        for test in self.non_explicit_decodings:
+            actual = utils.decode_timestamps(test[0], False)
+            self._assertEqual(test[1], actual, test[0])
+        for explicit in (True, False):
+            for test in self.decodings:
+                actual = utils.decode_timestamps(test[0], explicit)
+                self._assertEqual(test[1], actual, test[0])
 
 
 class TestUtils(unittest.TestCase):
