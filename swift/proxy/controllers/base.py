@@ -43,7 +43,7 @@ from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
-    http_response_to_document_iters, document_iters_to_http_response_body
+    document_iters_to_http_response_body
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
@@ -55,7 +55,8 @@ from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
-    strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
+    strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
+    http_response_to_document_iters
 from swift.common.storage_policy import POLICIES
 
 

@@ -339,6 +339,41 @@ class TestMatch(unittest.TestCase):
         self.assertTrue('c' not in match)
 
 
+class TestTransferEncoding(unittest.TestCase):
+    def test_is_chunked(self):
+        headers = {}
+        self.assertFalse(swift.common.swob.is_chunked(headers))
+
+        headers['Transfer-Encoding'] = 'chunked'
+        self.assertTrue(swift.common.swob.is_chunked(headers))
+
+        headers['Transfer-Encoding'] = 'gzip,chunked'
+        try:
+            swift.common.swob.is_chunked(headers)
+        except AttributeError as e:
+            self.assertEqual(str(e), "Unsupported Transfer-Coding header"
+                             " value specified in Transfer-Encoding header")
+        else:
+            self.fail("Expected an AttributeError raised for 'gzip'")
+
+        headers['Transfer-Encoding'] = 'gzip'
+        try:
+            swift.common.swob.is_chunked(headers)
+        except ValueError as e:
+            self.assertEqual(str(e), "Invalid Transfer-Encoding header value")
+        else:
+            self.fail("Expected a ValueError raised for 'gzip'")
+
+        headers['Transfer-Encoding'] = 'gzip,identity'
+        try:
+            swift.common.swob.is_chunked(headers)
+        except AttributeError as e:
+            self.assertEqual(str(e), "Unsupported Transfer-Coding header"
+                             " value specified in Transfer-Encoding header")
+        else:
+            self.fail("Expected an AttributeError raised for 'gzip,identity'")
+
+
 class TestAccept(unittest.TestCase):
     def test_accept_json(self):
         for accept in ('application/json', 'application/json;q=1.0,*/*;q=0.9',

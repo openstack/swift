@@ -712,6 +712,13 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
 
+    def test_GET_transfer_encoding_chunked(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        with set_http_connect(200, headers={'transfer-encoding': 'chunked'}):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['Transfer-Encoding'], 'chunked')
+
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(503, 200):
