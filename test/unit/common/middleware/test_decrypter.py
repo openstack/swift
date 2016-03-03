@@ -68,13 +68,13 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.body, body)
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
-        self.assertEqual(resp.headers['x-object-meta-test'], 'encrypt me')
-        self.assertEqual(resp.headers['x-object-sysmeta-test'],
-                         'do not encrypt me')
+        self.assertEqual(body, resp.body)
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+        self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-sysmeta-test'])
 
     def _test_bad_key(self, method):
         # use bad key
@@ -193,12 +193,12 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('HEAD', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
-        self.assertEqual(resp.headers['x-object-meta-test'], 'encrypt me')
-        self.assertEqual(resp.headers['x-object-sysmeta-test'],
-                         'do not encrypt me')
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+        self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-sysmeta-test'])
 
     def _test_req_content_type_not_encrypted(self, method):
         # check that content_type is not decrypted if it does not have crypto
@@ -221,9 +221,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
 
     def test_head_req_content_type_not_encrypted(self):
         self._test_req_content_type_not_encrypted('HEAD')
@@ -252,10 +252,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'x-object-meta-test': 'plaintext'}
         app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
-        self.assertEqual(resp.headers['x-object-meta-test'], 'plaintext')
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+        self.assertEqual('plaintext', resp.headers['x-object-meta-test'])
 
     def test_head_req_metadata_not_encrypted(self):
         self._test_req_metadata_not_encrypted('HEAD')
@@ -282,15 +282,15 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.body, body)
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
+        self.assertEqual(body, resp.body)
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
         # POSTed user meta was encrypted
-        self.assertEqual(resp.headers['x-object-meta-test'], 'encrypt me')
+        self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
         # PUT sysmeta was not encrypted
-        self.assertEqual(resp.headers['x-object-sysmeta-test'],
-                         'do not encrypt me')
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-sysmeta-test'])
 
     def test_multiseg_get_obj(self):
         env = {'REQUEST_METHOD': 'GET',
@@ -311,10 +311,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.body, body)
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
+        self.assertEqual(body, resp.body)
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
 
     def test_multiseg_get_range_obj(self):
         env = {'REQUEST_METHOD': 'GET',
@@ -339,12 +339,12 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.body, '3456789a')
-        self.assertEqual(resp.status, '200 OK')
+        self.assertEqual('3456789a', resp.body)
+        self.assertEqual('200 OK', resp.status)
         # TODO - how do we validate the range body if etag is for whole? Is
         # the test actually faking the correct Etag in response?
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
 
     # Force the decrypter context updates to be less than one of our range
     # sizes to check that the decrypt context offset is setup correctly with
@@ -428,7 +428,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
+        self.assertEqual('500 Internal Error', resp.status)
 
     def test_missing_key_callback(self):
         # Do not provide keys, and do not set override flag
@@ -444,9 +444,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
-        self.assertEqual(
-            resp.body, 'swift.crypto.fetch_crypto_keys not in env')
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('swift.crypto.fetch_crypto_keys not in env',
+                         resp.body)
 
     def test_error_in_key_callback(self):
         def raise_exc():
@@ -465,9 +465,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
-        self.assertEqual(
-            resp.body, 'swift.crypto.fetch_crypto_keys had exception: Testing')
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('swift.crypto.fetch_crypto_keys had exception:'
+                         ' Testing', resp.body)
 
     def test_cipher_mismatch_for_body(self):
         # Cipher does not match
@@ -487,7 +487,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
+        self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error creating decryption context for object body',
                          resp.body)
 
@@ -513,7 +513,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
+        self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error decrypting header value', resp.body)
 
     def test_decryption_override(self):
@@ -531,14 +531,14 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
-        self.assertEqual(resp.body, body)
-        self.assertEqual(resp.status, '200 OK')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
-        self.assertEqual(resp.headers['Content-Type'], 'text/plain')
-        self.assertEqual(resp.headers['x-object-meta-test'],
-                         'do not encrypt me')
-        self.assertEqual(resp.headers['x-object-sysmeta-test'],
-                         'do not encrypt me')
+        self.assertEqual(body, resp.body)
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-meta-test'])
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-sysmeta-test'])
 
 
 @mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
@@ -748,8 +748,8 @@ class TestDecrypter(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         with self.assertRaises(HTTPException) as catcher:
             req.get_response(app)
-        self.assertEqual(catcher.exception.body,
-                         FakeAppThatExcepts.get_error_msg())
+        self.assertEqual(FakeAppThatExcepts.get_error_msg(),
+                         catcher.exception.body)
 
 
 if __name__ == '__main__':

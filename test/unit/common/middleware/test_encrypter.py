@@ -48,8 +48,8 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '201 Created')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
 
         # verify metadata items
         self.assertEqual(1, len(app.calls), app.calls)
@@ -88,7 +88,7 @@ class TestEncrypter(unittest.TestCase):
         # verify object is encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = get_req.get_response(app)
-        self.assertEqual(resp.body, encrypt(body, key, fake_iv()))
+        self.assertEqual(encrypt(body, key, fake_iv()), resp.body)
         self.assertEqual(md5hex(encrypt(body, key, fake_iv())),
                          resp.headers['Etag'])
 
@@ -104,7 +104,7 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         app.register('POST', '/v1/a/c/o', HTTPAccepted, {})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '202 Accepted')
+        self.assertEqual('202 Accepted', resp.status)
 
         # verify metadata items
         self.assertEqual(1, len(app.calls), app.calls)
@@ -136,8 +136,8 @@ class TestEncrypter(unittest.TestCase):
         app.register('PUT', '/v1/a/c/o', HTTPCreated,
                      {'Etag': 'ciphertextEtag'})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '201 Created')
-        self.assertEqual(resp.headers['Etag'], md5hex(body))
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual(md5hex(body), resp.headers['Etag'])
 
     def test_multiseg_no_client_etag(self):
         chunks = ['some', 'chunks', 'of data']
@@ -152,12 +152,11 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '201 Created')
+        self.assertEqual('201 Created', resp.status)
         # verify object is encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        self.assertEqual(get_req.get_response(app).body,
-                         encrypt(body, fetch_crypto_keys()['object'],
-                                 fake_iv()))
+        self.assertEqual(encrypt(body, fetch_crypto_keys()['object'],
+                                 fake_iv()), get_req.get_response(app).body)
 
     def test_multiseg_good_client_etag(self):
         chunks = ['some', 'chunks', 'of data']
@@ -173,12 +172,11 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '201 Created')
+        self.assertEqual('201 Created', resp.status)
         # verify object is encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        self.assertEqual(get_req.get_response(app).body,
-                         encrypt(body, fetch_crypto_keys()['object'],
-                                 fake_iv()))
+        self.assertEqual(encrypt(body, fetch_crypto_keys()['object'],
+                                 fake_iv()), get_req.get_response(app).body)
 
     def test_multiseg_bad_client_etag(self):
         chunks = ['some', 'chunks', 'of data']
@@ -194,7 +192,7 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '422 Unprocessable Entity')
+        self.assertEqual('422 Unprocessable Entity', resp.status)
 
     def test_missing_key_callback(self):
         body = 'FAKE APP'
@@ -205,9 +203,9 @@ class TestEncrypter(unittest.TestCase):
             '/v1/a/c/o', environ=env, body=body, headers=hdrs)
         app = FakeSwift()
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
-        self.assertEqual(
-            resp.body, 'swift.crypto.fetch_crypto_keys not in env')
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('swift.crypto.fetch_crypto_keys not in env',
+                         resp.body)
 
     def test_error_in_key_callback(self):
         def raise_exc():
@@ -222,9 +220,9 @@ class TestEncrypter(unittest.TestCase):
             '/v1/a/c/o', environ=env, body=body, headers=hdrs)
         app = FakeSwift()
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '500 Internal Error')
-        self.assertEqual(
-            resp.body, 'swift.crypto.fetch_crypto_keys had exception: Testing')
+        self.assertEqual('500 Internal Error', resp.status)
+        self.assertEqual('swift.crypto.fetch_crypto_keys had exception:'
+                         ' Testing', resp.body)
 
     def test_encryption_override(self):
         body = 'FAKE APP'
@@ -237,10 +235,10 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(encrypter.Encrypter(app, {}))
-        self.assertEqual(resp.status, '201 Created')
+        self.assertEqual('201 Created', resp.status)
         # verify object is NOT encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        self.assertEqual(get_req.get_response(app).body, body)
+        self.assertEqual(body, get_req.get_response(app).body)
 
     def test_filter(self):
         factory = encrypter.filter_factory({})
@@ -253,8 +251,8 @@ class TestEncrypter(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'PUT'})
         with self.assertRaises(HTTPException) as catcher:
             req.get_response(app)
-        self.assertEqual(catcher.exception.body,
-                         FakeAppThatExcepts.get_error_msg())
+        self.assertEqual(FakeAppThatExcepts.get_error_msg(),
+                         catcher.exception.body)
 
 
 if __name__ == '__main__':
