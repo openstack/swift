@@ -25,7 +25,10 @@ from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
     get_obj_persisted_sysmeta_prefix
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.utils import get_logger, config_true_value, \
-    parse_content_range, closing_if_possible
+    parse_content_range, closing_if_possible, parse_content_type, \
+    FileLikeIter, multipart_byteranges_to_document_iters
+
+DECRYPT_CHUNK_SIZE = 65536
 
 
 def _load_crypto_meta(value):
@@ -203,7 +206,7 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         return mod_resp_headers
 
-    def make_decryption_context(self, keys):
+    def make_decryption_context(self, keys, offset=0):
         body_crypto_meta = self.get_sysmeta_crypto_meta(
             'X-Object-Sysmeta-Crypto-Meta')
 
@@ -214,7 +217,6 @@ class DecrypterObjContext(BaseDecrypterContext):
             return None
 
         content_range = self._response_header_value('Content-Range')
-        offset = 0
         if content_range:
             # Determine the offset within the whole object if ranged GET
             offset, end, total = parse_content_range(content_range)
@@ -229,6 +231,36 @@ class DecrypterObjContext(BaseDecrypterContext):
             self.logger.error('%s: %s' % (msg, str(err)))
             raise HTTPInternalServerError(body=msg, content_type='text/plain')
 
+    def multipart_resp(self, resp, boundary, keys):
+        """
+        Takes a multipart mime doc, decrypts body, headers and
+        returns response body of decrypted mime doc.
+
+        :param resp: application response
+        :param boundary: multipart boundary string
+        :param keys: a dict of decryption keys.
+        :return: generator for decrypted response body
+        """
+        with closing_if_possible(resp):
+            parts_iter = multipart_byteranges_to_document_iters(
+                FileLikeIter(resp), boundary)
+            for first_byte, last_byte, length, headers, body in parts_iter:
+                yield "--" + boundary + "\r\n"
+
+                for header in headers:
+                    yield "%s: %s\r\n" % header
+
+                yield "\r\n"
+
+                decrypt_ctxt = self.make_decryption_context(keys, first_byte)
+                for chunk in iter(lambda: body.read(DECRYPT_CHUNK_SIZE), ''):
+                    chunk = decrypt_ctxt.update(chunk)
+                    yield chunk
+
+                yield "\r\n"
+
+            yield "--" + boundary + "--"
+
     def GET(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
@@ -240,6 +272,10 @@ class DecrypterObjContext(BaseDecrypterContext):
                            self._response_exc_info)
             return app_resp
 
+        # retrieve content-type before headers are modified
+        ct = self._response_header_value('Content-Type')
+        content_type, content_type_attrs = parse_content_type(ct)
+
         mod_resp_headers = self.decrypt_resp_headers(keys)
         self.body_crypto_ctxt = self.make_decryption_context(keys)
 
@@ -248,6 +284,10 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         if self.body_crypto_ctxt is None:
             return app_resp
+
+        if content_type == 'multipart/byteranges':
+            boundary = dict(content_type_attrs)["boundary"]
+            return self.multipart_resp(app_resp, boundary, keys)
 
         def iter_response(iterable, crypto_ctxt):
             with closing_if_possible(iterable):
