@@ -120,7 +120,7 @@ class TestObject(unittest2.TestCase):
                 for obj in objs:
                     resp = retry(delete, container, obj)
                     resp.read()
-                    self.assertEqual(resp.status, 204)
+                    self.assertIn(resp.status, (204, 404))
 
         # delete the container
         def delete(url, token, parsed, conn, name):
@@ -352,7 +352,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         # verify dest does not exist
         resp = retry(get_dest)
         resp.read()
@@ -394,7 +394,7 @@ class TestObject(unittest2.TestCase):
         # delete the copy
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     def test_copy_between_accounts(self):
         if tf.skip:
@@ -460,7 +460,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete, use_account=2)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         # verify dest does not exist
         resp = retry(get_dest, use_account=2)
         resp.read()
@@ -504,7 +504,7 @@ class TestObject(unittest2.TestCase):
         # delete the copy
         resp = retry(delete, use_account=2)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     def test_public_object(self):
         if tf.skip:
@@ -626,7 +626,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
         # clean up shared_container
         def delete(url, token, parsed, conn):
@@ -636,7 +636,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     def test_container_write_only(self):
         if tf.skip or tf.skip3:
@@ -705,7 +705,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete, use_account=3)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
         # clean up shared_container
         def delete(url, token, parsed, conn):
@@ -715,7 +715,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     @requires_acls
     def test_read_only(self):
@@ -870,7 +870,7 @@ class TestObject(unittest2.TestCase):
         # can delete an object
         resp = retry(delete, self.obj, use_account=3)
         body = resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
         # sanity with account1
         resp = retry(get_listing, use_account=3)
@@ -951,7 +951,7 @@ class TestObject(unittest2.TestCase):
         # can delete an object
         resp = retry(delete, self.obj, use_account=3)
         body = resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
         # sanity with account1
         resp = retry(get_listing, use_account=3)
@@ -1186,7 +1186,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete, objnum)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
         # Delete the third set of segments
         def delete(url, token, parsed, conn, objnum):
@@ -1197,7 +1197,7 @@ class TestObject(unittest2.TestCase):
         for objnum in range(len(segments3)):
             resp = retry(delete, objnum)
             resp.read()
-            self.assertEqual(resp.status, 204)
+            self.assertIn(resp.status, (204, 404))
 
         # Delete the second set of segments
         def delete(url, token, parsed, conn, objnum):
@@ -1208,7 +1208,7 @@ class TestObject(unittest2.TestCase):
         for objnum in range(len(segments2)):
             resp = retry(delete, objnum)
             resp.read()
-            self.assertEqual(resp.status, 204)
+            self.assertIn(resp.status, (204, 404))
 
         # Delete the first set of segments
         def delete(url, token, parsed, conn, objnum):
@@ -1219,7 +1219,7 @@ class TestObject(unittest2.TestCase):
         for objnum in range(len(segments1)):
             resp = retry(delete, objnum)
             resp.read()
-            self.assertEqual(resp.status, 204)
+            self.assertIn(resp.status, (204, 404))
 
         # Delete the extra container
         def delete(url, token, parsed, conn):
@@ -1228,7 +1228,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
 
     def test_delete_content_type(self):
         if tf.skip:
@@ -1248,7 +1248,7 @@ class TestObject(unittest2.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEqual(resp.status, 204)
+        self.assertIn(resp.status, (204, 404))
         self.assertEqual(resp.getheader('Content-Type'),
                          'text/html; charset=UTF-8')
 
