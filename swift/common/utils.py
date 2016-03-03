@@ -97,6 +97,9 @@ _libc_accept = None
 # If set to non-zero, fallocate routines will fail based on free space
 # available being at or below this amount, in bytes.
 FALLOCATE_RESERVE = 0
+# Indicates if FALLOCATE_RESERVE is the percentage of free space (True) or
+# the number of bytes (False).
+FALLOCATE_IS_PERCENT = False
 
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
@@ -453,6 +456,25 @@ def get_trans_id_time(trans_id):
     return None
 
 
+def config_fallocate_value(reserve_value):
+    """
+    Returns fallocate reserve_value as an int or float.
+    Returns is_percent as a boolean.
+    Returns a ValueError on invalid fallocate value.
+    """
+    try:
+        if str(reserve_value[-1:]) == '%':
+            reserve_value = float(reserve_value[:-1])
+            is_percent = True
+        else:
+            reserve_value = int(reserve_value)
+            is_percent = False
+    except ValueError:
+        raise ValueError('Error: %s is an invalid value for fallocate'
+                         '_reserve.' % reserve_value)
+    return reserve_value, is_percent
+
+
 class FileLikeIter(object):
 
     def __init__(self, iterable):
@@ -596,7 +618,9 @@ class FallocateWrapper(object):
         if FALLOCATE_RESERVE > 0:
             st = os.fstatvfs(fd)
             free = st.f_frsize * st.f_bavail - length.value
-            if free <= FALLOCATE_RESERVE:
+            if FALLOCATE_IS_PERCENT:
+                free = (float(free) / float(st.f_frsize * st.f_blocks)) * 100
+            if float(free) <= float(FALLOCATE_RESERVE):
                 raise OSError(
                     errno.ENOSPC,
                     'FALLOCATE_RESERVE fail %s <= %s' % (free,

@@ -897,9 +897,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     loadapp(conf_path, global_conf=global_conf)
 
     # set utils.FALLOCATE_RESERVE if desired
-    reserve = int(conf.get('fallocate_reserve', 0))
-    if reserve > 0:
-        utils.FALLOCATE_RESERVE = reserve
+    utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+        utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
+
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 

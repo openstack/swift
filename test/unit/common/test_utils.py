@@ -2583,6 +2583,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         class StatVFS(object):
             f_frsize = 1024
             f_bavail = 1
+            f_blocks = 100
 
         def fstatvfs(fd):
             return StatVFS()
@@ -2593,17 +2594,20 @@ cluster_dfw1 = http://dfw1.host/v1/
             fallocate = utils.FallocateWrapper(noop=True)
             utils.os.fstatvfs = fstatvfs
             # Want 1023 reserved, have 1024 * 1 free, so succeeds
-            utils.FALLOCATE_RESERVE = 1023
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1023')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
             # Want 1023 reserved, have 512 * 2 free, so succeeds
-            utils.FALLOCATE_RESERVE = 1023
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1023')
             StatVFS.f_frsize = 512
             StatVFS.f_bavail = 2
             self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
             # Want 1024 reserved, have 1024 * 1 free, so fails
-            utils.FALLOCATE_RESERVE = 1024
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1024')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             exc = None
@@ -2615,7 +2619,8 @@ cluster_dfw1 = http://dfw1.host/v1/
                              '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 1024')
             self.assertEqual(err.errno, errno.ENOSPC)
             # Want 1024 reserved, have 512 * 2 free, so fails
-            utils.FALLOCATE_RESERVE = 1024
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1024')
             StatVFS.f_frsize = 512
             StatVFS.f_bavail = 2
             exc = None
@@ -2627,7 +2632,8 @@ cluster_dfw1 = http://dfw1.host/v1/
                              '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 1024')
             self.assertEqual(err.errno, errno.ENOSPC)
             # Want 2048 reserved, have 1024 * 1 free, so fails
-            utils.FALLOCATE_RESERVE = 2048
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2048')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             exc = None
@@ -2639,7 +2645,8 @@ cluster_dfw1 = http://dfw1.host/v1/
                              '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 2048')
             self.assertEqual(err.errno, errno.ENOSPC)
             # Want 2048 reserved, have 512 * 2 free, so fails
-            utils.FALLOCATE_RESERVE = 2048
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2048')
             StatVFS.f_frsize = 512
             StatVFS.f_bavail = 2
             exc = None
@@ -2652,7 +2659,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(err.errno, errno.ENOSPC)
             # Want 1023 reserved, have 1024 * 1 free, but file size is 1, so
             # fails
-            utils.FALLOCATE_RESERVE = 1023
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1023')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             exc = None
@@ -2665,28 +2673,95 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(err.errno, errno.ENOSPC)
             # Want 1022 reserved, have 1024 * 1 free, and file size is 1, so
             # succeeds
-            utils.FALLOCATE_RESERVE = 1022
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1022')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(1)), 0)
-            # Want 1023 reserved, have 1024 * 1 free, and file size is 0, so
-            # succeeds
-            utils.FALLOCATE_RESERVE = 1023
-            StatVFS.f_frsize = 1024
-            StatVFS.f_bavail = 1
-            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
-            # Want 1024 reserved, have 1024 * 1 free, and even though
-            # file size is 0, since we're under the reserve, fails
-            utils.FALLOCATE_RESERVE = 1024
-            StatVFS.f_frsize = 1024
-            StatVFS.f_bavail = 1
+            # Want 1% reserved, have 100 bytes * 2/100 free, and file size is
+            # 99, so succeeds
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 2
+            StatVFS.f_blocks = 100
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(99)), 0)
+            # Want 2% reserved, have 50 bytes * 2/50 free, and file size is 49,
+            # so succeeds
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2%')
+            StatVFS.f_frsize = 50
+            StatVFS.f_bavail = 2
+            StatVFS.f_blocks = 50
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(49)), 0)
+            # Want 100% reserved, have  100 * 100/100 free, and file size is 0,
+            # so fails.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('100%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 100
+            StatVFS.f_blocks = 100
             exc = None
             try:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             except OSError as err:
                 exc = err
             self.assertEqual(str(exc),
-                             '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 1024')
+                             '[Errno 28] FALLOCATE_RESERVE fail 100.0 <= '
+                             '100.0')
+            self.assertEqual(err.errno, errno.ENOSPC)
+            # Want 1% reserved, have 100 * 2/100 free, and file size is 101,
+            # so fails.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 2
+            StatVFS.f_blocks = 100
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(101))
+            except OSError as err:
+                exc = err
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 0.99 <= 1.0')
+            self.assertEqual(err.errno, errno.ENOSPC)
+            # Want 98% reserved, have 100 bytes * 99/100 free, and file size
+            # is 100, so fails
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('98%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 99
+            StatVFS.f_blocks = 100
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(100))
+            except OSError as err:
+                exc = err
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 98.0 <= 98.0')
+            self.assertEqual(err.errno, errno.ENOSPC)
+            # Want 2% reserved, have 1000 bytes * 21/1000 free, and file size
+            # is 999, so succeeds.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2%')
+            StatVFS.f_frsize = 1000
+            StatVFS.f_bavail = 21
+            StatVFS.f_blocks = 1000
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(999)), 0)
+            # Want 2% resereved, have 1000 bytes * 21/1000 free, and file size
+            # is 1000, so fails.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2%')
+            StatVFS.f_frsize = 1000
+            StatVFS.f_bavail = 21
+            StatVFS.f_blocks = 1000
+            exc = None
+            try:
+                fallocate(0, 1, 0, ctypes.c_uint64(1000))
+            except OSError as err:
+                exc = err
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 2.0 <= 2.0')
             self.assertEqual(err.errno, errno.ENOSPC)
         finally:
             utils.FALLOCATE_RESERVE = orig_FALLOCATE_RESERVE
@@ -2766,6 +2841,44 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(ts, None)
         ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-almostright')
         self.assertEqual(ts, None)
+
+    def test_config_fallocate_value(self):
+        fallocate_value, is_percent = utils.config_fallocate_value('10%')
+        self.assertEqual(fallocate_value, 10)
+        self.assertTrue(is_percent)
+        fallocate_value, is_percent = utils.config_fallocate_value('10')
+        self.assertEqual(fallocate_value, 10)
+        self.assertFalse(is_percent)
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('ab%')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: ab% is an invalid value for '
+                                   'fallocate_reserve.')
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('ab')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: ab is an invalid value for '
+                                   'fallocate_reserve.')
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('1%%')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: 1%% is an invalid value for '
+                                   'fallocate_reserve.')
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('10.0')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: 10.0 is an invalid value for '
+                                   'fallocate_reserve.')
+        fallocate_value, is_percent = utils.config_fallocate_value('10.5%')
+        self.assertEqual(fallocate_value, 10.5)
+        self.assertTrue(is_percent)
+        fallocate_value, is_percent = utils.config_fallocate_value('10.000%')
+        self.assertEqual(fallocate_value, 10.000)
+        self.assertTrue(is_percent)
 
     def test_tpool_reraise(self):
         with patch.object(utils.tpool, 'execute', lambda f: f()):
