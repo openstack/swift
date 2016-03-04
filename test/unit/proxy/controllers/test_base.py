@@ -801,6 +801,46 @@ class TestFuncs(unittest.TestCase):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
 
+    def test_client_chunk_size_resuming_chunked(self):
+
+        class TestChunkedSource(object):
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
+                self.status = 200
+                self.headers = {'transfer-encoding': 'chunked',
+                                'content-type': 'text/plain'}
+
+            def read(self, _read_size):
+                if self.chunks:
+                    chunk = self.chunks.pop(0)
+                    if chunk is None:
+                        raise exceptions.ChunkReadTimeout()
+                    else:
+                        return chunk
+                else:
+                    return ''
+
+            def getheader(self, header):
+                return self.headers.get(header.lower())
+
+            def getheaders(self):
+                return self.headers
+
+        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+
+        source1 = TestChunkedSource(['abcd', '1234', 'abc', None])
+        source2 = TestChunkedSource(['efgh5678'])
+        req = Request.blank('/v1/a/c/o')
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', None, None, None, {},
+            client_chunk_size=8)
+
+        app_iter = handler._make_app_iter(req, node, source1)
+        with patch.object(handler, '_get_source_and_node',
+                          lambda: (source2, node)):
+            client_chunks = list(app_iter)
+        self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
+
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing
         self.assertEqual(bytes_to_skip(1024, 0), 0)

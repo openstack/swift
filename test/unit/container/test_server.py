@@ -1619,6 +1619,203 @@ class TestContainerController(unittest.TestCase):
         listing_data = json.loads(resp.body)
         self.assertEqual(0, len(listing_data))
 
+    def test_object_update_with_multiple_timestamps(self):
+
+        def do_update(t_data, etag, size, content_type,
+                      t_type=None, t_meta=None):
+            """
+            Make a PUT request to container controller to update an object
+            """
+            headers = {'X-Timestamp': t_data.internal,
+                       'X-Size': size,
+                       'X-Content-Type': content_type,
+                       'X-Etag': etag}
+            if t_type:
+                headers['X-Content-Type-Timestamp'] = t_type.internal
+            if t_meta:
+                headers['X-Meta-Timestamp'] = t_meta.internal
+            req = Request.blank(
+                '/sda1/p/a/c/o', method='PUT', headers=headers)
+            self._update_object_put_headers(req)
+            return req.get_response(self.controller)
+
+        ts = (Timestamp(t) for t in itertools.count(int(time.time())))
+        t0 = ts.next()
+
+        # create container
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': t0.internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # check status
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+
+        # create object at t1
+        t1 = ts.next()
+        resp = do_update(t1, 'etag_at_t1', 1, 'ctype_at_t1')
+        self.assertEqual(resp.status_int, 201)
+
+        # check listing, expect last_modified = t1
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 1)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 1)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(1, len(listing_data))
+        for obj in listing_data:
+            self.assertEqual(obj['name'], 'o')
+            self.assertEqual(obj['bytes'], 1)
+            self.assertEqual(obj['hash'], 'etag_at_t1')
+            self.assertEqual(obj['content_type'], 'ctype_at_t1')
+            self.assertEqual(obj['last_modified'], t1.isoformat)
+
+        # send an update with a content type timestamp at t4
+        t2 = ts.next()
+        t3 = ts.next()
+        t4 = ts.next()
+        resp = do_update(t1, 'etag_at_t1', 1, 'ctype_at_t4', t_type=t4)
+        self.assertEqual(resp.status_int, 201)
+
+        # check updated listing, expect last_modified = t4
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 1)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 1)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(1, len(listing_data))
+        for obj in listing_data:
+            self.assertEqual(obj['name'], 'o')
+            self.assertEqual(obj['bytes'], 1)
+            self.assertEqual(obj['hash'], 'etag_at_t1')
+            self.assertEqual(obj['content_type'], 'ctype_at_t4')
+            self.assertEqual(obj['last_modified'], t4.isoformat)
+
+        # now overwrite with an in-between data timestamp at t2
+        resp = do_update(t2, 'etag_at_t2', 2, 'ctype_at_t2', t_type=t2)
+        self.assertEqual(resp.status_int, 201)
+
+        # check updated listing
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 1)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 2)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(1, len(listing_data))
+        for obj in listing_data:
+            self.assertEqual(obj['name'], 'o')
+            self.assertEqual(obj['bytes'], 2)
+            self.assertEqual(obj['hash'], 'etag_at_t2')
+            self.assertEqual(obj['content_type'], 'ctype_at_t4')
+            self.assertEqual(obj['last_modified'], t4.isoformat)
+
+        # now overwrite with an in-between content-type timestamp at t3
+        resp = do_update(t2, 'etag_at_t2', 2, 'ctype_at_t3', t_type=t3)
+        self.assertEqual(resp.status_int, 201)
+
+        # check updated listing
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 1)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 2)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(1, len(listing_data))
+        for obj in listing_data:
+            self.assertEqual(obj['name'], 'o')
+            self.assertEqual(obj['bytes'], 2)
+            self.assertEqual(obj['hash'], 'etag_at_t2')
+            self.assertEqual(obj['content_type'], 'ctype_at_t4')
+            self.assertEqual(obj['last_modified'], t4.isoformat)
+
+        # now update with an in-between meta timestamp at t5
+        t5 = ts.next()
+        resp = do_update(t2, 'etag_at_t2', 2, 'ctype_at_t3', t_type=t3,
+                         t_meta=t5)
+        self.assertEqual(resp.status_int, 201)
+
+        # check updated listing
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 1)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 2)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(1, len(listing_data))
+        for obj in listing_data:
+            self.assertEqual(obj['name'], 'o')
+            self.assertEqual(obj['bytes'], 2)
+            self.assertEqual(obj['hash'], 'etag_at_t2')
+            self.assertEqual(obj['content_type'], 'ctype_at_t4')
+            self.assertEqual(obj['last_modified'], t5.isoformat)
+
+        # delete object at t6
+        t6 = ts.next()
+        req = Request.blank(
+            '/sda1/p/a/c/o', method='DELETE', headers={
+                'X-Timestamp': t6.internal})
+        self._update_object_put_headers(req)
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+
+        # check empty listing
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 0)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 0)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(0, len(listing_data))
+
+        # subsequent content type timestamp at t8 should leave object deleted
+        t7 = ts.next()
+        t8 = ts.next()
+        t9 = ts.next()
+        resp = do_update(t2, 'etag_at_t2', 2, 'ctype_at_t8', t_type=t8,
+                         t_meta=t9)
+        self.assertEqual(resp.status_int, 201)
+
+        # check empty listing
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 0)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 0)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(0, len(listing_data))
+
+        # object recreated at t7 should pick up existing, later content-type
+        resp = do_update(t7, 'etag_at_t7', 7, 'ctype_at_t7')
+        self.assertEqual(resp.status_int, 201)
+
+        # check listing
+        req = Request.blank('/sda1/p/a/c', method='GET',
+                            query_string='format=json')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(int(resp.headers['X-Container-Object-Count']), 1)
+        self.assertEqual(int(resp.headers['X-Container-Bytes-Used']), 7)
+        listing_data = json.loads(resp.body)
+        self.assertEqual(1, len(listing_data))
+        for obj in listing_data:
+            self.assertEqual(obj['name'], 'o')
+            self.assertEqual(obj['bytes'], 7)
+            self.assertEqual(obj['hash'], 'etag_at_t7')
+            self.assertEqual(obj['content_type'], 'ctype_at_t8')
+            self.assertEqual(obj['last_modified'], t9.isoformat)
+
     def test_DELETE_account_update(self):
         bindsock = listen(('127.0.0.1', 0))
 

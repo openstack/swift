@@ -493,7 +493,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual('HEAD', method)
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual((2,), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
                 return Response(self.resp_headers)
 
         path = 'some_path'
@@ -696,7 +696,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual(self.exp_headers, headers)
                 self.test.assertEqual((2,), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         path = 'some_path'
         metadata_prefix = 'some_key-'
@@ -753,7 +753,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
                 return self.resp
 
         account, container, obj = path_parts()
@@ -850,7 +850,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
                 return self.resp
 
         account, container, obj = path_parts()
@@ -880,7 +880,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual(self.headers, headers)
                 self.test.assertEqual((2,), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         account, container, obj = path_parts()
         path = make_path(account, container)
@@ -904,7 +904,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         account, container, obj = path_parts()
         path = make_path(account, container)
@@ -966,7 +966,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         account, container, obj = path_parts()
         path = make_path(account, container, obj)

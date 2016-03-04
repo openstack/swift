@@ -58,7 +58,7 @@ The Object Storage system organizes data in a hierarchy, as follows:
    object versioning, at the container level.
 
    You can bulk-delete up to 10,000 containers in a single request.
-   
+
    You can set a storage policy on a container with predefined names
    and definitions from your cloud provider.
 
@@ -68,7 +68,7 @@ The Object Storage system organizes data in a hierarchy, as follows:
    With the Object Storage API, you can:
 
    -  Store an unlimited number of objects. Each object can be as large
-      as 5 GB, which is the default. You can configure the maximum
+      as 5 GB, which is the default. You can configure the maximum
       object size.
 
    -  Upload and store objects of any size with large object creation.
@@ -78,7 +78,7 @@ The Object Storage system organizes data in a hierarchy, as follows:
    -  Compress files using content-encoding metadata.
 
    -  Override browser behavior for an object using content-disposition metadata.
-   
+
    -  Schedule objects for deletion.
 
    -  Bulk-delete up to 10,000 objects in a single request.
@@ -154,11 +154,11 @@ Your service provider might use different default values.
 Item                         Maximum value Notes
 ============================ ============= =====
 Number of HTTP headers       90
-Length of HTTP headers       4096 bytes
-Length per HTTP request line 8192 bytes
-Length of HTTP request       5 GB
-Length of container names    256 bytes     Cannot contain the ``/`` character.
-Length of object names       1024 bytes    By default, there are no character restrictions.
+Length of HTTP headers       4096 bytes
+Length per HTTP request line 8192 bytes
+Length of HTTP request       5 GB
+Length of container names    256 bytes     Cannot contain the ``/`` character.
+Length of object names       1024 bytes    By default, there are no character restrictions.
 ============================ ============= =====
 
 You must UTF-8-encode and then URL-encode container and object names

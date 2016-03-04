@@ -15,7 +15,7 @@ Glance writes the image to a Swift container as a set of objects.
 Throughout this section, the following terminology and concepts are used:
 
 * User or end-user. This is a person making a request that will result in
-  an Openstack Service making a request to Swift.
+  an OpenStack Service making a request to Swift.
 
 * Project (also known as Tenant). This is the unit of resource ownership.
   While data such as snapshot images or block volume backups may be
@@ -182,7 +182,7 @@ Using the HTTP_X_SERVICE_CATALOG to get Swift Account Name
 
 The auth_token middleware populates the wsgi environment with information when
 it validates the user's token. The HTTP_X_SERVICE_CATALOG item is a JSON
-string containing  details of the Openstack endpoints. For Swift, this also
+string containing  details of the OpenStack endpoints. For Swift, this also
 contains the project's Swift account name. Here is an example of a catalog
 entry for Swift::
 
@@ -236,7 +236,7 @@ requirement is that your Service User has the appropriate role. In practice:
     reseller_prefix = AUTH_, SERVICE_
     SERVICE_service_role = service
 
-The ``service`` role should only be granted to Openstack Services. It should
+The ``service`` role should only be granted to OpenStack Services. It should
 not be granted to users.
 
 Single or multiple Service Prefixes?
@@ -244,7 +244,7 @@ Single or multiple Service Prefixes?
 
 Most of the examples used in this document used a single prefix. The
 prefix, ``SERVICE`` was used. By using a single prefix, an operator is
-allowing all Openstack Services to share the same account for data
+allowing all OpenStack Services to share the same account for data
 associated with a given project. For test systems or deployments well protected
 on private firewalled networks, this is appropriate.
 

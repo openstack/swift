@@ -228,25 +228,10 @@ class TestMemcached(unittest.TestCase):
             sock.close()
 
     def test_get_conns_bad_v6(self):
-        if not socket.has_ipv6:
-            return
-        try:
-            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-            sock.bind(('::1', 0))
-            sock.listen(1)
-            sock_addr = sock.getsockname()
+        with self.assertRaises(ValueError):
             # IPv6 address with missing [] is invalid
-            server_socket = '%s:%s' % (sock_addr[0], sock_addr[1])
-            memcache_client = memcached.MemcacheRing([server_socket])
-            key = uuid4().hex
-            for conn in memcache_client._get_conns(key):
-                peer_sockaddr = conn[2].getpeername()
-                peer_socket = '[%s]:%s' % (peer_sockaddr[0], peer_sockaddr[1])
-                self.assertEqual(peer_socket, server_socket)
-            # Expect a parsing error when creating the socket
-            self.assertEqual(len(memcache_client._errors[server_socket]), 1)
-        finally:
-            sock.close()
+            server_socket = '%s:%s' % ('::1', 11211)
+            memcached.MemcacheRing([server_socket])
 
     def test_get_conns_hostname(self):
         with patch('swift.common.memcached.socket.getaddrinfo') as addrinfo:
@@ -533,14 +518,14 @@ class TestMemcached(unittest.TestCase):
 
             class MockConnectionPool(orig_conn_pool):
                 def get(self):
-                    pending[self.server] += 1
-                    conn = connections[self.server].get()
-                    pending[self.server] -= 1
+                    pending[self.host] += 1
+                    conn = connections[self.host].get()
+                    pending[self.host] -= 1
                     return conn
 
                 def put(self, *args, **kwargs):
-                    connections[self.server].put(*args, **kwargs)
-                    served[self.server] += 1
+                    connections[self.host].put(*args, **kwargs)
+                    served[self.host] += 1
 
             memcached.MemcacheConnPool = MockConnectionPool
 
@@ -554,12 +539,12 @@ class TestMemcached(unittest.TestCase):
             # then move on to .4, and we'll assert all that below.
             mock_conn = MagicMock(), MagicMock()
             mock_conn[1].sendall = lambda x: sleep(0.2)
-            connections['1.2.3.5:11211'].put(mock_conn)
-            connections['1.2.3.5:11211'].put(mock_conn)
+            connections['1.2.3.5'].put(mock_conn)
+            connections['1.2.3.5'].put(mock_conn)
 
             mock_conn = MagicMock(), MagicMock()
-            connections['1.2.3.4:11211'].put(mock_conn)
-            connections['1.2.3.4:11211'].put(mock_conn)
+            connections['1.2.3.4'].put(mock_conn)
+            connections['1.2.3.4'].put(mock_conn)
 
             p = GreenPool()
             for i in range(10):
@@ -568,40 +553,18 @@ class TestMemcached(unittest.TestCase):
             # Wait for the dust to settle.
             p.waitall()
 
-            self.assertEqual(pending['1.2.3.5:11211'], 8)
+            self.assertEqual(pending['1.2.3.5'], 8)
             self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 8)
-            self.assertEqual(served['1.2.3.5:11211'], 2)
-            self.assertEqual(pending['1.2.3.4:11211'], 0)
+            self.assertEqual(served['1.2.3.5'], 2)
+            self.assertEqual(pending['1.2.3.4'], 0)
             self.assertEqual(len(memcache_client._errors['1.2.3.4:11211']), 0)
-            self.assertEqual(served['1.2.3.4:11211'], 8)
+            self.assertEqual(served['1.2.3.4'], 8)
 
             # and we never got more put in that we gave out
-            self.assertEqual(connections['1.2.3.5:11211'].qsize(), 2)
-            self.assertEqual(connections['1.2.3.4:11211'].qsize(), 2)
+            self.assertEqual(connections['1.2.3.5'].qsize(), 2)
+            self.assertEqual(connections['1.2.3.4'].qsize(), 2)
         finally:
             memcached.MemcacheConnPool = orig_conn_pool
-
-    def test_connection_pool_parser(self):
-        default = memcached.DEFAULT_MEMCACHED_PORT
-        addrs = [('1.2.3.4', '1.2.3.4', default),
-                 ('1.2.3.4:5000', '1.2.3.4', 5000),
-                 ('[dead:beef::1]', 'dead:beef::1', default),
-                 ('[dead:beef::1]:5000', 'dead:beef::1', 5000),
-                 ('example.com', 'example.com', default),
-                 ('example.com:5000', 'example.com', 5000),
-                 ('foo.1-2-3.bar.com:5000', 'foo.1-2-3.bar.com', 5000),
-                 ('1.2.3.4:10:20', None, None),
-                 ('dead:beef::1:5000', None, None)]
-
-        for addr, expected_host, expected_port in addrs:
-            pool = memcached.MemcacheConnPool(addr, 1, 0)
-            if expected_host:
-                host, port = pool._get_addr()
-                self.assertEqual(expected_host, host)
-                self.assertEqual(expected_port, int(port))
-            else:
-                with self.assertRaises(ValueError):
-                    pool._get_addr()
 
 if __name__ == '__main__':
     unittest.main()

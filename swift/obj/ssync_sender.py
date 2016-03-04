@@ -21,11 +21,12 @@ from swift.common import exceptions
 from swift.common import http
 
 
-def encode_missing(object_hash, ts_data, ts_meta=None):
+def encode_missing(object_hash, ts_data, ts_meta=None, ts_ctype=None):
     """
     Returns a string representing the object hash, its data file timestamp
-    and the delta forwards to its metafile timestamp, if non-zero, in the form:
-    ``<hash> <timestamp> m:<hex delta>``
+    and the delta forwards to its metafile and content-type timestamps, if
+    non-zero, in the form:
+    ``<hash> <ts_data> [m:<hex delta to ts_meta>[,t:<hex delta to ts_ctype>]]``
 
     The decoder for this line is
     :py:func:`~swift.obj.ssync_receiver.decode_missing`
@@ -36,6 +37,9 @@ def encode_missing(object_hash, ts_data, ts_meta=None):
     if ts_meta and ts_meta != ts_data:
         delta = ts_meta.raw - ts_data.raw
         msg = '%s m:%x' % (msg, delta)
+        if ts_ctype and ts_ctype != ts_data:
+            delta = ts_ctype.raw - ts_data.raw
+            msg = '%s,t:%x' % (msg, delta)
     return msg
 
 

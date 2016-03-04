@@ -55,10 +55,9 @@ from netifaces import AF_INET6
 from mock import MagicMock, patch
 from six.moves.configparser import NoSectionError, NoOptionError
 
-from swift.common.exceptions import (Timeout, MessageTimeout,
-                                     ConnectionTimeout, LockTimeout,
-                                     ReplicationLockTimeout,
-                                     MimeInvalid, ThreadPoolDead)
+from swift.common.exceptions import Timeout, MessageTimeout, \
+    ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
+    MimeInvalid, ThreadPoolDead
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import Request, Response, HeaderKeyDict
@@ -290,6 +289,8 @@ class TestTimestamp(unittest.TestCase):
         self.assertIs(True, utils.Timestamp(ts) == ts)  # sanity
         self.assertIs(False, utils.Timestamp(ts) != utils.Timestamp(ts))
         self.assertIs(False, utils.Timestamp(ts) != ts)
+        self.assertIs(False, utils.Timestamp(ts) is None)
+        self.assertIs(True, utils.Timestamp(ts) is not None)
 
     def test_no_force_internal_no_offset(self):
         """Test that internal is the same as normal with no offset"""
@@ -406,6 +407,15 @@ class TestTimestamp(unittest.TestCase):
             self.assertTrue(timestamp > float(normal),
                             '%r is not bigger than %f given %r' % (
                                 timestamp, float(normal), value))
+
+    def test_short_format_with_offset(self):
+        expected = '1402436408.91203_f0'
+        timestamp = utils.Timestamp(1402436408.91203, 0xf0)
+        self.assertEqual(expected, timestamp.short)
+
+        expected = '1402436408.91203'
+        timestamp = utils.Timestamp(1402436408.91203)
+        self.assertEqual(expected, timestamp.short)
 
     def test_raw(self):
         expected = 140243640891203
@@ -695,6 +705,11 @@ class TestTimestamp(unittest.TestCase):
                                 '%r is not smaller than %r given %r' % (
                                     timestamp, int(other), value))
 
+    def test_cmp_with_none(self):
+        self.assertGreater(utils.Timestamp(0), None)
+        self.assertGreater(utils.Timestamp(1.0), None)
+        self.assertGreater(utils.Timestamp(1.0, 42), None)
+
     def test_ordering(self):
         given = [
             '1402444820.62590_000000000000000a',
@@ -788,6 +803,107 @@ class TestTimestamp(unittest.TestCase):
         d = {ts_0: 'whatever'}
         self.assertIn(ts_0, d)  # sanity
         self.assertIn(ts_0_also, d)
+
+
+class TestTimestampEncoding(unittest.TestCase):
+
+    def setUp(self):
+        t0 = utils.Timestamp(0.0)
+        t1 = utils.Timestamp(997.9996)
+        t2 = utils.Timestamp(999)
+        t3 = utils.Timestamp(1000, 24)
+        t4 = utils.Timestamp(1001)
+        t5 = utils.Timestamp(1002.00040)
+
+        # encodings that are expected when explicit = False
+        self.non_explicit_encodings = (
+            ('0000001000.00000_18', (t3, t3, t3)),
+            ('0000001000.00000_18', (t3, t3, None)),
+        )
+
+        # mappings that are expected when explicit = True
+        self.explicit_encodings = (
+            ('0000001000.00000_18+0+0', (t3, t3, t3)),
+            ('0000001000.00000_18+0', (t3, t3, None)),
+        )
+
+        # mappings that are expected when explicit = True or False
+        self.encodings = (
+            ('0000001000.00000_18+0+186a0', (t3, t3, t4)),
+            ('0000001000.00000_18+186a0+186c8', (t3, t4, t5)),
+            ('0000001000.00000_18-186a0+0', (t3, t2, t2)),
+            ('0000001000.00000_18+0-186a0', (t3, t3, t2)),
+            ('0000001000.00000_18-186a0-186c8', (t3, t2, t1)),
+            ('0000001000.00000_18', (t3, None, None)),
+            ('0000001000.00000_18+186a0', (t3, t4, None)),
+            ('0000001000.00000_18-186a0', (t3, t2, None)),
+            ('0000001000.00000_18', (t3, None, t1)),
+            ('0000001000.00000_18-5f5e100', (t3, t0, None)),
+            ('0000001000.00000_18+0-5f5e100', (t3, t3, t0)),
+            ('0000001000.00000_18-5f5e100+5f45a60', (t3, t0, t2)),
+        )
+
+        # decodings that are expected when explicit = False
+        self.non_explicit_decodings = (
+            ('0000001000.00000_18', (t3, t3, t3)),
+            ('0000001000.00000_18+186a0', (t3, t4, t4)),
+            ('0000001000.00000_18-186a0', (t3, t2, t2)),
+            ('0000001000.00000_18+186a0', (t3, t4, t4)),
+            ('0000001000.00000_18-186a0', (t3, t2, t2)),
+            ('0000001000.00000_18-5f5e100', (t3, t0, t0)),
+        )
+
+        # decodings that are expected when explicit = True
+        self.explicit_decodings = (
+            ('0000001000.00000_18+0+0', (t3, t3, t3)),
+            ('0000001000.00000_18+0', (t3, t3, None)),
+            ('0000001000.00000_18', (t3, None, None)),
+            ('0000001000.00000_18+186a0', (t3, t4, None)),
+            ('0000001000.00000_18-186a0', (t3, t2, None)),
+            ('0000001000.00000_18-5f5e100', (t3, t0, None)),
+        )
+
+        # decodings that are expected when explicit = True or False
+        self.decodings = (
+            ('0000001000.00000_18+0+186a0', (t3, t3, t4)),
+            ('0000001000.00000_18+186a0+186c8', (t3, t4, t5)),
+            ('0000001000.00000_18-186a0+0', (t3, t2, t2)),
+            ('0000001000.00000_18+0-186a0', (t3, t3, t2)),
+            ('0000001000.00000_18-186a0-186c8', (t3, t2, t1)),
+            ('0000001000.00000_18-5f5e100+5f45a60', (t3, t0, t2)),
+        )
+
+    def _assertEqual(self, expected, actual, test):
+        self.assertEqual(expected, actual,
+                         'Got %s but expected %s for parameters %s'
+                         % (actual, expected, test))
+
+    def test_encoding(self):
+        for test in self.explicit_encodings:
+            actual = utils.encode_timestamps(test[1][0], test[1][1],
+                                             test[1][2], True)
+            self._assertEqual(test[0], actual, test[1])
+        for test in self.non_explicit_encodings:
+            actual = utils.encode_timestamps(test[1][0], test[1][1],
+                                             test[1][2], False)
+            self._assertEqual(test[0], actual, test[1])
+        for explicit in (True, False):
+            for test in self.encodings:
+                actual = utils.encode_timestamps(test[1][0], test[1][1],
+                                                 test[1][2], explicit)
+                self._assertEqual(test[0], actual, test[1])
+
+    def test_decoding(self):
+        for test in self.explicit_decodings:
+            actual = utils.decode_timestamps(test[0], True)
+            self._assertEqual(test[1], actual, test[0])
+        for test in self.non_explicit_decodings:
+            actual = utils.decode_timestamps(test[0], False)
+            self._assertEqual(test[1], actual, test[0])
+        for explicit in (True, False):
+            for test in self.decodings:
+                actual = utils.decode_timestamps(test[0], explicit)
+                self._assertEqual(test[1], actual, test[0])
 
 
 class TestUtils(unittest.TestCase):
@@ -2906,12 +3022,12 @@ cluster_dfw1 = http://dfw1.host/v1/
             # maps input value -> expected returned tuple
             '': ('', None),
             'text/plain': ('text/plain', None),
-            'text/plain; other=thing': ('text/plain; other=thing', None),
+            'text/plain; other=thing': ('text/plain;other=thing', None),
             'text/plain; swift_bytes=123': ('text/plain', '123'),
-            'text/plain; other=thing; swift_bytes=123':
-                ('text/plain; other=thing', '123'),
+            'text/plain; other=thing;swift_bytes=123':
+                ('text/plain;other=thing', '123'),
             'text/plain; swift_bytes=123; other=thing':
-                ('text/plain; other=thing', '123')}
+                ('text/plain;other=thing', '123')}
         for test_value, expected in scenarios.items():
             self.assertEqual(expected, utils.extract_swift_bytes(test_value))
 
@@ -2922,11 +3038,12 @@ cluster_dfw1 = http://dfw1.host/v1/
             'text/plain; swift_bytes=123': 'text/plain',
             'text/plain; someother=thing; swift_bytes=123':
                 'text/plain; someother=thing',
-            # swift_bytes is not necessarily the last param e.g. encrypter
-            # middleware may append crypto meta as a param after slo middleware
-            # has appended swift_bytes.
-            'text/plain; swift_bytes=123; meta=blah':
-                'text/plain; meta=blah'}
+            # Since Swift always tacks on the swift_bytes, clean_content_type()
+            # only strips swift_bytes if it's last. The next item simply shows
+            # that if for some other odd reason it's not last,
+            # clean_content_type() will not remove it from the header.
+            'text/plain; swift_bytes=123; someother=thing':
+                'text/plain; swift_bytes=123; someother=thing'}
         for before, after in subtests.items():
             self.assertEqual(utils.clean_content_type(before), after)
 
@@ -2958,8 +3075,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             '/sda1/p/a',
             environ={'REQUEST_METHOD': 'GET'})
         res = Response()
-        self.assertEqual(None, utils.get_policy_index(req.headers,
-                                                      res.headers))
+        self.assertIsNone(utils.get_policy_index(req.headers,
+                                                 res.headers))
 
         # The policy of a container can be specified by the response header
         req = Request.blank(
@@ -3019,15 +3136,15 @@ cluster_dfw1 = http://dfw1.host/v1/
         env = {}
         logger = FakeLogger()
         with mock.patch('swift.common.utils.logging', logger):
-            self.assertEqual(None, utils.cache_from_env(env))
+            self.assertIsNone(utils.cache_from_env(env))
             self.assertTrue(err_msg in logger.get_lines_for_level('error'))
         logger = FakeLogger()
         with mock.patch('swift.common.utils.logging', logger):
-            self.assertEqual(None, utils.cache_from_env(env, False))
+            self.assertIsNone(utils.cache_from_env(env, False))
             self.assertTrue(err_msg in logger.get_lines_for_level('error'))
         logger = FakeLogger()
         with mock.patch('swift.common.utils.logging', logger):
-            self.assertEqual(None, utils.cache_from_env(env, True))
+            self.assertIsNone(utils.cache_from_env(env, True))
             self.assertEqual(0, len(logger.get_lines_for_level('error')))
 
     def test_fsync_dir(self):
@@ -3626,10 +3743,32 @@ class TestFileLikeIter(unittest.TestCase):
 
 
 class TestStatsdLogging(unittest.TestCase):
+    def setUp(self):
+
+        def fake_getaddrinfo(host, port, *args):
+            # this is what a real getaddrinfo('localhost', port,
+            # socket.AF_INET) returned once
+            return [(socket.AF_INET,      # address family
+                     socket.SOCK_STREAM,  # socket type
+                     socket.IPPROTO_TCP,  # socket protocol
+                     '',                  # canonical name,
+                     ('127.0.0.1', port)),  # socket address
+                    (socket.AF_INET,
+                     socket.SOCK_DGRAM,
+                     socket.IPPROTO_UDP,
+                     '',
+                     ('127.0.0.1', port))]
+
+        self.real_getaddrinfo = utils.socket.getaddrinfo
+        self.getaddrinfo_patcher = mock.patch.object(
+            utils.socket, 'getaddrinfo', fake_getaddrinfo)
+        self.mock_getaddrinfo = self.getaddrinfo_patcher.start()
+        self.addCleanup(self.getaddrinfo_patcher.stop)
+
     def test_get_logger_statsd_client_not_specified(self):
         logger = utils.get_logger({}, 'some-name', log_route='some-route')
         # white-box construction validation
-        self.assertEqual(None, logger.logger.statsd_client)
+        self.assertIsNone(logger.logger.statsd_client)
 
     def test_get_logger_statsd_client_defaults(self):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
@@ -3712,10 +3851,16 @@ class TestStatsdLogging(unittest.TestCase):
         # We have to check the given hostname or IP for IPv4/IPv6 on logger
         # instantiation so we don't call getaddrinfo() too often and don't have
         # to call bind() on our socket to detect IPv4/IPv6 on every send.
-        logger = utils.get_logger({
-            'log_statsd_host': '::1',
-            'log_statsd_port': '9876',
-        }, 'some-name', log_route='some-route')
+        #
+        # This test uses the real getaddrinfo, so we patch over the mock to
+        # put the real one back. If we just stop the mock, then
+        # unittest.exit() blows up, but stacking real-fake-real works okay.
+        with mock.patch.object(utils.socket, 'getaddrinfo',
+                               self.real_getaddrinfo):
+            logger = utils.get_logger({
+                'log_statsd_host': '::1',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
 
         self.assertEqual(statsd_client._sock_family, socket.AF_INET6)
@@ -3725,10 +3870,12 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEqual(got_sock.family, socket.AF_INET6)
 
     def test_bad_hostname_instantiation(self):
-        logger = utils.get_logger({
-            'log_statsd_host': 'i-am-not-a-hostname-or-ip',
-            'log_statsd_port': '9876',
-        }, 'some-name', log_route='some-route')
+        with mock.patch.object(utils.socket, 'getaddrinfo',
+                               side_effect=utils.socket.gaierror("whoops")):
+            logger = utils.get_logger({
+                'log_statsd_host': 'i-am-not-a-hostname-or-ip',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
 
         self.assertEqual(statsd_client._sock_family, socket.AF_INET)
@@ -3743,10 +3890,24 @@ class TestStatsdLogging(unittest.TestCase):
         # IP address in the configuration is fixed.
 
     def test_sending_ipv6(self):
-        logger = utils.get_logger({
-            'log_statsd_host': '::1',
-            'log_statsd_port': '9876',
-        }, 'some-name', log_route='some-route')
+        def fake_getaddrinfo(host, port, *args):
+            # this is what a real getaddrinfo('::1', port,
+            # socket.AF_INET6) returned once
+            return [(socket.AF_INET6,
+                     socket.SOCK_STREAM,
+                     socket.IPPROTO_TCP,
+                     '', ('::1', port, 0, 0)),
+                    (socket.AF_INET6,
+                     socket.SOCK_DGRAM,
+                     socket.IPPROTO_UDP,
+                     '',
+                     ('::1', port, 0, 0))]
+
+        with mock.patch.object(utils.socket, 'getaddrinfo', fake_getaddrinfo):
+            logger = utils.get_logger({
+                'log_statsd_host': '::1',
+                'log_statsd_port': '9876',
+            }, 'some-name', log_route='some-route')
         statsd_client = logger.logger.statsd_client
 
         fl = FakeLogger()
@@ -4188,23 +4349,23 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
             'log_statsd_port': str(self.port),
         }, 'some-name')
         # Delegate methods are no-ops
-        self.assertEqual(None, logger.update_stats('foo', 88))
-        self.assertEqual(None, logger.update_stats('foo', 88, 0.57))
-        self.assertEqual(None, logger.update_stats('foo', 88,
-                                                   sample_rate=0.61))
-        self.assertEqual(None, logger.increment('foo'))
-        self.assertEqual(None, logger.increment('foo', 0.57))
-        self.assertEqual(None, logger.increment('foo', sample_rate=0.61))
-        self.assertEqual(None, logger.decrement('foo'))
-        self.assertEqual(None, logger.decrement('foo', 0.57))
-        self.assertEqual(None, logger.decrement('foo', sample_rate=0.61))
-        self.assertEqual(None, logger.timing('foo', 88.048))
-        self.assertEqual(None, logger.timing('foo', 88.57, 0.34))
-        self.assertEqual(None, logger.timing('foo', 88.998, sample_rate=0.82))
-        self.assertEqual(None, logger.timing_since('foo', 8938))
-        self.assertEqual(None, logger.timing_since('foo', 8948, 0.57))
-        self.assertEqual(None, logger.timing_since('foo', 849398,
-                                                   sample_rate=0.61))
+        self.assertIsNone(logger.update_stats('foo', 88))
+        self.assertIsNone(logger.update_stats('foo', 88, 0.57))
+        self.assertIsNone(logger.update_stats('foo', 88,
+                                              sample_rate=0.61))
+        self.assertIsNone(logger.increment('foo'))
+        self.assertIsNone(logger.increment('foo', 0.57))
+        self.assertIsNone(logger.increment('foo', sample_rate=0.61))
+        self.assertIsNone(logger.decrement('foo'))
+        self.assertIsNone(logger.decrement('foo', 0.57))
+        self.assertIsNone(logger.decrement('foo', sample_rate=0.61))
+        self.assertIsNone(logger.timing('foo', 88.048))
+        self.assertIsNone(logger.timing('foo', 88.57, 0.34))
+        self.assertIsNone(logger.timing('foo', 88.998, sample_rate=0.82))
+        self.assertIsNone(logger.timing_since('foo', 8938))
+        self.assertIsNone(logger.timing_since('foo', 8948, 0.57))
+        self.assertIsNone(logger.timing_since('foo', 849398,
+                                              sample_rate=0.61))
         # Now, the queue should be empty (no UDP packets sent)
         self.assertRaises(Empty, self.queue.get_nowait)
 
@@ -5199,81 +5360,6 @@ class FakeResponse(object):
         return self.body.readline(length)
 
 
-class TestHTTPResponseToDocumentIters(unittest.TestCase):
-    def test_200(self):
-        fr = FakeResponse(
-            200,
-            {'Content-Length': '10', 'Content-Type': 'application/lunch'},
-            'sandwiches')
-
-        doc_iters = utils.http_response_to_document_iters(fr)
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 0)
-        self.assertEqual(last_byte, 9)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Length'), '10')
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sandwiches')
-
-        self.assertRaises(StopIteration, next, doc_iters)
-
-    def test_206_single_range(self):
-        fr = FakeResponse(
-            206,
-            {'Content-Length': '8', 'Content-Type': 'application/lunch',
-             'Content-Range': 'bytes 1-8/10'},
-            'andwiche')
-
-        doc_iters = utils.http_response_to_document_iters(fr)
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 1)
-        self.assertEqual(last_byte, 8)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Length'), '8')
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'andwiche')
-
-        self.assertRaises(StopIteration, next, doc_iters)
-
-    def test_206_multiple_ranges(self):
-        fr = FakeResponse(
-            206,
-            {'Content-Type': 'multipart/byteranges; boundary=asdfasdfasdf'},
-            ("--asdfasdfasdf\r\n"
-             "Content-Type: application/lunch\r\n"
-             "Content-Range: bytes 0-3/10\r\n"
-             "\r\n"
-             "sand\r\n"
-             "--asdfasdfasdf\r\n"
-             "Content-Type: application/lunch\r\n"
-             "Content-Range: bytes 6-9/10\r\n"
-             "\r\n"
-             "ches\r\n"
-             "--asdfasdfasdf--"))
-
-        doc_iters = utils.http_response_to_document_iters(fr)
-
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 0)
-        self.assertEqual(last_byte, 3)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sand')
-
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 6)
-        self.assertEqual(last_byte, 9)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'ches')
-
-        self.assertRaises(StopIteration, next, doc_iters)
-
-
 class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
     def test_no_parts(self):
         body = utils.document_iters_to_http_response_body(
@@ -5340,6 +5426,29 @@ class TestPairs(unittest.TestCase):
                               (30, 40), (30, 50), (30, 60),
                               (40, 50), (40, 60),
                               (50, 60)]))
+
+
+class TestSocketStringParser(unittest.TestCase):
+    def test_socket_string_parser(self):
+        default = 1337
+        addrs = [('1.2.3.4', '1.2.3.4', default),
+                 ('1.2.3.4:5000', '1.2.3.4', 5000),
+                 ('[dead:beef::1]', 'dead:beef::1', default),
+                 ('[dead:beef::1]:5000', 'dead:beef::1', 5000),
+                 ('example.com', 'example.com', default),
+                 ('example.com:5000', 'example.com', 5000),
+                 ('foo.1-2-3.bar.com:5000', 'foo.1-2-3.bar.com', 5000),
+                 ('1.2.3.4:10:20', None, None),
+                 ('dead:beef::1:5000', None, None)]
+
+        for addr, expected_host, expected_port in addrs:
+            if expected_host:
+                host, port = utils.parse_socket_string(addr, default)
+                self.assertEqual(expected_host, host)
+                self.assertEqual(expected_port, int(port))
+            else:
+                with self.assertRaises(ValueError):
+                    utils.parse_socket_string(addr, default)
 
 
 if __name__ == '__main__':

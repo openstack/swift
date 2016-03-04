@@ -68,8 +68,8 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     def test_current_not_set(self):
         # no 'current' option set by default
-        self.assertEqual(None, self.sync.realm)
-        self.assertEqual(None, self.sync.cluster)
+        self.assertIsNone(self.sync.realm)
+        self.assertIsNone(self.sync.cluster)
         info = {}
 
         def capture_swift_info(key, **options):
@@ -88,8 +88,8 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.conf = {'swift_dir': self.tempdir, 'current': 'foo'}
         self.sync = container_sync.ContainerSync(self.app, self.conf,
                                                  logger=FakeLogger())
-        self.assertEqual(None, self.sync.realm)
-        self.assertEqual(None, self.sync.cluster)
+        self.assertIsNone(self.sync.realm)
+        self.assertIsNone(self.sync.cluster)
         info = {}
 
         def capture_swift_info(key, **options):

@@ -93,7 +93,7 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
             listing.append((str(hours), pid, args))
 
     if not listing:
-        exit()
+        sys.exit()
 
     hours_len = len('Hours')
     pid_len = len('PID')

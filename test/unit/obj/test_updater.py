@@ -302,8 +302,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1, 'unlinks': 1})
-        self.assertEqual(None,
-                         pickle.load(open(op_path)).get('successes'))
+        self.assertIsNone(pickle.load(open(op_path)).get('successes'))
 
         bindsock = listen(('127.0.0.1', 0))
 

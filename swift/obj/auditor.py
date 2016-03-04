@@ -108,8 +108,8 @@ class AuditorWorker(object):
                 self.logger.info(_(
                     'Object audit (%(type)s). '
                     'Since %(start_time)s: Locally: %(passes)d passed, '
-                    '%(quars)d quarantined, %(errors)d errors '
-                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f, '
+                    '%(quars)d quarantined, %(errors)d errors, '
+                    'files/sec: %(frate).2f, bytes/sec: %(brate).2f, '
                     'Total time: %(total).2f, Auditing time: %(audit).2f, '
                     'Rate: %(audit_rate).2f') % {
                         'type': '%s%s' % (self.auditor_type, description),

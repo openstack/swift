@@ -28,8 +28,9 @@ import sqlite3
 import pickle
 import json
 
-from swift.container.backend import ContainerBroker
-from swift.common.utils import Timestamp
+from swift.container.backend import ContainerBroker, \
+    update_new_item_from_existing
+from swift.common.utils import Timestamp, encode_timestamps
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -430,6 +431,357 @@ class TestContainerBroker(unittest.TestCase):
                 '6af83e3196bf99f440f31f2e1a6c9afe')
             self.assertEqual(conn.execute(
                 "SELECT deleted FROM object").fetchone()[0], 0)
+
+    def test_make_tuple_for_pickle(self):
+        record = {'name': 'obj',
+                  'created_at': '1234567890.12345',
+                  'size': 42,
+                  'content_type': 'text/plain',
+                  'etag': 'hash_test',
+                  'deleted': '1',
+                  'storage_policy_index': '2',
+                  'ctype_timestamp': None,
+                  'meta_timestamp': None}
+        broker = ContainerBroker(':memory:', account='a', container='c')
+
+        expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
+                  '1', '2', None, None)
+        result = broker.make_tuple_for_pickle(record)
+        self.assertEqual(expect, result)
+
+        record['ctype_timestamp'] = '2233445566.00000'
+        expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
+                  '1', '2', '2233445566.00000', None)
+        result = broker.make_tuple_for_pickle(record)
+        self.assertEqual(expect, result)
+
+        record['meta_timestamp'] = '5566778899.00000'
+        expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
+                  '1', '2', '2233445566.00000', '5566778899.00000')
+        result = broker.make_tuple_for_pickle(record)
+        self.assertEqual(expect, result)
+
+    @with_tempdir
+    def test_load_old_record_from_pending_file(self, tempdir):
+        # Test reading old update record from pending file
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(time(), 0)
+
+        record = {'name': 'obj',
+                  'created_at': '1234567890.12345',
+                  'size': 42,
+                  'content_type': 'text/plain',
+                  'etag': 'hash_test',
+                  'deleted': '1',
+                  'storage_policy_index': '2',
+                  'ctype_timestamp': None,
+                  'meta_timestamp': None}
+
+        # sanity check
+        self.assertFalse(os.path.isfile(broker.pending_file))
+
+        # simulate existing pending items written with old code,
+        # i.e. without content_type and meta timestamps
+        def old_make_tuple_for_pickle(_, record):
+            return (record['name'], record['created_at'], record['size'],
+                    record['content_type'], record['etag'], record['deleted'],
+                    record['storage_policy_index'])
+
+        _new = 'swift.container.backend.ContainerBroker.make_tuple_for_pickle'
+        with mock.patch(_new, old_make_tuple_for_pickle):
+            broker.put_record(dict(record))
+
+        self.assertTrue(os.path.getsize(broker.pending_file) > 0)
+        read_items = []
+
+        def mock_merge_items(_, item_list, *args):
+            # capture the items read from the pending file
+            read_items.extend(item_list)
+
+        with mock.patch('swift.container.backend.ContainerBroker.merge_items',
+                        mock_merge_items):
+            broker._commit_puts()
+
+        self.assertEqual(1, len(read_items))
+        self.assertEqual(record, read_items[0])
+        self.assertTrue(os.path.getsize(broker.pending_file) == 0)
+
+    @with_tempdir
+    def test_save_and_load_record_from_pending_file(self, tempdir):
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(time(), 0)
+
+        record = {'name': 'obj',
+                  'created_at': '1234567890.12345',
+                  'size': 42,
+                  'content_type': 'text/plain',
+                  'etag': 'hash_test',
+                  'deleted': '1',
+                  'storage_policy_index': '2',
+                  'ctype_timestamp': '1234567890.44444',
+                  'meta_timestamp': '1234567890.99999'}
+
+        # sanity check
+        self.assertFalse(os.path.isfile(broker.pending_file))
+        broker.put_record(dict(record))
+        self.assertTrue(os.path.getsize(broker.pending_file) > 0)
+        read_items = []
+
+        def mock_merge_items(_, item_list, *args):
+            # capture the items read from the pending file
+            read_items.extend(item_list)
+
+        with mock.patch('swift.container.backend.ContainerBroker.merge_items',
+                        mock_merge_items):
+            broker._commit_puts()
+
+        self.assertEqual(1, len(read_items))
+        self.assertEqual(record, read_items[0])
+        self.assertTrue(os.path.getsize(broker.pending_file) == 0)
+
+    def _assert_db_row(self, broker, name, timestamp, size, content_type, hash,
+                       deleted=0):
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM object").fetchone()[0], name)
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM object").fetchone()[0], timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT size FROM object").fetchone()[0], size)
+            self.assertEqual(conn.execute(
+                "SELECT content_type FROM object").fetchone()[0],
+                content_type)
+            self.assertEqual(conn.execute(
+                "SELECT etag FROM object").fetchone()[0], hash)
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM object").fetchone()[0], deleted)
+
+    def _test_put_object_multiple_encoded_timestamps(self, broker):
+        ts = (Timestamp(t) for t in itertools.count(int(time())))
+        broker.initialize(ts.next().internal, 0)
+        t = [ts.next() for _ in range(9)]
+
+        # Create initial object
+        broker.put_object('obj_name', t[0].internal, 123,
+                          'application/x-test',
+                          '5af83e3196bf99f440f31f2e1a6c9afe')
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t[0].internal, 123,
+                            'application/x-test',
+                            '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        # hash and size change with same data timestamp are ignored
+        t_encoded = encode_timestamps(t[0], t[1], t[1])
+        broker.put_object('obj_name', t_encoded, 456,
+                          'application/x-test-2',
+                          '1234567890abcdeffedcba0987654321')
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 123,
+                            'application/x-test-2',
+                            '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        # content-type change with same timestamp is ignored
+        t_encoded = encode_timestamps(t[0], t[1], t[2])
+        broker.put_object('obj_name', t_encoded, 456,
+                          'application/x-test-3',
+                          '1234567890abcdeffedcba0987654321')
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 123,
+                            'application/x-test-2',
+                            '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        # update with differing newer timestamps
+        t_encoded = encode_timestamps(t[4], t[6], t[8])
+        broker.put_object('obj_name', t_encoded, 789,
+                          'application/x-test-3',
+                          'abcdef1234567890abcdef1234567890')
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 789,
+                            'application/x-test-3',
+                            'abcdef1234567890abcdef1234567890')
+
+        # update with differing older timestamps should be ignored
+        t_encoded_older = encode_timestamps(t[3], t[5], t[7])
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        broker.put_object('obj_name', t_encoded_older, 9999,
+                          'application/x-test-ignored',
+                          'ignored_hash')
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 789,
+                            'application/x-test-3',
+                            'abcdef1234567890abcdef1234567890')
+
+    def test_put_object_multiple_encoded_timestamps_using_memory(self):
+        # Test ContainerBroker.put_object with differing data, content-type
+        # and metadata timestamps
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        self._test_put_object_multiple_encoded_timestamps(broker)
+
+    @with_tempdir
+    def test_put_object_multiple_encoded_timestamps_using_file(self, tempdir):
+        # Test ContainerBroker.put_object with differing data, content-type
+        # and metadata timestamps, using file db to ensure that the code paths
+        # to write/read pending file are exercised.
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        self._test_put_object_multiple_encoded_timestamps(broker)
+
+    def _test_put_object_multiple_explicit_timestamps(self, broker):
+        ts = (Timestamp(t) for t in itertools.count(int(time())))
+        broker.initialize(ts.next().internal, 0)
+        t = [ts.next() for _ in range(11)]
+
+        # Create initial object
+        broker.put_object('obj_name', t[0].internal, 123,
+                          'application/x-test',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          ctype_timestamp=None,
+                          meta_timestamp=None)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t[0].internal, 123,
+                            'application/x-test',
+                            '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        # hash and size change with same data timestamp are ignored
+        t_encoded = encode_timestamps(t[0], t[1], t[1])
+        broker.put_object('obj_name', t[0].internal, 456,
+                          'application/x-test-2',
+                          '1234567890abcdeffedcba0987654321',
+                          ctype_timestamp=t[1].internal,
+                          meta_timestamp=t[1].internal)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 123,
+                            'application/x-test-2',
+                            '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        # content-type change with same timestamp is ignored
+        t_encoded = encode_timestamps(t[0], t[1], t[2])
+        broker.put_object('obj_name', t[0].internal, 456,
+                          'application/x-test-3',
+                          '1234567890abcdeffedcba0987654321',
+                          ctype_timestamp=t[1].internal,
+                          meta_timestamp=t[2].internal)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 123,
+                            'application/x-test-2',
+                            '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        # update with differing newer timestamps
+        t_encoded = encode_timestamps(t[4], t[6], t[8])
+        broker.put_object('obj_name', t[4].internal, 789,
+                          'application/x-test-3',
+                          'abcdef1234567890abcdef1234567890',
+                          ctype_timestamp=t[6].internal,
+                          meta_timestamp=t[8].internal)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 789,
+                            'application/x-test-3',
+                            'abcdef1234567890abcdef1234567890')
+
+        # update with differing older timestamps should be ignored
+        broker.put_object('obj_name', t[3].internal, 9999,
+                          'application/x-test-ignored',
+                          'ignored_hash',
+                          ctype_timestamp=t[5].internal,
+                          meta_timestamp=t[7].internal)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 789,
+                            'application/x-test-3',
+                            'abcdef1234567890abcdef1234567890')
+
+        # content_type_timestamp == None defaults to data timestamp
+        t_encoded = encode_timestamps(t[9], t[9], t[8])
+        broker.put_object('obj_name', t[9].internal, 9999,
+                          'application/x-test-new',
+                          'new_hash',
+                          ctype_timestamp=None,
+                          meta_timestamp=t[7].internal)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 9999,
+                            'application/x-test-new',
+                            'new_hash')
+
+        # meta_timestamp == None defaults to data timestamp
+        t_encoded = encode_timestamps(t[9], t[10], t[10])
+        broker.put_object('obj_name', t[8].internal, 1111,
+                          'application/x-test-newer',
+                          'older_hash',
+                          ctype_timestamp=t[10].internal,
+                          meta_timestamp=None)
+        self.assertEqual(1, len(broker.get_items_since(0, 100)))
+        self._assert_db_row(broker, 'obj_name', t_encoded, 9999,
+                            'application/x-test-newer',
+                            'new_hash')
+
+    def test_put_object_multiple_explicit_timestamps_using_memory(self):
+        # Test ContainerBroker.put_object with differing data, content-type
+        # and metadata timestamps passed as explicit args
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        self._test_put_object_multiple_explicit_timestamps(broker)
+
+    @with_tempdir
+    def test_put_object_multiple_explicit_timestamps_using_file(self, tempdir):
+        # Test ContainerBroker.put_object with differing data, content-type
+        # and metadata timestamps passed as explicit args, using file db to
+        # ensure that the code paths to write/read pending file are exercised.
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c')
+        self._test_put_object_multiple_explicit_timestamps(broker)
+
+    def test_last_modified_time(self):
+        # Test container listing reports the most recent of data or metadata
+        # timestamp as last-modified time
+        ts = (Timestamp(t) for t in itertools.count(int(time())))
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(ts.next().internal, 0)
+
+        # simple 'single' timestamp case
+        t0 = ts.next()
+        broker.put_object('obj1', t0.internal, 0, 'text/plain', 'hash1')
+        listing = broker.list_objects_iter(100, '', None, None, '')
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0][0], 'obj1')
+        self.assertEqual(listing[0][1], t0.internal)
+
+        # content-type and metadata are updated at t1
+        t1 = ts.next()
+        t_encoded = encode_timestamps(t0, t1, t1)
+        broker.put_object('obj1', t_encoded, 0, 'text/plain', 'hash1')
+        listing = broker.list_objects_iter(100, '', None, None, '')
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0][0], 'obj1')
+        self.assertEqual(listing[0][1], t1.internal)
+
+        # used later
+        t2 = ts.next()
+
+        # metadata is updated at t3
+        t3 = ts.next()
+        t_encoded = encode_timestamps(t0, t1, t3)
+        broker.put_object('obj1', t_encoded, 0, 'text/plain', 'hash1')
+        listing = broker.list_objects_iter(100, '', None, None, '')
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0][0], 'obj1')
+        self.assertEqual(listing[0][1], t3.internal)
+
+        # all parts updated at t2, last-modified should remain at t3
+        t_encoded = encode_timestamps(t2, t2, t2)
+        broker.put_object('obj1', t_encoded, 0, 'text/plain', 'hash1')
+        listing = broker.list_objects_iter(100, '', None, None, '')
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0][0], 'obj1')
+        self.assertEqual(listing[0][1], t3.internal)
+
+        # all parts updated at t4, last-modified should be t4
+        t4 = ts.next()
+        t_encoded = encode_timestamps(t4, t4, t4)
+        broker.put_object('obj1', t_encoded, 0, 'text/plain', 'hash1')
+        listing = broker.list_objects_iter(100, '', None, None, '')
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0][0], 'obj1')
+        self.assertEqual(listing[0][1], t4.internal)
 
     @patch_policies
     def test_put_misplaced_object_does_not_effect_container_stats(self):
@@ -2172,3 +2524,298 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         info = broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 456)
+
+
+class TestUpdateNewItemFromExisting(unittest.TestCase):
+    # TODO: add test scenarios that have swift_bytes in content_type
+    t0 = '1234567890.00000'
+    t1 = '1234567890.00001'
+    t2 = '1234567890.00002'
+    t3 = '1234567890.00003'
+    t4 = '1234567890.00004'
+    t5 = '1234567890.00005'
+    t6 = '1234567890.00006'
+    t7 = '1234567890.00007'
+    t8 = '1234567890.00008'
+    t20 = '1234567890.00020'
+    t30 = '1234567890.00030'
+
+    base_new_item = {'etag': 'New_item',
+                     'size': 'nEw_item',
+                     'content_type': 'neW_item',
+                     'deleted': '0'}
+    base_existing = {'etag': 'Existing',
+                     'size': 'eXisting',
+                     'content_type': 'exIsting',
+                     'deleted': '0'}
+    #
+    # each scenario is a tuple of:
+    #    (existing time, new item times, expected updated item)
+    #
+    #  e.g.:
+    # existing -> ({'created_at': t5},
+    # new_item -> {'created_at': t, 'ctype_timestamp': t, 'meta_timestamp': t},
+    # expected -> {'created_at': t,
+    #              'etag': <val>, 'size': <val>, 'content_type': <val>})
+    #
+    scenarios_when_all_existing_wins = (
+        #
+        # all new_item times <= all existing times -> existing values win
+        #
+        # existing has attrs at single time
+        #
+        ({'created_at': t3},
+         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t1},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t1},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t2},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t3},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t0, 'ctype_timestamp': t3, 'meta_timestamp': t3},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
+         {'created_at': t3,
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        #
+        # existing has attrs at multiple times:
+        # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
+        #
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t5},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t6},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t7},
+         {'created_at': t3 + '+2+2',
+         'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+    )
+
+    scenarios_when_all_new_item_wins = (
+        # no existing record
+        (None,
+         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
+         {'created_at': t4,
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        (None,
+         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
+         {'created_at': t4 + '+0+1',
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        (None,
+         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
+         {'created_at': t4 + '+1+0',
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        (None,
+         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
+         {'created_at': t4 + '+1+1',
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        #
+        # all new_item times > all existing times -> new item values win
+        #
+        # existing has attrs at single time
+        #
+        ({'created_at': t3},
+         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
+         {'created_at': t4,
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3},
+         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
+         {'created_at': t4 + '+0+1',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3},
+         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
+         {'created_at': t4 + '+1+0',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3},
+         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
+         {'created_at': t4 + '+1+1',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        #
+        # existing has attrs at multiple times:
+        # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
+        #
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t8},
+         {'created_at': t4 + '+2+2',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t6, 'ctype_timestamp': t6, 'meta_timestamp': t8},
+         {'created_at': t6 + '+0+2',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t4, 'ctype_timestamp': t8, 'meta_timestamp': t8},
+         {'created_at': t4 + '+4+0',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t6, 'ctype_timestamp': t8, 'meta_timestamp': t8},
+         {'created_at': t6 + '+2+0',
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t8, 'ctype_timestamp': t8, 'meta_timestamp': t8},
+         {'created_at': t8,
+         'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+    )
+
+    scenarios_when_some_new_item_wins = (
+        #
+        # some but not all new_item times > existing times -> mixed updates
+        #
+        # existing has attrs at single time
+        #
+        ({'created_at': t3},
+         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t4},
+         {'created_at': t3 + '+0+1',
+          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3},
+         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
+         {'created_at': t3 + '+1+0',
+          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3},
+         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
+         {'created_at': t3 + '+1+1',
+          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+
+        #
+        # existing has attrs at multiple times:
+        # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
+        #
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t8},
+         {'created_at': t3 + '+2+3',
+          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t3, 'ctype_timestamp': t6, 'meta_timestamp': t8},
+         {'created_at': t3 + '+3+2',
+          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t6},
+         {'created_at': t4 + '+1+2',
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t6},
+         {'created_at': t4 + '+2+1',
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
+
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t8},
+         {'created_at': t4 + '+1+3',
+          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
+
+        # this scenario is to check that the deltas are in hex
+        ({'created_at': t3 + '+2+2'},
+         {'created_at': t2, 'ctype_timestamp': t20, 'meta_timestamp': t30},
+         {'created_at': t3 + '+11+a',
+          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
+    )
+
+    def _test_scenario(self, scenario, newer):
+        existing_time, new_item_times, expected_attrs = scenario
+        # this is the existing record...
+        existing = None
+        if existing_time:
+            existing = dict(self.base_existing)
+            existing.update(existing_time)
+
+        # this is the new item to update
+        new_item = dict(self.base_new_item)
+        new_item.update(new_item_times)
+
+        # this is the expected result of the update
+        expected = dict(new_item)
+        expected.update(expected_attrs)
+        expected['data_timestamp'] = new_item['created_at']
+
+        try:
+            self.assertIs(newer,
+                          update_new_item_from_existing(new_item, existing))
+            self.assertDictEqual(expected, new_item)
+        except AssertionError as e:
+            msg = ('Scenario: existing %s, new_item %s, expected %s.'
+                   % scenario)
+            msg = '%s Failed with: %s' % (msg, e.message)
+            raise AssertionError(msg)
+
+    def test_update_new_item_from_existing(self):
+        for scenario in self.scenarios_when_all_existing_wins:
+            self._test_scenario(scenario, False)
+
+        for scenario in self.scenarios_when_all_new_item_wins:
+            self._test_scenario(scenario, True)
+
+        for scenario in self.scenarios_when_some_new_item_wins:
+            self._test_scenario(scenario, True)

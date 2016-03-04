@@ -511,6 +511,9 @@ class ObjectReplicator(Daemon):
                  'remaining': '%d%s' % compute_eta(self.start,
                                                    self.replication_count,
                                                    self.job_count)})
+            self.logger.info(_('%(success)s successes, %(failure)s failures')
+                             % self.stats)
+
             if self.suffix_count:
                 self.logger.info(
                     _("%(checked)d suffixes checked - "
