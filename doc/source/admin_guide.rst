@@ -684,8 +684,7 @@ of async_pendings in real-time, but will not tell you the current number of
 async_pending container updates on disk at any point in time.
 
 Note also that the set of metrics collected, their names, and their semantics
-are not locked down and will change over time.  StatsD logging is currently in
-a "beta" stage and will continue to evolve.
+are not locked down and will change over time.
 
 Metrics for `account-auditor`:
 
