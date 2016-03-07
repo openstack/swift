@@ -43,17 +43,37 @@ class InMemoryFileSystem(object):
         self._filesystem = {}
 
     def get_object(self, name):
+        """
+        Return back an file-like object and its metadata
+
+        :param name: standard object name
+        :return (fp, metadata): fp is `StringIO` in-memory representation
+                                object (or None). metadata is a dictionary
+                                of metadata (or None)
+        """
         val = self._filesystem.get(name)
         if val is None:
-            data, metadata = None, None
+            fp, metadata = None, None
         else:
-            data, metadata = val
-        return data, metadata
+            fp, metadata = val
+        return fp, metadata
 
-    def put_object(self, name, data, metadata):
-        self._filesystem[name] = (data, metadata)
+    def put_object(self, name, fp, metadata):
+        """
+        Store object into memory
+
+        :param name: standard object name
+        :param fp: `StringIO` in-memory representation object
+        :param metadata: dictionary of metadata to be written
+        """
+        self._filesystem[name] = (fp, metadata)
 
     def del_object(self, name):
+        """
+        Delete object from memory
+
+        :param name: standard object name
+        """
         del self._filesystem[name]
 
     def get_diskfile(self, account, container, obj, **kwargs):
