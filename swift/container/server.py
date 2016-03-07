@@ -251,7 +251,7 @@ class ContainerController(BaseStorageServer):
             self.sync_store.update_sync_store(broker)
         except Exception:
             self.logger.exception('Failed to update sync_store %s during %s' %
-                                  broker.db_file, method)
+                                  (broker.db_file, method))
 
     @public
     @timing_stats()
