@@ -410,6 +410,7 @@ class ContainerBroker(DatabaseBroker):
 
         :param name: object name to be deleted
         :param timestamp: timestamp when the object was marked as deleted
+        :param storage_policy_index: the storage policy index for the object
         """
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
                         deleted=1, storage_policy_index=storage_policy_index)
@@ -670,6 +671,7 @@ class ContainerBroker(DatabaseBroker):
         :param delimiter: delimiter for query
         :param path: if defined, will set the prefix and delimiter based on
                      the path
+        :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
 
         :returns: list of tuples of (name, created_at, size, content_type,
