@@ -1,4 +1,4 @@
-# Chinese (Simplified, China) translations for swift.
+# Translations template for swift.
 # Copyright (C) 2015 ORGANIZATION
 # This file is distributed under the same license as the swift project.
 #
@@ -8,18 +8,19 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.5.1.dev70\n"
+"Project-Id-Version: swift 2.6.1.dev176\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-10-23 06:34+0000\n"
+"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
 "PO-Revision-Date: 2015-08-11 11:22+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
-"Language: zh_Hans_CN\n"
+"Language: zh-CN\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: Babel 2.0\n"
+"X-Generator: Zanata 3.7.3\n"
 "Language-Team: Chinese (China)\n"
-"Plural-Forms: nplurals=1; plural=0\n"
-"MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
-"Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.1.1\n"
 
 msgid ""
 "\n"
@@ -667,17 +668,6 @@ msgstr ""
 "对象审计 (%(type)s) \\\"%(mode)s\\\"模式完成: %(elapsed).02fs 隔离总数: "
 "%(quars)d, 错误总数: %(errors)d, 文件／秒总和：%(frate).2f, bytes/sec总和: "
 "%(brate).2f, 审计时间: %(audit).2f, 速率: %(audit_rate).2f"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors files/sec: %(frate).2f , bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"对象审计 (%(type)s). 自 %(start_time)s开始: 本地: %(passes)d 通过, %(quars)d "
-"隔离, %(errors)d 错误 文件／秒: %(frate).2f , bytes/秒: %(brate).2f, 总时间: "
-"%(total).2f, 审计时间: %(audit).2f, 速率: %(audit_rate).2f"
 
 #, python-format
 msgid "Object audit stats: %s"

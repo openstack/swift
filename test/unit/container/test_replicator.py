@@ -23,14 +23,14 @@ import random
 import sqlite3
 
 from swift.common import db_replicator
-from swift.container import replicator, backend, server
+from swift.container import replicator, backend, server, sync_store
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, encode_timestamps
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
-from test.unit import patch_policies, make_timestamp_iter
+from test.unit import patch_policies, make_timestamp_iter, FakeLogger
 from contextlib import contextmanager
 
 
@@ -827,23 +827,37 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.assertEqual(info[key], value)
 
     def test_misplaced_rows_replicate_and_enqueue(self):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time.time())))
+        # force all timestamps to fall in same hour
+        ts = (Timestamp(t) for t in
+              itertools.count(int(time.time()) // 3600 * 3600))
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(next(ts), policy.idx)
+        broker.initialize(next(ts).internal, policy.idx)
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(next(ts), remote_policy.idx)
+        remote_broker.initialize(next(ts).internal, remote_policy.idx)
 
         # add a misplaced row to *local* broker
-        obj_put_timestamp = next(ts)
+        obj_put_timestamp = next(ts).internal
         broker.put_object(
             'o', obj_put_timestamp, 0, 'content-type',
             'etag', storage_policy_index=remote_policy.idx)
-        misplaced = broker.get_misplaced_since(-1, 1)
+        misplaced = broker.get_misplaced_since(-1, 10)
         self.assertEqual(len(misplaced), 1)
+        # since this row is misplaced it doesn't show up in count
+        self.assertEqual(broker.get_info()['object_count'], 0)
+
+        # add another misplaced row to *local* broker with composite timestamp
+        ts_data = next(ts)
+        ts_ctype = next(ts)
+        ts_meta = next(ts)
+        broker.put_object(
+            'o2', ts_data.internal, 0, 'content-type',
+            'etag', storage_policy_index=remote_policy.idx,
+            ctype_timestamp=ts_ctype.internal, meta_timestamp=ts_meta.internal)
+        misplaced = broker.get_misplaced_since(-1, 10)
+        self.assertEqual(len(misplaced), 2)
         # since this row is misplaced it doesn't show up in count
         self.assertEqual(broker.get_info()['object_count'], 0)
 
@@ -851,14 +865,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         part, node = self._get_broker_part_node(broker)
         daemon = self._run_once(node)
         # push to remote, and third node was missing (also maybe reconciler)
-        self.assertTrue(2 < daemon.stats['rsync'] <= 3)
+        self.assertTrue(2 < daemon.stats['rsync'] <= 3, daemon.stats['rsync'])
 
         # grab the rsynced instance of remote_broker
         remote_broker = self._get_broker('a', 'c', node_index=1)
 
         # remote has misplaced rows too now
-        misplaced = remote_broker.get_misplaced_since(-1, 1)
-        self.assertEqual(len(misplaced), 1)
+        misplaced = remote_broker.get_misplaced_since(-1, 10)
+        self.assertEqual(len(misplaced), 2)
 
         # and the correct policy_index and object_count
         info = remote_broker.get_info()
@@ -869,22 +883,29 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for key, value in expectations.items():
             self.assertEqual(info[key], value)
 
-        # and we should have also enqeued these rows in the reconciler
+        # and we should have also enqueued these rows in a single reconciler,
+        # since we forced the object timestamps to be in the same hour.
         reconciler = daemon.get_reconciler_broker(misplaced[0]['created_at'])
         # but it may not be on the same node as us anymore though...
         reconciler = self._get_broker(reconciler.account,
                                       reconciler.container, node_index=0)
-        self.assertEqual(reconciler.get_info()['object_count'], 1)
+        self.assertEqual(reconciler.get_info()['object_count'], 2)
         objects = reconciler.list_objects_iter(
-            1, '', None, None, None, None, storage_policy_index=0)
-        self.assertEqual(len(objects), 1)
+            10, '', None, None, None, None, storage_policy_index=0)
+        self.assertEqual(len(objects), 2)
         expected = ('%s:/a/c/o' % remote_policy.idx, obj_put_timestamp, 0,
                     'application/x-put', obj_put_timestamp)
         self.assertEqual(objects[0], expected)
+        # the second object's listing has ts_meta as its last modified time
+        # but its full composite timestamp is in the hash field.
+        expected = ('%s:/a/c/o2' % remote_policy.idx, ts_meta.internal, 0,
+                    'application/x-put',
+                    encode_timestamps(ts_data, ts_ctype, ts_meta))
+        self.assertEqual(objects[1], expected)
 
         # having safely enqueued to the reconciler we can advance
         # our sync pointer
-        self.assertEqual(broker.get_reconciler_sync(), 1)
+        self.assertEqual(broker.get_reconciler_sync(), 2)
 
     def test_multiple_out_sync_reconciler_enqueue_normalize(self):
         ts = (Timestamp(t).internal for t in
@@ -997,6 +1018,135 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         with self._wrap_update_reconciler_sync(broker, calls):
             daemon._post_replicate_hook(broker, info, [])
         self.assertEqual(0, len(calls))
+
+    def test_update_sync_store_exception(self):
+        class FakeContainerSyncStore(object):
+            def update_sync_store(self, broker):
+                raise OSError(1, '1')
+
+        logger = FakeLogger()
+        daemon = replicator.ContainerReplicator({}, logger)
+        daemon.sync_store = FakeContainerSyncStore()
+        ts_iter = make_timestamp_iter()
+        broker = self._get_broker('a', 'c', node_index=0)
+        timestamp = next(ts_iter)
+        broker.initialize(timestamp.internal, POLICIES.default.idx)
+        info = broker.get_replication_info()
+        daemon._post_replicate_hook(broker, info, [])
+        log_lines = logger.get_lines_for_level('error')
+        self.assertEqual(1, len(log_lines))
+        self.assertIn('Failed to update sync_store', log_lines[0])
+
+    def test_update_sync_store(self):
+        klass = 'swift.container.sync_store.ContainerSyncStore'
+        daemon = replicator.ContainerReplicator({})
+        daemon.sync_store = sync_store.ContainerSyncStore(
+            daemon.root, daemon.logger, daemon.mount_check)
+        ts_iter = make_timestamp_iter()
+        broker = self._get_broker('a', 'c', node_index=0)
+        timestamp = next(ts_iter)
+        broker.initialize(timestamp.internal, POLICIES.default.idx)
+        info = broker.get_replication_info()
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                daemon._post_replicate_hook(broker, info, [])
+        self.assertEqual(0, mock_remove.call_count)
+        self.assertEqual(0, mock_add.call_count)
+
+        timestamp = next(ts_iter)
+        # sync-to and sync-key empty - remove from store
+        broker.update_metadata(
+            {'X-Container-Sync-To': ('', timestamp.internal),
+             'X-Container-Sync-Key': ('', timestamp.internal)})
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                daemon._post_replicate_hook(broker, info, [])
+        self.assertEqual(0, mock_add.call_count)
+        mock_remove.assert_called_once_with(broker)
+
+        timestamp = next(ts_iter)
+        # sync-to is not empty sync-key is empty - remove from store
+        broker.update_metadata(
+            {'X-Container-Sync-To': ('a', timestamp.internal)})
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                daemon._post_replicate_hook(broker, info, [])
+        self.assertEqual(0, mock_add.call_count)
+        mock_remove.assert_called_once_with(broker)
+
+        timestamp = next(ts_iter)
+        # sync-to is empty sync-key is not empty - remove from store
+        broker.update_metadata(
+            {'X-Container-Sync-To': ('', timestamp.internal),
+             'X-Container-Sync-Key': ('secret', timestamp.internal)})
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                daemon._post_replicate_hook(broker, info, [])
+        self.assertEqual(0, mock_add.call_count)
+        mock_remove.assert_called_once_with(broker)
+
+        timestamp = next(ts_iter)
+        # sync-to, sync-key both not empty - add to store
+        broker.update_metadata(
+            {'X-Container-Sync-To': ('a', timestamp.internal),
+             'X-Container-Sync-Key': ('secret', timestamp.internal)})
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                daemon._post_replicate_hook(broker, info, [])
+        mock_add.assert_called_once_with(broker)
+        self.assertEqual(0, mock_remove.call_count)
+
+        timestamp = next(ts_iter)
+        # container is removed - need to remove from store
+        broker.delete_db(timestamp.internal)
+        broker.update_metadata(
+            {'X-Container-Sync-To': ('a', timestamp.internal),
+             'X-Container-Sync-Key': ('secret', timestamp.internal)})
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                daemon._post_replicate_hook(broker, info, [])
+        self.assertEqual(0, mock_add.call_count)
+        mock_remove.assert_called_once_with(broker)
+
+    def test_sync_triggers_sync_store_update(self):
+        klass = 'swift.container.sync_store.ContainerSyncStore'
+        ts_iter = make_timestamp_iter()
+        # Create two containers as follows:
+        # broker_1 which is not set for sync
+        # broker_2 which is set for sync and then unset
+        # test that while replicating both we see no activity
+        # for broker_1, and the anticipated activity for broker_2
+        broker_1 = self._get_broker('a', 'c', node_index=0)
+        broker_1.initialize(next(ts_iter).internal, POLICIES.default.idx)
+        broker_2 = self._get_broker('b', 'd', node_index=0)
+        broker_2.initialize(next(ts_iter).internal, POLICIES.default.idx)
+        broker_2.update_metadata(
+            {'X-Container-Sync-To': ('a', next(ts_iter).internal),
+             'X-Container-Sync-Key': ('secret', next(ts_iter).internal)})
+
+        # replicate once according to broker_1
+        # relying on the fact that FakeRing would place both
+        # in the same partition.
+        part, node = self._get_broker_part_node(broker_1)
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                self._run_once(node)
+        self.assertEqual(1, mock_add.call_count)
+        self.assertEqual(broker_2.db_file, mock_add.call_args[0][0].db_file)
+        self.assertEqual(0, mock_remove.call_count)
+
+        broker_2.update_metadata(
+            {'X-Container-Sync-To': ('', next(ts_iter).internal)})
+        # replicate once this time according to broker_2
+        # relying on the fact that FakeRing would place both
+        # in the same partition.
+        part, node = self._get_broker_part_node(broker_2)
+        with mock.patch(klass + '.remove_synced_container') as mock_remove:
+            with mock.patch(klass + '.add_synced_container') as mock_add:
+                self._run_once(node)
+        self.assertEqual(0, mock_add.call_count)
+        self.assertEqual(1, mock_remove.call_count)
+        self.assertEqual(broker_2.db_file, mock_remove.call_args[0][0].db_file)
 
 
 if __name__ == '__main__':

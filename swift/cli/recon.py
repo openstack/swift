@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -22,6 +21,7 @@ from eventlet.green import urllib2, socket
 from six.moves.urllib.parse import urlparse
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
+from swift.common.storage_policy import POLICIES
 from hashlib import md5
 import eventlet
 import json
@@ -181,12 +181,12 @@ class SwiftRecon(object):
     def _ptime(self, timev=None):
         """
         :param timev: a unix timestamp or None
-        :returns: a pretty string of the current time or provided time
+        :returns: a pretty string of the current time or provided time in UTC
         """
         if timev:
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timev))
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(timev))
         else:
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
 
     def _md5_file(self, path):
         """
@@ -203,18 +203,19 @@ class SwiftRecon(object):
                 block = f.read(4096)
         return md5sum.hexdigest()
 
-    def get_devices(self, region_filter, zone_filter, swift_dir, ring_name):
+    def get_hosts(self, region_filter, zone_filter, swift_dir, ring_names):
         """
-        Get a list of hosts in the ring
+        Get a list of hosts in the rings.
 
         :param region_filter: Only list regions matching given filter
         :param zone_filter: Only list zones matching given filter
         :param swift_dir: Directory of swift config, usually /etc/swift
-        :param ring_name: Name of the ring, such as 'object'
+        :param ring_names: Collection of ring names, such as
+         ['object', 'object-2']
         :returns: a set of tuples containing the ip and port of hosts
         """
-        ring_data = Ring(swift_dir, ring_name=ring_name)
-        devs = [d for d in ring_data.devs if d]
+        rings = [Ring(swift_dir, ring_name=n) for n in ring_names]
+        devs = [d for r in rings for d in r.devs if d]
         if region_filter is not None:
             devs = [d for d in devs if d['region'] == region_filter]
         if zone_filter is not None:
@@ -495,16 +496,14 @@ class SwiftRecon(object):
                 elapsed = time.time() - least_recent_time
                 elapsed, elapsed_unit = seconds2timeunit(elapsed)
                 print('Oldest completion was %s (%d %s ago) by %s.' % (
-                    time.strftime('%Y-%m-%d %H:%M:%S',
-                                  time.gmtime(least_recent_time)),
+                    self._ptime(least_recent_time),
                     elapsed, elapsed_unit, host))
         if most_recent_url is not None:
             host = urlparse(most_recent_url).netloc
             elapsed = time.time() - most_recent_time
             elapsed, elapsed_unit = seconds2timeunit(elapsed)
             print('Most recent completion was %s (%d %s ago) by %s.' % (
-                time.strftime('%Y-%m-%d %H:%M:%S',
-                              time.gmtime(most_recent_time)),
+                self._ptime(most_recent_time),
                 elapsed, elapsed_unit, host))
         print("=" * 79)
 
@@ -899,12 +898,8 @@ class SwiftRecon(object):
                 continue
             if (ts_remote < ts_start or ts_remote > ts_end):
                 diff = abs(ts_end - ts_remote)
-                ts_end_f = time.strftime(
-                    "%Y-%m-%d %H:%M:%S",
-                    time.localtime(ts_end))
-                ts_remote_f = time.strftime(
-                    "%Y-%m-%d %H:%M:%S",
-                    time.localtime(ts_remote))
+                ts_end_f = self._ptime(ts_end)
+                ts_remote_f = self._ptime(ts_remote)
 
                 print("!! %s current time is %s, but remote is %s, "
                       "differs by %.2f sec" % (
@@ -919,6 +914,26 @@ class SwiftRecon(object):
         print("%s/%s hosts matched, %s error[s] while checking hosts." % (
             matches, len(hosts), errors))
         print("=" * 79)
+
+    def _get_ring_names(self, policy=None):
+        '''
+        Retrieve name of ring files.
+
+        If no policy is passed and the server type is object,
+        the ring names of all storage-policies are retrieved.
+
+        :param policy: name or index of storage policy, only applicable
+         with server_type==object.
+         :returns: list of ring names.
+        '''
+        if self.server_type == 'object':
+            ring_names = [p.ring_name for p in POLICIES if (
+                p.name == policy or not policy or (
+                    policy.isdigit() and int(policy) == int(p)))]
+        else:
+            ring_names = [self.server_type]
+
+        return ring_names
 
     def main(self):
         """
@@ -989,6 +1004,9 @@ class SwiftRecon(object):
                         default=5)
         args.add_option('--swiftdir', default="/etc/swift",
                         help="Default = /etc/swift")
+        args.add_option('--policy', '-p',
+                        help='Only query object servers in specified '
+                        'storage policy (specified as name or index).')
         options, arguments = args.parse_args()
 
         if len(sys.argv) <= 1 or len(arguments) > 1:
@@ -1010,8 +1028,14 @@ class SwiftRecon(object):
         self.suppress_errors = options.suppress
         self.timeout = options.timeout
 
-        hosts = self.get_devices(options.region, options.zone,
-                                 swift_dir, self.server_type)
+        ring_names = self._get_ring_names(options.policy)
+        if not ring_names:
+            print('Invalid Storage Policy')
+            args.print_help()
+            sys.exit(0)
+
+        hosts = self.get_hosts(options.region, options.zone,
+                               swift_dir, ring_names)
 
         print("--> Starting reconnaissance on %s hosts" % len(hosts))
         print("=" * 79)
@@ -1090,7 +1114,3 @@ def main():
         reconnoiter.main()
     except KeyboardInterrupt:
         print('\n')
-
-
-if __name__ == '__main__':
-    main()

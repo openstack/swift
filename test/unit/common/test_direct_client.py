@@ -31,7 +31,7 @@ from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 from six.moves.http_client import HTTPException
 
-from test.unit import patch_policies
+from test.unit import patch_policies, debug_logger
 
 
 class FakeConn(object):
@@ -46,7 +46,6 @@ class FakeConn(object):
         self.resp_headers = HeaderKeyDict()
         if headers:
             self.resp_headers.update(headers)
-        self.with_exc = False
         self.etag = None
 
     def _update_raw_call_args(self, *args, **kwargs):
@@ -59,8 +58,8 @@ class FakeConn(object):
     def getresponse(self):
         if self.etag:
             self.resp_headers['etag'] = str(self.etag.hexdigest())
-        if self.with_exc:
-            raise Exception('test')
+        if isinstance(self.status, Exception):
+            raise self.status
         return self
 
     def getheader(self, header, default=None):
@@ -695,47 +694,42 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(attempts, 1)
 
     def test_retry_client_exception(self):
-        err_log_file = six.StringIO()
+        logger = debug_logger('direct-client-test')
 
-        def mock_err_logger(err):
-            err_log_file.write(err)
-
-        with mocked_http_conn(500) as conn:
-            try:
-                attempts, resp = direct_client.retry(
-                    direct_client.direct_delete_object, self.node, self.part,
-                    self.account, self.container, self.obj, retries=2,
-                    error_log=mock_err_logger)
-            except ClientException as err:
-                pass
-            self.assertEqual('DELETE', conn.method)
-            self.assertTrue(err_log_file.len)
-            self.assertEqual(err.http_status, 500)
-        err_log_file.close()
+        with mock.patch('swift.common.direct_client.sleep') as mock_sleep, \
+                mocked_http_conn(500) as conn:
+            with self.assertRaises(direct_client.ClientException) as err_ctx:
+                direct_client.retry(direct_client.direct_delete_object,
+                                    self.node, self.part,
+                                    self.account, self.container, self.obj,
+                                    retries=2, error_log=logger.error)
+        self.assertEqual('DELETE', conn.method)
+        self.assertEqual(err_ctx.exception.http_status, 500)
+        self.assertEqual([mock.call(1), mock.call(2)],
+                         mock_sleep.call_args_list)
+        error_lines = logger.get_lines_for_level('error')
+        self.assertEqual(3, len(error_lines))
+        for line in error_lines:
+            self.assertIn('500 Internal Error', line)
 
     def test_retry_http_exception(self):
-        err_log_file = six.StringIO()
+        logger = debug_logger('direct-client-test')
 
-        def mock_err_logger(err):
-            err_log_file.write(err)
-
-        def mock_direct_delete_object(node, part, account, container, obj,
-                                      conn_timeout=5, response_timeout=15,
-                                      headers=None):
-            resp = "Unable to delete object"
-            raise HTTPException('Object', 'DELETE', resp)
-
-        with mocked_http_conn(500):
-            with mock.patch('swift.common.direct_client.direct_delete_object',
-                            mock_direct_delete_object):
-                try:
-                    attempts, resp = direct_client.retry(
-                        direct_client.direct_delete_object, self.node,
-                        self.part, self.account, self.container, self.obj,
-                        retries=2, error_log=mock_err_logger)
-                except HTTPException:
-                    self.assertTrue(err_log_file.len)
-        err_log_file.close()
+        with mock.patch('swift.common.direct_client.sleep') as mock_sleep, \
+                mocked_http_conn(HTTPException('Kaboom!')) as conn:
+            with self.assertRaises(HTTPException) as err_ctx:
+                direct_client.retry(direct_client.direct_delete_object,
+                                    self.node, self.part,
+                                    self.account, self.container, self.obj,
+                                    retries=2, error_log=logger.error)
+        self.assertEqual('DELETE', conn.method)
+        self.assertEqual('Kaboom!', str(err_ctx.exception))
+        self.assertEqual([mock.call(1), mock.call(2)],
+                         mock_sleep.call_args_list)
+        error_lines = logger.get_lines_for_level('error')
+        self.assertEqual(3, len(error_lines))
+        for line in error_lines:
+            self.assertIn('Kaboom!', line)
 
 if __name__ == '__main__':
     unittest.main()

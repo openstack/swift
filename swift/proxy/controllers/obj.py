@@ -329,7 +329,8 @@ class BaseObjectController(Controller):
             else:
                 return conn.getresponse()
 
-    def _get_conn_response(self, conn, req, **kwargs):
+    def _get_conn_response(self, conn, req, logger_thread_locals, **kwargs):
+        self.app.logger.thread_locals = logger_thread_locals
         try:
             resp = self._await_response(conn, **kwargs)
             return (conn, resp)
@@ -350,7 +351,8 @@ class BaseObjectController(Controller):
 
         pile = GreenAsyncPile(len(conns))
         for conn in conns:
-            pile.spawn(self._get_conn_response, conn, req)
+            pile.spawn(self._get_conn_response, conn,
+                       req, self.app.logger.thread_locals)
 
         def _handle_response(conn, response):
             statuses.append(response.status)
@@ -416,6 +418,11 @@ class BaseObjectController(Controller):
         This method handles copying objects based on values set in the headers
         'X-Copy-From' and 'X-Copy-From-Account'
 
+        Note that if the incomming request has some conditional headers (e.g.
+        'Range', 'If-Match'), *source* object will be evaluated for these
+        headers. i.e. if PUT with both 'X-Copy-From' and 'Range', Swift will
+        make a partial copy as a new object.
+
         This method was added as part of the refactoring of the PUT method and
         the functionality is expected to be moved to middleware
         """
@@ -437,6 +444,11 @@ class BaseObjectController(Controller):
         source_req.headers.pop('X-Backend-Storage-Policy-Index', None)
         source_req.path_info = source_header
         source_req.headers['X-Newest'] = 'true'
+        if 'swift.post_as_copy' in req.environ:
+            # We're COPYing one object over itself because of a POST; rely on
+            # the PUT for write authorization, don't require read authorization
+            source_req.environ['swift.authorize'] = lambda req: None
+            source_req.environ['swift.authorize_override'] = True
 
         orig_obj_name = self.object_name
         orig_container_name = self.container_name
@@ -2052,6 +2064,7 @@ class ECObjectController(BaseObjectController):
                     headers=resp_headers,
                     conditional_response=True,
                     app_iter=app_iter)
+                resp.accept_ranges = 'bytes'
                 app_iter.kickoff(req, resp)
             else:
                 statuses = []
@@ -2334,7 +2347,9 @@ class ECObjectController(BaseObjectController):
         return conn.await_response(
             self.app.node_timeout, not final_phase)
 
-    def _get_conn_response(self, conn, req, final_phase, **kwargs):
+    def _get_conn_response(self, conn, req, logger_thread_locals,
+                           final_phase, **kwargs):
+        self.app.logger.thread_locals = logger_thread_locals
         try:
             resp = self._await_response(conn, final_phase=final_phase,
                                         **kwargs)
@@ -2377,7 +2392,7 @@ class ECObjectController(BaseObjectController):
             if putter.failed:
                 continue
             pile.spawn(self._get_conn_response, putter, req,
-                       final_phase=final_phase)
+                       self.app.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):
             statuses.append(response.status)

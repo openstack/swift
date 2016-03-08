@@ -182,16 +182,12 @@ similar to that of replication with a few notable exceptions:
 Performance Considerations
 --------------------------
 
-Efforts are underway to characterize performance of various Erasure Code
-schemes.  One of the main goals of the beta release is to perform this
-characterization and encourage others to do so and provide meaningful feedback
-to the development community.  There are many factors that will affect
-performance of EC so it is vital that we have multiple characterization
-activities happening.
-
 In general, EC has different performance characteristics than replicated data.
 EC requires substantially more CPU to read and write data, and is more suited
 for larger objects that are not frequently accessed (eg backups).
+
+Operators are encouraged to characterize the performance of various EC schemes
+and share their observations with the developer community.
 
 ----------------------------
 Using an Erasure Code Policy
@@ -204,7 +200,7 @@ an EC policy can be setup is shown below::
         [storage-policy:2]
         name = ec104
         policy_type = erasure_coding
-        ec_type = jerasure_rs_vand
+        ec_type = liberasurecode_rs_vand
         ec_num_data_fragments = 10
         ec_num_parity_fragments = 4
         ec_object_segment_size = 1048576

@@ -463,7 +463,12 @@ Example::
 
 Assuming 3 replicas, this configuration will make object PUTs try
 storing the object's replicas on up to 6 disks ("2 * replicas") in
-region 1 ("r1").
+region 1 ("r1"). Proxy server tries to find 3 devices for storing the 
+object. While a device is unavailable, it queries the ring for the 4th 
+device and so on until 6th device. If the 6th disk is still unavailable,
+the last replica will be sent to other region. It doesn't mean there'll 
+have 6 replicas in region 1. 
+
 
 You should be aware that, if you have data coming into SF faster than
 your link to NY can transfer it, then your cluster's data distribution
@@ -624,7 +629,11 @@ configuration entries (see the sample configuration files)::
     log_statsd_metric_prefix =                [empty-string]
 
 If `log_statsd_host` is not set, this feature is disabled.  The default values
-for the other settings are given above.
+for the other settings are given above.  The `log_statsd_host` can be a
+hostname, an IPv4 address, or an IPv6 address (not surrounded with brackets, as
+this is unnecessary since the port is specified separately).  If a hostname
+resolves to an IPv4 address, an IPv4 socket will be used to send StatsD UDP
+packets, even if the hostname would also resolve to an IPv6 address.
 
 .. _StatsD: http://codeascraft.etsy.com/2011/02/15/measure-anything-measure-everything/
 .. _Graphite: http://graphite.wikidot.com/
@@ -675,8 +684,7 @@ of async_pendings in real-time, but will not tell you the current number of
 async_pending container updates on disk at any point in time.
 
 Note also that the set of metrics collected, their names, and their semantics
-are not locked down and will change over time.  StatsD logging is currently in
-a "beta" stage and will continue to evolve.
+are not locked down and will change over time.
 
 Metrics for `account-auditor`:
 

@@ -33,7 +33,7 @@ from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
-    iter_multipart_mime_documents
+    iter_multipart_mime_documents, extract_swift_bytes
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -479,35 +479,103 @@ class ObjectController(BaseStorageServer):
         except (DiskFileNotExist, DiskFileQuarantined):
             return HTTPNotFound(request=request)
         orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
-        if orig_timestamp >= req_timestamp:
+        orig_ctype_timestamp = disk_file.content_type_timestamp
+        req_ctype_time = '0'
+        req_ctype = request.headers.get('Content-Type')
+        if req_ctype:
+            req_ctype_time = request.headers.get('Content-Type-Timestamp',
+                                                 req_timestamp.internal)
+        req_ctype_timestamp = Timestamp(req_ctype_time)
+        if orig_timestamp >= req_timestamp \
+                and orig_ctype_timestamp >= req_ctype_timestamp:
             return HTTPConflict(
                 request=request,
                 headers={'X-Backend-Timestamp': orig_timestamp.internal})
-        metadata = {'X-Timestamp': req_timestamp.internal}
-        self._preserve_slo_manifest(metadata, orig_metadata)
-        metadata.update(val for val in request.headers.items()
-                        if is_user_meta('object', val[0]))
-        headers_to_copy = (
-            request.headers.get(
-                'X-Backend-Replication-Headers', '').split() +
-            list(self.allowed_headers))
-        for header_key in headers_to_copy:
-            if header_key in request.headers:
-                header_caps = header_key.title()
-                metadata[header_caps] = request.headers[header_key]
-        orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
-        if orig_delete_at != new_delete_at:
-            if new_delete_at:
-                self.delete_at_update('PUT', new_delete_at, account, container,
-                                      obj, request, device, policy)
-            if orig_delete_at:
-                self.delete_at_update('DELETE', orig_delete_at, account,
-                                      container, obj, request, device,
-                                      policy)
+
+        if req_timestamp > orig_timestamp:
+            metadata = {'X-Timestamp': req_timestamp.internal}
+            self._preserve_slo_manifest(metadata, orig_metadata)
+            metadata.update(val for val in request.headers.items()
+                            if is_user_meta('object', val[0]))
+            headers_to_copy = (
+                request.headers.get(
+                    'X-Backend-Replication-Headers', '').split() +
+                list(self.allowed_headers))
+            for header_key in headers_to_copy:
+                if header_key in request.headers:
+                    header_caps = header_key.title()
+                    metadata[header_caps] = request.headers[header_key]
+            orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
+            if orig_delete_at != new_delete_at:
+                if new_delete_at:
+                    self.delete_at_update(
+                        'PUT', new_delete_at, account, container, obj, request,
+                        device, policy)
+                if orig_delete_at:
+                    self.delete_at_update('DELETE', orig_delete_at, account,
+                                          container, obj, request, device,
+                                          policy)
+        else:
+            # preserve existing metadata, only content-type may be updated
+            metadata = dict(disk_file.get_metafile_metadata())
+
+        if req_ctype_timestamp > orig_ctype_timestamp:
+            # we have a new content-type, add to metadata and container update
+            content_type_headers = {
+                'Content-Type': request.headers['Content-Type'],
+                'Content-Type-Timestamp': req_ctype_timestamp.internal
+            }
+            metadata.update(content_type_headers)
+        else:
+            # send existing content-type with container update
+            content_type_headers = {
+                'Content-Type': disk_file.content_type,
+                'Content-Type-Timestamp': orig_ctype_timestamp.internal
+            }
+            if orig_ctype_timestamp != disk_file.data_timestamp:
+                # only add to metadata if it's not the datafile content-type
+                metadata.update(content_type_headers)
+
         try:
             disk_file.write_metadata(metadata)
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
+
+        update_etag = orig_metadata['ETag']
+        if 'X-Object-Sysmeta-Ec-Etag' in orig_metadata:
+            # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
+            # X-Backend-Container-Update-Override-Etag value sent with the
+            # original PUT. We have to send Etag (and size etc) with a POST
+            # container update because the original PUT container update may
+            # have failed or be in async_pending.
+            update_etag = orig_metadata['X-Object-Sysmeta-Ec-Etag']
+
+        if (content_type_headers['Content-Type-Timestamp']
+                != disk_file.data_timestamp):
+            # Current content-type is not from the datafile, but the datafile
+            # content-type may have a swift_bytes param that was appended by
+            # SLO and we must continue to send that with the container update.
+            # Do this (rather than use a separate header) for backwards
+            # compatibility because there may be 'legacy' container updates in
+            # async pending that have content-types with swift_bytes params, so
+            # we have to be able to handle those in container server anyway.
+            _, swift_bytes = extract_swift_bytes(
+                disk_file.get_datafile_metadata()['Content-Type'])
+            if swift_bytes:
+                content_type_headers['Content-Type'] += (';swift_bytes=%s'
+                                                         % swift_bytes)
+
+        self.container_update(
+            'PUT', account, container, obj, request,
+            HeaderKeyDict({
+                'x-size': orig_metadata['Content-Length'],
+                'x-content-type': content_type_headers['Content-Type'],
+                'x-timestamp': disk_file.data_timestamp.internal,
+                'x-content-type-timestamp':
+                content_type_headers['Content-Type-Timestamp'],
+                'x-meta-timestamp': metadata['X-Timestamp'],
+                'x-etag': update_etag}),
+            device, policy)
         return HTTPAccepted(request=request)
 
     @public
@@ -556,9 +624,12 @@ class ObjectController(BaseStorageServer):
             orig_timestamp = disk_file.data_timestamp
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
+        except DiskFileDeleted as e:
+            orig_metadata = e.metadata
+            orig_timestamp = e.timestamp
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
-            orig_timestamp = 0
+            orig_timestamp = Timestamp(0)
 
         # Checks for If-None-Match
         if request.if_none_match is not None and orig_metadata:

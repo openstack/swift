@@ -478,7 +478,11 @@ log_custom_handlers              None        Comma-separated list of functions t
                                              to setup custom log handlers.
 log_udp_host                                 Override log_address
 log_udp_port                     514         UDP log port
-log_statsd_host                  localhost   StatsD logging
+log_statsd_host                  None        Enables StatsD logging; IPv4/IPv6
+                                             address or a hostname.  If a
+                                             hostname resolves to an IPv4 and IPv6
+                                             address, the IPv4 address will be
+                                             used.
 log_statsd_port                  8125
 log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
@@ -526,9 +530,10 @@ set log_address                /dev/log               Logging directory
 user                           swift                  User to run as
 max_upload_time                86400                  Maximum time allowed to upload an
                                                       object
-slow                           0                      If > 0, Minimum time in seconds
-                                                      for a PUT or DELETE request to
-                                                      complete
+slow                           0                      If > 0, Minimum time in seconds for a PUT or
+                                                      DELETE request to complete.  This is only
+                                                      useful to simulate slow devices during testing
+                                                      and development.
 mb_per_sync                    512                    On PUT requests, sync file every
                                                       n MB
 keep_cache_size                5242880                Largest object size to keep in
@@ -719,6 +724,8 @@ log_facility                LOG_LOCAL0          Syslog log facility
 log_level                   INFO                Logging level
 log_address                 /dev/log            Logging directory
 log_time                    3600                Frequency of status logs in seconds.
+interval                    30                  Time in seconds to wait between
+                                                auditor passes
 disk_chunk_size             65536               Size of chunks read during auditing
 files_per_second            20                  Maximum files audited per second per
                                                 auditor process. Should be tuned according
@@ -787,7 +794,11 @@ log_custom_handlers              None        Comma-separated list of functions t
                                              to setup custom log handlers.
 log_udp_host                                 Override log_address
 log_udp_port                     514         UDP log port
-log_statsd_host                  localhost   StatsD logging
+log_statsd_host                  None        Enables StatsD logging; IPv4/IPv6
+                                             address or a hostname.  If a
+                                             hostname resolves to an IPv4 and IPv6
+                                             address, the IPv4 address will be
+                                             used.
 log_statsd_port                  8125
 log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
@@ -998,7 +1009,11 @@ log_custom_handlers              None        Comma-separated list of functions t
                                              to setup custom log handlers.
 log_udp_host                                 Override log_address
 log_udp_port                     514         UDP log port
-log_statsd_host                  localhost   StatsD logging
+log_statsd_host                  None        Enables StatsD logging; IPv4/IPv6
+                                             address or a hostname.  If a
+                                             hostname resolves to an IPv4 and IPv6
+                                             address, the IPv4 address will be
+                                             used.
 log_statsd_port                  8125
 log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
@@ -1226,7 +1241,11 @@ log_custom_handlers                   None                      Comma separated 
                                                                 handlers.
 log_udp_host                                                    Override log_address
 log_udp_port                          514                       UDP log port
-log_statsd_host                       localhost                 StatsD logging
+log_statsd_host                       None                      Enables StatsD logging; IPv4/IPv6
+                                                                address or a hostname.  If a
+                                                                hostname resolves to an IPv4 and IPv6
+                                                                address, the IPv4 address will be
+                                                                used.
 log_statsd_port                       8125
 log_statsd_default_sample_rate        1.0
 log_statsd_sample_rate_factor         1.0
@@ -1278,7 +1297,8 @@ object_chunk_size             65536            Chunk size to read from
 client_chunk_size             65536            Chunk size to read from
                                                clients
 memcache_servers              127.0.0.1:11211  Comma separated list of
-                                               memcached servers ip:port
+                                               memcached servers
+                                               ip:port or [ipv6addr]:port
 memcache_max_connections      2                Max number of connections to
                                                each memcached server per
                                                worker
@@ -1469,7 +1489,7 @@ At Rackspace, our Proxy servers have dual quad core processors, giving us 8
 cores. Our testing has shown 16 workers to be a pretty good balance when
 saturating a 10g network and gives good CPU utilization.
 
-Our Storage servers all run together on the same servers. These servers have
+Our Storage server processes all run together on the same servers. These servers have
 dual quad core processors, for 8 cores total. We run the Account, Container,
 and Object servers with 8 workers each. Most of the background jobs are run at
 a concurrency of 1, with the exception of the replicators which are run at a

@@ -25,7 +25,8 @@ import six.moves.cPickle as pickle
 from six.moves import range
 import sqlite3
 
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, encode_timestamps, decode_timestamps, \
+    extract_swift_bytes
 from swift.common.db import DatabaseBroker, utf8encode
 
 
@@ -135,6 +136,90 @@ CONTAINER_STAT_VIEW_SCRIPT = '''
             reconciler_sync_point = NEW.reconciler_sync_point;
     END;
 '''
+
+
+def update_new_item_from_existing(new_item, existing):
+    """
+    Compare the data and meta related timestamps of a new object item with
+    the timestamps of an existing object record, and update the new item
+    with data and/or meta related attributes from the existing record if
+    their timestamps are newer.
+
+    The multiple timestamps are encoded into a single string for storing
+    in the 'created_at' column of the the objects db table.
+
+    :param new_item: A dict of object update attributes
+    :param existing: A dict of existing object attributes
+    :return: True if any attributes of the new item dict were found to be
+             newer than the existing and therefore not updated, otherwise
+             False implying that the updated item is equal to the existing.
+    """
+
+    # item[created_at] may be updated so keep a copy of the original
+    # value in case we process this item again
+    new_item.setdefault('data_timestamp', new_item['created_at'])
+
+    # content-type and metadata timestamps may be encoded in
+    # item[created_at], or may be set explicitly.
+    item_ts_data, item_ts_ctype, item_ts_meta = decode_timestamps(
+        new_item['data_timestamp'])
+
+    if new_item.get('ctype_timestamp'):
+        item_ts_ctype = Timestamp(new_item.get('ctype_timestamp'))
+        item_ts_meta = item_ts_ctype
+    if new_item.get('meta_timestamp'):
+        item_ts_meta = Timestamp(new_item.get('meta_timestamp'))
+
+    if not existing:
+        # encode new_item timestamps into one string for db record
+        new_item['created_at'] = encode_timestamps(
+            item_ts_data, item_ts_ctype, item_ts_meta)
+        return True
+
+    # decode existing timestamp into separate data, content-type and
+    # metadata timestamps
+    rec_ts_data, rec_ts_ctype, rec_ts_meta = decode_timestamps(
+        existing['created_at'])
+
+    # Extract any swift_bytes values from the content_type values. This is
+    # necessary because the swift_bytes value to persist should be that at the
+    # most recent data timestamp whereas the content-type value to persist is
+    # that at the most recent content-type timestamp. The two values happen to
+    # be stored in the same database column for historical reasons.
+    for item in (new_item, existing):
+        content_type, swift_bytes = extract_swift_bytes(item['content_type'])
+        item['content_type'] = content_type
+        item['swift_bytes'] = swift_bytes
+
+    newer_than_existing = [True, True, True]
+    if rec_ts_data >= item_ts_data:
+        # apply data attributes from existing record
+        new_item.update([(k, existing[k])
+                         for k in ('size', 'etag', 'deleted', 'swift_bytes')])
+        item_ts_data = rec_ts_data
+        newer_than_existing[0] = False
+    if rec_ts_ctype >= item_ts_ctype:
+        # apply content-type attribute from existing record
+        new_item['content_type'] = existing['content_type']
+        item_ts_ctype = rec_ts_ctype
+        newer_than_existing[1] = False
+    if rec_ts_meta >= item_ts_meta:
+        # apply metadata timestamp from existing record
+        item_ts_meta = rec_ts_meta
+        newer_than_existing[2] = False
+
+    # encode updated timestamps into one string for db record
+    new_item['created_at'] = encode_timestamps(
+        item_ts_data, item_ts_ctype, item_ts_meta)
+
+    # append the most recent swift_bytes onto the most recent content_type in
+    # new_item and restore existing to its original state
+    for item in (new_item, existing):
+        if item['swift_bytes']:
+            item['content_type'] += ';swift_bytes=%s' % item['swift_bytes']
+        del item['swift_bytes']
+
+    return any(newer_than_existing)
 
 
 class ContainerBroker(DatabaseBroker):
@@ -284,13 +369,20 @@ class ContainerBroker(DatabaseBroker):
             storage_policy_index = data[6]
         else:
             storage_policy_index = 0
+        content_type_timestamp = meta_timestamp = None
+        if len(data) > 7:
+            content_type_timestamp = data[7]
+        if len(data) > 8:
+            meta_timestamp = data[8]
         item_list.append({'name': name,
                           'created_at': timestamp,
                           'size': size,
                           'content_type': content_type,
                           'etag': etag,
                           'deleted': deleted,
-                          'storage_policy_index': storage_policy_index})
+                          'storage_policy_index': storage_policy_index,
+                          'ctype_timestamp': content_type_timestamp,
+                          'meta_timestamp': meta_timestamp})
 
     def empty(self):
         """
@@ -318,6 +410,7 @@ class ContainerBroker(DatabaseBroker):
 
         :param name: object name to be deleted
         :param timestamp: timestamp when the object was marked as deleted
+        :param storage_policy_index: the storage policy index for the object
         """
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
                         deleted=1, storage_policy_index=storage_policy_index)
@@ -325,10 +418,13 @@ class ContainerBroker(DatabaseBroker):
     def make_tuple_for_pickle(self, record):
         return (record['name'], record['created_at'], record['size'],
                 record['content_type'], record['etag'], record['deleted'],
-                record['storage_policy_index'])
+                record['storage_policy_index'],
+                record['ctype_timestamp'],
+                record['meta_timestamp'])
 
     def put_object(self, name, timestamp, size, content_type, etag, deleted=0,
-                   storage_policy_index=0):
+                   storage_policy_index=0, ctype_timestamp=None,
+                   meta_timestamp=None):
         """
         Creates an object in the DB with its metadata.
 
@@ -340,11 +436,16 @@ class ContainerBroker(DatabaseBroker):
         :param deleted: if True, marks the object as deleted and sets the
                         deleted_at timestamp to timestamp
         :param storage_policy_index: the storage policy index for the object
+        :param ctype_timestamp: timestamp of when content_type was last
+                                updated
+        :param meta_timestamp: timestamp of when metadata was last updated
         """
         record = {'name': name, 'created_at': timestamp, 'size': size,
                   'content_type': content_type, 'etag': etag,
                   'deleted': deleted,
-                  'storage_policy_index': storage_policy_index}
+                  'storage_policy_index': storage_policy_index,
+                  'ctype_timestamp': ctype_timestamp,
+                  'meta_timestamp': meta_timestamp}
         self.put_record(record)
 
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
@@ -570,6 +671,7 @@ class ContainerBroker(DatabaseBroker):
         :param delimiter: delimiter for query
         :param path: if defined, will set the prefix and delimiter based on
                      the path
+        :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
 
         :returns: list of tuples of (name, created_at, size, content_type,
@@ -647,7 +749,7 @@ class ContainerBroker(DatabaseBroker):
                 # is no delimiter then we can simply return the result as
                 # prefixes are now handled in the SQL statement.
                 if prefix is None or not delimiter:
-                    return [r for r in curs]
+                    return [self._transform_record(r) for r in curs]
 
                 # We have a delimiter and a prefix (possibly empty string) to
                 # handle
@@ -686,10 +788,26 @@ class ContainerBroker(DatabaseBroker):
                             results.append([dir_name, '0', 0, None, ''])
                         curs.close()
                         break
-                    results.append(row)
+                    results.append(self._transform_record(row))
                 if not rowcount:
                     break
             return results
+
+    def _transform_record(self, record):
+        """
+        Decode the created_at timestamp into separate data, content-type and
+        meta timestamps and replace the created_at timestamp with the
+        metadata timestamp i.e. the last-modified time.
+        """
+        t_data, t_ctype, t_meta = decode_timestamps(record[1])
+        return (record[0], t_meta.internal) + record[2:]
+
+    def _record_to_dict(self, rec):
+        if rec:
+            keys = ('name', 'created_at', 'size', 'content_type', 'etag',
+                    'deleted', 'storage_policy_index')
+            return dict(zip(keys, rec))
+        return None
 
     def merge_items(self, item_list, source=None):
         """
@@ -697,7 +815,8 @@ class ContainerBroker(DatabaseBroker):
 
         :param item_list: list of dictionaries of {'name', 'created_at',
                           'size', 'content_type', 'etag', 'deleted',
-                          'storage_policy_index'}
+                          'storage_policy_index', 'ctype_timestamp',
+                          'meta_timestamp'}
         :param source: if defined, update incoming_sync with the source
         """
         for item in item_list:
@@ -711,15 +830,16 @@ class ContainerBroker(DatabaseBroker):
             else:
                 query_mod = ''
             curs.execute('BEGIN IMMEDIATE')
-            # Get created_at times for objects in item_list that already exist.
+            # Get sqlite records for objects in item_list that already exist.
             # We must chunk it up to avoid sqlite's limit of 999 args.
-            created_at = {}
+            records = {}
             for offset in range(0, len(item_list), SQLITE_ARG_LIMIT):
                 chunk = [rec['name'] for rec in
                          item_list[offset:offset + SQLITE_ARG_LIMIT]]
-                created_at.update(
-                    ((rec[0], rec[1]), rec[2]) for rec in curs.execute(
-                        'SELECT name, storage_policy_index, created_at '
+                records.update(
+                    ((rec[0], rec[6]), rec) for rec in curs.execute(
+                        'SELECT name, created_at, size, content_type,'
+                        'etag, deleted, storage_policy_index '
                         'FROM object WHERE ' + query_mod + ' name IN (%s)' %
                         ','.join('?' * len(chunk)), chunk))
             # Sort item_list into things that need adding and deleting, based
@@ -729,14 +849,13 @@ class ContainerBroker(DatabaseBroker):
             for item in item_list:
                 item.setdefault('storage_policy_index', 0)  # legacy
                 item_ident = (item['name'], item['storage_policy_index'])
-                if created_at.get(item_ident) < item['created_at']:
-                    if item_ident in created_at:  # exists with older timestamp
+                existing = self._record_to_dict(records.get(item_ident))
+                if update_new_item_from_existing(item, existing):
+                    if item_ident in records:  # exists with older timestamp
                         to_delete[item_ident] = item
                     if item_ident in to_add:  # duplicate entries in item_list
-                        to_add[item_ident] = max(item, to_add[item_ident],
-                                                 key=lambda i: i['created_at'])
-                    else:
-                        to_add[item_ident] = item
+                        update_new_item_from_existing(item, to_add[item_ident])
+                    to_add[item_ident] = item
             if to_delete:
                 curs.executemany(
                     'DELETE FROM object WHERE ' + query_mod +

@@ -612,7 +612,7 @@ class TestServer(unittest.TestCase):
             # test invalid value in pid file
             server = manager.Server('auth', run_dir=t)
             pid_file, pid = next(server.iter_pid_files())
-            self.assertEqual(None, pid)
+            self.assertIsNone(pid)
             # test object-server doesn't steal pids from object-replicator
             server = manager.Server('object', run_dir=t)
             self.assertRaises(StopIteration, server.iter_pid_files().next)
@@ -1916,13 +1916,18 @@ class TestManager(unittest.TestCase):
                         continue
                     yield server, pid
 
+        def mock_kill_group(pid, sig):
+            self.fail('kill_group should not be called')
+
         _orig_server = manager.Server
         _orig_watch_server_pids = manager.watch_server_pids
+        _orig_kill_group = manager.kill_group
         try:
             manager.watch_server_pids = mock_watch_server_pids
+            manager.kill_group = mock_kill_group
             # test stop one server
             server_pids = {
-                'test': [1]
+                'test': {1: "dummy.pid"}
             }
             manager.Server = MockServerFactory(server_pids)
             m = manager.Manager(['test'])
@@ -1930,7 +1935,7 @@ class TestManager(unittest.TestCase):
             self.assertEqual(status, 0)
             # test not running
             server_pids = {
-                'test': []
+                'test': {}
             }
             manager.Server = MockServerFactory(server_pids)
             m = manager.Manager(['test'])
@@ -1938,7 +1943,7 @@ class TestManager(unittest.TestCase):
             self.assertEqual(status, 1)
             # test kill not running
             server_pids = {
-                'test': []
+                'test': {}
             }
             manager.Server = MockServerFactory(server_pids)
             m = manager.Manager(['test'])
@@ -1946,7 +1951,7 @@ class TestManager(unittest.TestCase):
             self.assertEqual(status, 0)
             # test won't die
             server_pids = {
-                'test': [None]
+                'test': {None: None}
             }
             manager.Server = MockServerFactory(server_pids)
             m = manager.Manager(['test'])
@@ -1956,6 +1961,83 @@ class TestManager(unittest.TestCase):
         finally:
             manager.Server = _orig_server
             manager.watch_server_pids = _orig_watch_server_pids
+            manager.kill_group = _orig_kill_group
+
+    def test_stop_kill_after_timeout(self):
+        class MockServerFactory(object):
+            class MockServer(object):
+                def __init__(self, pids, run_dir=manager.RUN_DIR):
+                    self.pids = pids
+
+                def stop(self, **kwargs):
+                    return self.pids
+
+                def status(self, **kwargs):
+                    return not self.pids
+
+            def __init__(self, server_pids, run_dir=manager.RUN_DIR):
+                self.server_pids = server_pids
+
+            def __call__(self, server, run_dir=manager.RUN_DIR):
+                return MockServerFactory.MockServer(self.server_pids[server])
+
+        def mock_watch_server_pids(server_pids, **kwargs):
+            for server, pids in server_pids.items():
+                for pid in pids:
+                    if pid is None:
+                        continue
+                    yield server, pid
+
+        mock_kill_group_called = []
+
+        def mock_kill_group(*args):
+            mock_kill_group_called.append(args)
+
+        def mock_kill_group_oserr(*args):
+            raise OSError()
+
+        def mock_kill_group_oserr_ESRCH(*args):
+            raise OSError(errno.ESRCH, 'No such process')
+
+        _orig_server = manager.Server
+        _orig_watch_server_pids = manager.watch_server_pids
+        _orig_kill_group = manager.kill_group
+        try:
+            manager.watch_server_pids = mock_watch_server_pids
+            manager.kill_group = mock_kill_group
+            # test stop one server
+            server_pids = {
+                'test': {None: None}
+            }
+            manager.Server = MockServerFactory(server_pids)
+            m = manager.Manager(['test'])
+            status = m.stop(kill_after_timeout=True)
+            self.assertEqual(status, 1)
+            self.assertEqual(mock_kill_group_called, [(None, 9)])
+
+            manager.kill_group = mock_kill_group_oserr
+            # test stop one server - OSError
+            server_pids = {
+                'test': {None: None}
+            }
+            manager.Server = MockServerFactory(server_pids)
+            m = manager.Manager(['test'])
+            with self.assertRaises(OSError):
+                status = m.stop(kill_after_timeout=True)
+
+            manager.kill_group = mock_kill_group_oserr_ESRCH
+            # test stop one server - OSError: No such process
+            server_pids = {
+                'test': {None: None}
+            }
+            manager.Server = MockServerFactory(server_pids)
+            m = manager.Manager(['test'])
+            status = m.stop(kill_after_timeout=True)
+            self.assertEqual(status, 1)
+        finally:
+            manager.Server = _orig_server
+            manager.watch_server_pids = _orig_watch_server_pids
+            manager.kill_group = _orig_kill_group
 
     # TODO(clayg): more tests
     def test_shutdown(self):

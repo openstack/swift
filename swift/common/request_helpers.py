@@ -33,10 +33,12 @@ from swift.common.storage_policy import POLICIES
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
-from swift.common.swob import (HTTPBadRequest, HTTPNotAcceptable,
-                               HTTPServiceUnavailable, Range)
+from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
+    HTTPServiceUnavailable, Range, is_chunked
 from swift.common.utils import split_path, validate_device_partition, \
-    close_if_possible, maybe_multipart_byteranges_to_document_iters
+    close_if_possible, maybe_multipart_byteranges_to_document_iters, \
+    multipart_byteranges_to_document_iters, parse_content_type, \
+    parse_content_range
 
 from swift.common.wsgi import make_subrequest
 
@@ -454,6 +456,9 @@ class SegmentedIterable(object):
             self.logger.exception(_('ERROR: An error occurred '
                                     'while retrieving segments'))
             raise
+        finally:
+            if self.current_resp:
+                close_if_possible(self.current_resp.app_iter)
 
     def app_iter_range(self, *a, **kw):
         """
@@ -496,5 +501,46 @@ class SegmentedIterable(object):
         Called when the client disconnect. Ensure that the connection to the
         backend server is closed.
         """
-        if self.current_resp:
-            close_if_possible(self.current_resp.app_iter)
+        close_if_possible(self.app_iter)
+
+
+def http_response_to_document_iters(response, read_chunk_size=4096):
+    """
+    Takes a successful object-GET HTTP response and turns it into an
+    iterator of (first-byte, last-byte, length, headers, body-file)
+    5-tuples.
+
+    The response must either be a 200 or a 206; if you feed in a 204 or
+    something similar, this probably won't work.
+
+    :param response: HTTP response, like from bufferedhttp.http_connect(),
+        not a swob.Response.
+    """
+    chunked = is_chunked(dict(response.getheaders()))
+
+    if response.status == 200:
+        if chunked:
+            # Single "range" that's the whole object with an unknown length
+            return iter([(0, None, None, response.getheaders(),
+                          response)])
+
+        # Single "range" that's the whole object
+        content_length = int(response.getheader('Content-Length'))
+        return iter([(0, content_length - 1, content_length,
+                      response.getheaders(), response)])
+
+    content_type, params_list = parse_content_type(
+        response.getheader('Content-Type'))
+    if content_type != 'multipart/byteranges':
+        # Single range; no MIME framing, just the bytes. The start and end
+        # byte indices are in the Content-Range header.
+        start, end, length = parse_content_range(
+            response.getheader('Content-Range'))
+        return iter([(start, end, length, response.getheaders(), response)])
+    else:
+        # Multiple ranges; the response body is a multipart/byteranges MIME
+        # document, and we have to parse it using the MIME boundary
+        # extracted from the Content-Type header.
+        params = dict(params_list)
+        return multipart_byteranges_to_document_iters(
+            response, params['boundary'], read_chunk_size)

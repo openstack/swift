@@ -1,4 +1,4 @@
-# Japanese translations for swift.
+# Translations template for swift.
 # Copyright (C) 2015 ORGANIZATION
 # This file is distributed under the same license as the swift project.
 #
@@ -9,18 +9,19 @@
 # Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.5.1.dev70\n"
+"Project-Id-Version: swift 2.6.1.dev176\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-10-23 06:34+0000\n"
+"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
 "PO-Revision-Date: 2015-09-26 09:26+0000\n"
 "Last-Translator: Akihiro Motoki <amotoki@gmail.com>\n"
 "Language: ja\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: Babel 2.0\n"
+"X-Generator: Zanata 3.7.3\n"
 "Language-Team: Japanese\n"
-"Plural-Forms: nplurals=1; plural=0\n"
-"MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
-"Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.1.1\n"
 
 msgid ""
 "\n"
@@ -689,18 +690,6 @@ msgstr ""
 "オブジェクト監査 (%(type)s) 「%(mode)s」モード完了: %(elapsed).02fs。合計検疫"
 "済み: %(quars)d、合計エラー: %(errors)d、合計ファイル/秒: %(frate).2f、合計バ"
 "イト/秒: %(brate).2f、監査時間: %(audit).2f、率: %(audit_rate).2f"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors files/sec: %(frate).2f , bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"オブジェクト監査 (%(type)s)。%(start_time)s 以降: ローカル: パス済"
-"み%(passes)d、検疫済み %(quars)d、エラー %(errors)d、ファイル/秒:"
-"%(frate).2f、バイト/秒: %(brate).2f、合計時間: %(total).2f、監査時間:"
-"%(audit).2f、率: %(audit_rate).2f"
 
 #, python-format
 msgid "Object audit stats: %s"

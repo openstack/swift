@@ -45,7 +45,7 @@ from test.unit import (FakeLogger, mock as unit_mock, temptree,
 from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, Timestamp
+from swift.common.utils import hash_path, mkdirs, Timestamp, encode_timestamps
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -616,7 +616,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_ondisk_files_with_empty_dir(self):
         files = []
-        expected = dict(data_file=None, meta_file=None, ts_file=None)
+        expected = dict(
+            data_file=None, meta_file=None, ctype_file=None, ts_file=None)
         for policy in POLICIES:
             for frag_index in (0, None, '14'):
                 # check manager
@@ -1214,6 +1215,64 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected)
 
+    def test_yield_hashes_yields_content_type_timestamp(self):
+        hash_ = '9373a92d072897b136b3fc06595b4abc'
+        ts_iter = make_timestamp_iter()
+        ts0, ts1, ts2, ts3, ts4 = (next(ts_iter) for _ in range(5))
+        data_file = ts1.internal + '.data'
+
+        # no content-type delta
+        meta_file = ts2.internal + '.meta'
+        suffix_map = {'abc': {hash_: [data_file, meta_file]}}
+        expected = {hash_: {'ts_data': ts1,
+                            'ts_meta': ts2}}
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
+        # non-zero content-type delta
+        delta = ts3.raw - ts2.raw
+        meta_file = '%s-%x.meta' % (ts3.internal, delta)
+        suffix_map = {'abc': {hash_: [data_file, meta_file]}}
+        expected = {hash_: {'ts_data': ts1,
+                            'ts_meta': ts3,
+                            'ts_ctype': ts2}}
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
+        # zero content-type delta
+        meta_file = '%s+0.meta' % ts3.internal
+        suffix_map = {'abc': {hash_: [data_file, meta_file]}}
+        expected = {hash_: {'ts_data': ts1,
+                            'ts_meta': ts3,
+                            'ts_ctype': ts3}}
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
+        # content-type in second meta file
+        delta = ts3.raw - ts2.raw
+        meta_file1 = '%s-%x.meta' % (ts3.internal, delta)
+        meta_file2 = '%s.meta' % ts4.internal
+        suffix_map = {'abc': {hash_: [data_file, meta_file1, meta_file2]}}
+        expected = {hash_: {'ts_data': ts1,
+                            'ts_meta': ts4,
+                            'ts_ctype': ts2}}
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
+        # obsolete content-type in second meta file, older than data file
+        delta = ts3.raw - ts0.raw
+        meta_file1 = '%s-%x.meta' % (ts3.internal, delta)
+        meta_file2 = '%s.meta' % ts4.internal
+        suffix_map = {'abc': {hash_: [data_file, meta_file1, meta_file2]}}
+        expected = {hash_: {'ts_data': ts1,
+                            'ts_meta': ts4}}
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
+        # obsolete content-type in second meta file, same time as data file
+        delta = ts3.raw - ts1.raw
+        meta_file1 = '%s-%x.meta' % (ts3.internal, delta)
+        meta_file2 = '%s.meta' % ts4.internal
+        suffix_map = {'abc': {hash_: [data_file, meta_file1, meta_file2]}}
+        expected = {hash_: {'ts_data': ts1,
+                            'ts_meta': ts4}}
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
     def test_yield_hashes_suffix_filter(self):
         # test again with limited suffixes
         old_ts = '1383180000.12345'
@@ -1563,7 +1622,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 info = mgr.parse_on_disk_filename(fname)
                 self.assertEqual(ts, info['timestamp'])
                 self.assertEqual(ext, info['ext'])
-                self.assertEqual(None, info['frag_index'])
+                self.assertIsNone(info['frag_index'])
                 self.assertEqual(mgr.make_on_disk_filename(**info), fname)
 
     def test_parse_on_disk_filename_errors(self):
@@ -1611,6 +1670,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                     'timestamp': ts,
                     'frag_index': int(frag),
                     'ext': '.data',
+                    'ctype_timestamp': None
                 })
                 # these functions are inverse
                 self.assertEqual(
@@ -1631,6 +1691,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                         'timestamp': ts,
                         'frag_index': None,
                         'ext': ext,
+                        'ctype_timestamp': None
                     })
                     # these functions are inverse
                     self.assertEqual(
@@ -1661,6 +1722,30 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 # bad frag index should be ignored
                 actual = mgr.make_on_disk_filename(ts, ext, frag_index=frag)
                 self.assertEqual(expected, actual)
+
+    def test_make_on_disk_filename_for_meta_with_content_type(self):
+        # verify .meta filename encodes content-type timestamp
+        mgr = self.df_router[POLICIES.default]
+        time_ = 1234567890.00001
+        for delta in (0.0, .00001, 1.11111):
+            t_meta = Timestamp(time_)
+            t_type = Timestamp(time_ - delta)
+            sign = '-' if delta else '+'
+            expected = '%s%s%x.meta' % (t_meta.short, sign, 100000 * delta)
+            actual = mgr.make_on_disk_filename(
+                t_meta, '.meta', ctype_timestamp=t_type)
+            self.assertEqual(expected, actual)
+            parsed = mgr.parse_on_disk_filename(actual)
+            self.assertEqual(parsed, {
+                'timestamp': t_meta,
+                'frag_index': None,
+                'ext': '.meta',
+                'ctype_timestamp': t_type
+            })
+            # these functions are inverse
+            self.assertEqual(
+                mgr.make_on_disk_filename(**parsed),
+                expected)
 
     def test_yield_hashes(self):
         old_ts = '1383180000.12345'
@@ -1979,6 +2064,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         tpool.execute = self._orig_tpool_exc
 
     def _create_ondisk_file(self, df, data, timestamp, metadata=None,
+                            ctype_timestamp=None,
                             ext='.data'):
         mkdirs(df._datadir)
         if timestamp is None:
@@ -1996,10 +2082,17 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             metadata['name'] = '/a/c/o'
         if 'Content-Length' not in metadata:
             metadata['Content-Length'] = str(len(data))
-        filename = timestamp.internal + ext
+        filename = timestamp.internal
         if ext == '.data' and df.policy.policy_type == EC_POLICY:
-            filename = '%s#%s.data' % (timestamp.internal, df._frag_index)
-        data_file = os.path.join(df._datadir, filename)
+            filename = '%s#%s' % (timestamp.internal, df._frag_index)
+        if ctype_timestamp:
+            metadata.update(
+                {'Content-Type-Timestamp':
+                 Timestamp(ctype_timestamp).internal})
+            filename = encode_timestamps(timestamp,
+                                         Timestamp(ctype_timestamp),
+                                         explicit=True)
+        data_file = os.path.join(df._datadir, filename + ext)
         with open(data_file, 'wb') as f:
             f.write(data)
             xattr.setxattr(f.fileno(), diskfile.METADATA_KEY,
@@ -2779,6 +2872,99 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.meta' % timestamp
         self.assertTrue(exp_name in set(dl))
 
+    def test_write_metadata_with_content_type(self):
+        # if metadata has content-type then its time should be in file name
+        df = self._create_test_file('1234567890')
+        file_count = len(os.listdir(df._datadir))
+        timestamp = Timestamp(time())
+        metadata = {'X-Timestamp': timestamp.internal,
+                    'X-Object-Meta-test': 'data',
+                    'Content-Type': 'foo',
+                    'Content-Type-Timestamp': timestamp.internal}
+        df.write_metadata(metadata)
+        dl = os.listdir(df._datadir)
+        self.assertEqual(len(dl), file_count + 1)
+        exp_name = '%s+0.meta' % timestamp.internal
+        self.assertTrue(exp_name in set(dl),
+                        'Expected file %s not found in %s' % (exp_name, dl))
+
+    def test_write_metadata_with_older_content_type(self):
+        # if metadata has content-type then its time should be in file name
+        ts_iter = make_timestamp_iter()
+        df = self._create_test_file('1234567890', timestamp=ts_iter.next())
+        file_count = len(os.listdir(df._datadir))
+        timestamp = ts_iter.next()
+        timestamp2 = ts_iter.next()
+        metadata = {'X-Timestamp': timestamp2.internal,
+                    'X-Object-Meta-test': 'data',
+                    'Content-Type': 'foo',
+                    'Content-Type-Timestamp': timestamp.internal}
+        df.write_metadata(metadata)
+        dl = os.listdir(df._datadir)
+        self.assertEqual(len(dl), file_count + 1, dl)
+        exp_name = '%s-%x.meta' % (timestamp2.internal,
+                                   timestamp2.raw - timestamp.raw)
+        self.assertTrue(exp_name in set(dl),
+                        'Expected file %s not found in %s' % (exp_name, dl))
+
+    def test_write_metadata_with_content_type_removes_same_time_meta(self):
+        # a meta file without content-type should be cleaned up in favour of
+        # a meta file at same time with content-type
+        ts_iter = make_timestamp_iter()
+        df = self._create_test_file('1234567890', timestamp=ts_iter.next())
+        file_count = len(os.listdir(df._datadir))
+        timestamp = ts_iter.next()
+        timestamp2 = ts_iter.next()
+        metadata = {'X-Timestamp': timestamp2.internal,
+                    'X-Object-Meta-test': 'data'}
+        df.write_metadata(metadata)
+        metadata = {'X-Timestamp': timestamp2.internal,
+                    'X-Object-Meta-test': 'data',
+                    'Content-Type': 'foo',
+                    'Content-Type-Timestamp': timestamp.internal}
+        df.write_metadata(metadata)
+
+        dl = os.listdir(df._datadir)
+        self.assertEqual(len(dl), file_count + 1, dl)
+        exp_name = '%s-%x.meta' % (timestamp2.internal,
+                                   timestamp2.raw - timestamp.raw)
+        self.assertTrue(exp_name in set(dl),
+                        'Expected file %s not found in %s' % (exp_name, dl))
+
+    def test_write_metadata_with_content_type_removes_multiple_metas(self):
+        # a combination of a meta file without content-type and an older meta
+        # file with content-type should be cleaned up in favour of a meta file
+        # at newer time with content-type
+        ts_iter = make_timestamp_iter()
+        df = self._create_test_file('1234567890', timestamp=ts_iter.next())
+        file_count = len(os.listdir(df._datadir))
+        timestamp = ts_iter.next()
+        timestamp2 = ts_iter.next()
+        metadata = {'X-Timestamp': timestamp2.internal,
+                    'X-Object-Meta-test': 'data'}
+        df.write_metadata(metadata)
+        metadata = {'X-Timestamp': timestamp.internal,
+                    'X-Object-Meta-test': 'data',
+                    'Content-Type': 'foo',
+                    'Content-Type-Timestamp': timestamp.internal}
+        df.write_metadata(metadata)
+
+        dl = os.listdir(df._datadir)
+        self.assertEqual(len(dl), file_count + 2, dl)
+
+        metadata = {'X-Timestamp': timestamp2.internal,
+                    'X-Object-Meta-test': 'data',
+                    'Content-Type': 'foo',
+                    'Content-Type-Timestamp': timestamp.internal}
+        df.write_metadata(metadata)
+
+        dl = os.listdir(df._datadir)
+        self.assertEqual(len(dl), file_count + 1, dl)
+        exp_name = '%s-%x.meta' % (timestamp2.internal,
+                                   timestamp2.raw - timestamp.raw)
+        self.assertTrue(exp_name in set(dl),
+                        'Expected file %s not found in %s' % (exp_name, dl))
+
     def test_write_metadata_no_xattr(self):
         timestamp = Timestamp(time()).internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
@@ -3133,7 +3319,54 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                              Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
-    def test_ondisk_search_loop_data_meta_ts(self):
+    def test_ondisk_search_loop_multiple_meta_data(self):
+        df = self._simple_get_diskfile()
+        self._create_ondisk_file(df, '', ext='.meta', timestamp=10,
+                                 metadata={'X-Object-Meta-User': 'user-meta'})
+        self._create_ondisk_file(df, '', ext='.meta', timestamp=9,
+                                 ctype_timestamp=9,
+                                 metadata={'Content-Type': 'newest',
+                                           'X-Object-Meta-User': 'blah'})
+        self._create_ondisk_file(df, 'B', ext='.data', timestamp=8,
+                                 metadata={'Content-Type': 'newer'})
+        self._create_ondisk_file(df, 'A', ext='.data', timestamp=7,
+                                 metadata={'Content-Type': 'oldest'})
+        if df.policy.policy_type == EC_POLICY:
+            self._create_ondisk_file(df, '', ext='.durable', timestamp=8)
+            self._create_ondisk_file(df, '', ext='.durable', timestamp=7)
+        df = self._simple_get_diskfile()
+        with df.open():
+            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertEqual(df._metadata['X-Timestamp'],
+                             Timestamp(10).internal)
+            self.assertTrue('Content-Type' in df._metadata)
+            self.assertEqual(df._metadata['Content-Type'], 'newest')
+            self.assertTrue('X-Object-Meta-User' in df._metadata)
+            self.assertEqual(df._metadata['X-Object-Meta-User'], 'user-meta')
+
+    def test_ondisk_search_loop_stale_meta_data(self):
+        df = self._simple_get_diskfile()
+        self._create_ondisk_file(df, '', ext='.meta', timestamp=10,
+                                 metadata={'X-Object-Meta-User': 'user-meta'})
+        self._create_ondisk_file(df, '', ext='.meta', timestamp=9,
+                                 ctype_timestamp=7,
+                                 metadata={'Content-Type': 'older',
+                                           'X-Object-Meta-User': 'blah'})
+        self._create_ondisk_file(df, 'B', ext='.data', timestamp=8,
+                                 metadata={'Content-Type': 'newer'})
+        if df.policy.policy_type == EC_POLICY:
+            self._create_ondisk_file(df, '', ext='.durable', timestamp=8)
+        df = self._simple_get_diskfile()
+        with df.open():
+            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertEqual(df._metadata['X-Timestamp'],
+                             Timestamp(10).internal)
+            self.assertTrue('Content-Type' in df._metadata)
+            self.assertEqual(df._metadata['Content-Type'], 'newer')
+            self.assertTrue('X-Object-Meta-User' in df._metadata)
+            self.assertEqual(df._metadata['X-Object-Meta-User'], 'user-meta')
+
+    def test_ondisk_search_loop_data_ts_meta(self):
         df = self._simple_get_diskfile()
         self._create_ondisk_file(df, 'B', ext='.data', timestamp=10)
         self._create_ondisk_file(df, 'A', ext='.data', timestamp=9)
@@ -3294,6 +3527,37 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         with self.assertRaises(DiskFileNotOpen):
             df.data_timestamp
+
+    def test_content_type_and_timestamp(self):
+        ts_1 = self.ts()
+        self._get_open_disk_file(ts=ts_1.internal,
+                                 extra_metadata={'Content-Type': 'image/jpeg'})
+        df = self._simple_get_diskfile()
+        with df.open():
+            self.assertEqual(ts_1.internal, df.data_timestamp)
+            self.assertEqual(ts_1.internal, df.timestamp)
+            self.assertEqual(ts_1.internal, df.content_type_timestamp)
+            self.assertEqual('image/jpeg', df.content_type)
+        ts_2 = self.ts()
+        ts_3 = self.ts()
+        df.write_metadata({'X-Timestamp': ts_3.internal,
+                           'Content-Type': 'image/gif',
+                           'Content-Type-Timestamp': ts_2.internal})
+        with df.open():
+            self.assertEqual(ts_1.internal, df.data_timestamp)
+            self.assertEqual(ts_3.internal, df.timestamp)
+            self.assertEqual(ts_2.internal, df.content_type_timestamp)
+            self.assertEqual('image/gif', df.content_type)
+
+    def test_content_type_timestamp_not_open(self):
+        df = self._simple_get_diskfile()
+        with self.assertRaises(DiskFileNotOpen):
+            df.content_type_timestamp
+
+    def test_content_type_not_open(self):
+        df = self._simple_get_diskfile()
+        with self.assertRaises(DiskFileNotOpen):
+            df.content_type
 
     def test_durable_timestamp(self):
         ts_1 = self.ts()
@@ -4211,6 +4475,14 @@ class TestSuffixHashes(unittest.TestCase):
         filename += '.data'
         return filename
 
+    def _metafilename(self, meta_timestamp, ctype_timestamp=None):
+        filename = meta_timestamp.internal
+        if ctype_timestamp is not None:
+            delta = meta_timestamp.raw - ctype_timestamp.raw
+            filename = '%s-%x' % (filename, delta)
+        filename += '.meta'
+        return filename
+
     def check_hash_cleanup_listdir(self, policy, input_files, output_files):
         orig_unlink = os.unlink
         file_list = list(input_files)
@@ -4568,6 +4840,37 @@ class TestSuffixHashes(unittest.TestCase):
             }[policy.policy_type]
             self.assertEqual(hashes, expected)
 
+    def test_hash_suffix_one_tombstone_and_one_meta(self):
+        # A tombstone plus a newer meta file can happen if a tombstone is
+        # replicated to a node with a newer meta file but older data file. The
+        # meta file will be ignored when the diskfile is opened so the
+        # effective state of the disk files is equivalent to only having the
+        # tombstone. Replication cannot remove the meta file, and the meta file
+        # cannot be ssync replicated to a node with only the tombstone, so
+        # we want the get_hashes result to be the same as if the meta file was
+        # not there.
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # write a tombstone
+            timestamp = self.ts()
+            df.delete(timestamp)
+            # write a meta file
+            df.write_metadata({'X-Timestamp': self.ts().internal})
+            # sanity check
+            self.assertEqual(2, len(os.listdir(df._datadir)))
+            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            expected = {
+                REPL_POLICY: {suffix: tombstone_hash},
+                EC_POLICY: {suffix: {
+                    # fi is None here because we have a tombstone
+                    None: tombstone_hash}},
+            }[policy.policy_type]
+            self.assertEqual(hashes, expected)
+
     def test_hash_suffix_one_reclaim_tombstone(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
@@ -4739,6 +5042,175 @@ class TestSuffixHashes(unittest.TestCase):
             # only the meta and data should be left
             self.assertEqual(sorted(os.listdir(df._datadir)),
                              sorted(expected_files))
+
+    def _verify_get_hashes(self, filenames, ts_data, ts_meta, ts_ctype,
+                           policy):
+        """
+        Helper method to create a set of ondisk files and verify suffix_hashes.
+
+        :param filenames: list of filenames to create in an object hash dir
+        :param ts_data: newest data timestamp, used for expected result
+        :param ts_meta: newest meta timestamp, used for expected result
+        :param ts_ctype: newest content-type timestamp, used for expected
+                         result
+        :param policy: storage policy to use for test
+        """
+        df_mgr = self.df_router[policy]
+        df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                 policy=policy, frag_index=4)
+        suffix = os.path.basename(os.path.dirname(df._datadir))
+        mkdirs(df._datadir)
+
+        # calculate expected result
+        hasher = md5()
+        if policy.policy_type == EC_POLICY:
+            hasher.update(ts_meta.internal + '.meta')
+            hasher.update(ts_data.internal + '.durable')
+            if ts_ctype:
+                hasher.update(ts_ctype.internal + '_ctype')
+            expected = {
+                suffix: {
+                    None: hasher.hexdigest(),
+                    4: md5(ts_data.internal).hexdigest(),
+                }
+            }
+        elif policy.policy_type == REPL_POLICY:
+            hasher.update(ts_meta.internal + '.meta')
+            hasher.update(ts_data.internal + '.data')
+            if ts_ctype:
+                hasher.update(ts_ctype.internal + '_ctype')
+            expected = {suffix: hasher.hexdigest()}
+        else:
+            self.fail('unknown policy type %r' % policy.policy_type)
+
+        for fname in filenames:
+            open(os.path.join(df._datadir, fname), 'w').close()
+
+        hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+        msg = 'expected %r != %r for policy %r' % (
+            expected, hashes, policy)
+        self.assertEqual(hashes, expected, msg)
+
+    def test_hash_suffix_with_older_content_type_in_meta(self):
+        # single meta file having older content-type
+        for policy in self.iter_policies():
+            ts_data, ts_ctype, ts_meta = (
+                self.ts(), self.ts(), self.ts())
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_meta, ts_ctype)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_meta, ts_ctype, policy)
+
+    def test_hash_suffix_with_same_age_content_type_in_meta(self):
+        # single meta file having same age content-type
+        for policy in self.iter_policies():
+            ts_data, ts_meta = (self.ts(), self.ts())
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_meta, ts_meta)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_meta, ts_meta, policy)
+
+    def test_hash_suffix_with_obsolete_content_type_in_meta(self):
+        # After rsync replication we could have a single meta file having
+        # content-type older than a replicated data file
+        for policy in self.iter_policies():
+            ts_ctype, ts_data, ts_meta = (self.ts(), self.ts(), self.ts())
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_meta, ts_ctype)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_meta, None, policy)
+
+    def test_hash_suffix_with_older_content_type_in_newer_meta(self):
+        # After rsync replication we could have two meta files: newest
+        # content-type is in newer meta file, older than newer meta file
+        for policy in self.iter_policies():
+            ts_data, ts_older_meta, ts_ctype, ts_newer_meta = (
+                self.ts() for _ in range(4))
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_older_meta),
+                         self._metafilename(ts_newer_meta, ts_ctype)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_newer_meta, ts_ctype, policy)
+
+    def test_hash_suffix_with_same_age_content_type_in_newer_meta(self):
+        # After rsync replication we could have two meta files: newest
+        # content-type is in newer meta file, at same age as newer meta file
+        for policy in self.iter_policies():
+            ts_data, ts_older_meta, ts_newer_meta = (
+                self.ts() for _ in range(3))
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_newer_meta, ts_newer_meta)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_newer_meta, ts_newer_meta, policy)
+
+    def test_hash_suffix_with_older_content_type_in_older_meta(self):
+        # After rsync replication we could have two meta files: newest
+        # content-type is in older meta file, older than older meta file
+        for policy in self.iter_policies():
+            ts_data, ts_ctype, ts_older_meta, ts_newer_meta = (
+                self.ts() for _ in range(4))
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_newer_meta),
+                         self._metafilename(ts_older_meta, ts_ctype)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_newer_meta, ts_ctype, policy)
+
+    def test_hash_suffix_with_same_age_content_type_in_older_meta(self):
+        # After rsync replication we could have two meta files: newest
+        # content-type is in older meta file, at same age as older meta file
+        for policy in self.iter_policies():
+            ts_data, ts_older_meta, ts_newer_meta = (
+                self.ts() for _ in range(3))
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_newer_meta),
+                         self._metafilename(ts_older_meta, ts_older_meta)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_newer_meta, ts_older_meta, policy)
+
+    def test_hash_suffix_with_obsolete_content_type_in_older_meta(self):
+        # After rsync replication we could have two meta files: newest
+        # content-type is in older meta file, but older than data file
+        for policy in self.iter_policies():
+            ts_ctype, ts_data, ts_older_meta, ts_newer_meta = (
+                self.ts() for _ in range(4))
+
+            filenames = [self._datafilename(ts_data, policy, frag_index=4),
+                         self._metafilename(ts_newer_meta),
+                         self._metafilename(ts_older_meta, ts_ctype)]
+            if policy.policy_type == EC_POLICY:
+                filenames.append(ts_data.internal + '.durable')
+
+            self._verify_get_hashes(
+                filenames, ts_data, ts_newer_meta, None, policy)
 
     def test_hash_suffix_removes_empty_hashdir_and_suffix(self):
         for policy in self.iter_policies():

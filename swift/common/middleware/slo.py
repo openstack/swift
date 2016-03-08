@@ -57,12 +57,11 @@ The format of the list will be:
       "range": "1048576-2097151"}, ...]
 
 The number of object segments is limited to a configurable amount, default
-1000. Each segment, except for the final one, must be at least 1 megabyte
-(configurable). On upload, the middleware will head every segment passed in to
-verify:
+1000. Each segment must be at least 1 byte. On upload, the middleware will
+head every segment passed in to verify:
 
  1. the segment exists (i.e. the HEAD was successful);
- 2. the segment meets minimum size requirements (if not the last segment);
+ 2. the segment meets minimum size requirements;
  3. if the user provided a non-null etag, the etag matches;
  4. if the user provided a non-null size_bytes, the size_bytes matches; and
  5. if the user provided a range, it is a singular, syntactically correct range
@@ -121,8 +120,9 @@ finally bytes 2095104 through 2097152 (i.e., the last 2048 bytes) of
 
   .. note::
 
-     The minimum sized range is min_segment_size, which by
-     default is 1048576 (1MB).
+
+     The minimum sized range is 1 byte. This is the same as the minimum
+     segment size.
 
 
 -------------------------
@@ -221,7 +221,7 @@ from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
 
-DEFAULT_MIN_SEGMENT_SIZE = 1024 * 1024  # 1 MiB
+DEFAULT_RATE_LIMIT_UNDER_SIZE = 1024 * 1024  # 1 MiB
 DEFAULT_MAX_MANIFEST_SEGMENTS = 1000
 DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
 
@@ -231,7 +231,7 @@ OPTIONAL_SLO_KEYS = set(['range'])
 ALLOWED_SLO_KEYS = REQUIRED_SLO_KEYS | OPTIONAL_SLO_KEYS
 
 
-def parse_and_validate_input(req_body, req_path, min_segment_size):
+def parse_and_validate_input(req_body, req_path):
     """
     Given a request body, parses it and returns a list of dictionaries.
 
@@ -269,7 +269,6 @@ def parse_and_validate_input(req_body, req_path, min_segment_size):
     vrs, account, _junk = split_path(req_path, 3, 3, True)
 
     errors = []
-    num_segs = len(parsed_data)
     for seg_index, seg_dict in enumerate(parsed_data):
         if not isinstance(seg_dict, dict):
             errors.append("Index %d: not a JSON object" % seg_index)
@@ -315,10 +314,10 @@ def parse_and_validate_input(req_body, req_path, min_segment_size):
             except (TypeError, ValueError):
                 errors.append("Index %d: invalid size_bytes" % seg_index)
                 continue
-            if (seg_size < min_segment_size and seg_index < num_segs - 1):
-                errors.append("Index %d: too small; each segment, except "
-                              "the last, must be at least %d bytes."
-                              % (seg_index, min_segment_size))
+            if seg_size < 1:
+                errors.append("Index %d: too small; each segment must be "
+                              "at least 1 byte."
+                              % (seg_index,))
                 continue
 
         obj_path = '/'.join(['', vrs, account, seg_dict['path'].lstrip('/')])
@@ -461,13 +460,13 @@ class SloGetContext(WSGIContext):
                 # no bytes are needed from this or any future segment
                 break
 
-            range = seg_dict.get('range')
-            if range is None:
+            seg_range = seg_dict.get('range')
+            if seg_range is None:
                 range_start, range_end = 0, seg_length - 1
             else:
                 # We already validated and supplied concrete values
                 # for the range on upload
-                range_start, range_end = map(int, range.split('-'))
+                range_start, range_end = map(int, seg_range.split('-'))
 
             if config_true_value(seg_dict.get('sub_slo')):
                 # do this check here so that we can avoid fetching this last
@@ -662,10 +661,17 @@ class SloGetContext(WSGIContext):
         plain_listing_iter = self._segment_listing_iterator(
             req, ver, account, segments)
 
+        def is_small_segment((seg_dict, start_byte, end_byte)):
+            start = 0 if start_byte is None else start_byte
+            end = int(seg_dict['bytes']) - 1 if end_byte is None else end_byte
+            is_small = (end - start + 1) < self.slo.rate_limit_under_size
+            return is_small
+
         ratelimited_listing_iter = RateLimitedIterator(
             plain_listing_iter,
             self.slo.rate_limit_segments_per_sec,
-            limit_after=self.slo.rate_limit_after_segment)
+            limit_after=self.slo.rate_limit_after_segment,
+            ratelimit_if=is_small_segment)
 
         # self._segment_listing_iterator gives us 3-tuples of (segment dict,
         # start byte, end byte), but SegmentedIterable wants (obj path, etag,
@@ -716,7 +722,7 @@ class StaticLargeObject(object):
     :param conf: The configuration dict for the middleware.
     """
 
-    def __init__(self, app, conf, min_segment_size=DEFAULT_MIN_SEGMENT_SIZE,
+    def __init__(self, app, conf,
                  max_manifest_segments=DEFAULT_MAX_MANIFEST_SEGMENTS,
                  max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE):
         self.conf = conf
@@ -724,12 +730,13 @@ class StaticLargeObject(object):
         self.logger = get_logger(conf, log_route='slo')
         self.max_manifest_segments = max_manifest_segments
         self.max_manifest_size = max_manifest_size
-        self.min_segment_size = min_segment_size
         self.max_get_time = int(self.conf.get('max_get_time', 86400))
+        self.rate_limit_under_size = int(self.conf.get(
+            'rate_limit_under_size', DEFAULT_RATE_LIMIT_UNDER_SIZE))
         self.rate_limit_after_segment = int(self.conf.get(
             'rate_limit_after_segment', '10'))
         self.rate_limit_segments_per_sec = int(self.conf.get(
-            'rate_limit_segments_per_sec', '0'))
+            'rate_limit_segments_per_sec', '1'))
         self.bulk_deleter = Bulk(app, {}, logger=self.logger)
 
     def handle_multipart_get_or_head(self, req, start_response):
@@ -783,7 +790,7 @@ class StaticLargeObject(object):
             raise HTTPLengthRequired(request=req)
         parsed_data = parse_and_validate_input(
             req.body_file.read(self.max_manifest_size),
-            req.path, self.min_segment_size)
+            req.path)
         problem_segments = []
 
         if len(parsed_data) > self.max_manifest_segments:
@@ -812,6 +819,7 @@ class StaticLargeObject(object):
             new_env['CONTENT_LENGTH'] = 0
             new_env['HTTP_USER_AGENT'] = \
                 '%s MultipartPUT' % req.environ.get('HTTP_USER_AGENT')
+
             if obj_path != last_obj_path:
                 last_obj_path = obj_path
                 head_seg_resp = \
@@ -840,12 +848,10 @@ class StaticLargeObject(object):
                         seg_dict['range'] = '%d-%d' % (rng[0], rng[1] - 1)
                         segment_length = rng[1] - rng[0]
 
-                if segment_length < self.min_segment_size and \
-                        index < len(parsed_data) - 1:
+                if segment_length < 1:
                     problem_segments.append(
                         [quote(obj_name),
-                         'Too small; each segment, except the last, must be '
-                         'at least %d bytes.' % self.min_segment_size])
+                         'Too small; each segment must be at least 1 byte.'])
                 total_size += segment_length
                 if seg_dict['size_bytes'] is not None and \
                         seg_dict['size_bytes'] != head_seg_resp.content_length:
@@ -1045,18 +1051,17 @@ def filter_factory(global_conf, **local_conf):
                                          DEFAULT_MAX_MANIFEST_SEGMENTS))
     max_manifest_size = int(conf.get('max_manifest_size',
                                      DEFAULT_MAX_MANIFEST_SIZE))
-    min_segment_size = int(conf.get('min_segment_size',
-                                    DEFAULT_MIN_SEGMENT_SIZE))
 
     register_swift_info('slo',
                         max_manifest_segments=max_manifest_segments,
                         max_manifest_size=max_manifest_size,
-                        min_segment_size=min_segment_size)
+                        # this used to be configurable; report it as 1 for
+                        # clients that might still care
+                        min_segment_size=1)
 
     def slo_filter(app):
         return StaticLargeObject(
             app, conf,
             max_manifest_segments=max_manifest_segments,
-            max_manifest_size=max_manifest_size,
-            min_segment_size=min_segment_size)
+            max_manifest_size=max_manifest_size)
     return slo_filter

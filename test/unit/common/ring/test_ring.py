@@ -16,7 +16,6 @@
 import array
 import six.moves.cPickle as pickle
 import os
-import sys
 import unittest
 import stat
 from contextlib import closing
@@ -24,10 +23,12 @@ from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
 from time import sleep, time
+import random
 
 from six.moves import range
 
 from swift.common import ring, utils
+from swift.common.ring import utils as ring_utils
 
 
 class TestRingBase(unittest.TestCase):
@@ -109,11 +110,7 @@ class TestRingData(unittest.TestCase):
     def test_deterministic_serialization(self):
         """
         Two identical rings should produce identical .gz files on disk.
-
-        Only true on Python 2.7 or greater.
         """
-        if sys.version_info[0] == 2 and sys.version_info[1] < 7:
-            return
         os.mkdir(os.path.join(self.testdir, '1'))
         os.mkdir(os.path.join(self.testdir, '2'))
         # These have to have the same filename (not full path,
@@ -821,6 +818,69 @@ class TestRing(TestRingBase):
                 dev_id, exp_handoffs[index],
                 'handoff differs at position %d\n%s\n%s' % (
                     index, dev_ids[index:], exp_handoffs[index:]))
+
+    def test_get_more_nodes_with_zero_weight_region(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        devs = [
+            ring_utils.parse_add_value(v) for v in [
+                'r1z1-127.0.0.1:6000/d1',
+                'r1z1-127.0.0.1:6001/d2',
+                'r1z1-127.0.0.1:6002/d3',
+                'r1z1-127.0.0.1:6003/d4',
+                'r1z2-127.0.0.2:6000/d1',
+                'r1z2-127.0.0.2:6001/d2',
+                'r1z2-127.0.0.2:6002/d3',
+                'r1z2-127.0.0.2:6003/d4',
+                'r2z1-127.0.1.1:6000/d1',
+                'r2z1-127.0.1.1:6001/d2',
+                'r2z1-127.0.1.1:6002/d3',
+                'r2z1-127.0.1.1:6003/d4',
+                'r2z2-127.0.1.2:6000/d1',
+                'r2z2-127.0.1.2:6001/d2',
+                'r2z2-127.0.1.2:6002/d3',
+                'r2z2-127.0.1.2:6003/d4',
+            ]
+        ]
+        for dev in devs:
+            if dev['region'] == 2:
+                dev['weight'] = 0.0
+            else:
+                dev['weight'] = 1.0
+            rb.add_dev(dev)
+        rb.rebalance(seed=1)
+        rb.get_ring().save(self.testgz)
+        r = ring.Ring(self.testdir, ring_name='whatever')
+
+        class CountingRingTable(object):
+
+            def __init__(self, table):
+                self.table = table
+                self.count = 0
+
+            def __iter__(self):
+                self._iter = iter(self.table)
+                return self
+
+            def __next__(self):
+                self.count += 1
+                return next(self._iter)
+
+            # complete the api
+            next = __next__
+
+            def __getitem__(self, key):
+                return self.table[key]
+
+        counting_table = CountingRingTable(r._replica2part2dev_id)
+        r._replica2part2dev_id = counting_table
+
+        part = random.randint(0, r.partition_count)
+        node_iter = r.get_more_nodes(part)
+        next(node_iter)
+        self.assertEqual(5, counting_table.count)
+        # sanity
+        self.assertEqual(1, r._num_regions)
+        self.assertEqual(2, r._num_zones)
 
 
 if __name__ == '__main__':

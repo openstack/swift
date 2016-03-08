@@ -115,6 +115,7 @@ Disable versioning from a container (x is any value except empty)::
 -H "X-Remove-Versions-Location: x" http://<storage_url>/container
 """
 
+import calendar
 import json
 import six
 from six.moves.urllib.parse import quote, unquote
@@ -209,9 +210,9 @@ class VersionedWritesContext(WSGIContext):
             lprefix = prefix_len + object_name + '/'
             ts_source = hresp.environ.get('swift_x_timestamp')
             if ts_source is None:
-                ts_source = time.mktime(time.strptime(
-                                        hresp.headers['last-modified'],
-                                        '%a, %d %b %Y %H:%M:%S GMT'))
+                ts_source = calendar.timegm(time.strptime(
+                                            hresp.headers['last-modified'],
+                                            '%a, %d %b %Y %H:%M:%S GMT'))
             new_ts = Timestamp(ts_source).internal
             vers_obj_name = lprefix + new_ts
             copy_headers = {
@@ -348,7 +349,7 @@ class VersionedWritesMiddleware(object):
         if 'X-Versions-Location' in req.headers:
             val = req.headers.get('X-Versions-Location')
             if val:
-                # diferently from previous version, we are actually
+                # differently from previous version, we are actually
                 # returning an error if user tries to set versions location
                 # while feature is explicitly disabled.
                 if not config_true_value(enabled) and \

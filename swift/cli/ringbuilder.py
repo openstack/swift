@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +24,7 @@ from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv as sys_argv, exit, stderr, stdout
 from textwrap import wrap
 from time import time
+from datetime import timedelta
 import optparse
 import math
 
@@ -32,7 +32,7 @@ from six.moves import zip as izip
 from six.moves import input
 
 from swift.common import exceptions
-from swift.common.ring import RingBuilder, Ring
+from swift.common.ring import RingBuilder, Ring, RingData
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.ring.utils import validate_args, \
     validate_and_normalize_ip, build_dev_from_opts, \
@@ -389,11 +389,12 @@ def _parse_remove_values(argvish):
 
 
 class Commands(object):
-
+    @staticmethod
     def unknown():
         print('Unknown command: %s' % argv[2])
         exit(EXIT_ERROR)
 
+    @staticmethod
     def create():
         """
 swift-ring-builder <builder_file> create <part_power> <replicas>
@@ -417,6 +418,7 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def default():
         """
 swift-ring-builder <builder_file>
@@ -444,9 +446,28 @@ swift-ring-builder <builder_file>
                   builder.parts, builder.replicas, regions, zones, dev_count,
                   balance, dispersion_trailer))
         print('The minimum number of hours before a partition can be '
-              'reassigned is %s' % builder.min_part_hours)
+              'reassigned is %s (%s remaining)' % (
+                  builder.min_part_hours,
+                  timedelta(seconds=builder.min_part_seconds_left)))
         print('The overload factor is %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
+
+        # compare ring file against builder file
+        if not exists(ring_file):
+            print('Ring file %s not found, '
+                  'probably it hasn\'t been written yet' % ring_file)
+        else:
+            builder_dict = builder.get_ring().to_dict()
+            try:
+                ring_dict = RingData.load(ring_file).to_dict()
+            except Exception as exc:
+                print('Ring file %s is invalid: %r' % (ring_file, exc))
+            else:
+                if builder_dict == ring_dict:
+                    print('Ring file %s is up-to-date' % ring_file)
+                else:
+                    print('Ring file %s is obsolete' % ring_file)
+
         if builder.devs:
             balance_per_dev = builder._build_balance_per_dev()
             print('Devices:    id  region  zone      ip address  port  '
@@ -463,6 +484,7 @@ swift-ring-builder <builder_file>
                        dev['meta']))
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def search():
         """
 swift-ring-builder <builder_file> search <search-value>
@@ -513,6 +535,7 @@ swift-ring-builder <builder_file> search
                    dev['meta']))
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def list_parts():
         """
 swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
@@ -562,6 +585,7 @@ swift-ring-builder <builder_file> list_parts
             print('%9d   %7d' % (partition, count))
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def add():
         """
 swift-ring-builder <builder_file> add
@@ -612,6 +636,7 @@ swift-ring-builder <builder_file> add
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def set_weight():
         """
 swift-ring-builder <builder_file> set_weight <search-value> <weight>
@@ -644,6 +669,7 @@ swift-ring-builder <builder_file> set_weight
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def set_info():
         """
 swift-ring-builder <builder_file> set_info
@@ -689,6 +715,7 @@ swift-ring-builder <builder_file> set_info
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def remove():
         """
 swift-ring-builder <builder_file> remove <search-value> [search-value ...]
@@ -754,6 +781,7 @@ swift-ring-builder <builder_file> search
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def rebalance():
         """
 swift-ring-builder <builder_file> rebalance [options]
@@ -787,6 +815,14 @@ swift-ring-builder <builder_file> rebalance [options]
             handler.setFormatter(formatter)
             logger.addHandler(handler)
 
+        if builder.min_part_seconds_left > 0 and not options.force:
+            print('No partitions could be reassigned.')
+            print('The time between rebalances must be at least '
+                  'min_part_hours: %s hours (%s remaining)' % (
+                      builder.min_part_hours,
+                      timedelta(seconds=builder.min_part_seconds_left)))
+            exit(EXIT_WARNING)
+
         devs_changed = builder.devs_changed
         try:
             last_balance = builder.get_balance()
@@ -802,8 +838,7 @@ swift-ring-builder <builder_file> rebalance [options]
             exit(EXIT_ERROR)
         if not (parts or options.force or removed_devs):
             print('No partitions could be reassigned.')
-            print('Either none need to be or none can be due to '
-                  'min_part_hours [%s].' % builder.min_part_hours)
+            print('There is no need to do so at this time')
             exit(EXIT_WARNING)
         # If we set device's weight to zero, currently balance will be set
         # special value(MAX_BALANCE) until zero weighted device return all
@@ -859,6 +894,7 @@ swift-ring-builder <builder_file> rebalance [options]
         builder.save(builder_file)
         exit(status)
 
+    @staticmethod
     def dispersion():
         """
 swift-ring-builder <builder_file> dispersion <search_filter> [options]
@@ -953,6 +989,7 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
                 print(template % args)
         exit(status)
 
+    @staticmethod
     def validate():
         """
 swift-ring-builder <builder_file> validate
@@ -961,6 +998,7 @@ swift-ring-builder <builder_file> validate
         builder.validate()
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def write_ring():
         """
 swift-ring-builder <builder_file> write_ring
@@ -982,6 +1020,7 @@ swift-ring-builder <builder_file> write_ring
         ring_data.save(ring_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def write_builder():
         """
 swift-ring-builder <ring_file> write_builder [min_part_hours]
@@ -1028,6 +1067,7 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
                 builder.devs[dev_id]['parts'] += 1
         builder.save(builder_file)
 
+    @staticmethod
     def pretend_min_part_hours_passed():
         """
 swift-ring-builder <builder_file> pretend_min_part_hours_passed
@@ -1046,6 +1086,7 @@ swift-ring-builder <builder_file> pretend_min_part_hours_passed
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def set_min_part_hours():
         """
 swift-ring-builder <builder_file> set_min_part_hours <hours>
@@ -1062,6 +1103,7 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def set_replicas():
         """
 swift-ring-builder <builder_file> set_replicas <replicas>
@@ -1094,6 +1136,7 @@ swift-ring-builder <builder_file> set_replicas <replicas>
         builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
+    @staticmethod
     def set_overload():
         """
 swift-ring-builder <builder_file> set_overload <overload>[%]
@@ -1150,11 +1193,12 @@ def main(arguments=None):
               globals())
         print(Commands.default.__doc__.strip())
         print()
-        cmds = [c for c, f in Commands.__dict__.items()
-                if f.__doc__ and not c.startswith('_') and c != 'default']
+        cmds = [c for c in dir(Commands)
+                if getattr(Commands, c).__doc__ and not c.startswith('_') and
+                c != 'default']
         cmds.sort()
         for cmd in cmds:
-            print(Commands.__dict__[cmd].__doc__.strip())
+            print(getattr(Commands, cmd).__doc__.strip())
             print()
         print(parse_search_value.__doc__.strip())
         print()
@@ -1199,13 +1243,9 @@ def main(arguments=None):
     if argv[0].endswith('-safe'):
         try:
             with lock_parent_directory(abspath(builder_file), 15):
-                Commands.__dict__.get(command, Commands.unknown.__func__)()
+                getattr(Commands, command, Commands.unknown)()
         except exceptions.LockTimeout:
             print("Ring/builder dir currently locked.")
             exit(2)
     else:
-        Commands.__dict__.get(command, Commands.unknown.__func__)()
-
-
-if __name__ == '__main__':
-    main()
+        getattr(Commands, command, Commands.unknown)()

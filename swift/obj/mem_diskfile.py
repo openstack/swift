@@ -25,7 +25,9 @@ from six import moves
 from swift.common.utils import Timestamp
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileDeleted, DiskFileNotOpen
+from swift.common.request_helpers import is_sys_meta
 from swift.common.swob import multi_range_iterator
+from swift.obj.diskfile import DATAFILE_SYSTEM_META
 
 
 class InMemoryFileSystem(object):
@@ -41,17 +43,37 @@ class InMemoryFileSystem(object):
         self._filesystem = {}
 
     def get_object(self, name):
+        """
+        Return back an file-like object and its metadata
+
+        :param name: standard object name
+        :return (fp, metadata): fp is `StringIO` in-memory representation
+                                object (or None). metadata is a dictionary
+                                of metadata (or None)
+        """
         val = self._filesystem.get(name)
         if val is None:
-            data, metadata = None, None
+            fp, metadata = None, None
         else:
-            data, metadata = val
-        return data, metadata
+            fp, metadata = val
+        return fp, metadata
 
-    def put_object(self, name, data, metadata):
-        self._filesystem[name] = (data, metadata)
+    def put_object(self, name, fp, metadata):
+        """
+        Store object into memory
+
+        :param name: standard object name
+        :param fp: `StringIO` in-memory representation object
+        :param metadata: dictionary of metadata to be written
+        """
+        self._filesystem[name] = (fp, metadata)
 
     def del_object(self, name):
+        """
+        Delete object from memory
+
+        :param name: standard object name
+        """
         del self._filesystem[name]
 
     def get_diskfile(self, account, container, obj, **kwargs):
@@ -99,7 +121,6 @@ class DiskFileWriter(object):
         with the `StringIO` object.
 
         :param metadata: dictionary of metadata to be written
-        :param extension: extension to be used when making the file
         """
         metadata['name'] = self._name
         self._filesystem.put_object(self._name, self._fp, metadata)
@@ -209,7 +230,7 @@ class DiskFileReader(object):
         if self._bytes_read != self._obj_size:
             self._quarantine(
                 "Bytes read: %s, does not match metadata: %s" % (
-                    self.bytes_read, self._obj_size))
+                    self._bytes_read, self._obj_size))
         elif self._iter_etag and \
                 self._etag != self._iter_etag.hexdigest():
             self._quarantine(
@@ -239,14 +260,10 @@ class DiskFile(object):
 
     Manage object files in-memory.
 
-    :param mgr: DiskFileManager
-    :param device_path: path to the target device or drive
-    :param threadpool: thread pool to use for blocking operations
-    :param partition: partition on the device in which the object lives
+    :param fs: an instance of InMemoryFileSystem
     :param account: account name for the object
     :param container: container name for the object
     :param obj: object name for the object
-    :param keep_cache: caller's preference for keeping data read in the cache
     """
 
     def __init__(self, fs, account, container, obj):
@@ -282,6 +299,19 @@ class DiskFile(object):
     def __exit__(self, t, v, tb):
         if self._fp is not None:
             self._fp = None
+
+    def _quarantine(self, name, msg):
+        """
+        Quarantine a file; responsible for incrementing the associated logger's
+        count of quarantines.
+
+        :param name: name of object to quarantine
+        :param msg: reason for quarantining to be included in the exception
+        :returns: DiskFileQuarantined exception object
+        """
+        # for this implementation we simply delete the bad object
+        self._filesystem.del_object(name)
+        return DiskFileQuarantined(msg)
 
     def _verify_data_file(self, fp):
         """
@@ -396,9 +426,18 @@ class DiskFile(object):
         """
         Write a block of metadata to an object.
         """
-        cur_fp = self._filesystem.get(self._name)
-        if cur_fp is not None:
-            self._filesystem[self._name] = (cur_fp, metadata)
+        data, cur_mdata = self._filesystem.get_object(self._name)
+        if data is not None:
+            # The object exists. Update the new metadata with the object's
+            # immutable metadata (e.g. name, size, etag, sysmeta) and store it
+            # with the object data.
+            immutable_metadata = dict(
+                [(key, val) for key, val in cur_mdata.items()
+                 if key.lower() in DATAFILE_SYSTEM_META
+                 or is_sys_meta('object', key)])
+            metadata.update(immutable_metadata)
+            metadata['name'] = self._name
+            self._filesystem.put_object(self._name, data, metadata)
 
     def delete(self, timestamp):
         """
@@ -424,3 +463,11 @@ class DiskFile(object):
     data_timestamp = timestamp
 
     durable_timestamp = timestamp
+
+    content_type_timestamp = timestamp
+
+    @property
+    def content_type(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._metadata.get('Content-Type')

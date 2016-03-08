@@ -37,8 +37,7 @@ There are many reasons why this might be desirable:
 .. note::
 
     Today, Swift supports two different policy types: Replication and Erasure
-    Code. Erasure Code policy is currently a beta release and should not be
-    used in a Production cluster. See :doc:`overview_erasure_code` for details.
+    Code. See :doc:`overview_erasure_code` for details.
 
     Also note that Diskfile refers to backend object storage plug-in
     architecture. See :doc:`development_ondisk_backends` for details.
@@ -286,6 +285,7 @@ example configuration.::
 
         [swift-hash]
         # random unique strings that can never change (DO NOT LOSE)
+        # Use only printable chars (python -c "import string; print(string.printable)")
         swift_hash_path_prefix = changeme
         swift_hash_path_suffix = changeme
 

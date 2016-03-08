@@ -74,6 +74,11 @@ def main():
                       help="Return zero status code even if some config is "
                            "missing. Default mode if any server is a glob or "
                            "one of aliases `all`, `main` or `rest`.")
+    # SIGKILL daemon after kill_wait period
+    parser.add_option('--kill-after-timeout', dest='kill_after_timeout',
+                      action='store_true',
+                      help="Kill daemon and all childs after kill-wait "
+                           "period.")
 
     options, args = parser.parse_args()
 

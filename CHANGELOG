@@ -1,3 +1,92 @@
+swift (2.6.0)
+
+    * Dependency changes
+      - Updated minimum version of eventlet to 0.17.4 to support IPv6.
+
+      - Updated the minimum version of PyECLib to 1.0.7.
+
+    * The ring rebalancing algorithm was updated to better handle edge cases
+      and to give better (more balanced) rings in the general case. New rings
+      will have better initial placement, capacity adjustments will move less
+      data for better balance, and existing rings that were imbalanced should
+      start to become better balanced as they go through rebalance cycles.
+
+    * Added container and account reverse listings.
+
+      A GET request to an account or container resource with a "reverse=true"
+      query parameter will return the listing in reverse order. When
+      iterating over pages of reverse listings, the relative order of marker
+      and end_marker are swapped.
+
+    * Storage policies now support having more than one name.
+
+      This allows operators to fix a typo without breaking existing clients,
+      or, alternatively, have "short names" for policies. This is implemented
+      with the "aliases" config key in the storage policy config in
+      swift.conf. The aliases value is a list of names that the storage
+      policy may also be identified by. The storage policy "name" is used to
+      report the policy to users (eg in container headers). The aliases have
+      the same naming restrictions as the policy's primary name.
+
+    * The object auditor learned the "interval" config value to control the
+      time between each audit pass.
+
+    * `swift-recon --all` now includes the config checksum check.
+
+    * `swift-init` learned the --kill-after-timeout option to force a service
+      to quit (SIGKILL) after a designated time.
+
+    * `swift-recon` now correctly shows timestamps in UTC instead of local
+      time.
+
+    * Fixed bug where `swift-ring-builder` couldn't select device id 0.
+
+    * Documented the previously undocumented
+      `swift-ring-builder pretend_min_part_hours_passed` command.
+
+    * The "node_timeout" config value now accepts decimal values.
+
+    * `swift-ring-builder` now properly removes devices with zero weight.
+
+    * `swift-init` return codes are updated via "--strict" and "--non-strict"
+      options. Please see the usage string for more information.
+
+    * `swift-ring-builder` now reports the min_part_hours lockout time
+      remaining
+
+    * Container sync has been improved to more quickly find and iterate over
+      the containers to be synced. This reduced server load and lowers the
+      time required to see data propagate between two clusters. Please see
+      http://swift.openstack.org/overview_container_sync.html for more details
+      about the new on-disk structure for tracking synchronized containers.
+
+    * A container POST will now update that container's put-timestamp value.
+
+    * TempURL header restrictions are now exposed in /info.
+
+    * Error messages on static large object manifest responses have been
+      greatly improved.
+
+    * Closed a bug where an unfinished read of a large object would leak a
+      socket file descriptor and a small amount of memory. (CVE-2016-0738)
+
+    * Fixed an issue where a zero-byte object PUT with an incorrect Etag
+      would return a 503.
+
+    * Fixed an error when a static large object manifest references the same
+      object more than once.
+
+    * Improved performance of finding handoff nodes if a zone is empty.
+
+    * Fixed duplication of headers in Access-Control-Expose-Headers on CORS
+      requests.
+
+    * Fixed handling of IPv6 connections to memcache pools.
+
+    * Continued work towards python 3 compatibility.
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.5.0, OpenStack Liberty)
 
     * Added the ability to specify ranges for Static Large Object (SLO)

@@ -1108,6 +1108,15 @@ class TestFileEnv(object):
 
         cls.file_size = 128
 
+        # With keystoneauth we need the accounts to have had the project
+        # domain id persisted as sysmeta prior to testing ACLs. This may
+        # not be the case if, for example, the account was created using
+        # a request with reseller_admin role, when project domain id may
+        # not have been known. So we ensure that the project domain id is
+        # in sysmeta by making a POST to the accounts using an admin role.
+        cls.account.update_metadata()
+        cls.account2.update_metadata()
+
 
 class TestFileDev(Base):
     env = TestFileEnv
@@ -2176,6 +2185,56 @@ class TestFile(Base):
             info = file_item.info()
             self.assertEqual(etag, info['etag'])
 
+    def test_POST(self):
+        # verify consistency between object and container listing metadata
+        file_name = Utils.create_name()
+        file_item = self.env.container.file(file_name)
+        file_item.content_type = 'text/foobar'
+        file_item.write_random(1024)
+
+        # sanity check
+        file_item = self.env.container.file(file_name)
+        file_item.initialize()
+        self.assertEqual('text/foobar', file_item.content_type)
+        self.assertEqual(1024, file_item.size)
+        etag = file_item.etag
+
+        # check container listing is consistent
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
+            if f_dict['name'] == file_name:
+                break
+        else:
+            self.fail('Failed to find file %r in listing' % file_name)
+        self.assertEqual(1024, f_dict['bytes'])
+        self.assertEqual('text/foobar', f_dict['content_type'])
+        self.assertEqual(etag, f_dict['hash'])
+
+        # now POST updated content-type to each file
+        file_item = self.env.container.file(file_name)
+        file_item.content_type = 'image/foobarbaz'
+        file_item.sync_metadata({'Test': 'blah'})
+
+        # sanity check object metadata
+        file_item = self.env.container.file(file_name)
+        file_item.initialize()
+
+        self.assertEqual(1024, file_item.size)
+        self.assertEqual('image/foobarbaz', file_item.content_type)
+        self.assertEqual(etag, file_item.etag)
+        self.assertIn('test', file_item.metadata)
+
+        # check for consistency between object and container listing
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
+            if f_dict['name'] == file_name:
+                break
+        else:
+            self.fail('Failed to find file %r in listing' % file_name)
+        self.assertEqual(1024, f_dict['bytes'])
+        self.assertEqual('image/foobarbaz', f_dict['content_type'])
+        self.assertEqual(etag, f_dict['hash'])
+
 
 class TestFileUTF8(Base2, TestFile):
     set_up = False
@@ -2478,12 +2537,31 @@ class TestFileComparison(Base):
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
 
+    def testIfMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-Match': '"bogus1", "%s", "bogus2"' % file_item.md5}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(412)
+
     def testIfNoneMatch(self):
         for file_item in self.env.files:
             hdrs = {'If-None-Match': 'bogus'}
             self.assertTrue(file_item.read(hdrs=hdrs))
 
             hdrs = {'If-None-Match': file_item.md5}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(304)
+
+    def testIfNoneMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-None-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-None-Match':
+                    '"bogus1", "bogus2", "%s"' % file_item.md5}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
 
@@ -2748,6 +2826,42 @@ class TestSlo(Base):
         self.assertEqual('b', file_contents[1024 * 1024])
         self.assertEqual('d', file_contents[-2])
         self.assertEqual('e', file_contents[-1])
+
+    def test_slo_container_listing(self):
+        # the listing object size should equal the sum of the size of the
+        # segments, not the size of the manifest body
+        raise SkipTest('Only passes with object_post_as_copy=False')
+        file_item = self.env.container.file(Utils.create_name)
+        file_item.write(
+            json.dumps([self.env.seg_info['seg_a']]),
+            parms={'multipart-manifest': 'put'})
+
+        files = self.env.container.files(parms={'format': 'json'})
+        for f_dict in files:
+            if f_dict['name'] == file_item.name:
+                self.assertEqual(1024 * 1024, f_dict['bytes'])
+                self.assertEqual('application/octet-stream',
+                                 f_dict['content_type'])
+                break
+        else:
+            self.fail('Failed to find manifest file in container listing')
+
+        # now POST updated content-type file
+        file_item.content_type = 'image/jpeg'
+        file_item.sync_metadata({'X-Object-Meta-Test': 'blah'})
+        file_item.initialize()
+        self.assertEqual('image/jpeg', file_item.content_type)  # sanity
+
+        # verify that the container listing is consistent with the file
+        files = self.env.container.files(parms={'format': 'json'})
+        for f_dict in files:
+            if f_dict['name'] == file_item.name:
+                self.assertEqual(1024 * 1024, f_dict['bytes'])
+                self.assertEqual(file_item.content_type,
+                                 f_dict['content_type'])
+                break
+        else:
+            self.fail('Failed to find manifest file in container listing')
 
     def test_slo_get_nested_manifest(self):
         file_item = self.env.container.file('manifest-abcde-submanifest')
@@ -3340,15 +3454,18 @@ class TestObjectVersioning(Base):
                 "Expected versioning_enabled to be True/False, got %r" %
                 (self.env.versioning_enabled,))
 
-    def tearDown(self):
-        super(TestObjectVersioning, self).tearDown()
+    def _tear_down_files(self):
         try:
-            # only delete files and not container
+            # only delete files and not containers
             # as they were configured in self.env
             self.env.versions_container.delete_files()
             self.env.container.delete_files()
         except ResponseError:
             pass
+
+    def tearDown(self):
+        super(TestObjectVersioning, self).tearDown()
+        self._tear_down_files()
 
     def test_clear_version_option(self):
         # sanity
@@ -3582,6 +3699,10 @@ class TestObjectVersioning(Base):
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
     set_up = False
+
+    def tearDown(self):
+        self._tear_down_files()
+        super(TestObjectVersioningUTF8, self).tearDown()
 
 
 class TestCrossPolicyObjectVersioning(TestObjectVersioning):
@@ -4290,7 +4411,7 @@ class TestServiceToken(unittest2.TestCase):
         a token from the test service user. We save options here so that
         do_request() can make the appropriate request.
 
-        :param method: The operation (e.g'. 'HEAD')
+        :param method: The operation (e.g. 'HEAD')
         :param use_service_account: Optional. Set True to change the path to
                be the service account
         :param container: Optional. Adds a container name to the path

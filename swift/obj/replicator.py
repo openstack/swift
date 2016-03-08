@@ -281,6 +281,7 @@ class ObjectReplicator(Daemon):
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         failure_devs_info = set()
         begin = time.time()
+        handoff_partition_deleted = False
         try:
             responses = []
             suffixes = tpool.execute(tpool_get_suffixes, job['path'])
@@ -347,8 +348,10 @@ class ObjectReplicator(Daemon):
                              for failure_dev in job['nodes']])
                 else:
                     self.delete_partition(job['path'])
+                    handoff_partition_deleted = True
             elif not suffixes:
                 self.delete_partition(job['path'])
+                handoff_partition_deleted = True
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))
         finally:
@@ -357,6 +360,8 @@ class ObjectReplicator(Daemon):
                                     for target_dev in job['nodes']])
             self.stats['success'] += len(target_devs_info - failure_devs_info)
             self._add_failure_stats(failure_devs_info)
+            if not handoff_partition_deleted:
+                self.handoffs_remaining += 1
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.delete.timing', begin)
 
@@ -506,6 +511,9 @@ class ObjectReplicator(Daemon):
                  'remaining': '%d%s' % compute_eta(self.start,
                                                    self.replication_count,
                                                    self.job_count)})
+            self.logger.info(_('%(success)s successes, %(failure)s failures')
+                             % self.stats)
+
             if self.suffix_count:
                 self.logger.info(
                     _("%(checked)d suffixes checked - "
@@ -680,6 +688,7 @@ class ObjectReplicator(Daemon):
         self.partition_times = []
         self.my_replication_ips = self._get_my_replication_ips()
         self.all_devs_info = set()
+        self.handoffs_remaining = 0
 
         stats = eventlet.spawn(self.heartbeat)
         lockup_detector = eventlet.spawn(self.detect_lockups)
@@ -705,6 +714,15 @@ class ObjectReplicator(Daemon):
                                              for failure_dev in job['nodes']])
                     self.logger.warning(_('%s is not mounted'), job['device'])
                     continue
+                if self.handoffs_first and not job['delete']:
+                    # in handoffs first mode, we won't process primary
+                    # partitions until rebalance was successful!
+                    if self.handoffs_remaining:
+                        self.logger.warning(_(
+                            "Handoffs first mode still has handoffs "
+                            "remaining.  Aborting current "
+                            "replication pass."))
+                        break
                 if not self.check_ring(job['policy'].object_ring):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current replication pass."))

@@ -26,8 +26,7 @@ from six.moves import range
 from six.moves.urllib.parse import quote
 from test.unit import FakeLogger
 from eventlet.green import urllib2
-from swift.common import internal_client
-from swift.common import swob
+from swift.common import exceptions, internal_client, swob
 from swift.common.storage_policy import StoragePolicy
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
@@ -494,7 +493,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual('HEAD', method)
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual((2,), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
                 return Response(self.resp_headers)
 
         path = 'some_path'
@@ -697,7 +696,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual(self.exp_headers, headers)
                 self.test.assertEqual((2,), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         path = 'some_path'
         metadata_prefix = 'some_key-'
@@ -754,7 +753,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
                 return self.resp
 
         account, container, obj = path_parts()
@@ -851,7 +850,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
                 return self.resp
 
         account, container, obj = path_parts()
@@ -881,7 +880,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual(self.headers, headers)
                 self.test.assertEqual((2,), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         account, container, obj = path_parts()
         path = make_path(account, container)
@@ -905,7 +904,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         account, container, obj = path_parts()
         path = make_path(account, container)
@@ -967,7 +966,7 @@ class TestInternalClient(unittest.TestCase):
                 self.test.assertEqual(self.path, path)
                 self.test.assertEqual({}, headers)
                 self.test.assertEqual((2, 404), acceptable_statuses)
-                self.test.assertEqual(None, body_file)
+                self.test.assertIsNone(body_file)
 
         account, container, obj = path_parts()
         path = make_path(account, container, obj)
@@ -1329,7 +1328,7 @@ class TestSimpleClient(unittest.TestCase):
             mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
             with mock.patch('swift.common.internal_client.sleep') \
                     as mock_sleep:
-                self.assertRaises(urllib2.HTTPError,
+                self.assertRaises(exceptions.ClientException,
                                   c.retry_request, request_method, retries=1)
             self.assertEqual(mock_sleep.call_count, 1)
             self.assertEqual(mock_urlopen.call_count, 2)
@@ -1347,7 +1346,7 @@ class TestSimpleClient(unittest.TestCase):
             mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
             with mock.patch('swift.common.internal_client.sleep') \
                     as mock_sleep:
-                self.assertRaises(urllib2.HTTPError,
+                self.assertRaises(exceptions.ClientException,
                                   c.retry_request, request_method,
                                   container='con', retries=1)
             self.assertEqual(mock_sleep.call_count, 1)
@@ -1366,7 +1365,7 @@ class TestSimpleClient(unittest.TestCase):
             mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
             with mock.patch('swift.common.internal_client.sleep') \
                     as mock_sleep:
-                self.assertRaises(urllib2.HTTPError,
+                self.assertRaises(exceptions.ClientException,
                                   c.retry_request, request_method,
                                   container='con', name='obj', retries=1)
             self.assertEqual(mock_sleep.call_count, 1)

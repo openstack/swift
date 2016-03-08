@@ -939,7 +939,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         self.assertEqual([mock.call(0o22)], self.mock_umask.mock_calls)
 
     def test_no_fork_sock(self):
-        self.assertEqual(None, self.strategy.no_fork_sock())
+        self.assertIsNone(self.strategy.no_fork_sock())
 
     def test_new_worker_socks(self):
         self.strategy.bind_ports()
@@ -1067,7 +1067,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         # It's ok to register_worker_exit for a PID that's already had its
         # socket closed due to orphaning.
         # This is one of the workers for port 6006 that already got reaped.
-        self.assertEqual(None, self.strategy.register_worker_exit(89))
+        self.assertIsNone(self.strategy.register_worker_exit(89))
 
     def test_post_fork_hook(self):
         self.strategy.post_fork_hook()
@@ -1117,7 +1117,7 @@ class TestWorkersStrategy(unittest.TestCase):
         self.assertEqual(0.5, self.strategy.loop_timeout())
 
     def test_binding(self):
-        self.assertEqual(None, self.strategy.bind_ports())
+        self.assertIsNone(self.strategy.bind_ports())
 
         self.assertEqual('abc', self.strategy.sock)
         self.assertEqual([
@@ -1136,7 +1136,7 @@ class TestWorkersStrategy(unittest.TestCase):
 
     def test_no_fork_sock(self):
         self.strategy.bind_ports()
-        self.assertEqual(None, self.strategy.no_fork_sock())
+        self.assertIsNone(self.strategy.no_fork_sock())
 
         self.conf['workers'] = 0
         self.strategy = wsgi.WorkersStrategy(self.conf, self.logger)
@@ -1150,7 +1150,7 @@ class TestWorkersStrategy(unittest.TestCase):
         sock_count = 0
         for s, i in self.strategy.new_worker_socks():
             self.assertEqual('abc', s)
-            self.assertEqual(None, i)  # unused for this strategy
+            self.assertIsNone(i)  # unused for this strategy
             self.strategy.register_worker_start(s, 'unused', pid)
             pid += 1
             sock_count += 1
@@ -1172,7 +1172,7 @@ class TestWorkersStrategy(unittest.TestCase):
 
         for s, i in self.strategy.new_worker_socks():
             self.assertEqual('abc', s)
-            self.assertEqual(None, i)  # unused for this strategy
+            self.assertIsNone(i)  # unused for this strategy
             self.strategy.register_worker_start(s, 'unused', pid)
             pid += 1
             sock_count += 1
@@ -1186,7 +1186,7 @@ class TestWorkersStrategy(unittest.TestCase):
 
     def test_post_fork_hook(self):
         # Just don't crash or do something stupid
-        self.assertEqual(None, self.strategy.post_fork_hook())
+        self.assertIsNone(self.strategy.post_fork_hook())
 
     def test_shutdown_sockets(self):
         self.mock_get_socket.return_value = mock.MagicMock()
@@ -1465,6 +1465,45 @@ class TestPipelineModification(unittest.TestCase):
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
                           'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.dlo',
+                          'swift.common.middleware.versioned_writes',
+                          'swift.common.middleware.healthcheck',
+                          'swift.proxy.server'])
+
+    def test_proxy_modify_wsgi_pipeline_inserts_versioned_writes(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = slo dlo healthcheck proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        conn_timeout = 0.2
+
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+
+        [filter:dlo]
+        use = egg:swift#dlo
+
+        [filter:slo]
+        use = egg:swift#slo
+        """
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            app = wsgi.loadapp(conf_file, global_conf={})
+
+        self.assertEqual(self.pipeline_modules(app),
+                         ['swift.common.middleware.catch_errors',
+                          'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.slo',
                           'swift.common.middleware.dlo',
                           'swift.common.middleware.versioned_writes',
                           'swift.common.middleware.healthcheck',

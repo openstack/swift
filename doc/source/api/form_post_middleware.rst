@@ -27,7 +27,7 @@ request.
 
 The format of the form **POST** request is:
 
-**Example 1.14. Form POST format**
+**Example 1.14. Form POST format**
 
 .. code::
 
@@ -140,7 +140,7 @@ Form **POST** middleware uses an HMAC-SHA1 cryptographic signature. This
 signature includes these elements from the form:
 
 -  The path. Starting with ``/v1/`` onwards and including a container
-   name and, optionally, an object prefix. In `Example 1.15`, “HMAC-SHA1
+   name and, optionally, an object prefix. In `Example 1.15`, “HMAC-SHA1
    signature for form
    POST” the path is
    ``/v1/my_account/container/object_prefix``. Do not URL-encode the
@@ -148,15 +148,15 @@ signature includes these elements from the form:
 
 -  A redirect URL. If there is no redirect URL, use the empty string.
 
--  Maximum file size. In `Example 1.15`, “HMAC-SHA1 signature for form
+-  Maximum file size. In `Example 1.15`, “HMAC-SHA1 signature for form
    POST” the
    ``max_file_size`` is ``104857600`` bytes.
 
--  The maximum number of objects to upload. In `Example 1.15`, “HMAC-SHA1
+-  The maximum number of objects to upload. In `Example 1.15`, “HMAC-SHA1
    signature for form
    POST” ``max_file_count`` is ``10``.
 
--  Expiry time. In `Example 1.15, “HMAC-SHA1 signature for form
+-  Expiry time. In `Example 1.15, “HMAC-SHA1 signature for form
    POST” the expiry time
    is set to ``600`` seconds into the future.
 
@@ -167,7 +167,7 @@ signature includes these elements from the form:
 The following example code generates a signature for use with form
 **POST**:
 
-**Example 1.15. HMAC-SHA1 signature for form POST**
+**Example 1.15. HMAC-SHA1 signature for form POST**
 
 .. code::
 

@@ -922,7 +922,7 @@ class TestAuthorize(BaseTestAuthorize):
         # no valid identity info in headers
         req = Request.blank('/v/a/c/o')
         data = self.test_auth._keystone_identity(req.environ)
-        self.assertEqual(None, data)
+        self.assertIsNone(data)
 
         # valid identity info in headers, but status unconfirmed
         req.headers.update({'X-Identity-Status': 'Blah',
@@ -936,7 +936,7 @@ class TestAuthorize(BaseTestAuthorize):
                             'X-Project-Domain-Id': project_domain[0],
                             'X-Project-Domain-Name': project_domain[1]})
         data = self.test_auth._keystone_identity(req.environ)
-        self.assertEqual(None, data)
+        self.assertIsNone(data)
 
         # valid identity info in headers, no token info in environ
         req.headers.update({'X-Identity-Status': 'Confirmed'})

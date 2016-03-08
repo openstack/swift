@@ -22,6 +22,7 @@ import fcntl
 import grp
 import hmac
 import json
+import math
 import operator
 import os
 import pwd
@@ -110,6 +111,9 @@ SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 # The values were copied from the Linux 3.0 kernel headers.
 AF_ALG = getattr(socket, 'AF_ALG', 38)
 F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
+
+# Used by the parse_socket_string() function to validate IPv6 addresses
+IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
 
 class InvalidHashPathConfigError(ValueError):
@@ -453,6 +457,8 @@ class FileLikeIter(object):
     def __init__(self, iterable):
         """
         Wraps an iterable to behave as a file-like object.
+
+        The iterable must yield bytes strings.
         """
         self.iterator = iter(iterable)
         self.buf = None
@@ -473,10 +479,11 @@ class FileLikeIter(object):
             return rv
         else:
             return next(self.iterator)
+    __next__ = next
 
     def read(self, size=-1):
         """
-        read([size]) -> read at most size bytes, returned as a string.
+        read([size]) -> read at most size bytes, returned as a bytes string.
 
         If the size argument is negative or omitted, read until EOF is reached.
         Notice that when in non-blocking mode, less data than what was
@@ -485,9 +492,9 @@ class FileLikeIter(object):
         if self.closed:
             raise ValueError('I/O operation on closed file')
         if size < 0:
-            return ''.join(self)
+            return b''.join(self)
         elif not size:
-            chunk = ''
+            chunk = b''
         elif self.buf:
             chunk = self.buf
             self.buf = None
@@ -495,7 +502,7 @@ class FileLikeIter(object):
             try:
                 chunk = next(self.iterator)
             except StopIteration:
-                return ''
+                return b''
         if len(chunk) > size:
             self.buf = chunk[size:]
             chunk = chunk[:size]
@@ -503,7 +510,7 @@ class FileLikeIter(object):
 
     def readline(self, size=-1):
         """
-        readline([size]) -> next line from the file, as a string.
+        readline([size]) -> next line from the file, as a bytes string.
 
         Retain newline.  A non-negative size argument limits the maximum
         number of bytes to return (an incomplete line may be returned then).
@@ -511,8 +518,8 @@ class FileLikeIter(object):
         """
         if self.closed:
             raise ValueError('I/O operation on closed file')
-        data = ''
-        while '\n' not in data and (size < 0 or len(data) < size):
+        data = b''
+        while b'\n' not in data and (size < 0 or len(data) < size):
             if size < 0:
                 chunk = self.read(1024)
             else:
@@ -520,8 +527,8 @@ class FileLikeIter(object):
             if not chunk:
                 break
             data += chunk
-        if '\n' in data:
-            data, sep, rest = data.partition('\n')
+        if b'\n' in data:
+            data, sep, rest = data.partition(b'\n')
             data += sep
             if self.buf:
                 self.buf = rest + self.buf
@@ -531,7 +538,7 @@ class FileLikeIter(object):
 
     def readlines(self, sizehint=-1):
         """
-        readlines([size]) -> list of strings, each a line from the file.
+        readlines([size]) -> list of bytes strings, each a line from the file.
 
         Call readline() repeatedly and return a list of the lines so read.
         The optional size argument, if given, is an approximate bound on the
@@ -693,6 +700,7 @@ def drop_buffer_cache(fd, offset, length):
 
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
+SHORT_FORMAT = NORMAL_FORMAT + '_%x'
 MAX_OFFSET = (16 ** 16) - 1
 PRECISION = 1e-5
 # Setting this to True will cause the internal format to always display
@@ -702,6 +710,7 @@ PRECISION = 1e-5
 FORCE_INTERNAL = False  # or True
 
 
+@functools.total_ordering
 class Timestamp(object):
     """
     Internal Representation of Swift Time.
@@ -778,6 +787,10 @@ class Timestamp(object):
                 raise ValueError(
                     'delta must be greater than %d' % (-1 * self.raw))
             self.timestamp = float(self.raw * PRECISION)
+        if self.timestamp < 0:
+            raise ValueError('timestamp cannot be negative')
+        if self.timestamp >= 10000000000:
+            raise ValueError('timestamp too large')
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
@@ -809,31 +822,151 @@ class Timestamp(object):
             return self.normal
 
     @property
+    def short(self):
+        if self.offset or FORCE_INTERNAL:
+            return SHORT_FORMAT % (self.timestamp, self.offset)
+        else:
+            return self.normal
+
+    @property
     def isoformat(self):
-        isoformat = datetime.datetime.utcfromtimestamp(
-            float(self.normal)).isoformat()
+        t = float(self.normal)
+        if six.PY3:
+            # On Python 3, round manually using ROUND_HALF_EVEN rounding
+            # method, to use the same rounding method than Python 2. Python 3
+            # used a different rounding method, but Python 3.4.4 and 3.5.1 use
+            # again ROUND_HALF_EVEN as Python 2.
+            # See https://bugs.python.org/issue23517
+            frac, t = math.modf(t)
+            us = round(frac * 1e6)
+            if us >= 1000000:
+                t += 1
+                us -= 1000000
+            elif us < 0:
+                t -= 1
+                us += 1000000
+            dt = datetime.datetime.utcfromtimestamp(t)
+            dt = dt.replace(microsecond=us)
+        else:
+            dt = datetime.datetime.utcfromtimestamp(t)
+
+        isoformat = dt.isoformat()
         # python isoformat() doesn't include msecs when zero
         if len(isoformat) < len("1970-01-01T00:00:00.000000"):
             isoformat += ".000000"
         return isoformat
 
     def __eq__(self, other):
+        if other is None:
+            return False
         if not isinstance(other, Timestamp):
             other = Timestamp(other)
         return self.internal == other.internal
 
     def __ne__(self, other):
+        if other is None:
+            return True
         if not isinstance(other, Timestamp):
             other = Timestamp(other)
         return self.internal != other.internal
 
-    def __cmp__(self, other):
+    def __lt__(self, other):
+        if other is None:
+            return False
         if not isinstance(other, Timestamp):
             other = Timestamp(other)
-        return cmp(self.internal, other.internal)
+        return self.internal < other.internal
 
     def __hash__(self):
         return hash(self.internal)
+
+
+def encode_timestamps(t1, t2=None, t3=None, explicit=False):
+    """
+    Encode up to three timestamps into a string. Unlike a Timestamp object, the
+    encoded string does NOT used fixed width fields and consequently no
+    relative chronology of the timestamps can be inferred from lexicographic
+    sorting of encoded timestamp strings.
+
+    The format of the encoded string is:
+        <t1>[<+/-><t2 - t1>[<+/-><t3 - t2>]]
+
+    i.e. if t1 = t2 = t3 then just the string representation of t1 is returned,
+    otherwise the time offsets for t2 and t3 are appended. If explicit is True
+    then the offsets for t2 and t3 are always appended even if zero.
+
+    Note: any offset value in t1 will be preserved, but offsets on t2 and t3
+    are not preserved. In the anticipated use cases for this method (and the
+    inverse decode_timestamps method) the timestamps passed as t2 and t3 are
+    not expected to have offsets as they will be timestamps associated with a
+    POST request. In the case where the encoding is used in a container objects
+    table row, t1 could be the PUT or DELETE time but t2 and t3 represent the
+    content type and metadata times (if different from the data file) i.e.
+    correspond to POST timestamps. In the case where the encoded form is used
+    in a .meta file name, t1 and t2 both correspond to POST timestamps.
+    """
+    form = '{0}'
+    values = [t1.short]
+    if t2 is not None:
+        t2_t1_delta = t2.raw - t1.raw
+        explicit = explicit or (t2_t1_delta != 0)
+        values.append(t2_t1_delta)
+        if t3 is not None:
+            t3_t2_delta = t3.raw - t2.raw
+            explicit = explicit or (t3_t2_delta != 0)
+            values.append(t3_t2_delta)
+        if explicit:
+            form += '{1:+x}'
+            if t3 is not None:
+                form += '{2:+x}'
+    return form.format(*values)
+
+
+def decode_timestamps(encoded, explicit=False):
+    """
+    Parses a string of the form generated by encode_timestamps and returns
+    a tuple of the three component timestamps. If explicit is False, component
+    timestamps that are not explicitly encoded will be assumed to have zero
+    delta from the previous component and therefore take the value of the
+    previous component. If explicit is True, component timestamps that are
+    not explicitly encoded will be returned with value None.
+    """
+    # TODO: some tests, e.g. in test_replicator, put float timestamps values
+    # into container db's, hence this defensive check, but in real world
+    # this may never happen.
+    if not isinstance(encoded, basestring):
+        ts = Timestamp(encoded)
+        return ts, ts, ts
+
+    parts = []
+    signs = []
+    pos_parts = encoded.split('+')
+    for part in pos_parts:
+        # parse time components and their signs
+        # e.g. x-y+z --> parts = [x, y, z] and signs = [+1, -1, +1]
+        neg_parts = part.split('-')
+        parts = parts + neg_parts
+        signs = signs + [1] + [-1] * (len(neg_parts) - 1)
+    t1 = Timestamp(parts[0])
+    t2 = t3 = None
+    if len(parts) > 1:
+        t2 = t1
+        delta = signs[1] * int(parts[1], 16)
+        # if delta = 0 we want t2 = t3 = t1 in order to
+        # preserve any offset in t1 - only construct a distinct
+        # timestamp if there is a non-zero delta.
+        if delta:
+            t2 = Timestamp((t1.raw + delta) * PRECISION)
+    elif not explicit:
+        t2 = t1
+    if len(parts) > 2:
+        t3 = t2
+        delta = signs[2] * int(parts[2], 16)
+        if delta:
+            t3 = Timestamp((t2.raw + delta) * PRECISION)
+    elif not explicit:
+        t3 = t2
+    return t1, t2, t3
 
 
 def normalize_timestamp(timestamp):
@@ -862,14 +995,10 @@ def last_modified_date_to_timestamp(last_modified_date_str):
     start = datetime.datetime.strptime(last_modified_date_str,
                                        '%Y-%m-%dT%H:%M:%S.%f')
     delta = start - EPOCH
-    # TODO(sam): after we no longer support py2.6, this expression can
-    # simplify to Timestamp(delta.total_seconds()).
-    #
+
     # This calculation is based on Python 2.7's Modules/datetimemodule.c,
     # function delta_to_microseconds(), but written in Python.
-    return Timestamp(delta.days * 86400 +
-                     delta.seconds +
-                     delta.microseconds / 1000000.0)
+    return Timestamp(delta.total_seconds())
 
 
 def normalize_delete_at_timestamp(timestamp):
@@ -1044,22 +1173,28 @@ class RateLimitedIterator(object):
                         this many elements; default is 0 (rate limit
                         immediately)
     """
-    def __init__(self, iterable, elements_per_second, limit_after=0):
+    def __init__(self, iterable, elements_per_second, limit_after=0,
+                 ratelimit_if=lambda _junk: True):
         self.iterator = iter(iterable)
         self.elements_per_second = elements_per_second
         self.limit_after = limit_after
         self.running_time = 0
+        self.ratelimit_if = ratelimit_if
 
     def __iter__(self):
         return self
 
     def next(self):
-        if self.limit_after > 0:
-            self.limit_after -= 1
-        else:
-            self.running_time = ratelimit_sleep(self.running_time,
-                                                self.elements_per_second)
-        return next(self.iterator)
+        next_value = next(self.iterator)
+
+        if self.ratelimit_if(next_value):
+            if self.limit_after > 0:
+                self.limit_after -= 1
+            else:
+                self.running_time = ratelimit_sleep(self.running_time,
+                                                    self.elements_per_second)
+        return next_value
+    __next__ = next
 
 
 class GreenthreadSafeIterator(object):
@@ -1083,6 +1218,7 @@ class GreenthreadSafeIterator(object):
     def next(self):
         with self.semaphore:
             return next(self.unsafe_iter)
+    __next__ = next
 
 
 class NullLogger(object):
@@ -1122,6 +1258,7 @@ class LoggerFileObject(object):
 
     def next(self):
         raise IOError(errno.EBADF, 'Bad file descriptor')
+    __next__ = next
 
     def read(self, size=-1):
         raise IOError(errno.EBADF, 'Bad file descriptor')
@@ -1145,9 +1282,43 @@ class StatsdClient(object):
         self.set_prefix(tail_prefix)
         self._default_sample_rate = default_sample_rate
         self._sample_rate_factor = sample_rate_factor
-        self._target = (self._host, self._port)
         self.random = random
         self.logger = logger
+
+        # Determine if host is IPv4 or IPv6
+        addr_info = None
+        try:
+            addr_info = socket.getaddrinfo(host, port, socket.AF_INET)
+            self._sock_family = socket.AF_INET
+        except socket.gaierror:
+            try:
+                addr_info = socket.getaddrinfo(host, port, socket.AF_INET6)
+                self._sock_family = socket.AF_INET6
+            except socket.gaierror:
+                # Don't keep the server from starting from what could be a
+                # transient DNS failure.  Any hostname will get re-resolved as
+                # necessary in the .sendto() calls.
+                # However, we don't know if we're IPv4 or IPv6 in this case, so
+                # we assume legacy IPv4.
+                self._sock_family = socket.AF_INET
+
+        # NOTE: we use the original host value, not the DNS-resolved one
+        # because if host is a hostname, we don't want to cache the DNS
+        # resolution for the entire lifetime of this process.  Let standard
+        # name resolution caching take effect.  This should help operators use
+        # DNS trickery if they want.
+        if addr_info is not None:
+            # addr_info is a list of 5-tuples with the following structure:
+            #     (family, socktype, proto, canonname, sockaddr)
+            # where sockaddr is the only thing of interest to us, and we only
+            # use the first result.  We want to use the originally supplied
+            # host (see note above) and the remainder of the variable-length
+            # sockaddr: IPv4 has (address, port) while IPv6 has (address,
+            # port, flow info, scope id).
+            sockaddr = addr_info[0][-1]
+            self._target = (host,) + (sockaddr[1:])
+        else:
+            self._target = (host, port)
 
     def set_prefix(self, new_prefix):
         if new_prefix and self._base_prefix:
@@ -1183,7 +1354,7 @@ class StatsdClient(object):
                         self._target, err)
 
     def _open_socket(self):
-        return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        return socket.socket(self._sock_family, socket.SOCK_DGRAM)
 
     def update_stats(self, m_name, m_value, sample_rate=None):
         return self._send(m_name, m_value, 'c', sample_rate)
@@ -1263,6 +1434,7 @@ class LogAdapter(logging.LoggerAdapter, object):
     def __init__(self, logger, server):
         logging.LoggerAdapter.__init__(self, logger, {})
         self.server = server
+        self.warn = self.warning
 
     @property
     def txn_id(self):
@@ -1731,6 +1903,43 @@ def whataremyips(bind_ip=None):
         except ValueError:
             pass
     return addresses
+
+
+def parse_socket_string(socket_string, default_port):
+    """
+    Given a string representing a socket, returns a tuple of (host, port).
+    Valid strings are DNS names, IPv4 addresses, or IPv6 addresses, with an
+    optional port. If an IPv6 address is specified it **must** be enclosed in
+    [], like *[::1]* or *[::1]:11211*. This follows the accepted prescription
+    for `IPv6 host literals`_.
+
+    Examples::
+
+        server.org
+        server.org:1337
+        127.0.0.1:1337
+        [::1]:1337
+        [::1]
+
+    .. _IPv6 host literals: https://tools.ietf.org/html/rfc3986#section-3.2.2
+    """
+    port = default_port
+    # IPv6 addresses must be between '[]'
+    if socket_string.startswith('['):
+        match = IPV6_RE.match(socket_string)
+        if not match:
+            raise ValueError("Invalid IPv6 address: %s" % socket_string)
+        host = match.group('address')
+        port = match.group('port') or port
+    else:
+        if ':' in socket_string:
+            tokens = socket_string.split(':')
+            if len(tokens) > 2:
+                raise ValueError("IPv6 addresses must be between '[]'")
+            host, port = tokens
+        else:
+            host = socket_string
+    return (host, port)
 
 
 def storage_directory(datadir, partition, name_hash):
@@ -2297,6 +2506,7 @@ class GreenAsyncPile(object):
             rv = self._responses.get()
         self._pending -= 1
         return rv
+    __next__ = next
 
 
 class ModifiedParseResult(ParseResult):
@@ -2568,17 +2778,19 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 pass
             for cache_key, cache_value in cache_dict.items():
                 put_recon_cache_entry(cache_entry, cache_key, cache_value)
+            tf = None
             try:
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
                     tf.write(json.dumps(cache_entry) + '\n')
                 renamer(tf.name, cache_file, fsync=False)
             finally:
-                try:
-                    os.unlink(tf.name)
-                except OSError as err:
-                    if err.errno != errno.ENOENT:
-                        raise
+                if tf is not None:
+                    try:
+                        os.unlink(tf.name)
+                    except OSError as err:
+                        if err.errno != errno.ENOENT:
+                            raise
     except (Exception, Timeout):
         logger.exception(_('Exception dumping recon cache'))
 
@@ -2650,11 +2862,7 @@ def public(func):
     :param func: function to make public
     """
     func.publicly_accessible = True
-
-    @functools.wraps(func)
-    def wrapped(*a, **kw):
-        return func(*a, **kw)
-    return wrapped
+    return func
 
 
 def quorum_size(n):
@@ -3251,6 +3459,25 @@ def parse_content_type(content_type):
     return content_type, parm_list
 
 
+def extract_swift_bytes(content_type):
+    """
+    Parse a content-type and return a tuple containing:
+        - the content_type string minus any swift_bytes param,
+        -  the swift_bytes value or None if the param was not found
+
+    :param content_type: a content-type string
+    :return: a tuple of (content-type, swift_bytes or None)
+    """
+    content_type, params = parse_content_type(content_type)
+    swift_bytes = None
+    for k, v in params:
+        if k == 'swift_bytes':
+            swift_bytes = v
+        else:
+            content_type += ';%s=%s' % (k, v)
+    return content_type, swift_bytes
+
+
 def override_bytes_from_content_type(listing_dict, logger=None):
     """
     Takes a dict from a container listing and overrides the content_type,
@@ -3308,7 +3535,7 @@ class _MultipartMimeFileLikeObject(object):
         if not length:
             length = self.read_chunk_size
         if self.no_more_data_for_this_file:
-            return ''
+            return b''
 
         # read enough data to know whether we're going to run
         # into a boundary in next [length] bytes
@@ -3334,14 +3561,14 @@ class _MultipartMimeFileLikeObject(object):
         # if it does, just return data up to the boundary
         else:
             ret, self.input_buffer = self.input_buffer.split(self.boundary, 1)
-            self.no_more_files = self.input_buffer.startswith('--')
+            self.no_more_files = self.input_buffer.startswith(b'--')
             self.no_more_data_for_this_file = True
             self.input_buffer = self.input_buffer[2:]
         return ret
 
     def readline(self):
         if self.no_more_data_for_this_file:
-            return ''
+            return b''
         boundary_pos = newline_pos = -1
         while newline_pos < 0 and boundary_pos < 0:
             try:
@@ -3349,7 +3576,7 @@ class _MultipartMimeFileLikeObject(object):
             except (IOError, ValueError) as e:
                 raise swift.common.exceptions.ChunkReadError(str(e))
             self.input_buffer += chunk
-            newline_pos = self.input_buffer.find('\r\n')
+            newline_pos = self.input_buffer.find(b'\r\n')
             boundary_pos = self.input_buffer.find(self.boundary)
             if not chunk:
                 self.no_more_files = True
@@ -3358,7 +3585,7 @@ class _MultipartMimeFileLikeObject(object):
         if newline_pos >= 0 and \
                 (boundary_pos < 0 or newline_pos < boundary_pos):
             # Use self.read to ensure any logic there happens...
-            ret = ''
+            ret = b''
             to_read = newline_pos + 2
             while to_read > 0:
                 chunk = self.read(to_read)
@@ -3425,11 +3652,21 @@ def parse_mime_headers(doc_file):
     headers = []
     while True:
         line = doc_file.readline()
+        done = line in (b'\r\n', b'\n', b'')
+        if six.PY3:
+            try:
+                line = line.decode('utf-8')
+            except UnicodeDecodeError:
+                line = line.decode('latin1')
         headers.append(line)
-        if line in (b'\r\n', b'\n', b''):
+        if done:
             break
-    header_string = b''.join(headers)
-    return HeaderKeyDict(email.parser.Parser().parsestr(header_string))
+    if six.PY3:
+        header_string = ''.join(headers)
+    else:
+        header_string = b''.join(headers)
+    headers = email.parser.Parser().parsestr(header_string)
+    return HeaderKeyDict(headers)
 
 
 def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
@@ -3511,8 +3748,8 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
     HTTP response body, whether that's multipart/byteranges or not.
 
     This is almost, but not quite, the inverse of
-    http_response_to_document_iters(). This function only yields chunks of
-    the body, not any headers.
+    request_helpers.http_response_to_document_iters(). This function only
+    yields chunks of the body, not any headers.
 
     :param ranges_iter: an iterator of dictionaries, one per range.
         Each dictionary must contain at least the following key:
@@ -3585,41 +3822,6 @@ def multipart_byteranges_to_document_iters(input_file, boundary,
         first_byte, last_byte, length = parse_content_range(
             headers.get('content-range'))
         yield (first_byte, last_byte, length, headers.items(), body)
-
-
-def http_response_to_document_iters(response, read_chunk_size=4096):
-    """
-    Takes a successful object-GET HTTP response and turns it into an
-    iterator of (first-byte, last-byte, length, headers, body-file)
-    5-tuples.
-
-    The response must either be a 200 or a 206; if you feed in a 204 or
-    something similar, this probably won't work.
-
-    :param response: HTTP response, like from bufferedhttp.http_connect(),
-        not a swob.Response.
-    """
-    if response.status == 200:
-        # Single "range" that's the whole object
-        content_length = int(response.getheader('Content-Length'))
-        return iter([(0, content_length - 1, content_length,
-                      response.getheaders(), response)])
-
-    content_type, params_list = parse_content_type(
-        response.getheader('Content-Type'))
-    if content_type != 'multipart/byteranges':
-        # Single range; no MIME framing, just the bytes. The start and end
-        # byte indices are in the Content-Range header.
-        start, end, length = parse_content_range(
-            response.getheader('Content-Range'))
-        return iter([(start, end, length, response.getheaders(), response)])
-    else:
-        # Multiple ranges; the response body is a multipart/byteranges MIME
-        # document, and we have to parse it using the MIME boundary
-        # extracted from the Content-Type header.
-        params = dict(params_list)
-        return multipart_byteranges_to_document_iters(
-            response, params['boundary'], read_chunk_size)
 
 
 #: Regular expression to match form attributes.

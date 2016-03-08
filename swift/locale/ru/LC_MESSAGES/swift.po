@@ -1,26 +1,28 @@
-# Russian translations for swift.
+# Translations template for swift.
 # Copyright (C) 2015 ORGANIZATION
 # This file is distributed under the same license as the swift project.
 #
 # Translators:
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+# Filatov Sergey <filatecs@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.5.1.dev70\n"
+"Project-Id-Version: swift 2.6.1.dev176\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-10-23 06:34+0000\n"
-"PO-Revision-Date: 2015-08-11 11:22+0000\n"
-"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
+"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"PO-Revision-Date: 2016-01-17 10:49+0000\n"
+"Last-Translator: Filatov Sergey <filatecs@gmail.com>\n"
 "Language: ru\n"
-"Language-Team: Russian\n"
 "Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
 "%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n"
-"%100>=11 && n%100<=14)? 2 : 3)\n"
-"MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
-"Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.1.1\n"
+"%100>=11 && n%100<=14)? 2 : 3);\n"
+"Generated-By: Babel 2.0\n"
+"X-Generator: Zanata 3.7.3\n"
+"Language-Team: Russian\n"
 
 msgid ""
 "\n"
@@ -51,6 +53,16 @@ msgstr "Ответили как размонтированные: %(ip)s/%(devic
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
+
+#, python-format
+msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"Реконструированно разделов: %(reconstructed)d/%(total)d (%(percentage).2f%%) "
+"partitions of %(device)d/%(dtotal)d (%(dpercentage).2f%%) за время "
+"%(time).2fs (%(rate).2f/sec, осталось: %(remaining)s)"
 
 #, python-format
 msgid ""
@@ -87,6 +99,10 @@ msgstr "%s не существует"
 #, python-format
 msgid "%s is not mounted"
 msgstr "%s не смонтирован"
+
+#, python-format
+msgid "%s responded as unmounted"
+msgstr "%s ответил как размонтированный"
 
 #, python-format
 msgid "%s running (%s - %s)"
@@ -225,6 +241,14 @@ msgid ""
 msgstr ""
 "Путь клиента %(client)s не соответствует пути в метаданных объекта %(meta)s"
 
+msgid ""
+"Configuration option internal_client_conf_path not defined. Using default "
+"configuration, See internal-client.conf-sample for options"
+msgstr ""
+"Опция internal_client_conf_path конфигурации не определена. Используется  "
+"конфигурация по умолчанию. Используйте intenal-client.conf-sample для "
+"информации об опциях"
+
 msgid "Connection refused"
 msgstr "Соединение отклонено"
 
@@ -283,6 +307,10 @@ msgstr "Ошибка загрузки данных: %s"
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "Проход устройств выполнен: %.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr "Каталог %r не связан со стратегией policy (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -560,6 +588,9 @@ msgstr ""
 msgid "Exception in top-level replication loop"
 msgstr "Исключительная ситуация в цикле репликации верхнего уровня"
 
+msgid "Exception in top-levelreconstruction loop"
+msgstr "Исключение в цикле реконструкции верхнего уровня"
+
 #, python-format
 msgid "Exception while deleting container %s %s"
 msgstr "Исключительная ситуация во время удаления контейнера %s %s"
@@ -618,6 +649,10 @@ msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "Недопустимая ожидающая запись %(file)s: %(entry)s"
 
 #, python-format
+msgid "Invalid response %(resp)s from %(full_path)s"
+msgstr "Недопустимый ответ %(resp)s  от  %(full_path)s"
+
+#, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
 msgstr "Недопустимый ответ %(resp)s от %(ip)s"
 
@@ -653,8 +688,16 @@ msgid "No permission to signal PID %d"
 msgstr "Нет прав доступа для отправки сигнала в PID %d"
 
 #, python-format
+msgid "No policy with index %s"
+msgstr "Не найдено стратегии с индексом %s"
+
+#, python-format
 msgid "No realm key for %r"
 msgstr "Отсутствует ключ области для %r"
+
+#, python-format
+msgid "No space left on device for %s (%s)"
+msgstr "Не устройстве %s (%s) закончилось место"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -667,6 +710,10 @@ msgid ""
 msgstr ""
 "Не найдено: %(sync_from)r => %(sync_to)r                       - объект "
 "%(obj_name)r"
+
+#, python-format
+msgid "Nothing reconstructed for %s seconds."
+msgstr "Ничего не реконструировано за %s с."
 
 #, python-format
 msgid "Nothing replicated for %s seconds."
@@ -701,20 +748,12 @@ msgstr ""
 "скорость: %(audit_rate).2f"
 
 #, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors files/sec: %(frate).2f , bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"Проверка объекта (%(type)s). После %(start_time)s: локально: успешно - "
-"%(passes)d, в карантине - %(quars)d, файлов с ошибками %(errors)d в секунду: "
-"%(frate).2f , байт/с: %(brate).2f, общее время: %(total).2f, время контроля: "
-"%(audit).2f, скорость: %(audit_rate).2f"
-
-#, python-format
 msgid "Object audit stats: %s"
 msgstr "Состояние контроля объекта: %s"
+
+#, python-format
+msgid "Object reconstruction complete (once). (%.02f minutes)"
+msgstr "Реконструкция объекта выполнена (однократно). (%.02f мин.)"
 
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
@@ -776,6 +815,14 @@ msgid "Problem cleaning up %s"
 msgstr "Неполадка при очистке %s"
 
 #, python-format
+msgid "Problem cleaning up %s (%s)"
+msgstr "Возникла проблема при очистке %s (%s)"
+
+#, fuzzy, python-format
+msgid "Problem writing durable state file %s (%s)"
+msgstr "Возникла проблема при записи файла состояния %s (%s)"
+
+#, python-format
 msgid "Profiling Error: %s"
 msgstr "Ошибка профилирования: %s"
 
@@ -819,6 +866,14 @@ msgid "Removing partition: %s"
 msgstr "Удаление раздела: %s"
 
 #, python-format
+msgid "Removing pid file %s with invalid pid"
+msgstr "Удаление pid файла %s с неверным pid-ом"
+
+#, python-format
+msgid "Removing pid file %s with wrong pid %d"
+msgstr "Удаление pid файла %s с неверным pid-ом %d"
+
+#, python-format
 msgid "Removing stale pid file %s"
 msgstr "Удаление устаревшего файла pid %s"
 
@@ -837,6 +892,11 @@ msgstr ""
 "Возвращено 498 для %(meth)s в %(acc)s/%(cont)s/%(obj)s . Ratelimit "
 "(максимальная задержка): %(e)s"
 
+msgid "Ring change detected. Aborting current reconstruction pass."
+msgstr ""
+"Обнаружено изменение кольца. Принудительное завершение текущего прохода "
+"реконструкции."
+
 msgid "Ring change detected. Aborting current replication pass."
 msgstr ""
 "Обнаружено кольцевое изменение. Принудительное завершение текущего прохода "
@@ -845,6 +905,9 @@ msgstr ""
 #, python-format
 msgid "Running %s once"
 msgstr "Однократное выполнение %s"
+
+msgid "Running object reconstructor in script mode."
+msgstr "Запуск утилиты реконструкции объектов в режиме скрипта."
 
 msgid "Running object replicator in script mode."
 msgstr "Запуск утилиты репликации объектов в режиме сценариев."
@@ -889,6 +952,12 @@ msgstr "%s будет пропущен, так как он не смонтиро
 msgid "Starting %s"
 msgstr "Запуск %s"
 
+msgid "Starting object reconstruction pass."
+msgstr "Запуск прохода реконструкции объектов."
+
+msgid "Starting object reconstructor in daemon mode."
+msgstr "Запуск утилиты реконструкции объектов в режиме демона."
+
 msgid "Starting object replication pass."
 msgstr "Запуск прохода репликации объектов."
 
@@ -915,8 +984,16 @@ msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "Тайм-аут действия %(action)s для сохранения в кэш памяти: %(server)s"
 
 #, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "Исключение по таймауту %(ip)s:%(port)s/%(device)s"
+
+#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "Попытка выполнения метода %(method)s %(path)s"
+
+#, python-format
+msgid "Trying to GET %(full_path)s"
+msgstr "Попытка GET-запроса %(full_path)s"
 
 #, python-format
 msgid "Trying to get final status of PUT to %s"
@@ -943,8 +1020,16 @@ msgid "Unable to find %s config section in %s"
 msgstr "Не удалось найти раздел конфигурации %s в %s"
 
 #, python-format
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr "Не удалось загрузить клиент из конфигурации: %r (%s)"
+
+#, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "Не удалось найти %s в libc.  Оставлено как no-op."
+
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr "Не удалось найти конфигурационный файл для %s"
 
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
@@ -969,6 +1054,11 @@ msgstr "Непредвиденный ответ: %s"
 
 msgid "Unhandled exception"
 msgstr "Необработанная исключительная ситуация"
+
+#, python-format
+msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
+msgstr ""
+"Неизвестное исключение в GET-запросе: %(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
@@ -1003,6 +1093,10 @@ msgstr ""
 #, python-format
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr "Система ожидала %s секунд для %s завершения; освобождение"
+
+#, python-format
+msgid "Waited %s seconds for %s to die; killing"
+msgstr "Система ожидала %s секунд для %s завершения; Принудительное завершение"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""

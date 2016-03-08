@@ -28,8 +28,7 @@ from swift.common.utils import get_logger, ratelimit_sleep, dump_recon_cache, \
     list_from_csv, listdir
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
 from swift.common.daemon import Daemon
-
-SLEEP_BETWEEN_AUDITS = 30
+from swift.common.storage_policy import POLICIES
 
 
 class AuditorWorker(object):
@@ -39,7 +38,7 @@ class AuditorWorker(object):
         self.conf = conf
         self.logger = logger
         self.devices = devices
-        self.diskfile_mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.diskfile_router = diskfile.DiskFileRouter(conf, self.logger)
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
@@ -87,8 +86,16 @@ class AuditorWorker(object):
         total_quarantines = 0
         total_errors = 0
         time_auditing = 0
-        all_locs = self.diskfile_mgr.object_audit_location_generator(
-            device_dirs=device_dirs)
+        # TODO: we should move audit-location generation to the storage policy,
+        # as we may (conceivably) have a different filesystem layout for each.
+        # We'd still need to generate the policies to audit from the actual
+        # directories found on-disk, and have appropriate error reporting if we
+        # find a directory that doesn't correspond to any known policy. This
+        # will require a sizable refactor, but currently all diskfile managers
+        # can find all diskfile locations regardless of policy -- so for now
+        # just use Policy-0's manager.
+        all_locs = (self.diskfile_router[POLICIES[0]]
+                    .object_audit_location_generator(device_dirs=device_dirs))
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -101,8 +108,8 @@ class AuditorWorker(object):
                 self.logger.info(_(
                     'Object audit (%(type)s). '
                     'Since %(start_time)s: Locally: %(passes)d passed, '
-                    '%(quars)d quarantined, %(errors)d errors '
-                    'files/sec: %(frate).2f , bytes/sec: %(brate).2f, '
+                    '%(quars)d quarantined, %(errors)d errors, '
+                    'files/sec: %(frate).2f, bytes/sec: %(brate).2f, '
                     'Total time: %(total).2f, Auditing time: %(audit).2f, '
                     'Rate: %(audit_rate).2f') % {
                         'type': '%s%s' % (self.auditor_type, description),
@@ -187,8 +194,9 @@ class AuditorWorker(object):
         def raise_dfq(msg):
             raise DiskFileQuarantined(msg)
 
+        diskfile_mgr = self.diskfile_router[location.policy]
         try:
-            df = self.diskfile_mgr.get_diskfile_from_audit_location(location)
+            df = diskfile_mgr.get_diskfile_from_audit_location(location)
             with df.open():
                 metadata = df.get_metadata()
                 obj_size = int(metadata['Content-Length'])
@@ -230,9 +238,10 @@ class ObjectAuditor(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.interval = int(conf.get('interval', 30))
 
     def _sleep(self):
-        time.sleep(SLEEP_BETWEEN_AUDITS)
+        time.sleep(self.interval)
 
     def clear_recon_cache(self, auditor_type):
         """Clear recon cache entries"""
@@ -261,7 +270,8 @@ class ObjectAuditor(Daemon):
             try:
                 self.run_audit(**kwargs)
             except Exception as e:
-                self.logger.error(_("ERROR: Unable to run auditing: %s") % e)
+                self.logger.exception(
+                    _("ERROR: Unable to run auditing: %s") % e)
             finally:
                 sys.exit()
 

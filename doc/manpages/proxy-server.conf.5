@@ -118,8 +118,10 @@ adapted_logger. The default is empty.
 If set, log_udp_host will override log_address.
 .IP "\fBlog_udp_port\fR
 UDP log port, the default is 514.
-.IP \fBlog_statsd_host\fR = localhost
-log_statsd_*  enable StatsD logging.
+.IP \fBlog_statsd_host\fR
+StatsD server. IPv4/IPv6 addresses and hostnames are
+supported. If a hostname resolves to an IPv4 and IPv6 address, the IPv4
+address will be used.
 .IP \fBlog_statsd_port\fR
 The default is 8125.
 .IP \fBlog_statsd_default_sample_rate\fR
@@ -328,8 +330,8 @@ This allows middleware higher in the WSGI pipeline to override auth
 processing, useful for middleware such as tempurl and formpost. If you know
 you're not going to use such middleware and you want a bit of extra security,
 you can set this to false.
-.IP \fBis_admin [DEPRECATED]\fR
-If is_admin is true, a user whose username is the same as the project name
+.IP \fBis_admin\fR
+[DEPRECATED] If is_admin is true, a user whose username is the same as the project name
 and who has any role on the project will have access rights elevated to be
 the same as if the user had an operator role. Note that the condition
 compares names rather than UUIDs. This option is deprecated.
@@ -384,7 +386,8 @@ Sets the maximum number of connections to each memcached server per worker.
 If not set in the configuration file, the value for memcache_servers will be
 read from /etc/swift/memcache.conf (see memcache.conf-sample) or lacking that
 file, it will default to 127.0.0.1:11211. You can specify multiple servers
-separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211.
+separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211.  (IPv6
+addresses must follow rfc3986 section-3.2.2, i.e. [::1]:11211)
 .IP \fBmemcache_serialization_support\fR
 This sets how memcache values are serialized and deserialized:
 .RE
@@ -665,7 +668,9 @@ unset.
 Default is 514.
 .IP \fBaccess_log_statsd_host\fR
 You can use log_statsd_* from [DEFAULT], or override them here.
-Default is localhost.
+StatsD server. IPv4/IPv6 addresses and hostnames are
+supported. If a hostname resolves to an IPv4 and IPv6 address, the IPv4
+address will be used.
 .IP \fBaccess_log_statsd_port\fR
 Default is 8125.
 .IP \fBaccess_log_statsd_default_sample_rate\fR
@@ -949,7 +954,7 @@ chunk of data from the object servers while serving GET / HEAD requests.
 Timeouts from these requests can be recovered from so setting this to
 something lower than node_timeout would provide quicker error recovery
 while allowing for a longer timeout for non-recoverable requests (PUTs).
-Defaults to node_timeout, should be overriden if node_timeout is set to a
+Defaults to node_timeout, should be overridden if node_timeout is set to a
 high number to prevent client timeouts from firing before the proxy server
 has a chance to retry.
 .IP \fBconn_timeout\fR
@@ -997,11 +1002,9 @@ The valid values for sorting_method are "affinity", "shuffle", and "timing".
 .IP \fBtiming_expiry\fR
 If the "timing" sorting_method is used, the timings will only be valid for
 the number of seconds configured by timing_expiry. The default is 300.
-.IP \fBmax_large_object_get_time\fR
-The maximum time (seconds) that a large object connection is allowed to last. The default is 86400.
 .IP \fBrequest_node_count\fR
-Set to the number of nodes to contact for a normal request. You can use
-'* replicas' at the end to have it use the number given times the number of
+Set to the number of nodes to contact for a normal request. You can use '* replicas'
+at the end to have it use the number given times the number of
 replicas for the ring being used for the request. The default is '2 * replicas'.
 .IP \fBread_affinity\fR
 Which backend servers to prefer on reads. Format is r<N> for region

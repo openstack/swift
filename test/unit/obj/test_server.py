@@ -51,7 +51,8 @@ from swift.obj import server as object_server
 from swift.obj import diskfile
 from swift.common import utils, bufferedhttp
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    NullLogger, storage_directory, public, replication
+    NullLogger, storage_directory, public, replication, encode_timestamps, \
+    Timestamp
 from swift.common import constraints
 from swift.common.swob import Request, HeaderKeyDict, WsgiBytesIO
 from swift.common.splice import splice
@@ -168,7 +169,7 @@ class TestObjectController(unittest.TestCase):
         dah = ['content-disposition', 'content-encoding', 'x-delete-at',
                'x-object-manifest', 'x-static-large-object']
         conf = {'devices': self.testdir, 'mount_check': 'false',
-                'allowed_headers': ','.join(['content-type'] + dah)}
+                'allowed_headers': ','.join(['content-length'] + dah)}
         self.object_controller = object_server.ObjectController(
             conf, logger=debug_logger())
         self.assertEqual(self.object_controller.allowed_headers, set(dah))
@@ -416,12 +417,14 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 400)
 
     def test_POST_container_connection(self):
-
-        def mock_http_connect(response, with_exc=False):
+        # Test that POST does call container_update and returns success
+        # whether update to container server succeeds or fails
+        def mock_http_connect(calls, response, with_exc=False):
 
             class FakeConn(object):
 
-                def __init__(self, status, with_exc):
+                def __init__(self, calls, status, with_exc):
+                    self.calls = calls
                     self.status = status
                     self.reason = 'Fake'
                     self.host = '1.2.3.4'
@@ -429,6 +432,7 @@ class TestObjectController(unittest.TestCase):
                     self.with_exc = with_exc
 
                 def getresponse(self):
+                    calls[0] += 1
                     if self.with_exc:
                         raise Exception('test')
                     return self
@@ -436,7 +440,7 @@ class TestObjectController(unittest.TestCase):
                 def read(self, amt=None):
                     return ''
 
-            return lambda *args, **kwargs: FakeConn(response, with_exc)
+            return lambda *args, **kwargs: FakeConn(calls, response, with_exc)
 
         ts = time()
         timestamp = normalize_timestamp(ts)
@@ -456,8 +460,9 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Device': 'sda1',
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1'})
+        calls = [0]
         with mock.patch.object(object_server, 'http_connect',
-                               mock_http_connect(202)):
+                               mock_http_connect(calls, 202)):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
         req = Request.blank(
@@ -469,8 +474,9 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Device': 'sda1',
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1'})
+        calls = [0]
         with mock.patch.object(object_server, 'http_connect',
-                               mock_http_connect(202, with_exc=True)):
+                               mock_http_connect(calls, 202, with_exc=True)):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
         req = Request.blank(
@@ -482,10 +488,214 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Device': 'sda1',
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new2'})
+        calls = [0]
         with mock.patch.object(object_server, 'http_connect',
-                               mock_http_connect(500)):
+                               mock_http_connect(calls, 500)):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+
+    def _test_POST_container_updates(self, policy, update_etag=None):
+        # Test that POST requests result in correct calls to container_update
+        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
+        t = [ts_iter.next() for _ in range(0, 5)]
+        calls_made = []
+        update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
+
+        def mock_container_update(ctlr, op, account, container, obj, request,
+                                  headers_out, objdevice, policy_idx):
+            calls_made.append(headers_out)
+
+        headers = {
+            'X-Timestamp': t[1].internal,
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            headers['X-Backend-Container-Update-Override-Etag'] = update_etag
+            headers['X-Object-Sysmeta-Ec-Etag'] = update_etag
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers)
+        req.body = 'test'
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(1, len(calls_made))
+        expected_headers = HeaderKeyDict({
+            'x-size': '4',
+            'x-content-type': 'application/octet-stream;swift_bytes=123456789',
+            'x-timestamp': t[1].internal,
+            'x-etag': update_etag})
+        self.assertDictEqual(expected_headers, calls_made[0])
+
+        # POST with no metadata newer than the data should return 409,
+        # container update not expected
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t[0].internal,
+                                     'X-Backend-Storage-Policy': int(policy)})
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 409)
+        self.assertEqual(resp.headers['x-backend-timestamp'],
+                         t[1].internal)
+        self.assertEqual(0, len(calls_made))
+
+        # POST with newer metadata returns success and container update
+        # is expected
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t[3].internal,
+                                     'X-Backend-Storage-Policy': int(policy)})
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(1, len(calls_made))
+        expected_headers = HeaderKeyDict({
+            'x-size': '4',
+            'x-content-type': 'application/octet-stream;swift_bytes=123456789',
+            'x-timestamp': t[1].internal,
+            'x-content-type-timestamp': t[1].internal,
+            'x-meta-timestamp': t[3].internal,
+            'x-etag': update_etag})
+        self.assertDictEqual(expected_headers, calls_made[0])
+
+        # POST with no metadata newer than existing metadata should return
+        # 409, container update not expected
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t[2].internal,
+                                     'X-Backend-Storage-Policy': int(policy)})
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 409)
+        self.assertEqual(resp.headers['x-backend-timestamp'],
+                         t[3].internal)
+        self.assertEqual(0, len(calls_made))
+
+        # POST with newer content-type but older metadata returns success
+        # and container update is expected newer content-type should have
+        # existing swift_bytes appended
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={
+                                'X-Timestamp': t[2].internal,
+                                'Content-Type': 'text/plain',
+                                'Content-Type-Timestamp': t[2].internal,
+                                'X-Backend-Storage-Policy': int(policy)
+                            })
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(1, len(calls_made))
+        expected_headers = HeaderKeyDict({
+            'x-size': '4',
+            'x-content-type': 'text/plain;swift_bytes=123456789',
+            'x-timestamp': t[1].internal,
+            'x-content-type-timestamp': t[2].internal,
+            'x-meta-timestamp': t[3].internal,
+            'x-etag': update_etag})
+        self.assertDictEqual(expected_headers, calls_made[0])
+
+        # POST with older content-type but newer metadata returns success
+        # and container update is expected
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={
+                                'X-Timestamp': t[4].internal,
+                                'Content-Type': 'older',
+                                'Content-Type-Timestamp': t[1].internal,
+                                'X-Backend-Storage-Policy': int(policy)
+                            })
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(1, len(calls_made))
+        expected_headers = HeaderKeyDict({
+            'x-size': '4',
+            'x-content-type': 'text/plain;swift_bytes=123456789',
+            'x-timestamp': t[1].internal,
+            'x-content-type-timestamp': t[2].internal,
+            'x-meta-timestamp': t[4].internal,
+            'x-etag': update_etag})
+        self.assertDictEqual(expected_headers, calls_made[0])
+
+        # POST with same-time content-type and metadata returns 409
+        # and no container update is expected
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={
+                                'X-Timestamp': t[4].internal,
+                                'Content-Type': 'ignored',
+                                'Content-Type-Timestamp': t[2].internal,
+                                'X-Backend-Storage-Policy': int(policy)
+                            })
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 409)
+        self.assertEqual(0, len(calls_made))
+
+        # POST with implicit newer content-type but older metadata
+        # returns success and container update is expected,
+        # update reports existing metadata timestamp
+        calls_made = []
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={
+                                'X-Timestamp': t[3].internal,
+                                'Content-Type': 'text/newer',
+                                'X-Backend-Storage-Policy': int(policy)
+                            })
+
+        with mock.patch('swift.obj.server.ObjectController.container_update',
+                        mock_container_update):
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(1, len(calls_made))
+        expected_headers = HeaderKeyDict({
+            'x-size': '4',
+            'x-content-type': 'text/newer;swift_bytes=123456789',
+            'x-timestamp': t[1].internal,
+            'x-content-type-timestamp': t[3].internal,
+            'x-meta-timestamp': t[4].internal,
+            'x-etag': update_etag})
+        self.assertDictEqual(expected_headers, calls_made[0])
+
+    def test_POST_container_updates_with_replication_policy(self):
+        self._test_POST_container_updates(POLICIES[0])
+
+    def test_POST_container_updates_with_EC_policy(self):
+        self._test_POST_container_updates(
+            POLICIES[1], update_etag='override_etag')
 
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())
@@ -696,6 +906,88 @@ class TestObjectController(unittest.TestCase):
                           'name': '/a/c/o',
                           'Content-Encoding': 'gzip'})
 
+    def test_PUT_overwrite_to_older_ts_succcess(self):
+        ts_iter = make_timestamp_iter()
+        old_timestamp = next(ts_iter)
+        new_timestamp = next(ts_iter)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': old_timestamp.normal,
+                     'Content-Length': '0',
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': new_timestamp.normal,
+                     'Content-Type': 'text/plain',
+                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY TWO'
+        resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            new_timestamp.internal + '.data')
+        self.assertTrue(os.path.isfile(objfile))
+        self.assertEqual(open(objfile).read(), 'VERIFY TWO')
+        self.assertEqual(
+            diskfile.read_metadata(objfile),
+            {'X-Timestamp': new_timestamp.internal,
+             'Content-Length': '10',
+             'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
+             'Content-Type': 'text/plain',
+             'name': '/a/c/o',
+             'Content-Encoding': 'gzip'})
+
+    def test_PUT_overwrite_to_newer_ts_failed(self):
+        ts_iter = make_timestamp_iter()
+        old_timestamp = next(ts_iter)
+        new_timestamp = next(ts_iter)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': new_timestamp.normal,
+                     'Content-Length': '0',
+                     'Content-Type': 'application/octet-stream'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': old_timestamp.normal,
+                     'Content-Type': 'text/plain',
+                     'Content-Encoding': 'gzip'})
+        req.body = 'VERIFY TWO'
+
+        with mock.patch(
+                'swift.obj.diskfile.BaseDiskFile.create') as mock_create:
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 409)
+        self.assertEqual(mock_create.call_count, 0)
+
+        # data file doesn't exist there (This is sanity because
+        # if .data written unexpectedly, it will be removed
+        # by hash_cleanup_list_dir)
+        datafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            old_timestamp.internal + '.data')
+        self.assertFalse(os.path.exists(datafile))
+
+        # ts file sitll exists
+        tsfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            new_timestamp.internal + '.ts')
+        self.assertTrue(os.path.isfile(tsfile))
+
     def test_PUT_overwrite_w_delete_at(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -761,6 +1053,45 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
+
+    def test_PUT_new_object_really_old_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '-1',  # 1969-12-31 23:59:59
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '1',  # 1970-01-01 00:00:01
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+    def test_PUT_object_really_new_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '9999999999',  # 2286-11-20 17:46:40
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # roll over to 11 digits before the decimal
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '10000000000',
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_no_etag(self):
         req = Request.blank(
@@ -1210,6 +1541,84 @@ class TestObjectController(unittest.TestCase):
                          {'X-Timestamp': timestamp2,
                           'name': '/a/c/o',
                           'X-Object-Meta-1': 'Not One'})
+
+    def test_POST_then_fetch_content_type(self):
+        # check that content_type is updated by a POST
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'Content-Type': 'text/html'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        # original .data file metadata should be unchanged
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        self.assertTrue(os.path.isfile(objfile))
+        self.assertEqual(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': timestamp1,
+                          'Content-Length': '14',
+                          'Content-Type': 'text/plain',
+                          'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                          'name': '/a/c/o',
+                          'X-Object-Meta-1': 'One'})
+
+        # .meta file metadata should have updated content-type
+        metafile_name = encode_timestamps(Timestamp(timestamp2),
+                                          Timestamp(timestamp2),
+                                          explicit=True)
+        metafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            metafile_name + '.meta')
+        self.assertTrue(os.path.isfile(metafile))
+        self.assertEqual(diskfile.read_metadata(metafile),
+                         {'X-Timestamp': timestamp2,
+                          'name': '/a/c/o',
+                          'Content-Type': 'text/html',
+                          'Content-Type-Timestamp': timestamp2,
+                          'X-Object-Meta-1': 'Not One'})
+
+        def check_response(resp):
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_length, 14)
+            self.assertEqual(resp.content_type, 'text/html')
+            self.assertEqual(resp.headers['content-type'], 'text/html')
+            self.assertEqual(
+                resp.headers['last-modified'],
+                strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp2)))))
+            self.assertEqual(resp.headers['etag'],
+                             '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEqual(resp.headers['x-object-meta-1'], 'Not One')
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
 
     def test_PUT_then_fetch_system_metadata(self):
         timestamp = normalize_timestamp(time())
@@ -3414,7 +3823,7 @@ class TestObjectController(unittest.TestCase):
                  'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
 
-    def test_object_delete_at_aysnc_update(self):
+    def test_object_delete_at_async_update(self):
         policy = random.choice(list(POLICIES))
         ts = (utils.Timestamp(t) for t in
               itertools.count(int(time())))

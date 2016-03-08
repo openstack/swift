@@ -56,7 +56,7 @@ from eventlet.green import socket
 from eventlet.pools import Pool
 from eventlet import Timeout
 from six.moves import range
-
+from swift.common import utils
 
 DEFAULT_MEMCACHED_PORT = 11211
 
@@ -101,23 +101,28 @@ class MemcachePoolTimeout(Timeout):
 
 
 class MemcacheConnPool(Pool):
-    """Connection pool for Memcache Connections"""
+    """
+    Connection pool for Memcache Connections
+
+    The *server* parameter can be a hostname, an IPv4 address, or an IPv6
+    address with an optional port. See
+    :func:`swift.common.utils.parse_socket_string` for details.
+    """
 
     def __init__(self, server, size, connect_timeout):
         Pool.__init__(self, max_size=size)
-        self.server = server
+        self.host, self.port = utils.parse_socket_string(
+            server, DEFAULT_MEMCACHED_PORT)
         self._connect_timeout = connect_timeout
 
     def create(self):
-        if ':' in self.server:
-            host, port = self.server.split(':')
-        else:
-            host = self.server
-            port = DEFAULT_MEMCACHED_PORT
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        addrs = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC,
+                                   socket.SOCK_STREAM)
+        family, socktype, proto, canonname, sockaddr = addrs[0]
+        sock = socket.socket(family, socket.SOCK_STREAM)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         with Timeout(self._connect_timeout):
-            sock.connect((host, int(port)))
+            sock.connect(sockaddr)
         return (sock.makefile(), sock)
 
     def get(self):

@@ -56,7 +56,7 @@ class FakeSwift(object):
         self.container_ring = FakeRing()
         self.get_object_ring = lambda policy_index: FakeRing()
 
-    def _get_response(self, method, path):
+    def _find_response(self, method, path):
         resp = self._responses[(method, path)]
         if isinstance(resp, list):
             try:
@@ -84,16 +84,17 @@ class FakeSwift(object):
         self.swift_sources.append(env.get('swift.source'))
 
         try:
-            resp_class, raw_headers, body = self._get_response(method, path)
+            resp_class, raw_headers, body = self._find_response(method, path)
             headers = swob.HeaderKeyDict(raw_headers)
         except KeyError:
             if (env.get('QUERY_STRING')
                     and (method, env['PATH_INFO']) in self._responses):
-                resp_class, raw_headers, body = self._get_response(
+                resp_class, raw_headers, body = self._find_response(
                     method, env['PATH_INFO'])
                 headers = swob.HeaderKeyDict(raw_headers)
             elif method == 'HEAD' and ('GET', path) in self._responses:
-                resp_class, raw_headers, body = self._get_response('GET', path)
+                resp_class, raw_headers, body = self._find_response(
+                    'GET', path)
                 body = None
                 headers = swob.HeaderKeyDict(raw_headers)
             elif method == 'GET' and obj and path in self.uploaded:

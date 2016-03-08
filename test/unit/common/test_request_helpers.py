@@ -16,13 +16,16 @@
 """Tests for swift.common.request_helpers"""
 
 import unittest
-from swift.common.swob import Request, HTTPException
+from swift.common.swob import Request, HTTPException, HeaderKeyDict
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_sys_or_user_meta, strip_sys_meta_prefix, strip_user_meta_prefix, \
-    remove_items, copy_header_subset, get_name_and_placement
+    remove_items, copy_header_subset, get_name_and_placement, \
+    http_response_to_document_iters
 
 from test.unit import patch_policies
+from test.unit.common.test_utils import FakeResponse
+
 
 server_types = ['account', 'container', 'object']
 
@@ -158,3 +161,115 @@ class TestRequestHelpers(unittest.TestCase):
         self.assertEqual(suffix_parts, '')  # still false-y
         self.assertEqual(policy, POLICIES[1])
         self.assertEqual(policy.policy_type, REPL_POLICY)
+
+
+class TestHTTPResponseToDocumentIters(unittest.TestCase):
+    def test_200(self):
+        fr = FakeResponse(
+            200,
+            {'Content-Length': '10', 'Content-Type': 'application/lunch'},
+            'sandwiches')
+
+        doc_iters = http_response_to_document_iters(fr)
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 0)
+        self.assertEqual(last_byte, 9)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Length'), '10')
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'sandwiches')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+        fr = FakeResponse(
+            200,
+            {'Transfer-Encoding': 'chunked',
+             'Content-Type': 'application/lunch'},
+            'sandwiches')
+
+        doc_iters = http_response_to_document_iters(fr)
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 0)
+        self.assertIsNone(last_byte)
+        self.assertIsNone(length)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Transfer-Encoding'), 'chunked')
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'sandwiches')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+    def test_206_single_range(self):
+        fr = FakeResponse(
+            206,
+            {'Content-Length': '8', 'Content-Type': 'application/lunch',
+             'Content-Range': 'bytes 1-8/10'},
+            'andwiche')
+
+        doc_iters = http_response_to_document_iters(fr)
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 1)
+        self.assertEqual(last_byte, 8)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Length'), '8')
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'andwiche')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+        # Chunked response should be treated in the same way as non-chunked one
+        fr = FakeResponse(
+            206,
+            {'Transfer-Encoding': 'chunked',
+             'Content-Type': 'application/lunch',
+             'Content-Range': 'bytes 1-8/10'},
+            'andwiche')
+
+        doc_iters = http_response_to_document_iters(fr)
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 1)
+        self.assertEqual(last_byte, 8)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'andwiche')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+    def test_206_multiple_ranges(self):
+        fr = FakeResponse(
+            206,
+            {'Content-Type': 'multipart/byteranges; boundary=asdfasdfasdf'},
+            ("--asdfasdfasdf\r\n"
+             "Content-Type: application/lunch\r\n"
+             "Content-Range: bytes 0-3/10\r\n"
+             "\r\n"
+             "sand\r\n"
+             "--asdfasdfasdf\r\n"
+             "Content-Type: application/lunch\r\n"
+             "Content-Range: bytes 6-9/10\r\n"
+             "\r\n"
+             "ches\r\n"
+             "--asdfasdfasdf--"))
+
+        doc_iters = http_response_to_document_iters(fr)
+
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 0)
+        self.assertEqual(last_byte, 3)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'sand')
+
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 6)
+        self.assertEqual(last_byte, 9)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'ches')
+
+        self.assertRaises(StopIteration, next, doc_iters)

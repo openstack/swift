@@ -16,12 +16,12 @@
 import json
 import mock
 import os
-import random
 import re
-import string
 import tempfile
 import time
 import unittest
+import shutil
+import sys
 
 from eventlet.green import urllib2, socket
 from six import StringIO
@@ -30,6 +30,9 @@ from six.moves import urllib
 from swift.cli import recon
 from swift.common import utils
 from swift.common.ring import builder
+from swift.common.ring import utils as ring_utils
+from swift.common.storage_policy import StoragePolicy, POLICIES
+from test.unit import patch_policies
 
 
 class TestHelpers(unittest.TestCase):
@@ -135,22 +138,50 @@ class TestScout(unittest.TestCase):
         self.assertEqual(status, -1)
 
 
+@patch_policies
 class TestRecon(unittest.TestCase):
     def setUp(self, *_args, **_kwargs):
         self.recon_instance = recon.SwiftRecon()
-        self.swift_dir = tempfile.gettempdir()
-        self.ring_name = "test_object_%s" % (
-            ''.join(random.choice(string.digits) for x in range(6)))
-        self.tmpfile_name = "%s/%s.ring.gz" % (self.swift_dir, self.ring_name)
+        self.swift_dir = tempfile.mkdtemp()
+        self.ring_name = POLICIES.legacy.ring_name
+        self.tmpfile_name = os.path.join(
+            self.swift_dir, self.ring_name + '.ring.gz')
+        self.ring_name2 = POLICIES[1].ring_name
+        self.tmpfile_name2 = os.path.join(
+            self.swift_dir, self.ring_name2 + '.ring.gz')
 
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
 
     def tearDown(self, *_args, **_kwargs):
-        try:
-            os.remove(self.tmpfile_name)
-        except OSError:
-            pass
+        shutil.rmtree(self.swift_dir, ignore_errors=True)
+
+    def _make_object_rings(self):
+        ringbuilder = builder.RingBuilder(2, 3, 1)
+        devs = [
+            'r0z0-127.0.0.1:10000/sda1',
+            'r0z1-127.0.0.1:10001/sda1',
+            'r1z0-127.0.0.1:10002/sda1',
+            'r1z1-127.0.0.1:10003/sda1',
+        ]
+        for raw_dev_str in devs:
+            dev = ring_utils.parse_add_value(raw_dev_str)
+            dev['weight'] = 1.0
+            ringbuilder.add_dev(dev)
+        ringbuilder.rebalance()
+        ringbuilder.get_ring().save(self.tmpfile_name)
+
+        ringbuilder = builder.RingBuilder(2, 2, 1)
+        devs = [
+            'r0z0-127.0.0.1:10000/sda1',
+            'r0z1-127.0.0.2:10004/sda1',
+        ]
+        for raw_dev_str in devs:
+            dev = ring_utils.parse_add_value(raw_dev_str)
+            dev['weight'] = 1.0
+            ringbuilder.add_dev(dev)
+        ringbuilder.rebalance()
+        ringbuilder.get_ring().save(self.tmpfile_name2)
 
     def test_gen_stats(self):
         stats = self.recon_instance._gen_stats((1, 4, 10, None), 'Sample')
@@ -164,58 +195,67 @@ class TestRecon(unittest.TestCase):
         self.assertEqual(stats.get('perc_none'), 25.0)
 
     def test_ptime(self):
-        with mock.patch('time.localtime') as mock_localtime:
-            mock_localtime.return_value = time.struct_time(
+        with mock.patch('time.gmtime') as mock_gmtime:
+            mock_gmtime.return_value = time.struct_time(
                 (2013, 12, 17, 10, 0, 0, 1, 351, 0))
 
             timestamp = self.recon_instance._ptime(1387274400)
             self.assertEqual(timestamp, "2013-12-17 10:00:00")
-            mock_localtime.assert_called_with(1387274400)
+            mock_gmtime.assert_called_with(1387274400)
 
             timestamp2 = self.recon_instance._ptime()
             self.assertEqual(timestamp2, "2013-12-17 10:00:00")
-            mock_localtime.assert_called_with()
+            mock_gmtime.assert_called_with()
 
-    def test_get_devices(self):
-        ringbuilder = builder.RingBuilder(2, 3, 1)
-        ringbuilder.add_dev({'id': 0, 'zone': 0, 'weight': 1,
-                             'ip': '127.0.0.1', 'port': 10000,
-                             'device': 'sda1', 'region': 0})
-        ringbuilder.add_dev({'id': 1, 'zone': 1, 'weight': 1,
-                             'ip': '127.0.0.1', 'port': 10001,
-                             'device': 'sda1', 'region': 0})
-        ringbuilder.add_dev({'id': 2, 'zone': 0, 'weight': 1,
-                             'ip': '127.0.0.1', 'port': 10002,
-                             'device': 'sda1', 'region': 1})
-        ringbuilder.add_dev({'id': 3, 'zone': 1, 'weight': 1,
-                             'ip': '127.0.0.1', 'port': 10003,
-                             'device': 'sda1', 'region': 1})
-        ringbuilder.rebalance()
-        ringbuilder.get_ring().save(self.tmpfile_name)
+    def test_get_hosts(self):
+        self._make_object_rings()
 
-        ips = self.recon_instance.get_devices(
-            None, None, self.swift_dir, self.ring_name)
+        ips = self.recon_instance.get_hosts(
+            None, None, self.swift_dir, [self.ring_name])
         self.assertEqual(
             set([('127.0.0.1', 10000), ('127.0.0.1', 10001),
                  ('127.0.0.1', 10002), ('127.0.0.1', 10003)]), ips)
 
-        ips = self.recon_instance.get_devices(
-            0, None, self.swift_dir, self.ring_name)
+        ips = self.recon_instance.get_hosts(
+            0, None, self.swift_dir, [self.ring_name])
         self.assertEqual(
             set([('127.0.0.1', 10000), ('127.0.0.1', 10001)]), ips)
 
-        ips = self.recon_instance.get_devices(
-            1, None, self.swift_dir, self.ring_name)
+        ips = self.recon_instance.get_hosts(
+            1, None, self.swift_dir, [self.ring_name])
         self.assertEqual(
             set([('127.0.0.1', 10002), ('127.0.0.1', 10003)]), ips)
 
-        ips = self.recon_instance.get_devices(
-            0, 0, self.swift_dir, self.ring_name)
+        ips = self.recon_instance.get_hosts(
+            0, 0, self.swift_dir, [self.ring_name])
         self.assertEqual(set([('127.0.0.1', 10000)]), ips)
 
-        ips = self.recon_instance.get_devices(
-            1, 1, self.swift_dir, self.ring_name)
+        ips = self.recon_instance.get_hosts(
+            1, 1, self.swift_dir, [self.ring_name])
         self.assertEqual(set([('127.0.0.1', 10003)]), ips)
+
+        ips = self.recon_instance.get_hosts(
+            None, None, self.swift_dir, [self.ring_name, self.ring_name2])
+        self.assertEqual(
+            set([('127.0.0.1', 10000), ('127.0.0.1', 10001),
+                 ('127.0.0.1', 10002), ('127.0.0.1', 10003),
+                 ('127.0.0.2', 10004)]), ips)
+
+        ips = self.recon_instance.get_hosts(
+            0, None, self.swift_dir, [self.ring_name, self.ring_name2])
+        self.assertEqual(
+            set([('127.0.0.1', 10000), ('127.0.0.1', 10001),
+                 ('127.0.0.2', 10004)]), ips)
+
+        ips = self.recon_instance.get_hosts(
+            1, None, self.swift_dir, [self.ring_name, self.ring_name2])
+        self.assertEqual(
+            set([('127.0.0.1', 10002), ('127.0.0.1', 10003)]), ips)
+
+        ips = self.recon_instance.get_hosts(
+            0, 1, self.swift_dir, [self.ring_name, self.ring_name2])
+        self.assertEqual(set([('127.0.0.1', 10001),
+                              ('127.0.0.2', 10004)]), ips)
 
     def test_get_ringmd5(self):
         for server_type in ('account', 'container', 'object', 'object-1'):
@@ -342,6 +382,89 @@ class TestRecon(unittest.TestCase):
                                  " low: %s, high: %s, avg: %s, total: %s,"
                                  " Failed: %s%%, no_result: %s, reported: %s"
                                  % expected)
+
+    def test_get_ring_names(self):
+        self.recon_instance.server_type = 'not-object'
+        self.assertEqual(self.recon_instance._get_ring_names(), ['not-object'])
+
+        self.recon_instance.server_type = 'object'
+
+        with patch_policies([StoragePolicy(0, 'zero', is_default=True)]):
+            self.assertEqual(self.recon_instance._get_ring_names(),
+                             ['object'])
+
+        with patch_policies([StoragePolicy(0, 'zero', is_default=True),
+                             StoragePolicy(1, 'one')]):
+            self.assertEqual(self.recon_instance._get_ring_names(),
+                             ['object', 'object-1'])
+            self.assertEqual(self.recon_instance._get_ring_names('0'),
+                             ['object'])
+            self.assertEqual(self.recon_instance._get_ring_names('zero'),
+                             ['object'])
+            self.assertEqual(self.recon_instance._get_ring_names('1'),
+                             ['object-1'])
+            self.assertEqual(self.recon_instance._get_ring_names('one'),
+                             ['object-1'])
+
+            self.assertEqual(self.recon_instance._get_ring_names('3'), [])
+            self.assertEqual(self.recon_instance._get_ring_names('wrong'),
+                             [])
+
+    def test_main_object_hosts_default_all_policies(self):
+        self._make_object_rings()
+        discovered_hosts = set()
+
+        def server_type_check(hosts):
+            for h in hosts:
+                discovered_hosts.add(h)
+
+        self.recon_instance.server_type_check = server_type_check
+        with mock.patch.object(sys, 'argv', [
+                "prog", "object", "--swiftdir=%s" % self.swift_dir,
+                "--validate-servers"]):
+            self.recon_instance.main()
+
+        expected = set([
+            ('127.0.0.1', 10000),
+            ('127.0.0.1', 10001),
+            ('127.0.0.1', 10002),
+            ('127.0.0.1', 10003),
+            ('127.0.0.2', 10004),
+        ])
+
+        self.assertEqual(expected, discovered_hosts)
+
+    def test_main_object_hosts_default_unu(self):
+        self._make_object_rings()
+        discovered_hosts = set()
+
+        def server_type_check(hosts):
+            for h in hosts:
+                discovered_hosts.add(h)
+
+        self.recon_instance.server_type_check = server_type_check
+
+        with mock.patch.object(sys, 'argv', [
+                "prog", "object", "--swiftdir=%s" % self.swift_dir,
+                "--validate-servers", '--policy=unu']):
+
+            self.recon_instance.main()
+
+        expected = set([
+            ('127.0.0.1', 10000),
+            ('127.0.0.2', 10004),
+        ])
+        self.assertEqual(expected, discovered_hosts)
+
+    def test_main_object_hosts_default_invalid(self):
+        self._make_object_rings()
+        stdout = StringIO()
+        with mock.patch.object(sys, 'argv', [
+                "prog", "object", "--swiftdir=%s" % self.swift_dir,
+                "--validate-servers", '--policy=invalid']),\
+                mock.patch('sys.stdout', stdout):
+            self.assertRaises(SystemExit, recon.main)
+            self.assertIn('Invalid Storage Policy', stdout.getvalue())
 
 
 class TestReconCommands(unittest.TestCase):
@@ -750,11 +873,7 @@ class TestReconCommands(unittest.TestCase):
             mock.call('1/2 hosts matched, 0 error[s] while checking hosts.'),
         ]
 
-        def mock_localtime(*args, **kwargs):
-            return time.gmtime(*args, **kwargs)
-
-        with mock.patch("time.localtime", mock_localtime):
-            cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
+        cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
 
         # We need any_order=True because the order of calls depends on the dict
         # that is returned from the recon middleware, thus can't rely on it

@@ -12,6 +12,8 @@
 # limitations under the License.
 
 import json
+import numbers
+
 import mock
 import operator
 import time
@@ -29,7 +31,7 @@ from swift.container import reconciler
 from swift.container.server import gen_resp_headers
 from swift.common.direct_client import ClientException
 from swift.common import swob
-from swift.common.utils import split_path, Timestamp
+from swift.common.utils import split_path, Timestamp, encode_timestamps
 
 from test.unit import debug_logger, FakeRing, fake_http_connect
 from test.unit.common.middleware.helpers import FakeSwift
@@ -132,12 +134,16 @@ class FakeInternalClient(reconciler.InternalClient):
                         'DELETE', obj_path, swob.HTTPNoContent, {})
                     # container listing entry
                     last_modified = timestamp_to_last_modified(timestamp)
+                    # some tests setup mock listings using floats, some use
+                    # strings, so normalize here
+                    if isinstance(timestamp, numbers.Number):
+                        timestamp = '%f' % timestamp
                     obj_data = {
                         'bytes': 0,
                         # listing data is unicode
                         'name': obj_name.decode('utf-8'),
                         'last_modified': last_modified,
-                        'hash': timestamp,
+                        'hash': timestamp.decode('utf-8'),
                         'content_type': content_type,
                     }
                     container_listing_data.append(obj_data)
@@ -199,6 +205,26 @@ class TestReconcilerUtils(unittest.TestCase):
         got = reconciler.parse_raw_obj({
             'name': "1:/AUTH_bob/con/obj",
             'hash': Timestamp(1234.20190).internal,
+            'last_modified': timestamp_to_last_modified(1234.20192),
+            'content_type': 'application/x-put',
+        })
+        self.assertEqual(got['q_policy_index'], 1)
+        self.assertEqual(got['account'], 'AUTH_bob')
+        self.assertEqual(got['container'], 'con')
+        self.assertEqual(got['obj'], 'obj')
+        self.assertEqual(got['q_ts'], 1234.20190)
+        self.assertEqual(got['q_record'], 1234.20192)
+        self.assertEqual(got['q_op'], 'PUT')
+
+        # the 'hash' field in object listing has the raw 'created_at' value
+        # which could be a composite of timestamps
+        timestamp_str = encode_timestamps(Timestamp(1234.20190),
+                                          Timestamp(1245.20190),
+                                          Timestamp(1256.20190),
+                                          explicit=True)
+        got = reconciler.parse_raw_obj({
+            'name': "1:/AUTH_bob/con/obj",
+            'hash': timestamp_str,
             'last_modified': timestamp_to_last_modified(1234.20192),
             'content_type': 'application/x-put',
         })

@@ -1,4 +1,4 @@
-# Korean (South Korea) translations for swift.
+# Translations template for swift.
 # Copyright (C) 2015 ORGANIZATION
 # This file is distributed under the same license as the swift project.
 #
@@ -7,20 +7,22 @@
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.5.1.dev70\n"
+"Project-Id-Version: swift 2.6.1.dev176\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-10-23 06:34+0000\n"
-"PO-Revision-Date: 2015-09-09 05:10+0000\n"
-"Last-Translator: Ying Chun Guo <daisy.ycguo@gmail.com>\n"
-"Language: ko_KR\n"
-"Language-Team: Korean (South Korea)\n"
-"Plural-Forms: nplurals=1; plural=0\n"
+"POT-Creation-Date: 2016-03-08 04:09+0000\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=utf-8\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.1.1\n"
+"PO-Revision-Date: 2016-01-30 06:54+0000\n"
+"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
+"Language: ko-KR\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"Generated-By: Babel 2.0\n"
+"X-Generator: Zanata 3.7.3\n"
+"Language-Team: Korean (South Korea)\n"
 
 msgid ""
 "\n"
@@ -554,7 +556,7 @@ msgstr "컨테이너 %s %s 삭제 중 예외 발생"
 
 #, python-format
 msgid "Exception while deleting object %s %s %s"
-msgstr "오브젝트 %s %s 삭제 중 예외 발생"
+msgstr "오브젝트 %s %s %s 삭제 중 예외 발생"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
@@ -683,18 +685,6 @@ msgstr ""
 "오브젝트 감사(%(type)s) \"%(mode)s\" 모드 완료: %(elapsed).02fs. 총 격리 항"
 "목: %(quars)d, 총 오류 수: %(errors)d, 총 파일/초: %(frate).2f, 총 바이트/"
 "초: %(brate).2f, 감사 시간: %(audit).2f, 속도: %(audit_rate).2f"
-
-#, python-format
-msgid ""
-"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
-"%(quars)d quarantined, %(errors)d errors files/sec: %(frate).2f , bytes/sec: "
-"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
-"%(audit_rate).2f"
-msgstr ""
-"오브젝트 감사(%(type)s). %(start_time)s 이후: 로컬: %(passes)d개 패스, "
-"%(quars)d개 격리, %(errors)d개 오류 파일/초: %(frate).2f ,바이트/초: "
-"%(brate).2f, 총 시간: %(total).2f, 감사 시간: %(audit).2f, 속도: "
-"%(audit_rate).2f"
 
 #, python-format
 msgid "Object audit stats: %s"

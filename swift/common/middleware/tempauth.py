@@ -38,6 +38,9 @@ from swift.common.utils import config_read_reseller_options
 from swift.proxy.controllers.base import get_account_info
 
 
+DEFAULT_TOKEN_LIFE = 86400
+
+
 class TempAuth(object):
     """
     Test authentication and authorization system.
@@ -181,7 +184,7 @@ class TempAuth(object):
             self.auth_prefix = '/' + self.auth_prefix
         if not self.auth_prefix.endswith('/'):
             self.auth_prefix += '/'
-        self.token_life = int(conf.get('token_life', 86400))
+        self.token_life = int(conf.get('token_life', DEFAULT_TOKEN_LIFE))
         self.allow_overrides = config_true_value(
             conf.get('allow_overrides', 't'))
         self.storage_url_scheme = conf.get('storage_url_scheme', 'default')
@@ -631,7 +634,8 @@ class TempAuth(object):
         req.start_time = time()
         handler = None
         try:
-            version, account, user, _junk = req.split_path(1, 4, True)
+            version, account, user, _junk = split_path(req.path_info,
+                                                       1, 4, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
@@ -765,7 +769,8 @@ class TempAuth(object):
             memcache_client.set(memcache_user_key, token,
                                 time=float(expires - time()))
         resp = Response(request=req, headers={
-            'x-auth-token': token, 'x-storage-token': token})
+            'x-auth-token': token, 'x-storage-token': token,
+            'x-auth-token-expires': str(int(expires - time()))})
         url = self.users[account_user]['url'].replace('$HOST', resp.host_url)
         if self.storage_url_scheme != 'default':
             url = self.storage_url_scheme + ':' + url.split(':', 1)[1]

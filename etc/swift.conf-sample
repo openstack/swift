@@ -4,6 +4,7 @@
 # the hashing algorithm when determining data placement in the cluster.
 # These values should remain secret and MUST NOT change
 # once a cluster has been deployed.
+# Use only printable chars (python -c "import string; print(string.printable)")
 
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme
@@ -50,8 +51,7 @@ aliases = yellow, orange
 #policy_type = replication
 
 # The following declares a storage policy of type 'erasure_coding' which uses
-# Erasure Coding for data reliability.  The 'erasure_coding' storage policy in
-# Swift is available as a "beta".  Please refer to Swift documentation for
+# Erasure Coding for data reliability. Please refer to Swift documentation for
 # details on how the 'erasure_coding' storage policy is implemented.
 #
 # Swift uses PyECLib, a Python Erasure coding API library, for encode/decode
@@ -73,13 +73,14 @@ aliases = yellow, orange
 # The example 'deepfreeze10-4' policy defined below is a _sample_
 # configuration with an alias of 'df10-4' as well as 10 'data' and 4 'parity'
 # fragments. 'ec_type' defines the Erasure Coding scheme.
-# 'jerasure_rs_vand' (Reed-Solomon Vandermonde) is used as an example below.
+# 'liberasurecode_rs_vand' (Reed-Solomon Vandermonde) is used as an example
+# below.
 #
 #[storage-policy:2]
 #name = deepfreeze10-4
 #aliases = df10-4
 #policy_type = erasure_coding
-#ec_type = jerasure_rs_vand
+#ec_type = liberasurecode_rs_vand
 #ec_num_data_fragments = 10
 #ec_num_parity_fragments = 4
 #ec_object_segment_size = 1048576

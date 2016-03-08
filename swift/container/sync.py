@@ -24,7 +24,9 @@ from struct import unpack_from
 from eventlet import sleep, Timeout
 
 import swift.common.db
-from swift.container.backend import ContainerBroker, DATADIR
+from swift.common.db import DatabaseConnectionError
+from swift.container.backend import ContainerBroker
+from swift.container.sync_store import ContainerSyncStore
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.internal_client import (
     delete_object, put_object, InternalClient, UnexpectedResponse)
@@ -32,9 +34,9 @@ from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import (
-    audit_location_generator, clean_content_type, config_true_value,
+    clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, urlparse, validate_sync_to,
-    whataremyips, Timestamp)
+    whataremyips, Timestamp, decode_timestamps)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.storage_policy import POLICIES
@@ -63,7 +65,7 @@ ic_conf_body = """
 # log_udp_port = 514
 #
 # You can enable StatsD logging here:
-# log_statsd_host = localhost
+# log_statsd_host =
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
@@ -168,7 +170,7 @@ class ContainerSync(Daemon):
         #: running wild on near empty systems.
         self.interval = int(conf.get('interval', 300))
         #: Maximum amount of time to spend syncing a container before moving on
-        #: to the next one. If a conatiner sync hasn't finished in this time,
+        #: to the next one. If a container sync hasn't finished in this time,
         #: it'll just be resumed next scan.
         self.container_time = int(conf.get('container_time', 60))
         #: ContainerSyncCluster instance for validating sync-to values.
@@ -187,6 +189,10 @@ class ContainerSync(Daemon):
             a.strip()
             for a in conf.get('sync_proxy', '').split(',')
             if a.strip()]
+        #: ContainerSyncStore instance for iterating over synced containers
+        self.sync_store = ContainerSyncStore(self.devices,
+                                             self.logger,
+                                             self.mount_check)
         #: Number of containers with sync turned on that were successfully
         #: synced.
         self.container_syncs = 0
@@ -194,7 +200,8 @@ class ContainerSync(Daemon):
         self.container_deletes = 0
         #: Number of successful PUTs triggered.
         self.container_puts = 0
-        #: Number of containers that didn't have sync turned on.
+        #: Number of containers whose sync has been turned off, but
+        #: are not yet cleared from the sync store.
         self.container_skips = 0
         #: Number of containers that had a failure of some type.
         self.container_failures = 0
@@ -247,10 +254,7 @@ class ContainerSync(Daemon):
         sleep(random() * self.interval)
         while True:
             begin = time()
-            all_locs = audit_location_generator(self.devices, DATADIR, '.db',
-                                                mount_check=self.mount_check,
-                                                logger=self.logger)
-            for path, device, partition in all_locs:
+            for path in self.sync_store.synced_containers_generator():
                 self.container_sync(path)
                 if time() - self.reported >= 3600:  # once an hour
                     self.report()
@@ -264,10 +268,7 @@ class ContainerSync(Daemon):
         """
         self.logger.info(_('Begin container sync "once" mode'))
         begin = time()
-        all_locs = audit_location_generator(self.devices, DATADIR, '.db',
-                                            mount_check=self.mount_check,
-                                            logger=self.logger)
-        for path, device, partition in all_locs:
+        for path in self.sync_store.synced_containers_generator():
             self.container_sync(path)
             if time() - self.reported >= 3600:  # once an hour
                 self.report()
@@ -308,7 +309,20 @@ class ContainerSync(Daemon):
         broker = None
         try:
             broker = ContainerBroker(path)
-            info = broker.get_info()
+            # The path we pass to the ContainerBroker is a real path of
+            # a container DB. If we get here, however, it means that this
+            # path is linked from the sync_containers dir. In rare cases
+            # of race or processes failures the link can be stale and
+            # the get_info below will raise a DB doesn't exist exception
+            # In this case we remove the stale link and raise an error
+            # since in most cases the db should be there.
+            try:
+                info = broker.get_info()
+            except DatabaseConnectionError as db_err:
+                if str(db_err).endswith("DB doesn't exist"):
+                    self.sync_store.remove_synced_container(broker)
+                raise
+
             x, nodes = self.container_ring.get_nodes(info['account'],
                                                      info['container'])
             for ordinal, node in enumerate(nodes):
@@ -388,7 +402,7 @@ class ContainerSync(Daemon):
                     broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
                 self.logger.increment('syncs')
-        except (Exception, Timeout) as err:
+        except (Exception, Timeout):
             self.container_failures += 1
             self.logger.increment('failures')
             self.logger.exception(_('ERROR Syncing %s'),
@@ -417,9 +431,14 @@ class ContainerSync(Daemon):
         """
         try:
             start_time = time()
+            # extract last modified time from the created_at value
+            ts_data, ts_ctype, ts_meta = decode_timestamps(
+                row['created_at'])
             if row['deleted']:
+                # when sync'ing a deleted object, use ts_data - this is the
+                # timestamp of the source tombstone
                 try:
-                    headers = {'x-timestamp': row['created_at']}
+                    headers = {'x-timestamp': ts_data.internal}
                     if realm and realm_key:
                         nonce = uuid.uuid4().hex
                         path = urlparse(sync_to).path + '/' + quote(
@@ -442,35 +461,31 @@ class ContainerSync(Daemon):
                 self.logger.increment('deletes')
                 self.logger.timing_since('deletes.timing', start_time)
             else:
+                # when sync'ing a live object, use ts_meta - this is the time
+                # at which the source object was last modified by a PUT or POST
                 part, nodes = \
                     self.get_object_ring(info['storage_policy_index']). \
                     get_nodes(info['account'], info['container'],
                               row['name'])
                 shuffle(nodes)
                 exc = None
-                looking_for_timestamp = Timestamp(row['created_at'])
-                timestamp = -1
-                headers = body = None
                 # look up for the newest one
                 headers_out = {'X-Newest': True,
                                'X-Backend-Storage-Policy-Index':
                                str(info['storage_policy_index'])}
                 try:
-                    source_obj_status, source_obj_info, source_obj_iter = \
+                    source_obj_status, headers, body = \
                         self.swift.get_object(info['account'],
                                               info['container'], row['name'],
                                               headers=headers_out,
                                               acceptable_statuses=(2, 4))
 
                 except (Exception, UnexpectedResponse, Timeout) as err:
-                    source_obj_info = {}
-                    source_obj_iter = None
+                    headers = {}
+                    body = None
                     exc = err
-                timestamp = Timestamp(source_obj_info.get(
-                                      'x-timestamp', 0))
-                headers = source_obj_info
-                body = source_obj_iter
-                if timestamp < looking_for_timestamp:
+                timestamp = Timestamp(headers.get('x-timestamp', 0))
+                if timestamp < ts_meta:
                     if exc:
                         raise exc
                     raise Exception(
@@ -487,7 +502,6 @@ class ContainerSync(Daemon):
                 if 'content-type' in headers:
                     headers['content-type'] = clean_content_type(
                         headers['content-type'])
-                headers['x-timestamp'] = row['created_at']
                 if realm and realm_key:
                     nonce = uuid.uuid4().hex
                     path = urlparse(sync_to).path + '/' + quote(row['name'])

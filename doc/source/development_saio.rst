@@ -37,7 +37,8 @@ Installing dependencies
 
         sudo apt-get update
         sudo apt-get install curl gcc memcached rsync sqlite3 xfsprogs \
-                             git-core libffi-dev python-setuptools
+                             git-core libffi-dev python-setuptools \
+                             liberasurecode-dev
         sudo apt-get install python-coverage python-dev python-nose \
                              python-xattr python-eventlet \
                              python-greenlet python-pastedeploy \
@@ -48,7 +49,8 @@ Installing dependencies
 
         sudo yum update
         sudo yum install curl gcc memcached rsync sqlite xfsprogs git-core \
-                         libffi-devel xinetd python-setuptools \
+                         libffi-devel xinetd liberasurecode-devel \
+                         python-setuptools \
                          python-coverage python-devel python-nose \
                          pyxattr python-eventlet \
                          python-greenlet python-paste-deploy \
@@ -585,3 +587,7 @@ doesn't work, here are some good starting places to look for issues:
    cannot rate limit (unit tests generate a lot of logs very quickly).
    Open the file ``SWIFT_TEST_CONFIG_FILE`` points to, and change the
    value of ``fake_syslog`` to ``True``.
+#. If you encounter a ``401 Unauthorized`` when following Step 12 where
+   you check that you can ``GET`` account, use ``sudo service memcached status``
+   and check if memcache is running. If memcache is not running, start it using
+   ``sudo service memcached start``. Once memcache is running, rerun ``GET`` account.

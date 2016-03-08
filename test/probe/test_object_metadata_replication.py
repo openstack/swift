@@ -14,19 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from io import StringIO
-from tempfile import mkdtemp
-from textwrap import dedent
 import unittest
 
 import os
-import shutil
 import uuid
-from swift.common.exceptions import DiskFileDeleted
 
+from swift.common.direct_client import direct_get_suffix_hashes
+from swift.common.exceptions import DiskFileDeleted
+from swift.common.internal_client import UnexpectedResponse
 from swift.container.backend import ContainerBroker
-from swift.common import internal_client, utils
+from swift.common import utils
+from swiftclient import client
 from swift.common.ring import Ring
-from swift.common.utils import Timestamp, get_logger
+from swift.common.utils import Timestamp, get_logger, hash_path
 from swift.obj.diskfile import DiskFileManager
 from swift.common.storage_policy import POLICIES
 
@@ -45,40 +45,17 @@ class Test(ReplProbeTest):
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
                                    self.object_name, 'object',
                                    policy=self.policy)
-        self.tempdir = mkdtemp()
-        conf_path = os.path.join(self.tempdir, 'internal_client.conf')
-        conf_body = """
-        [DEFAULT]
-        swift_dir = /etc/swift
-
-        [pipeline:main]
-        pipeline = catch_errors cache proxy-server
-
-        [app:proxy-server]
-        use = egg:swift#proxy
-        object_post_as_copy = false
-
-        [filter:cache]
-        use = egg:swift#memcache
-
-        [filter:catch_errors]
-        use = egg:swift#catch_errors
-        """
-        with open(conf_path, 'w') as f:
-            f.write(dedent(conf_body))
-        self.int_client = internal_client.InternalClient(conf_path, 'test', 1)
+        self.int_client = self.make_internal_client(object_post_as_copy=False)
 
     def tearDown(self):
         super(Test, self).tearDown()
-        shutil.rmtree(self.tempdir)
 
-    def _get_object_info(self, account, container, obj, number,
-                         policy=None):
+    def _get_object_info(self, account, container, obj, number):
         obj_conf = self.configs['object-server']
         config_path = obj_conf[number]
         options = utils.readconf(config_path, 'app:object-server')
         swift_dir = options.get('swift_dir', '/etc/swift')
-        ring = POLICIES.get_object_ring(policy, swift_dir)
+        ring = POLICIES.get_object_ring(int(self.policy), swift_dir)
         part, nodes = ring.get_nodes(account, container, obj)
         for node in nodes:
             # assumes one to one mapping
@@ -89,7 +66,7 @@ class Test(ReplProbeTest):
             return None
         mgr = DiskFileManager(options, get_logger(options))
         disk_file = mgr.get_diskfile(device, part, account, container, obj,
-                                     policy)
+                                     self.policy)
         info = disk_file.read_metadata()
         return info
 
@@ -102,9 +79,7 @@ class Test(ReplProbeTest):
                 obj_info.append(info_i)
         self.assertTrue(len(obj_info) > 1)
         for other in obj_info[1:]:
-            self.assertEqual(obj_info[0], other,
-                             'Object metadata mismatch: %s != %s'
-                             % (obj_info[0], other))
+            self.assertDictEqual(obj_info[0], other)
 
     def _assert_consistent_deleted_object(self):
         for i in range(1, 5):
@@ -186,6 +161,20 @@ class Test(ReplProbeTest):
                                                    self.container_name,
                                                    self.object_name)
 
+    def _assert_consistent_suffix_hashes(self):
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, self.container_name, self.object_name)
+        name_hash = hash_path(
+            self.account, self.container_name, self.object_name)
+        results = []
+        for node in onodes:
+            results.append(
+                (node,
+                 direct_get_suffix_hashes(node, opart, [name_hash[-3:]])))
+        for (node, hashes) in results[1:]:
+            self.assertEqual(results[0][1], hashes,
+                             'Inconsistent suffix hashes found: %s' % results)
+
     def test_object_delete_is_replicated(self):
         self.brain.put_container(policy_index=int(self.policy))
         # put object
@@ -258,6 +247,7 @@ class Test(ReplProbeTest):
 
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
+        self._assert_consistent_suffix_hashes()
 
     def test_sysmeta_after_replication_with_subsequent_put(self):
         sysmeta = {'x-object-sysmeta-foo': 'older'}
@@ -315,9 +305,11 @@ class Test(ReplProbeTest):
         for key in sysmeta2.keys():
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], sysmeta2[key])
+        self.brain.start_handoff_half()
 
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
+        self._assert_consistent_suffix_hashes()
 
     def test_sysmeta_after_replication_with_subsequent_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
@@ -365,8 +357,11 @@ class Test(ReplProbeTest):
         for key in expected.keys():
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], expected[key])
+        self.brain.start_handoff_half()
+
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
+        self._assert_consistent_suffix_hashes()
 
     def test_sysmeta_after_replication_with_prior_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
@@ -416,8 +411,340 @@ class Test(ReplProbeTest):
             self.assertEqual(metadata[key], sysmeta[key])
         for key in usermeta:
             self.assertFalse(key in metadata)
+        self.brain.start_handoff_half()
+
         self._assert_consistent_object_metadata()
         self._assert_consistent_container_dbs()
+        self._assert_consistent_suffix_hashes()
+
+    def test_post_ctype_replicated_when_previous_incomplete_puts(self):
+        # primary half                     handoff half
+        # ------------                     ------------
+        # t0.data: ctype = foo
+        #                                  t1.data: ctype = bar
+        # t2.meta: ctype = baz
+        #
+        #              ...run replicator and expect...
+        #
+        #               t1.data:
+        #               t2.meta: ctype = baz
+        self.brain.put_container(policy_index=0)
+
+        # incomplete write to primary half
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'foo'})
+        self.brain.start_handoff_half()
+
+        # handoff write
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'bar'})
+        self.brain.start_primary_half()
+
+        # content-type update to primary half
+        self.brain.stop_handoff_half()
+        self._post_object(headers={'Content-Type': 'baz'})
+        self.brain.start_handoff_half()
+
+        self.get_to_final_state()
+
+        # check object metadata
+        metadata = client.head_object(self.url, self.token,
+                                      self.container_name,
+                                      self.object_name)
+
+        # check container listing metadata
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+
+        for obj in objs:
+            if obj['name'] == self.object_name:
+                break
+        expected = 'baz'
+        self.assertEqual(obj['content_type'], expected)
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_object_metadata()
+        self._assert_consistent_suffix_hashes()
+
+    def test_put_ctype_replicated_when_subsequent_post(self):
+        # primary half                     handoff half
+        # ------------                     ------------
+        # t0.data: ctype = foo
+        #                                  t1.data: ctype = bar
+        # t2.meta:
+        #
+        #              ...run replicator and expect...
+        #
+        #               t1.data: ctype = bar
+        #               t2.meta:
+        self.brain.put_container(policy_index=0)
+
+        # incomplete write
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'foo'})
+        self.brain.start_handoff_half()
+
+        # handoff write
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'bar'})
+        self.brain.start_primary_half()
+
+        # metadata update with newest data unavailable
+        self.brain.stop_handoff_half()
+        self._post_object(headers={'X-Object-Meta-Color': 'Blue'})
+        self.brain.start_handoff_half()
+
+        self.get_to_final_state()
+
+        # check object metadata
+        metadata = client.head_object(self.url, self.token,
+                                      self.container_name,
+                                      self.object_name)
+
+        # check container listing metadata
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+
+        for obj in objs:
+            if obj['name'] == self.object_name:
+                break
+        else:
+            self.fail('obj not found in container listing')
+        expected = 'bar'
+        self.assertEqual(obj['content_type'], expected)
+        self.assertEqual(metadata['x-object-meta-color'], 'Blue')
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_object_metadata()
+        self._assert_consistent_suffix_hashes()
+
+    def test_post_ctype_replicated_when_subsequent_post_without_ctype(self):
+        # primary half                     handoff half
+        # ------------                     ------------
+        # t0.data: ctype = foo
+        #                                  t1.data: ctype = bar
+        # t2.meta: ctype = bif
+        #                                  t3.data: ctype = baz, color = 'Red'
+        #               t4.meta: color = Blue
+        #
+        #              ...run replicator and expect...
+        #
+        #               t1.data:
+        #               t4-delta.meta: ctype = baz, color = Blue
+        self.brain.put_container(policy_index=0)
+
+        # incomplete write
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'foo',
+                                  'X-Object-Sysmeta-Test': 'older'})
+        self.brain.start_handoff_half()
+
+        # handoff write
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'bar',
+                                  'X-Object-Sysmeta-Test': 'newer'})
+        self.brain.start_primary_half()
+
+        # incomplete post with content type
+        self.brain.stop_handoff_half()
+        self._post_object(headers={'Content-Type': 'bif'})
+        self.brain.start_handoff_half()
+
+        # incomplete post to handoff with content type
+        self.brain.stop_primary_half()
+        self._post_object(headers={'Content-Type': 'baz',
+                                   'X-Object-Meta-Color': 'Red'})
+        self.brain.start_primary_half()
+
+        # complete post with no content type
+        self._post_object(headers={'X-Object-Meta-Color': 'Blue',
+                                   'X-Object-Sysmeta-Test': 'ignored'})
+
+        # 'baz' wins over 'bar' but 'Blue' wins over 'Red'
+        self.get_to_final_state()
+
+        # check object metadata
+        metadata = self._get_object_metadata()
+
+        # check container listing metadata
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+
+        for obj in objs:
+            if obj['name'] == self.object_name:
+                break
+        expected = 'baz'
+        self.assertEqual(obj['content_type'], expected)
+        self.assertEqual(metadata['x-object-meta-color'], 'Blue')
+        self.assertEqual(metadata['x-object-sysmeta-test'], 'newer')
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_object_metadata()
+        self._assert_consistent_suffix_hashes()
+
+    def test_put_ctype_replicated_when_subsequent_posts_without_ctype(self):
+        # primary half                     handoff half
+        # ------------                     ------------
+        #               t0.data: ctype = foo
+        #                                  t1.data: ctype = bar
+        # t2.meta:
+        #                                  t3.meta
+        #
+        #              ...run replicator and expect...
+        #
+        #               t1.data: ctype = bar
+        #               t3.meta
+        self.brain.put_container(policy_index=0)
+
+        self._put_object(headers={'Content-Type': 'foo',
+                                  'X-Object-Sysmeta-Test': 'older'})
+
+        # incomplete write to handoff half
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'bar',
+                                  'X-Object-Sysmeta-Test': 'newer'})
+        self.brain.start_primary_half()
+
+        # incomplete post with no content type to primary half
+        self.brain.stop_handoff_half()
+        self._post_object(headers={'X-Object-Meta-Color': 'Red',
+                                   'X-Object-Sysmeta-Test': 'ignored'})
+        self.brain.start_handoff_half()
+
+        # incomplete post with no content type to handoff half
+        self.brain.stop_primary_half()
+        self._post_object(headers={'X-Object-Meta-Color': 'Blue'})
+        self.brain.start_primary_half()
+
+        self.get_to_final_state()
+
+        # check object metadata
+        metadata = self._get_object_metadata()
+
+        # check container listing metadata
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+
+        for obj in objs:
+            if obj['name'] == self.object_name:
+                break
+        expected = 'bar'
+        self.assertEqual(obj['content_type'], expected)
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self.assertEqual(metadata['x-object-meta-color'], 'Blue')
+        self.assertEqual(metadata['x-object-sysmeta-test'], 'newer')
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_object_metadata()
+        self._assert_consistent_suffix_hashes()
+
+    def test_posted_metadata_only_persists_after_prior_put(self):
+        # newer metadata posted to subset of nodes should persist after an
+        # earlier put on other nodes, but older content-type on that subset
+        # should not persist
+        self.brain.put_container(policy_index=0)
+        # incomplete put to handoff
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'oldest',
+                                  'X-Object-Sysmeta-Test': 'oldest',
+                                  'X-Object-Meta-Test': 'oldest'})
+        self.brain.start_primary_half()
+        # incomplete put to primary
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'oldest',
+                                  'X-Object-Sysmeta-Test': 'oldest',
+                                  'X-Object-Meta-Test': 'oldest'})
+        self.brain.start_handoff_half()
+
+        # incomplete post with content-type to handoff
+        self.brain.stop_primary_half()
+        self._post_object(headers={'Content-Type': 'newer',
+                                   'X-Object-Meta-Test': 'newer'})
+        self.brain.start_primary_half()
+
+        # incomplete put to primary
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'newest',
+                                  'X-Object-Sysmeta-Test': 'newest',
+                                  'X-Object-Meta-Test': 'newer'})
+        self.brain.start_handoff_half()
+
+        # incomplete post with no content-type to handoff which still has
+        # out of date content-type
+        self.brain.stop_primary_half()
+        self._post_object(headers={'X-Object-Meta-Test': 'newest'})
+        metadata = self._get_object_metadata()
+        self.assertEqual(metadata['x-object-meta-test'], 'newest')
+        self.assertEqual(metadata['content-type'], 'newer')
+        self.brain.start_primary_half()
+
+        self.get_to_final_state()
+
+        # check object metadata
+        metadata = self._get_object_metadata()
+        self.assertEqual(metadata['x-object-meta-test'], 'newest')
+        self.assertEqual(metadata['x-object-sysmeta-test'], 'newest')
+        self.assertEqual(metadata['content-type'], 'newest')
+
+        # check container listing metadata
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+
+        for obj in objs:
+            if obj['name'] == self.object_name:
+                break
+        self.assertEqual(obj['content_type'], 'newest')
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self._assert_object_metadata_matches_listing(obj, metadata)
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_object_metadata()
+        self._assert_consistent_suffix_hashes()
+
+    def test_post_trumped_by_prior_delete(self):
+        # new metadata and content-type posted to subset of nodes should not
+        # cause object to persist after replication of an earlier delete on
+        # other nodes.
+        self.brain.put_container(policy_index=0)
+        # incomplete put
+        self.brain.stop_primary_half()
+        self._put_object(headers={'Content-Type': 'oldest',
+                                  'X-Object-Sysmeta-Test': 'oldest',
+                                  'X-Object-Meta-Test': 'oldest'})
+        self.brain.start_primary_half()
+
+        # incomplete put then delete
+        self.brain.stop_handoff_half()
+        self._put_object(headers={'Content-Type': 'oldest',
+                                  'X-Object-Sysmeta-Test': 'oldest',
+                                  'X-Object-Meta-Test': 'oldest'})
+        self._delete_object()
+        self.brain.start_handoff_half()
+
+        # handoff post
+        self.brain.stop_primary_half()
+        self._post_object(headers={'Content-Type': 'newest',
+                                   'X-Object-Sysmeta-Test': 'ignored',
+                                   'X-Object-Meta-Test': 'newest'})
+
+        # check object metadata
+        metadata = self._get_object_metadata()
+        self.assertEqual(metadata['x-object-sysmeta-test'], 'oldest')
+        self.assertEqual(metadata['x-object-meta-test'], 'newest')
+        self.assertEqual(metadata['content-type'], 'newest')
+
+        self.brain.start_primary_half()
+
+        # delete trumps later post
+        self.get_to_final_state()
+
+        # check object is now deleted
+        self.assertRaises(UnexpectedResponse, self._get_object_metadata)
+        container_metadata, objs = client.get_container(self.url, self.token,
+                                                        self.container_name)
+        self.assertEqual(0, len(objs))
+        self._assert_consistent_container_dbs()
+        self._assert_consistent_deleted_object()
+        self._assert_consistent_suffix_hashes()
 
 
 if __name__ == "__main__":

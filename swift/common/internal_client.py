@@ -20,15 +20,16 @@ import six
 from six.moves import range
 from six.moves import urllib
 import struct
-from sys import exc_info
+from sys import exc_info, exit
 import zlib
 from swift import gettext_ as _
 from time import gmtime, strftime, time
 from zlib import compressobj
 
-from swift.common.utils import quote
+from swift.common.exceptions import ClientException
 from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES
 from swift.common.swob import Request
+from swift.common.utils import quote
 from swift.common.wsgi import loadapp, pipeline_property
 
 
@@ -807,9 +808,14 @@ class SimpleClient(object):
             self.attempts += 1
             try:
                 return self.base_request(method, **kwargs)
-            except (socket.error, httplib.HTTPException, urllib2.URLError):
+            except (socket.error, httplib.HTTPException, urllib2.URLError) \
+                    as err:
                 if self.attempts > retries:
-                    raise
+                    if isinstance(err, urllib2.HTTPError):
+                        raise ClientException('Raise too many retries',
+                                              http_status=err.getcode())
+                    else:
+                        raise
             sleep(backoff)
             backoff = min(backoff * 2, self.max_backoff)
 

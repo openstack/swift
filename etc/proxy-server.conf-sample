@@ -63,7 +63,7 @@ bind_port = 8080
 # log_udp_port = 514
 #
 # You can enable StatsD logging here:
-# log_statsd_host = localhost
+# log_statsd_host =
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
@@ -170,9 +170,6 @@ use = egg:swift#proxy
 # If the "timing" sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
-#
-# The maximum time (seconds) that a large object connection is allowed to last.
-# max_large_object_get_time = 86400
 #
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of
@@ -287,13 +284,21 @@ user_test5_tester5 = testing5 service
 # You'll also need to have the keystoneauth middleware enabled and have it in
 # your main pipeline, as show in the sample pipeline at the top of this file.
 #
+# Following parameters are known to work with keystonemiddleware v2.3.0
+# (above v2.0.0), but checking the latest information in the wiki page[1]
+# is recommended.
+# 1. http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration
+#
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-# identity_uri = http://keystonehost:35357/
-# auth_uri = http://keystonehost:5000/
-# admin_tenant_name = service
-# admin_user = swift
-# admin_password = password
+# auth_uri = http://keystonehost:5000
+# auth_url = http://keystonehost:35357
+# auth_plugin = password
+# project_domain_id = default
+# user_domain_id = default
+# project_name = service
+# username = swift
+# password = password
 #
 # delay_auth_decision defaults to False, but leaving it as false will
 # prevent other auth systems, staticweb, tempurl, formpost, and ACLs from
@@ -388,7 +393,8 @@ use = egg:swift#memcache
 # If not set here, the value for memcache_servers will be read from
 # memcache.conf (see memcache.conf-sample) or lacking that file, it will
 # default to the value below. You can specify multiple servers separated with
-# commas, as in: 10.1.2.3:11211,10.1.2.4:11211
+# commas, as in: 10.1.2.3:11211,10.1.2.4:11211 (IPv6 addresses must
+# follow rfc3986 section-3.2.2, i.e. [::1]:11211)
 # memcache_servers = 127.0.0.1:11211
 #
 # Sets how memcache values are serialized and deserialized:
@@ -568,7 +574,7 @@ use = egg:swift#proxy_logging
 # access_log_udp_port = 514
 #
 # You can use log_statsd_* from [DEFAULT] or override them here:
-# access_log_statsd_host = localhost
+# access_log_statsd_host =
 # access_log_statsd_port = 8125
 # access_log_statsd_default_sample_rate = 1.0
 # access_log_statsd_sample_rate_factor = 1.0
@@ -628,14 +634,17 @@ use = egg:swift#bulk
 use = egg:swift#slo
 # max_manifest_segments = 1000
 # max_manifest_size = 2097152
-# min_segment_size = 1048576
-# Start rate-limiting SLO segment serving after the Nth segment of a
+#
+# Rate limiting applies only to segments smaller than this size (bytes).
+# rate_limit_under_size = 1048576
+#
+# Start rate-limiting SLO segment serving after the Nth small segment of a
 # segmented object.
 # rate_limit_after_segment = 10
 #
 # Once segment rate-limiting kicks in for an object, limit segments served
 # to N per second. 0 means no rate-limiting.
-# rate_limit_segments_per_sec = 0
+# rate_limit_segments_per_sec = 1
 #
 # Time limit on GET requests (seconds)
 # max_get_time = 86400

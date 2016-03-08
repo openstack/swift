@@ -7,7 +7,7 @@ the ``Content-Encoding`` metadata. This metadata enables you to indicate
 that the object content is compressed without losing the identity of the
 underlying media type (``Content-Type``) of the file, such as a video.
 
-**Example Content-Encoding header request: HTTP**
+**Example Content-Encoding header request: HTTP**
 
 This example assigns an attachment type to the ``Content-Encoding``
 header that indicates how the file is downloaded:

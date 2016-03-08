@@ -36,6 +36,31 @@ class TestAccountController(unittest.TestCase):
             None, FakeMemcache(),
             account_ring=FakeRing(), container_ring=FakeRing())
 
+    def _make_callback_func(self, context):
+        def callback(ipaddr, port, device, partition, method, path,
+                     headers=None, query_string=None, ssl=False):
+            context['method'] = method
+            context['path'] = path
+            context['headers'] = headers or {}
+        return callback
+
+    def _assert_responses(self, method, test_cases):
+        if method in ('PUT', 'DELETE'):
+            self.app.allow_account_management = True
+        controller = proxy_server.AccountController(self.app, 'AUTH_bob')
+
+        for responses, expected in test_cases:
+            with mock.patch(
+                    'swift.proxy.controllers.base.http_connect',
+                    fake_http_connect(*responses)):
+                req = Request.blank('/v1/AUTH_bob')
+                resp = getattr(controller, method)(req)
+
+            self.assertEqual(expected,
+                             resp.status_int,
+                             'Expected %s but got %s. Failed case: %s' %
+                             (expected, resp.status_int, str(responses)))
+
     def test_account_info_in_response_env(self):
         controller = proxy_server.AccountController(self.app, 'AUTH_bob')
         with mock.patch('swift.proxy.controllers.base.http_connect',
@@ -101,14 +126,6 @@ class TestAccountController(unittest.TestCase):
                         fake_http_connect(200)):
             resp = controller.POST(req)
         self.assertEqual(400, resp.status_int)
-
-    def _make_callback_func(self, context):
-        def callback(ipaddr, port, device, partition, method, path,
-                     headers=None, query_string=None, ssl=False):
-            context['method'] = method
-            context['path'] = path
-            context['headers'] = headers or {}
-        return callback
 
     def test_sys_meta_headers_PUT(self):
         # check that headers in sys meta namespace make it through
@@ -220,7 +237,6 @@ class TestAccountController(unittest.TestCase):
         # Verify that a GET/HEAD which receives privileged headers from the
         # account server will strip those headers for non-swift_owners
 
-        hdrs_ext, hdrs_int = self._make_user_and_sys_acl_headers_data()
         headers = {
             'x-account-meta-harmless': 'hi mom',
             'x-account-meta-temp-url-key': 's3kr1t',
@@ -242,6 +258,122 @@ class TestAccountController(unittest.TestCase):
                 privileged_header_present = (
                     'x-account-meta-temp-url-key' in resp.headers)
                 self.assertEqual(privileged_header_present, env['swift_owner'])
+
+    def test_response_code_for_PUT(self):
+        PUT_TEST_CASES = [
+            ((201, 201, 201), 201),
+            ((201, 201, 404), 201),
+            ((201, 201, 503), 201),
+            ((201, 404, 404), 404),
+            ((201, 404, 503), 503),
+            ((201, 503, 503), 503),
+            ((404, 404, 404), 404),
+            ((404, 404, 503), 404),
+            ((404, 503, 503), 503),
+            ((503, 503, 503), 503)
+        ]
+        self._assert_responses('PUT', PUT_TEST_CASES)
+
+    def test_response_code_for_DELETE(self):
+        DELETE_TEST_CASES = [
+            ((204, 204, 204), 204),
+            ((204, 204, 404), 204),
+            ((204, 204, 503), 204),
+            ((204, 404, 404), 404),
+            ((204, 404, 503), 503),
+            ((204, 503, 503), 503),
+            ((404, 404, 404), 404),
+            ((404, 404, 503), 404),
+            ((404, 503, 503), 503),
+            ((503, 503, 503), 503)
+        ]
+        self._assert_responses('DELETE', DELETE_TEST_CASES)
+
+    def test_response_code_for_POST(self):
+        POST_TEST_CASES = [
+            ((204, 204, 204), 204),
+            ((204, 204, 404), 204),
+            ((204, 204, 503), 204),
+            ((204, 404, 404), 404),
+            ((204, 404, 503), 503),
+            ((204, 503, 503), 503),
+            ((404, 404, 404), 404),
+            ((404, 404, 503), 404),
+            ((404, 503, 503), 503),
+            ((503, 503, 503), 503)
+        ]
+        self._assert_responses('POST', POST_TEST_CASES)
+
+
+@patch_policies(
+    [StoragePolicy(0, 'zero', True, object_ring=FakeRing(replicas=4))])
+class TestAccountController4Replicas(TestAccountController):
+    def setUp(self):
+        self.app = proxy_server.Application(
+            None,
+            FakeMemcache(),
+            account_ring=FakeRing(replicas=4),
+            container_ring=FakeRing(replicas=4))
+
+    def test_response_code_for_PUT(self):
+        PUT_TEST_CASES = [
+            ((201, 201, 201, 201), 201),
+            ((201, 201, 201, 404), 201),
+            ((201, 201, 201, 503), 201),
+            ((201, 201, 404, 404), 503),
+            ((201, 201, 404, 503), 503),
+            ((201, 201, 503, 503), 503),
+            ((201, 404, 404, 404), 404),
+            ((201, 404, 404, 503), 503),
+            ((201, 404, 503, 503), 503),
+            ((201, 503, 503, 503), 503),
+            ((404, 404, 404, 404), 404),
+            ((404, 404, 404, 503), 404),
+            ((404, 404, 503, 503), 503),
+            ((404, 503, 503, 503), 503),
+            ((503, 503, 503, 503), 503)
+        ]
+        self._assert_responses('PUT', PUT_TEST_CASES)
+
+    def test_response_code_for_DELETE(self):
+        DELETE_TEST_CASES = [
+            ((204, 204, 204, 204), 204),
+            ((204, 204, 204, 404), 204),
+            ((204, 204, 204, 503), 204),
+            ((204, 204, 404, 404), 503),
+            ((204, 204, 404, 503), 503),
+            ((204, 204, 503, 503), 503),
+            ((204, 404, 404, 404), 404),
+            ((204, 404, 404, 503), 503),
+            ((204, 404, 503, 503), 503),
+            ((204, 503, 503, 503), 503),
+            ((404, 404, 404, 404), 404),
+            ((404, 404, 404, 503), 404),
+            ((404, 404, 503, 503), 503),
+            ((404, 503, 503, 503), 503),
+            ((503, 503, 503, 503), 503)
+        ]
+        self._assert_responses('DELETE', DELETE_TEST_CASES)
+
+    def test_response_code_for_POST(self):
+        POST_TEST_CASES = [
+            ((204, 204, 204, 204), 204),
+            ((204, 204, 204, 404), 204),
+            ((204, 204, 204, 503), 204),
+            ((204, 204, 404, 404), 503),
+            ((204, 204, 404, 503), 503),
+            ((204, 204, 503, 503), 503),
+            ((204, 404, 404, 404), 404),
+            ((204, 404, 404, 503), 503),
+            ((204, 404, 503, 503), 503),
+            ((204, 503, 503, 503), 503),
+            ((404, 404, 404, 404), 404),
+            ((404, 404, 404, 503), 404),
+            ((404, 404, 503, 503), 503),
+            ((404, 503, 503, 503), 503),
+            ((503, 503, 503, 503), 503)
+        ]
+        self._assert_responses('POST', POST_TEST_CASES)
 
 
 if __name__ == '__main__':

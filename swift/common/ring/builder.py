@@ -139,6 +139,12 @@ class RingBuilder(object):
         finally:
             self.logger.disabled = True
 
+    @property
+    def min_part_seconds_left(self):
+        """Get the total seconds until a rebalance can be performed"""
+        elapsed_seconds = int(time() - self._last_part_moves_epoch)
+        return max((self.min_part_hours * 3600) - elapsed_seconds, 0)
+
     def weight_of_one_part(self):
         """
         Returns the weight of each partition as calculated from the
@@ -336,7 +342,10 @@ class RingBuilder(object):
         if 'id' not in dev:
             dev['id'] = 0
             if self.devs:
-                dev['id'] = max(d['id'] for d in self.devs if d) + 1
+                try:
+                    dev['id'] = self.devs.index(None)
+                except ValueError:
+                    dev['id'] = len(self.devs)
         if dev['id'] < len(self.devs) and self.devs[dev['id']] is not None:
             raise exceptions.DuplicateDeviceError(
                 'Duplicate device id: %d' % dev['id'])
@@ -729,11 +738,12 @@ class RingBuilder(object):
     def pretend_min_part_hours_passed(self):
         """
         Override min_part_hours by marking all partitions as having been moved
-        255 hours ago. This can be used to force a full rebalance on the next
-        call to rebalance.
+        255 hours ago and last move epoch to 'the beginning of time'. This can
+        be used to force a full rebalance on the next call to rebalance.
         """
         for part in range(self.parts):
             self._last_part_moves[part] = 0xff
+        self._last_part_moves_epoch = 0
 
     def get_part_devices(self, part):
         """
@@ -835,6 +845,8 @@ class RingBuilder(object):
         more recently than min_part_hours.
         """
         elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
+        if elapsed_hours <= 0:
+            return
         for part in range(self.parts):
             # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"
             # which was here showed up in profiling, so it got inlined.
@@ -966,12 +978,6 @@ class RingBuilder(object):
                 if dev_id == NONE_DEV:
                     continue
                 dev = self.devs[dev_id]
-                # the min part hour check is ignored iff a device has more
-                # than one replica of a part assigned to it - which would have
-                # only been possible on rings built with older version of code
-                if (self._last_part_moves[part] < self.min_part_hours and
-                        not replicas_at_tier[dev['tiers'][-1]] > 1):
-                    break
                 if all(replicas_at_tier[tier] <=
                        replica_plan[tier]['max']
                        for tier in dev['tiers']):
@@ -984,8 +990,12 @@ class RingBuilder(object):
             undispersed_dev_replicas.sort(
                 key=lambda dr: dr[0]['parts_wanted'])
             for dev, replica in undispersed_dev_replicas:
-                if self._last_part_moves[part] < self.min_part_hours:
-                    break
+                # the min part hour check is ignored iff a device has more
+                # than one replica of a part assigned to it - which would have
+                # only been possible on rings built with older version of code
+                if (self._last_part_moves[part] < self.min_part_hours and
+                        not replicas_at_tier[dev['tiers'][-1]] > 1):
+                    continue
                 dev['parts_wanted'] += 1
                 dev['parts'] -= 1
                 assign_parts[part].append(replica)

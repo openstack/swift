@@ -83,15 +83,35 @@ For example, this command would run the functional tests using policy
 
   SWIFT_TEST_POLICY=silver tox -e func
 
+
+In-process functional testing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 If the ``test.conf`` file is not found then the functional test framework will
 instantiate a set of Swift servers in the same process that executes the
 functional tests. This 'in-process test' mode may also be enabled (or disabled)
 by setting the environment variable ``SWIFT_TEST_IN_PROCESS`` to a true (or
 false) value prior to executing `tox -e func`.
 
-When using the 'in-process test' mode, the optional in-memory
-object server may be selected by setting the environment variable
-``SWIFT_TEST_IN_MEMORY_OBJ`` to a true value.
+When using the 'in-process test' mode some server configuration options may be
+set using environment variables:
+
+- the optional in-memory object server may be selected by setting the
+  environment variable ``SWIFT_TEST_IN_MEMORY_OBJ`` to a true value.
+
+- the proxy-server ``object_post_as_copy`` option may be set using the
+  environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
+
+For example, this command would run the in-process mode functional tests with
+the proxy-server using object_post_as_copy=False (the 'fast-POST' mode)::
+
+    SWIFT_TEST_IN_PROCESS=1 SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY=False \
+        tox -e func
+
+This particular example may also be run using the ``func-in-process-fast-post``
+tox environment::
+
+    tox -e func-in-process-fast-post
 
 The 'in-process test' mode searches for ``proxy-server.conf`` and
 ``swift.conf`` config files from which it copies config options and overrides
@@ -127,7 +147,7 @@ using config files found in ``$HOME/my_tests`` and policy 'silver'::
 Coding Style
 ------------
 
-Swift use flake8 with the OpenStack `hacking`_ module to enforce
+Swift uses flake8 with the OpenStack `hacking`_ module to enforce
 coding style.
 
 Install flake8 and hacking with pip or by the packages of your
@@ -164,6 +184,14 @@ Installing Sphinx:
   #. Install sphinx (On Ubuntu: `sudo apt-get install python-sphinx`)
   #. `python setup.py build_sphinx`
 
+--------
+Manpages
+--------
+
+For sanity check of your change in manpage, use this command in the root
+of your Swift repo::
+
+  ./.manpages
 
 ---------------------
 License and Copyright

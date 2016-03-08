@@ -27,8 +27,7 @@ from swift.common.direct_client import (
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, split_path, quorum_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
-    LRUCache
-
+    LRUCache, decode_timestamps
 
 MISPLACED_OBJECTS_ACCOUNT = '.misplaced_objects'
 MISPLACED_OBJECTS_CONTAINER_DIVISOR = 3600  # 1 hour
@@ -116,7 +115,18 @@ def best_policy_index(headers):
 
 
 def get_reconciler_container_name(obj_timestamp):
-    return str(int(Timestamp(obj_timestamp)) //
+    """
+    Get the name of a container into which a misplaced object should be
+    enqueued. The name is the object's last modified time rounded down to the
+    nearest hour.
+
+    :param obj_timestamp: a string representation of the object's 'created_at'
+                          time from it's container db row.
+    :return: a container name
+    """
+    # Use last modified time of object to determine reconciler container name
+    _junk, _junk, ts_meta = decode_timestamps(obj_timestamp)
+    return str(int(ts_meta) //
                MISPLACED_OBJECTS_CONTAINER_DIVISOR *
                MISPLACED_OBJECTS_CONTAINER_DIVISOR)
 
@@ -262,7 +272,7 @@ def parse_raw_obj(obj_info):
         'container': container,
         'obj': obj,
         'q_op': q_op,
-        'q_ts': Timestamp(obj_info['hash']),
+        'q_ts': decode_timestamps((obj_info['hash']))[0],
         'q_record': last_modified_date_to_timestamp(
             obj_info['last_modified']),
         'path': '/%s/%s/%s' % (account, container, obj)

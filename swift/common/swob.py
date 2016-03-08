@@ -164,7 +164,7 @@ def _datetime_property(header):
                 return None
 
     def setter(self, value):
-        if isinstance(value, (float, int, long)):
+        if isinstance(value, (float,) + six.integer_types):
             self.headers[header] = time.strftime(
                 "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(value))
         elif isinstance(value, datetime):
@@ -804,6 +804,27 @@ def _host_url_property():
     return property(getter, doc="Get url for request/response up to path")
 
 
+def is_chunked(headers):
+    te = None
+    for key in headers:
+        if key.lower() == 'transfer-encoding':
+            te = headers.get(key)
+    if te:
+        encodings = te.split(',')
+        if len(encodings) > 1:
+            raise AttributeError('Unsupported Transfer-Coding header'
+                                 ' value specified in Transfer-Encoding'
+                                 ' header')
+        # If there are more than one transfer encoding value, the last
+        # one must be chunked, see RFC 2616 Sec. 3.6
+        if encodings[-1].lower() == 'chunked':
+            return True
+        else:
+            raise ValueError('Invalid Transfer-Encoding header value')
+    else:
+        return False
+
+
 class Request(object):
     """
     WSGI Request object.
@@ -955,7 +976,7 @@ class Request(object):
 
     @property
     def is_chunked(self):
-        return 'chunked' in self.headers.get('transfer-encoding', '')
+        return is_chunked(self.headers)
 
     @property
     def url(self):
@@ -1061,22 +1082,7 @@ class Request(object):
         :raises AttributeError: if the last value of the transfer-encoding
             header is not "chunked"
         """
-        te = self.headers.get('transfer-encoding')
-        if te:
-            encodings = te.split(',')
-            if len(encodings) > 1:
-                raise AttributeError('Unsupported Transfer-Coding header'
-                                     ' value specified in Transfer-Encoding'
-                                     ' header')
-            # If there are more than one transfer encoding value, the last
-            # one must be chunked, see RFC 2616 Sec. 3.6
-            if encodings[-1].lower() == 'chunked':
-                chunked = True
-            else:
-                raise ValueError('Invalid Transfer-Encoding header value')
-        else:
-            chunked = False
-        if not chunked:
+        if not is_chunked(self.headers):
             # Because we are not using chunked transfer encoding we can pay
             # attention to the content-length header.
             fsize = self.headers.get('content-length', None)

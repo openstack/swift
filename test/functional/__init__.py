@@ -92,15 +92,16 @@ normalized_urls = None
 # If no config was read, we will fall back to old school env vars
 swift_test_auth_version = None
 swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
-swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None, '', '']
-swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None, '', '']
-swift_test_tenant = ['', '', '', '', '']
-swift_test_perm = ['', '', '', '', '']
-swift_test_domain = ['', '', '', '', '']
-swift_test_user_id = ['', '', '', '', '']
-swift_test_tenant_id = ['', '', '', '', '']
+swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None, '', '', '']
+swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None, '', '', '']
+swift_test_tenant = ['', '', '', '', '', '']
+swift_test_perm = ['', '', '', '', '', '']
+swift_test_domain = ['', '', '', '', '', '']
+swift_test_user_id = ['', '', '', '', '', '']
+swift_test_tenant_id = ['', '', '', '', '', '']
 
-skip, skip2, skip3, skip_service_tokens = False, False, False, False
+skip, skip2, skip3, skip_service_tokens, skip_if_no_reseller_admin = \
+    False, False, False, False, False
 
 orig_collate = ''
 insecure = False
@@ -385,8 +386,21 @@ def in_process_setup(the_object_server=object_server):
         'service_prefix': 'SERVICE',
         # For tempauth middleware. Update reseller_prefix
         'reseller_prefix': 'AUTH, SERVICE',
-        'SERVICE_require_group': 'service'
+        'SERVICE_require_group': 'service',
+        # Reseller admin user (needs reseller_admin_role)
+        'account6': 'test6',
+        'username6': 'tester6',
+        'password6': 'testing6'
     })
+
+    # If an env var explicitly specifies the proxy-server object_post_as_copy
+    # option then use its value, otherwise leave default config unchanged.
+    object_post_as_copy = os.environ.get(
+        'SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY')
+    if object_post_as_copy is not None:
+        object_post_as_copy = config_true_value(object_post_as_copy)
+        config['object_post_as_copy'] = str(object_post_as_copy)
+        _debug('Setting object_post_as_copy to %r' % object_post_as_copy)
 
     acc1lis = eventlet.listen(('localhost', 0))
     acc2lis = eventlet.listen(('localhost', 0))
@@ -563,10 +577,13 @@ def setup_package():
             # if the test.conf file is not found, or does not provide a usable
             # configuration.
             config.update(get_config('func_test'))
-            if config:
-                in_process = False
-            else:
+            if not config:
                 in_process = True
+            # else... leave in_process value unchanged. It may be that
+            # setup_package is called twice, in which case in_process_setup may
+            # have loaded config before we reach here a second time, so the
+            # existence of config is not reliable to determine that in_process
+            # should be False. Anyway, it's default value is False.
         else:
             # Explicitly set to False, do not attempt to use in-process
             # functional tests, be sure we attempt to read from local
@@ -683,6 +700,10 @@ def setup_package():
                 swift_test_user[4] = config['username5']
                 swift_test_tenant[4] = config['account5']
                 swift_test_key[4] = config['password5']
+            if 'username6' in config:
+                swift_test_user[5] = config['username6']
+                swift_test_tenant[5] = config['account6']
+                swift_test_key[5] = config['password6']
 
             for _ in range(5):
                 swift_test_perm[_] = swift_test_tenant[_] + ':' \
@@ -738,6 +759,16 @@ def setup_package():
                 % policy_specified)
             raise Exception('Failed to find specified policy %s'
                             % policy_specified)
+
+    global skip_if_no_reseller_admin
+    skip_if_no_reseller_admin = not all([not skip, swift_test_user[5],
+                                         swift_test_key[5],
+                                         swift_test_tenant[5]])
+    if not skip and skip_if_no_reseller_admin:
+        print(
+            'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG FOR RESELLER ADMIN',
+            file=sys.stderr)
+
     get_cluster_info()
 
 
@@ -747,10 +778,12 @@ def teardown_package():
 
     # clean up containers and objects left behind after running tests
     global config
-    conn = Connection(config)
-    conn.authenticate()
-    account = Account(conn, config.get('account', config['username']))
-    account.delete_containers()
+
+    if config:
+        conn = Connection(config)
+        conn.authenticate()
+        account = Account(conn, config.get('account', config['username']))
+        account.delete_containers()
 
     global in_process
     global _test_socks

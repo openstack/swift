@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2012 OpenStack Foundation
+# Copyright (c) 2010-2016 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,7 +43,7 @@ from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
-    http_response_to_document_iters, document_iters_to_http_response_body
+    document_iters_to_http_response_body
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
@@ -55,7 +55,8 @@ from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
-    strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
+    strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
+    http_response_to_document_iters
 from swift.common.storage_policy import POLICIES
 
 
@@ -97,11 +98,7 @@ def delay_denial(func):
     :param func: function for which authorization will be delayed
     """
     func.delay_denial = True
-
-    @functools.wraps(func)
-    def wrapped(*a, **kw):
-        return func(*a, **kw)
-    return wrapped
+    return func
 
 
 def get_account_memcache_key(account):
@@ -169,8 +166,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),
         'versions': headers.get('x-versions-location'),
-        'storage_policy': headers.get('X-Backend-Storage-Policy-Index'.lower(),
-                                      '0'),
+        'storage_policy': headers.get('x-backend-storage-policy-index', '0'),
         'cors': {
             'allow_origin': meta.get('access-control-allow-origin'),
             'expose_headers': meta.get('access-control-expose-headers'),
@@ -418,7 +414,7 @@ def _set_info_cache(app, env, account, container, resp):
 
 def _set_object_info_cache(app, env, account, container, obj, resp):
     """
-    Cache object info env. Do not cache object informations in
+    Cache object info env. Do not cache object information in
     memcache. This is an intentional omission as it would lead
     to cache pressure. This is a per-request cache.
 
@@ -476,6 +472,10 @@ def _get_info_cache(app, env, account, container=None):
             for key in info:
                 if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
+                if isinstance(info[key], dict):
+                    for subkey, value in info[key].items():
+                        if isinstance(value, six.text_type):
+                            info[key][subkey] = value.encode("utf-8")
             env[env_key] = info
         return info
     return None
@@ -1589,7 +1589,7 @@ class Controller(object):
         """
         Autocreate an account
 
-        :param env: the environment of the request leading to this autocreate
+        :param req: request leading to this autocreate
         :param account: the unquoted account name
         """
         partition, nodes = self.app.account_ring.get_nodes(account)

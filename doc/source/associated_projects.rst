@@ -25,7 +25,7 @@ Application Bindings
     * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
     * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
     * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
-    * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple Openstack Swift storage client.
+    * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple OpenStack Swift storage client.
 
 Authentication
 --------------
@@ -65,6 +65,7 @@ Alternative API
 
 * `Swift3 <https://github.com/openstack/swift3>`_ - Amazon S3 API emulation.
 * `CDMI <https://github.com/osaddon/cdmi>`_ - CDMI support
+* `SwiftHLM <https://github.com/ibm-research/SwiftHLM>`_ - a middleware for using OpenStack Swift with tape and other high latency media storage backends
 
 
 Benchmarking/Load Generators
@@ -106,7 +107,7 @@ Other
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
 * `Better Staticweb <https://github.com/CloudVPS/better-staticweb>`_ - Makes swift containers accessible by default.
 * `Swiftsync <https://github.com/stackforge/swiftsync>`_ - A massive syncer between two swift clusters.
-* `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple Django web app to access Openstack Swift.
+* `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple Django web app to access OpenStack Swift.
 * `Swift-account-stats <https://github.com/enovance/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
 * `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ - High Level Erasure Code library used by Swift
 * `liberasurecode <http://www.bytebucket.org/tsg-/liberasurecode>`_ - Low Level Erasure Code library used by PyECLib

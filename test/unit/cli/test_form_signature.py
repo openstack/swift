@@ -69,6 +69,42 @@ class TestFormSignature(unittest.TestCase):
         usage = 'Syntax: swift-form-signature <path>'
         self.assertTrue(usage in out.getvalue())
 
+    def test_invalid_filesize_arg(self):
+        out = StringIO()
+        key = 'secret squirrel'
+        with mock.patch('sys.stdout', out):
+            exitcode = form_signature.main([
+                '/path/to/swift-form-signature',
+                '/v1/a/c/o', '', '-1', '34', '3600', key])
+        self.assertNotEqual(exitcode, 0)
+
+    def test_invalid_filecount_arg(self):
+        out = StringIO()
+        key = 'secret squirrel'
+        with mock.patch('sys.stdout', out):
+            exitcode = form_signature.main([
+                '/path/to/swift-form-signature',
+                '/v1/a/c/o', '', '12', '-34', '3600', key])
+        self.assertNotEqual(exitcode, 0)
+
+    def test_invalid_path_arg(self):
+        out = StringIO()
+        key = 'secret squirrel'
+        with mock.patch('sys.stdout', out):
+            exitcode = form_signature.main([
+                '/path/to/swift-form-signature',
+                '/v1/a/', '', '12', '34', '3600', key])
+        self.assertNotEqual(exitcode, 0)
+
+    def test_invalid_seconds_arg(self):
+        out = StringIO()
+        key = 'secret squirrel'
+        with mock.patch('sys.stdout', out):
+            exitcode = form_signature.main([
+                '/path/to/swift-form-signature',
+                '/v1/a/c/o', '', '12', '34',
+                '-922337203685477580799999999999999', key])
+        self.assertNotEqual(exitcode, 0)
 
 if __name__ == '__main__':
     unittest.main()

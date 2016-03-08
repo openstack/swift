@@ -515,6 +515,22 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertTrue(resp.headers['x-storage-url'].endswith('/v1/AUTH_ac'))
         self.assertTrue(resp.headers['x-auth-token'].startswith('AUTH_'))
+        self.assertEqual(resp.headers['x-auth-token'],
+                         resp.headers['x-storage-token'])
+        self.assertAlmostEqual(int(resp.headers['x-auth-token-expires']),
+                               auth.DEFAULT_TOKEN_LIFE - 0.5, delta=0.5)
+        self.assertGreater(len(resp.headers['x-auth-token']), 10)
+
+    def test_get_token_success_other_auth_prefix(self):
+        test_auth = auth.filter_factory({'user_ac_user': 'testing',
+                                         'auth_prefix': '/other/'})(FakeApp())
+        req = self._make_request(
+            '/other/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        resp = req.get_response(test_auth)
+        self.assertEqual(resp.status_int, 200)
+        self.assertTrue(resp.headers['x-storage-url'].endswith('/v1/AUTH_ac'))
+        self.assertTrue(resp.headers['x-auth-token'].startswith('AUTH_'))
         self.assertTrue(len(resp.headers['x-auth-token']) > 10)
 
     def test_use_token_success(self):
@@ -641,11 +657,16 @@ class TestAuth(unittest.TestCase):
         req.environ['SERVER_NAME'] = 'bob'
         req.environ['SERVER_PORT'] = '1234'
         req.environ['swift.cache'].set('AUTH_/user/test:tester', 'uuid_token')
+        expires = time() + 180
         req.environ['swift.cache'].set('AUTH_/token/uuid_token',
-                                       (time() + 180, 'test,test:tester'))
+                                       (expires, 'test,test:tester'))
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertEqual(resp.headers['x-auth-token'],
+                         resp.headers['x-storage-token'])
+        self.assertAlmostEqual(int(resp.headers['x-auth-token-expires']),
+                               179.5, delta=0.5)
 
     def test_old_token_overdate(self):
         self.test_auth = \
@@ -664,6 +685,8 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertNotEqual(resp.headers['x-auth-token'], 'uuid_token')
         self.assertEqual(resp.headers['x-auth-token'][:7], 'AUTH_tk')
+        self.assertAlmostEqual(int(resp.headers['x-auth-token-expires']),
+                               auth.DEFAULT_TOKEN_LIFE - 0.5, delta=0.5)
 
     def test_old_token_with_old_data(self):
         self.test_auth = \
@@ -682,6 +705,8 @@ class TestAuth(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertNotEqual(resp.headers['x-auth-token'], 'uuid_token')
         self.assertEqual(resp.headers['x-auth-token'][:7], 'AUTH_tk')
+        self.assertAlmostEqual(int(resp.headers['x-auth-token-expires']),
+                               auth.DEFAULT_TOKEN_LIFE - 0.5, delta=0.5)
 
     def test_reseller_admin_is_owner(self):
         orig_authorize = self.test_auth.authorize
@@ -1291,7 +1316,7 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, headers=good_headers)
         resp = req.get_response(test_auth)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(None, req.headers.get(sysmeta_hdr))
+        self.assertIsNone(req.headers.get(sysmeta_hdr))
 
         # syntactically valid acls should go through
         update = {'x-account-access-control': good_acl}

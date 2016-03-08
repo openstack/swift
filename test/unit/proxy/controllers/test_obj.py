@@ -390,6 +390,7 @@ class BaseObjectControllerMixin(object):
         with set_http_connect(200):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
 
     def test_HEAD_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD',
@@ -534,6 +535,22 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(201, 201, 201):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def test_txn_id_logging_on_PUT(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
+        self.app.logger.txn_id = req.environ['swift.trans_id'] = 'test-txn-id'
+        req.headers['content-length'] = '0'
+        # we capture stdout since the debug log formatter prints the formatted
+        # message to stdout
+        stdout = BytesIO()
+        with set_http_connect((100, Timeout()), 503, 503), \
+                mock.patch('sys.stdout', stdout):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+        for line in stdout.getvalue().splitlines():
+            self.assertIn('test-txn-id', line)
+        self.assertIn('Trying to get final status of PUT to',
+                      stdout.getvalue())
 
     def test_PUT_empty_bad_etag(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -693,6 +710,14 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(200):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+
+    def test_GET_transfer_encoding_chunked(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        with set_http_connect(200, headers={'transfer-encoding': 'chunked'}):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['Transfer-Encoding'], 'chunked')
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -1173,6 +1198,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*get_resp):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
 
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
@@ -1236,6 +1262,25 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def test_txn_id_logging_ECPUT(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              body='')
+        self.app.logger.txn_id = req.environ['swift.trans_id'] = 'test-txn-id'
+        codes = [(100, Timeout(), 503, 503)] * self.replicas()
+        stdout = BytesIO()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers), \
+                mock.patch('sys.stdout', stdout):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+        for line in stdout.getvalue().splitlines():
+            self.assertIn('test-txn-id', line)
+        self.assertIn('Trying to get ',
+                      stdout.getvalue())
 
     def test_PUT_with_explicit_commit_status(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',

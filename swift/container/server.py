@@ -23,6 +23,7 @@ from xml.etree.cElementTree import Element, SubElement, tostring
 from eventlet import Timeout
 
 import swift.common.db
+from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
@@ -110,6 +111,9 @@ class ContainerController(BaseStorageServer):
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        self.sync_store = ContainerSyncStore(self.root,
+                                             self.logger,
+                                             self.mount_check)
 
     def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
@@ -242,6 +246,13 @@ class ContainerController(BaseStorageServer):
         else:
             return None
 
+    def _update_sync_store(self, broker, method):
+        try:
+            self.sync_store.update_sync_store(broker)
+        except Exception:
+            self.logger.exception('Failed to update sync_store %s during %s' %
+                                  (broker.db_file, method))
+
     @public
     @timing_stats()
     def DELETE(self, req):
@@ -276,6 +287,7 @@ class ContainerController(BaseStorageServer):
             broker.delete_db(req_timestamp.internal)
             if not broker.is_deleted():
                 return HTTPConflict(request=req)
+            self._update_sync_store(broker, 'DELETE')
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -356,7 +368,9 @@ class ContainerController(BaseStorageServer):
                               int(req.headers['x-size']),
                               req.headers['x-content-type'],
                               req.headers['x-etag'], 0,
-                              obj_policy_index)
+                              obj_policy_index,
+                              req.headers.get('x-content-type-timestamp'),
+                              req.headers.get('x-meta-timestamp'))
             return HTTPCreated(request=req)
         else:   # put container
             if requested_policy_index is None:
@@ -381,6 +395,8 @@ class ContainerController(BaseStorageServer):
                         broker.metadata['X-Container-Sync-To'][0]:
                     broker.set_x_container_sync_points(-1, -1)
             broker.update_metadata(metadata, validate_metadata=True)
+            if metadata:
+                self._update_sync_store(broker, 'PUT')
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -564,6 +580,7 @@ class ContainerController(BaseStorageServer):
                         broker.metadata['X-Container-Sync-To'][0]:
                     broker.set_x_container_sync_points(-1, -1)
             broker.update_metadata(metadata, validate_metadata=True)
+            self._update_sync_store(broker, 'POST')
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

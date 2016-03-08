@@ -44,7 +44,7 @@ bind_port = 6000
 # log_udp_port = 514
 #
 # You can enable StatsD logging here:
-# log_statsd_host = localhost
+# log_statsd_host =
 # log_statsd_port = 8125
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
@@ -82,6 +82,11 @@ use = egg:swift#object
 # set log_address = /dev/log
 #
 # max_upload_time = 86400
+#
+# slow is the total amount of seconds an object PUT/DELETE request takes at
+# least. If it is faster, the object server will sleep this amount of time minus
+# the already passed transaction time.  This is only useful for simulating slow
+# devices on storage nodes during testing and development.
 # slow = 0
 #
 # Objects smaller than this are not evicted from the buffercache once read
@@ -281,6 +286,9 @@ use = egg:swift#recon
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+#
+# Time in seconds to wait between auditor passes
+# interval = 30
 #
 # You can set the disk chunk size that the auditor uses making it larger if
 # you like for more efficient local auditing of larger objects
