@@ -751,20 +751,6 @@ class BaseDiskFileManager(object):
         results['files'] = files
         return results
 
-    def hash_cleanup_listdir(self, hsh_path, reclaim_age=ONE_WEEK):
-        """
-        List contents of a hash directory and clean up any old files.
-        For EC policy, delete files older than a .durable or .ts file.
-
-        :param hsh_path: object hash path
-        :param reclaim_age: age in seconds at which to remove tombstones
-        :returns: list of files remaining in the directory, reverse sorted
-        """
-        # maintain compatibility with 'legacy' hash_cleanup_listdir
-        # return value
-        return self.cleanup_ondisk_files(
-            hsh_path, reclaim_age=reclaim_age)['files']
-
     def _update_suffix_hashes(self, hashes, ondisk_info):
         """
         Applies policy specific updates to the given dict of md5 hashes for
@@ -1065,8 +1051,8 @@ class BaseDiskFileManager(object):
             dev_path, get_data_dir(policy), str(partition), object_hash[-3:],
             object_hash)
         try:
-            filenames = self.hash_cleanup_listdir(object_path,
-                                                  self.reclaim_age)
+            filenames = self.cleanup_ondisk_files(object_path,
+                                                  self.reclaim_age)['files']
         except OSError as err:
             if err.errno == errno.ENOTDIR:
                 quar_path = self.quarantine_renamer(dev_path, object_path)
@@ -1322,7 +1308,7 @@ class BaseDiskFileWriter(object):
         self._put_succeeded = True
         if cleanup:
             try:
-                self.manager.hash_cleanup_listdir(self._datadir)
+                self.manager.cleanup_ondisk_files(self._datadir)['files']
             except OSError:
                 logging.exception(_('Problem cleaning up %s'), self._datadir)
 
@@ -2411,7 +2397,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                 exc = DiskFileNoSpace(str(err))
             else:
                 try:
-                    self.manager.hash_cleanup_listdir(self._datadir)
+                    self.manager.cleanup_ondisk_files(self._datadir)['files']
                 except OSError as os_err:
                     self.manager.logger.exception(
                         _('Problem cleaning up %s (%s)') %
