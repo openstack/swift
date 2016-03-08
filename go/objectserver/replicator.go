@@ -17,6 +17,7 @@ package objectserver
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -54,13 +55,27 @@ type ReplicationData struct {
 	err    error
 }
 
+type NoMoreNodes struct{}
+
+func (n *NoMoreNodes) Next() *hummingbird.Device {
+	return nil
+}
+
+type PriorityRepJob struct {
+	JobType    string                `json:"job_type"`
+	Partition  uint64                `json:"partition"`
+	FromDevice *hummingbird.Device   `json:"from_device"`
+	ToDevices  []*hummingbird.Device `json:"to_devices"`
+}
+
 // Object replicator daemon object
 type Replicator struct {
 	concurrency    int
 	checkMounts    bool
 	driveRoot      string
 	reconCachePath string
-	debugAddress   string
+	bindPort       int
+	bindIp         string
 	logger         hummingbird.SysLogLike
 	port           int
 	Ring           hummingbird.Ring
@@ -70,6 +85,8 @@ type Replicator struct {
 	concurrencySem chan struct{}
 	devices        []string
 	partitions     []string
+	priRepChans    map[int]chan PriorityRepJob
+	priRepM        sync.Mutex
 
 	/* stats accounting */
 	startTime                                                     time.Time
@@ -190,6 +207,8 @@ func listObjFiles(partdir string, needSuffix func(string) bool) ([]string, error
 		return nil, err
 	}
 	if len(suffixDirs) == 0 {
+		os.Remove(filepath.Join(partdir, ".lock"))
+		os.Remove(filepath.Join(partdir, "hashes.pkl"))
 		os.Remove(partdir)
 		return nil, nil
 	}
@@ -251,7 +270,7 @@ func (r *Replicator) syncFile(objFile string, dst []*syncFileArg) (syncs int, in
 			wrs = append(wrs, sfa)
 		} else if sfr.NewerExists {
 			insync++
-			if os.RemoveAll(objFile) == nil {
+			if os.Remove(objFile) == nil {
 				InvalidateHash(filepath.Dir(objFile))
 			}
 		} else if sfr.Exists {
@@ -421,7 +440,7 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 		if syncs, insync, err := r.syncFile(objFile, toSync); err == nil {
 			syncCount += syncs
 			if insync == len(nodes) {
-				os.RemoveAll(objFile)
+				os.Remove(objFile)
 				os.Remove(filepath.Dir(objFile))
 			}
 		} else {
@@ -476,10 +495,10 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 	}
 	r.jobCountIncrement <- uint64(len(partitionList))
 	for _, partition := range partitionList {
-		lockPath := filepath.Join(r.driveRoot, dev.Device, "lock_device")
-		if hummingbird.Exists(lockPath) {
+		if hummingbird.Exists(filepath.Join(r.driveRoot, dev.Device, "lock_device")) {
 			break
 		}
+		r.processPriorityJobs(dev.Id)
 		if len(r.partitions) > 0 {
 			found := false
 			for _, p := range r.partitions {
@@ -493,30 +512,23 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 			}
 		}
 		if partitioni, err := strconv.ParseUint(filepath.Base(partition), 10, 64); err == nil {
-			var partStart time.Time
-			<-r.partRateTicker.C
-			r.replicationCountIncrement <- 1
-			j := &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
-			if nodes, handoff := r.Ring.GetJobNodes(partitioni, j.dev.Id); handoff {
-				func() {
-					r.concurrencySem <- struct{}{}
-					defer func() {
-						<-r.concurrencySem
-					}()
-					partStart = time.Now()
+			func() {
+				<-r.partRateTicker.C
+				r.concurrencySem <- struct{}{}
+				r.replicationCountIncrement <- 1
+				j := &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
+				nodes, handoff := r.Ring.GetJobNodes(partitioni, j.dev.Id)
+				partStart := time.Now()
+				defer func() {
+					<-r.concurrencySem
+					r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
+				}()
+				if handoff {
 					r.replicateHandoff(j, nodes)
-				}()
-			} else {
-				func() {
-					r.concurrencySem <- struct{}{}
-					defer func() {
-						<-r.concurrencySem
-					}()
-					partStart = time.Now()
+				} else {
 					r.replicateLocal(j, nodes, r.Ring.GetMoreNodes(partitioni))
-				}()
-			}
-			r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
+				}
+			}()
 		}
 	}
 }
@@ -560,8 +572,9 @@ func (r *Replicator) statsReporter(c <-chan time.Time) {
 					r.partitionTimes[len(r.partitionTimes)/2])
 			}
 			if r.dataTransferred > 0 {
+				elapsed := float64(now.Sub(r.startTime)) / float64(time.Second)
 				r.LogInfo("Data synced: %d (%.2f kbps), files synced: %d",
-					r.dataTransferred, (float64(r.dataTransferred)/1024.0)*8.0, r.filesTransferred)
+					r.dataTransferred, ((float64(r.dataTransferred)/1024.0)*8.0)/elapsed, r.filesTransferred)
 			}
 		}
 	}
@@ -614,15 +627,100 @@ func (r *Replicator) run(c <-chan time.Time) {
 	}
 }
 
+// processPriorityJobs runs any pending priority jobs given the device's id
+func (r *Replicator) processPriorityJobs(id int) {
+	for {
+		select {
+		case pri := <-r.getPriRepChan(id):
+			r.jobCountIncrement <- 1
+			func() {
+				<-r.partRateTicker.C
+				r.concurrencySem <- struct{}{}
+				r.replicationCountIncrement <- 1
+				j := &job{
+					dev:       pri.FromDevice,
+					partition: strconv.FormatUint(pri.Partition, 10),
+					objPath:   filepath.Join(r.driveRoot, pri.FromDevice.Device, "objects"),
+				}
+				partStart := time.Now()
+				defer func() {
+					<-r.concurrencySem
+					r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
+				}()
+				if pri.JobType == "handoff" {
+					r.replicateHandoff(j, pri.ToDevices)
+				} else if pri.JobType == "local" {
+					r.replicateLocal(j, pri.ToDevices, &NoMoreNodes{})
+				}
+			}()
+		default:
+			return
+		}
+	}
+}
+
+// getPriRepChan synchronizes access to the r.priRepChans mapping
+func (r *Replicator) getPriRepChan(id int) chan PriorityRepJob {
+	r.priRepM.Lock()
+	defer r.priRepM.Unlock()
+	if _, ok := r.priRepChans[id]; !ok {
+		r.priRepChans[id] = make(chan PriorityRepJob)
+	}
+	return r.priRepChans[id]
+}
+
+// priorityRepHandler handles HTTP requests for priority replications jobs.
+func (r *Replicator) priorityRepHandler(w http.ResponseWriter, req *http.Request) {
+	var pri PriorityRepJob
+	data, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		w.WriteHeader(500)
+		return
+	}
+	if err := json.Unmarshal(data, &pri); err != nil || pri.JobType == "" {
+		w.WriteHeader(400)
+		return
+	}
+	if r.checkMounts {
+		if mounted, err := hummingbird.IsMount(filepath.Join(r.driveRoot, pri.FromDevice.Device)); err != nil || mounted == false {
+			w.WriteHeader(507)
+			return
+		}
+	}
+	if !hummingbird.Exists(filepath.Join(r.driveRoot, pri.FromDevice.Device, "objects", strconv.FormatUint(pri.Partition, 10))) {
+		w.WriteHeader(404)
+		return
+	}
+	timeout := time.NewTimer(time.Hour)
+	defer timeout.Stop()
+	select {
+	case r.getPriRepChan(pri.FromDevice.Id) <- pri:
+	case <-timeout.C:
+	}
+	w.WriteHeader(200)
+}
+
+func (r *Replicator) startWebServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/priorityrep", r.priorityRepHandler)
+	mux.Handle("/debug/", http.DefaultServeMux)
+	for {
+		if sock, err := hummingbird.RetryListen(r.bindIp, r.bindPort); err != nil {
+			r.LogError("Listen failed: %v", err)
+		} else {
+			http.Serve(sock, mux)
+		}
+	}
+}
+
 // Run a single replication pass.
 func (r *Replicator) Run() {
-	go http.ListenAndServe(r.debugAddress, nil)
 	r.run(OneTimeChan())
 }
 
 // Run replication passes in a loop until forever.
 func (r *Replicator) RunForever() {
-	go http.ListenAndServe(r.debugAddress, nil)
+	go r.startWebServer()
 	r.run(time.Tick(RunForeverInterval))
 }
 
@@ -632,6 +730,7 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 		replicationCountIncrement: make(chan uint64),
 		jobCountIncrement:         make(chan uint64),
 		dataTransferAdd:           make(chan uint64),
+		priRepChans:               make(map[int]chan PriorityRepJob),
 	}
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
@@ -645,7 +744,8 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	replicator.checkMounts = serverconf.GetBool("object-replicator", "mount_check", true)
 	replicator.driveRoot = serverconf.GetDefault("object-replicator", "devices", "/srv/node")
 	replicator.port = int(serverconf.GetInt("object-replicator", "bind_port", 6000))
-	replicator.debugAddress = serverconf.GetDefault("object-replicator", "go_debug_address", "127.0.0.1:7070")
+	replicator.bindIp = serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0")
+	replicator.bindPort = int(serverconf.GetInt("object-replicator", "replicator_bind_port", int64(replicator.port+500)))
 	replicator.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", "")
 	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
 		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 2000)) * time.Millisecond
