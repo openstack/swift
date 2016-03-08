@@ -250,7 +250,8 @@ class ObjectController(BaseStorageServer):
                     {'ip': ip, 'port': port, 'dev': contdevice})
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
-        timestamp = headers_out['x-timestamp']
+        timestamp = headers_out.get('x-meta-timestamp',
+                                    headers_out.get('x-timestamp'))
         self._diskfile_router[policy].pickle_async_update(
             objdevice, account, container, obj, data, timestamp, policy)
 
@@ -565,6 +566,7 @@ class ObjectController(BaseStorageServer):
                 content_type_headers['Content-Type'] += (';swift_bytes=%s'
                                                          % swift_bytes)
 
+        # object POST updates are PUT to the container server
         self.container_update(
             'PUT', account, container, obj, request,
             HeaderKeyDict({
