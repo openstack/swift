@@ -1126,7 +1126,7 @@ class TestObjectController(unittest.TestCase):
 
         # data file doesn't exist there (This is sanity because
         # if .data written unexpectedly, it will be removed
-        # by hash_cleanup_list_dir)
+        # by cleanup_ondisk_files)
         datafile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
