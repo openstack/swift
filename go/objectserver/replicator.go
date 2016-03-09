@@ -88,6 +88,7 @@ type Replicator struct {
 	partitions     []string
 	priRepChans    map[int]chan PriorityRepJob
 	priRepM        sync.Mutex
+	reclaimAge     int64
 
 	/* stats accounting */
 	startTime                                                     time.Time
@@ -343,7 +344,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	startGetHashesLocal := time.Now()
 
 	recalc := []string{}
-	hashes, herr := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r)
+	hashes, herr := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, r)
 	if herr != nil {
 		r.LogError("[replicateLocal] error getting local hashes: %v", herr)
 		return
@@ -356,7 +357,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 			}
 		}
 	}
-	hashes, herr = GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r)
+	hashes, herr = GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, r)
 	if herr != nil {
 		r.LogError("[replicateLocal] error recalculating local hashes: %v", herr)
 		return
@@ -753,6 +754,7 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	replicator.bindIp = serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0")
 	replicator.bindPort = int(serverconf.GetInt("object-replicator", "replicator_bind_port", int64(replicator.port+500)))
 	replicator.quorumDelete = serverconf.GetBool("object-replicator", "quorum_delete", false)
+	replicator.reclaimAge = int64(serverconf.GetInt("object-replicator", "reclaim_age", int64(hummingbird.ONE_WEEK)))
 	replicator.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", "")
 	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
 		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 2000)) * time.Millisecond

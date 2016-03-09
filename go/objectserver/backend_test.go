@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openstack/swift/go/hummingbird"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -59,7 +61,7 @@ func TestGetHashes(t *testing.T) {
 	f, _ = os.Create(driveRoot + "/sda/objects/1/abc/00000000000000000000000000000abc/67890.data")
 	defer f.Close()
 
-	hashes, err := GetHashes(driveRoot, "sda", "1", nil, nil)
+	hashes, err := GetHashes(driveRoot, "sda", "1", nil, int64(hummingbird.ONE_WEEK), nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "b1589029b7db9d01347caece2159d588", hashes["abc"])
 
@@ -68,12 +70,12 @@ func TestGetHashes(t *testing.T) {
 	f.Close()
 
 	// make sure hash for "abc" isn't recalculated yet.
-	hashes, err = GetHashes(driveRoot, "sda", "1", nil, nil)
+	hashes, err = GetHashes(driveRoot, "sda", "1", nil, int64(hummingbird.ONE_WEEK), nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "b1589029b7db9d01347caece2159d588", hashes["abc"])
 
 	// force recalculate of "abc"
-	hashes, err = GetHashes(driveRoot, "sda", "1", []string{"abc"}, nil)
+	hashes, err = GetHashes(driveRoot, "sda", "1", []string{"abc"}, int64(hummingbird.ONE_WEEK), nil)
 	assert.Nil(t, err)
 	assert.Equal(t, "8834e84467693c2e8f670f4afbea5334", hashes["abc"])
 }

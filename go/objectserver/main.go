@@ -55,6 +55,7 @@ type ObjectServer struct {
 	expiringDivisor  int64
 	updateClient     *http.Client
 	replicateTimeout time.Duration
+	reclaimAge       int64
 }
 
 func (server *ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request) {
@@ -312,7 +313,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 		return
 	}
 	go func() {
-		HashCleanupListDir(hashDir, hummingbird.GetLogger(request))
+		HashCleanupListDir(hashDir, server.reclaimAge, hummingbird.GetLogger(request))
 		if fd, err := syscall.Open(hashDir, syscall.O_DIRECTORY|os.O_RDONLY, 0666); err == nil {
 			syscall.Fsync(fd)
 			syscall.Close(fd)
@@ -427,7 +428,7 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 		return
 	}
 	go func() {
-		HashCleanupListDir(hashDir, hummingbird.GetLogger(request))
+		HashCleanupListDir(hashDir, server.reclaimAge, hummingbird.GetLogger(request))
 		if fd, err := syscall.Open(hashDir, syscall.O_DIRECTORY|os.O_RDONLY, 0666); err == nil {
 			syscall.Fsync(fd)
 			syscall.Close(fd)
@@ -445,7 +446,7 @@ func (server *ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, requ
 	if len(vars["suffixes"]) > 0 {
 		recalculate = strings.Split(vars["suffixes"], "-")
 	}
-	hashes, err := GetHashes(server.driveRoot, vars["device"], vars["partition"], recalculate, hummingbird.GetLogger(request))
+	hashes, err := GetHashes(server.driveRoot, vars["device"], vars["partition"], recalculate, server.reclaimAge, hummingbird.GetLogger(request))
 	if err != nil {
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
@@ -489,7 +490,7 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 	var hashes map[string]string
 	if brr.NeedHashes {
 		var herr *hummingbird.BackendError
-		hashes, herr = GetHashes(server.driveRoot, brr.Device, brr.Partition, nil, hummingbird.GetLogger(request))
+		hashes, herr = GetHashes(server.driveRoot, brr.Device, brr.Partition, nil, server.reclaimAge, hummingbird.GetLogger(request))
 		if herr != nil {
 			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", herr)
 			writer.WriteHeader(http.StatusInternalServerError)
@@ -548,7 +549,7 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 				return rc.SendMessage(FileUploadResponse{Msg: "upload failed"})
 			}
 			if dataFile != "" || metaFile != "" {
-				HashCleanupListDir(hashDir, hummingbird.GetLogger(request))
+				HashCleanupListDir(hashDir, server.reclaimAge, hummingbird.GetLogger(request))
 			}
 			InvalidateHash(hashDir)
 			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
@@ -720,6 +721,7 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 	server.logger = hummingbird.SetupLogger(serverconf.GetDefault("app:object-server", "log_facility", "LOG_LOCAL1"), "object-server", "")
 	server.replicationMan = NewReplicationManager(serverconf.GetLimit("app:object-server", "replication_limit", 3, 100))
 	server.updateClient = &http.Client{Timeout: time.Second * 15}
+	server.reclaimAge = int64(serverconf.GetInt("app:object-server", "reclaim_age", int64(hummingbird.ONE_WEEK)))
 
 	deviceLockUpdateSeconds := serverconf.GetInt("app:object-server", "device_lock_update_seconds", 0)
 	if deviceLockUpdateSeconds > 0 {

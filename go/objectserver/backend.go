@@ -196,7 +196,7 @@ func InvalidateHash(hashDir string) error {
 	return tempFile.Save()
 }
 
-func HashCleanupListDir(hashDir string, logger hummingbird.LoggingContext) ([]string, *hummingbird.BackendError) {
+func HashCleanupListDir(hashDir string, reclaimAge int64, logger hummingbird.LoggingContext) ([]string, *hummingbird.BackendError) {
 	fileList, err := hummingbird.ReadDirNames(hashDir)
 	returnList := []string{}
 	if err != nil {
@@ -219,7 +219,7 @@ func HashCleanupListDir(hashDir string, logger hummingbird.LoggingContext) ([]st
 				withoutSuffix = strings.Split(withoutSuffix, "_")[0]
 			}
 			timestamp, _ := strconv.ParseFloat(withoutSuffix, 64)
-			if time.Now().Unix()-int64(timestamp) > int64(hummingbird.ONE_WEEK) {
+			if time.Now().Unix()-int64(timestamp) > reclaimAge {
 				os.RemoveAll(hashDir + "/" + filename)
 				return returnList, nil
 			}
@@ -249,7 +249,7 @@ func HashCleanupListDir(hashDir string, logger hummingbird.LoggingContext) ([]st
 	return returnList, nil
 }
 
-func RecalculateSuffixHash(suffixDir string, logger hummingbird.LoggingContext) (string, *hummingbird.BackendError) {
+func RecalculateSuffixHash(suffixDir string, reclaimAge int64, logger hummingbird.LoggingContext) (string, *hummingbird.BackendError) {
 	// the is hash_suffix in swift
 	h := md5.New()
 
@@ -262,7 +262,7 @@ func RecalculateSuffixHash(suffixDir string, logger hummingbird.LoggingContext) 
 	}
 	for _, fullHash := range hashList {
 		hashPath := suffixDir + "/" + fullHash
-		fileList, err := HashCleanupListDir(hashPath, logger)
+		fileList, err := HashCleanupListDir(hashPath, reclaimAge, logger)
 		if err != nil {
 			if err.Code == hummingbird.PathNotDirErrorCode {
 				if QuarantineHash(hashPath) == nil {
@@ -283,7 +283,7 @@ func RecalculateSuffixHash(suffixDir string, logger hummingbird.LoggingContext) 
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func GetHashes(driveRoot string, device string, partition string, recalculate []string, logger hummingbird.LoggingContext) (map[string]string, *hummingbird.BackendError) {
+func GetHashes(driveRoot string, device string, partition string, recalculate []string, reclaimAge int64, logger hummingbird.LoggingContext) (map[string]string, *hummingbird.BackendError) {
 	partitionDir := filepath.Join(driveRoot, device, "objects", partition)
 	pklFile := filepath.Join(partitionDir, "hashes.pkl")
 
@@ -329,7 +329,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		if hash == "" {
 			modified = true
 			suffixDir := driveRoot + "/" + device + "/objects/" + partition + "/" + suffix
-			recalc_hash, err := RecalculateSuffixHash(suffixDir, logger)
+			recalc_hash, err := RecalculateSuffixHash(suffixDir, reclaimAge, logger)
 			if err == nil {
 				hashes[suffix] = recalc_hash
 			} else {
@@ -359,7 +359,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 				return hashes, nil
 			}
 			logger.LogError("Made recursive call to GetHashes: %s", partitionDir)
-			return GetHashes(driveRoot, device, partition, recalculate, logger)
+			return GetHashes(driveRoot, device, partition, recalculate, reclaimAge, logger)
 		}
 	}
 	return hashes, nil
