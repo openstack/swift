@@ -26,6 +26,7 @@ from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
 import random
+import uuid
 
 from six.moves import range
 
@@ -2450,6 +2451,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(changed_parts, 0)
         self.assertEqual(removed_devs, 0)
 
+        old_ring = r
         rd = rb.get_ring()
         rd.save(ring_file)
         r = ring.Ring(ring_file)
@@ -2468,19 +2470,26 @@ class TestRingBuilder(unittest.TestCase):
                 self.assertEqual(dev, next_dev)
 
         # same for last_part moves
-        for part in range(0, len(replica), 2):
+        for part in range(0, rb.parts, 2):
             this_last_moved = rb._last_part_moves[part]
             next_last_moved = rb._last_part_moves[part + 1]
             self.assertEqual(this_last_moved, next_last_moved)
 
-        # Due to the increased partition power, the partition each object is
-        # assigned to has changed. If the old partition was X, it will now be
-        # either located in 2*X or 2*X+1
-        self.assertTrue(new_part in [old_part * 2, old_part * 2 + 1])
+        for i in range(100):
+            suffix = uuid.uuid4()
+            account = 'account_%s' % suffix
+            container = 'container_%s' % suffix
+            obj = 'obj_%s' % suffix
+            old_part, old_nodes = old_ring.get_nodes(account, container, obj)
+            new_part, new_nodes = r.get_nodes(account, container, obj)
+            # Due to the increased partition power, the partition each object
+            # is assigned to has changed. If the old partition was X, it will
+            # now be either located in 2*X or 2*X+1
+            self.assertTrue(new_part in [old_part * 2, old_part * 2 + 1])
 
-        # Importantly, we expect the objects to be placed on the same nodes
-        # after increasing the partition power
-        self.assertEqual(old_nodes, new_nodes)
+            # Importantly, we expect the objects to be placed on the same
+            # nodes after increasing the partition power
+            self.assertEqual(old_nodes, new_nodes)
 
 
 class TestGetRequiredOverload(unittest.TestCase):
