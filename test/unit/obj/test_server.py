@@ -503,17 +503,18 @@ class TestObjectController(unittest.TestCase):
         update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
 
         def mock_container_update(ctlr, op, account, container, obj, request,
-                                  headers_out, objdevice, policy_idx):
-            calls_made.append(headers_out)
+                                  headers_out, objdevice, policy):
+            calls_made.append((headers_out, policy))
 
         headers = {
             'X-Timestamp': t[1].internal,
             'Content-Type': 'application/octet-stream;swift_bytes=123456789',
             'Content-Length': '4',
-            'X-Backend-Storage-Policy': int(policy)}
+            'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
             headers['X-Backend-Container-Update-Override-Etag'] = update_etag
             headers['X-Object-Sysmeta-Ec-Etag'] = update_etag
+            headers['X-Object-Sysmeta-Ec-Frag-Index'] = 2
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
@@ -531,15 +532,16 @@ class TestObjectController(unittest.TestCase):
             'x-content-type': 'application/octet-stream;swift_bytes=123456789',
             'x-timestamp': t[1].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with no metadata newer than the data should return 409,
         # container update not expected
         calls_made = []
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': t[0].internal,
-                                     'X-Backend-Storage-Policy': int(policy)})
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': t[0].internal,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -553,10 +555,10 @@ class TestObjectController(unittest.TestCase):
         # POST with newer metadata returns success and container update
         # is expected
         calls_made = []
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': t[3].internal,
-                                     'X-Backend-Storage-Policy': int(policy)})
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': t[3].internal,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -571,15 +573,16 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[1].internal,
             'x-meta-timestamp': t[3].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with no metadata newer than existing metadata should return
         # 409, container update not expected
         calls_made = []
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': t[2].internal,
-                                     'X-Backend-Storage-Policy': int(policy)})
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': t[2].internal,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -600,7 +603,7 @@ class TestObjectController(unittest.TestCase):
                                 'X-Timestamp': t[2].internal,
                                 'Content-Type': 'text/plain',
                                 'Content-Type-Timestamp': t[2].internal,
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -616,7 +619,8 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[2].internal,
             'x-meta-timestamp': t[3].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with older content-type but newer metadata returns success
         # and container update is expected
@@ -627,7 +631,7 @@ class TestObjectController(unittest.TestCase):
                                 'X-Timestamp': t[4].internal,
                                 'Content-Type': 'older',
                                 'Content-Type-Timestamp': t[1].internal,
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -643,7 +647,8 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[2].internal,
             'x-meta-timestamp': t[4].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with same-time content-type and metadata returns 409
         # and no container update is expected
@@ -654,7 +659,7 @@ class TestObjectController(unittest.TestCase):
                                 'X-Timestamp': t[4].internal,
                                 'Content-Type': 'ignored',
                                 'Content-Type-Timestamp': t[2].internal,
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -673,7 +678,7 @@ class TestObjectController(unittest.TestCase):
                             headers={
                                 'X-Timestamp': t[3].internal,
                                 'Content-Type': 'text/newer',
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -689,7 +694,8 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[3].internal,
             'x-meta-timestamp': t[4].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
     def test_POST_container_updates_with_replication_policy(self):
         self._test_POST_container_updates(POLICIES[0])
