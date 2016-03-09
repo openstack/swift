@@ -11,13 +11,13 @@
 # Monika Wolf <vcomas3@de.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev176\n"
+"Project-Id-Version: swift 2.6.1.dev187\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"POT-Creation-Date: 2016-03-09 04:27+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-07 06:04+0000\n"
+"PO-Revision-Date: 2016-03-08 09:51+0000\n"
 "Last-Translator: Monika Wolf <vcomas3@de.ibm.com>\n"
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -54,6 +54,16 @@ msgstr "%(ip)s/%(device)s zurückgemeldet als ausgehängt"
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
+
+#, python-format
+msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) Partitionen von %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) Geräten rekonstruiert in  %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s verbleibend)"
 
 #, python-format
 msgid ""
@@ -229,6 +239,11 @@ msgstr "Client beim Lesen getrennt"
 msgid "Client disconnected without sending enough data"
 msgstr "Client getrennt ohne dem Senden von genügend Daten"
 
+msgid "Client disconnected without sending last chunk"
+msgstr ""
+"Die Verbindung zum Client wurde getrennt, bevor der letzte Chunk gesendet "
+"wurde. "
+
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
@@ -236,7 +251,6 @@ msgstr ""
 "Clientpfad %(client)s entspricht nicht dem in den Objektmetadaten "
 "gespeicherten Pfad %(meta)s"
 
-#, fuzzy
 msgid ""
 "Configuration option internal_client_conf_path not defined. Using default "
 "configuration, See internal-client.conf-sample for options"
@@ -303,6 +317,11 @@ msgstr "Fehler beim Downloaden von Daten: %s"
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "Gerätedurchgang abgeschlossen: %.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr ""
+"Das Verzeichnis %r kann keiner gültigen Richtlinie (%s) zugeordnet werden."
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -382,6 +401,10 @@ msgstr ""
 msgid "ERROR Exception causing client disconnect"
 msgstr ""
 "FEHLER Ausnahme, die zu einer Unterbrechung der Verbindung zum Client führt"
+
+#, python-format
+msgid "ERROR Exception transferring data to object servers %s"
+msgstr "FEHLER: Ausnahme bei der Übertragung von Daten an die Ojektserver %s"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "FEHLER Eigene IPs konnten nicht abgerufen werden?"
@@ -560,6 +583,12 @@ msgstr "Fehler beim Syncen der Partition"
 msgid "Error syncing with node: %s"
 msgstr "Fehler beim Synchronisieren mit Knoten: %s"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr ""
+"Fehler bei Versuch, erneuten Build zu erstellen für %(path)s policy#"
+"%(policy)d frag#%(frag_index)s"
+
 msgid "Error: An error occurred"
 msgstr "Fehler: Ein Fehler ist aufgetreten"
 
@@ -578,6 +607,9 @@ msgstr "Ausnahme in Reaper-Loop für Konto der höchsten Ebene"
 
 msgid "Exception in top-level replication loop"
 msgstr "Ausnahme in Replizierungsloop der höchsten Ebene"
+
+msgid "Exception in top-levelreconstruction loop"
+msgstr "Ausnahme in Rekonstruktionsloop der höchsten Ebene"
 
 #, python-format
 msgid "Exception while deleting container %s %s"
@@ -683,8 +715,16 @@ msgid "No realm key for %r"
 msgstr "Kein Bereichsschlüssel für %r"
 
 #, python-format
+msgid "No space left on device for %s (%s)"
+msgstr "Kein freier Speicherplatz im Gerät für %s (%s) vorhanden."
+
+#, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "Knotenfehler begrenzt %(ip)s:%(port)s (%(device)s)"
+
+#, python-format
+msgid "Not enough object servers ack'ed (got %d)"
+msgstr "Es wurden nicht genügend Objektserver bestätigt (got %d)."
 
 #, python-format
 msgid ""
@@ -801,6 +841,10 @@ msgstr "Pfad in X-Container-Sync-To ist erforderlich"
 #, python-format
 msgid "Problem cleaning up %s"
 msgstr "Problem bei der Bereinigung von %s"
+
+#, python-format
+msgid "Problem cleaning up %s (%s)"
+msgstr "Problem bei der Bereinigung von %s (%s)"
 
 #, python-format
 msgid "Profiling Error: %s"
@@ -962,8 +1006,16 @@ msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "Zeitlimit %(action)s für memcached: %(server)s"
 
 #, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "Zeitüberschreitungsausnahme bei %(ip)s:%(port)s/%(device)s"
+
+#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "Versuch, %(method)s %(path)s"
+
+#, python-format
+msgid "Trying to get %s status of PUT to %s"
+msgstr "Es wird versucht, %s-Status von PUT für %s abzurufen."
 
 #, python-format
 msgid "Trying to get final status of PUT to %s"
@@ -979,6 +1031,10 @@ msgid "Trying to send to client"
 msgstr "Versuch, an den Client zu senden"
 
 #, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "Es wird versucht, Suffixe mit %s zu synchronisieren."
+
+#, python-format
 msgid "Trying to write to %s"
 msgstr "Versuch, an %s zu schreiben"
 
@@ -990,6 +1046,11 @@ msgid "Unable to find %s config section in %s"
 msgstr "%s-Konfigurationsabschnitt in %s kann nicht gefunden werden"
 
 #, python-format
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr ""
+"Interner Client konnte nicht aus der Konfiguration geladen werden:  %r (%s)"
+
+#, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr ""
 "%s konnte nicht in libc gefunden werden. Wird als Nullbefehl verlassen."
@@ -997,6 +1058,10 @@ msgstr ""
 #, python-format
 msgid "Unable to locate config for %s"
 msgstr "Konfiguration für %s wurde nicht gefunden."
+
+#, python-format
+msgid "Unable to locate config number %s for %s"
+msgstr "Konfigurationsnummer %s für %s wurde nicht gefunden."
 
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
@@ -1022,6 +1087,11 @@ msgstr "Unerwartete Antwort: %s"
 
 msgid "Unhandled exception"
 msgstr "Nicht behandelte Exception"
+
+#, python-format
+msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
+msgstr ""
+"Unbekannte Ausnahme bei GET-Versuch: %(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
