@@ -263,7 +263,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 	}
 
 	fileName := filepath.Join(hashDir, fmt.Sprintf("%s.data", requestTimestamp))
-	tempDir := filepath.Join(server.driveRoot, "tmp")
+	tempDir := TempDirPath(server.driveRoot, vars["device"])
 	tempFile, err := NewAtomicFileWriter(tempDir, fileName)
 	if err != nil {
 		hummingbird.GetLogger(request).LogError("Error creating temporary file in %s: %s", server.driveRoot, err.Error())
@@ -403,7 +403,7 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 	}
 
 	fileName := filepath.Join(hashDir, fmt.Sprintf("%s.ts", requestTimestamp))
-	tempDir := filepath.Join(server.driveRoot, "tmp")
+	tempDir := TempDirPath(server.driveRoot, vars["device"])
 	tempFile, err := NewAtomicFileWriter(tempDir, fileName)
 	if err != nil {
 		hummingbird.GetLogger(request).LogError("Error creating temporary file in %s: %s", server.driveRoot, err.Error())
@@ -523,7 +523,7 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
 				return rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
 			}
-			tempDir := filepath.Join(server.driveRoot, "tmp")
+			tempDir := TempDirPath(server.driveRoot, brr.Device)
 			tempFile, err := NewAtomicFileWriter(tempDir, fileName)
 			if err != nil {
 				return err

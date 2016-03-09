@@ -156,15 +156,20 @@ func QuarantineHash(hashDir string) error {
 }
 
 func InvalidateHash(hashDir string) error {
+	// TODO: this mess
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
-	tempDir := filepath.Join(filepath.Dir(filepath.Dir(partitionDir)), "tmp")
+	deviceDir := filepath.Dir(filepath.Dir(partitionDir))
+	device := filepath.Base(deviceDir)
+	driveRoot := filepath.Dir(deviceDir)
+	tempDir := TempDirPath(driveRoot, device)
+
 	partitionLock, err := hummingbird.LockPath(partitionDir, 10)
 	if err != nil {
 		return err
 	}
 	defer partitionLock.Close()
-	pklFile := partitionDir + "/hashes.pkl"
+	pklFile := filepath.Join(partitionDir, "hashes.pkl")
 	data, err := ioutil.ReadFile(pklFile)
 	if err != nil {
 		return err
@@ -173,8 +178,7 @@ func InvalidateHash(hashDir string) error {
 	if err != nil {
 		return err
 	}
-	suffixDirSplit := strings.Split(suffDir, "/")
-	suffix := suffixDirSplit[len(suffixDirSplit)-1]
+	suffix := filepath.Base(suffDir)
 	hashes, ok := v.(map[interface{}]interface{})
 	if !ok {
 		return fmt.Errorf("hashes.pkl file does not contain map: %v", v)
@@ -346,7 +350,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		} else {
 			fileInfo, err := os.Stat(pklFile)
 			if lsForSuffixes || os.IsNotExist(err) || mtime == fileInfo.ModTime().Unix() {
-				tempDir := filepath.Join(driveRoot, device, "tmp")
+				tempDir := TempDirPath(driveRoot, device)
 				if tempFile, err := NewAtomicFileWriter(tempDir, pklFile); err == nil {
 					defer tempFile.Abandon()
 					tempFile.Write(hummingbird.PickleDumps(hashes))
@@ -424,4 +428,8 @@ func ObjectMetadata(dataFile string, metaFile string) (map[string]string, error)
 		return applyMetaFile(metaFile, datafileMetadata)
 	}
 	return datafileMetadata, nil
+}
+
+func TempDirPath(driveRoot string, device string) string {
+	return filepath.Join(driveRoot, device, "tmp")
 }

@@ -90,7 +90,7 @@ func (server *ObjectServer) sendContainerUpdate(host, device, method, partition,
 func (server *ObjectServer) saveAsync(method, account, container, obj, localDevice string, headers http.Header) {
 	hash := server.hashPath(account, container, obj)
 	asyncFile := filepath.Join(server.driveRoot, localDevice, "async_pending", hash[29:32], hash+"-"+headers.Get("X-Timestamp"))
-	tempDir := filepath.Join(server.driveRoot, localDevice, "tmp")
+	tempDir := TempDirPath(server.driveRoot, localDevice)
 	data := map[string]interface{}{
 		"op":        method,
 		"account":   account,
