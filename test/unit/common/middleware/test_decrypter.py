@@ -64,7 +64,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
                     base64.b64encode(encrypt('encrypt me', key, fake_iv())),
-                'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header(),
+                'x-object-transient-sysmeta-crypto-meta-test':
+                    get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
@@ -98,7 +99,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
                     base64.b64encode(encrypt('encrypt me', key, fake_iv())),
-                'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header()}
+                'x-object-transient-sysmeta-crypto-meta-test':
+                    get_crypto_meta_header()}
         app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
                      headers=hdrs)
         return req.get_response(decrypter.Decrypter(app, {}))
@@ -131,7 +133,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
                     base64.b64encode(encrypt('encrypt me', key, fake_iv())),
-                'x-object-sysmeta-crypto-meta-test':
+                'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
         app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
                      headers=hdrs)
@@ -189,7 +191,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
                     base64.b64encode(encrypt('encrypt me', key, fake_iv())),
-                'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header(),
+                'x-object-transient-sysmeta-crypto-meta-test':
+                    get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('HEAD', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
@@ -278,7 +281,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                     base64.b64encode(encrypt('encrypt me',
                                              fetch_crypto_keys()['object'],
                                              fake_iv())),
-                'x-object-sysmeta-crypto-meta-test': get_crypto_meta_header(),
+                'x-object-transient-sysmeta-crypto-meta-test':
+                    get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
@@ -509,7 +513,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
                     base64.b64encode(encrypt('encrypt me', key, fake_iv())),
-                'x-object-sysmeta-crypto-meta-test':
+                'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))

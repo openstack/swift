@@ -76,7 +76,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(base64.b64encode(encrypt('encrypt me', key,
                                                   fake_iv())),
                          req_hdrs['X-Object-Meta-Test'])
-        actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta-Test']
+        actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Test']
         actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
         self.assertEqual(fake_iv(), base64.b64decode(actual['iv']))
@@ -115,7 +115,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(base64.b64encode(encrypt('encrypt me', key,
                                                   fake_iv())),
                          req_hdrs['X-Object-Meta-Test'])
-        actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta-Test']
+        actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Test']
         actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
         self.assertEqual(fake_iv(), base64.b64decode(actual['iv']))

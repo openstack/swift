@@ -128,12 +128,16 @@ class TestKeymaster(unittest.TestCase):
 
     def test_object_with_no_key_id_but_crypto_meta(self):
         # object should have a key id if it has any
-        # x-object-sysmeta-crypto-meta- header
+        # x-object-sysmeta-crypto-meta or
+        # x-object-transient-sysmeta-crypto-meta- header
         path = '/v1/a/c/o'
         for method in ('HEAD', 'GET'):
-            self.swift.register(method, path, swob.HTTPOk,
-                                {'x-object-sysmeta-crypto-meta-foo': 'gotcha'},
-                                '')
+            # object has x-object-transient-sysmeta-crypto header but no key id
+            self.swift.register(
+                method, path, swob.HTTPOk,
+                {'x-object-transient-sysmeta-crypto-meta-foo': 'gotcha',
+                 'x-object-meta-foo': 'ciphertext of user meta value'},
+                '')
             app = keymaster.KeyMaster(self.swift,
                                       {'encryption_root_secret': 'secret'})
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
@@ -146,6 +150,18 @@ class TestKeymaster(unittest.TestCase):
             # returned when keys are 'missing' and crypto-meta is found.
             self.assertEqual('200 OK', calls[0][0])
             # self.assertEqual('422 Unprocessable Entity', calls[0][0])
+
+            # object has x-object-sysmeta-crypto-meta but no key id
+            self.swift.register(
+                method, path, swob.HTTPOk,
+                {'x-object-sysmeta-crypto-meta': 'gotcha'},
+                '')
+            req = Request.blank(path, environ={'REQUEST_METHOD': method})
+            start_response, calls = capture_start_response()
+            app(req.environ, start_response)
+            self.assertEqual(1, len(calls))
+            # TODO change to expect 422 once FakeFooters is removed.
+            self.assertEqual('200 OK', calls[0][0])
 
         # but "crypto-meta" in other headers is ok
         path = '/v1/a/c/o'

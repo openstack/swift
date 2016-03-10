@@ -247,10 +247,6 @@ def get_sys_meta_prefix(server_type):
     return 'x-%s-%s-' % (server_type.lower(), 'sysmeta')
 
 
-def get_obj_persisted_sysmeta_prefix():
-    return get_sys_meta_prefix('object')
-
-
 def is_object_transient_sysmeta(key):
     """
     Tests if a header key starts with and is longer than the prefix for object

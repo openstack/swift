@@ -253,8 +253,8 @@ class TestObjectSysmeta(unittest.TestCase):
         self._assertInHeaders(resp, self.new_meta_headers)
         self._assertNotInHeaders(resp, self.original_meta_headers_2)
 
-    def _test_sysmeta_updated_by_POST(self, expect_updated):
-        # check sysmeta is changed by a POST but user meta is replaced
+    def _test_sysmeta_not_updated_by_POST(self):
+        # check sysmeta is not changed by a POST but user meta is replaced
         path = '/v1/a/c/o'
 
         env = {'REQUEST_METHOD': 'PUT'}
@@ -278,10 +278,7 @@ class TestObjectSysmeta(unittest.TestCase):
         resp = req.get_response(self.app)
         self._assertStatus(resp, 200)
         self._assertInHeaders(resp, self.original_sysmeta_headers_1)
-        if expect_updated:
-            self._assertInHeaders(resp, self.new_sysmeta_headers)
-        else:
-            self._assertNotInHeaders(resp, self.new_sysmeta_headers)
+        self._assertNotInHeaders(resp, self.new_sysmeta_headers)
         self._assertInHeaders(resp, self.changed_meta_headers)
         self._assertInHeaders(resp, self.new_meta_headers)
         self._assertNotInHeaders(resp, self.bad_headers)
@@ -301,13 +298,13 @@ class TestObjectSysmeta(unittest.TestCase):
         self._assertInHeaders(resp, self.new_sysmeta_headers)
         self._assertNotInHeaders(resp, self.original_sysmeta_headers_2)
 
-    def test_sysmeta_updated_by_POST(self):
+    def test_sysmeta_not_updated_by_POST(self):
         self.app.object_post_as_copy = False
-        self._test_sysmeta_updated_by_POST(False)
+        self._test_sysmeta_not_updated_by_POST()
 
-    def test_sysmeta_updated_by_POST_as_copy(self):
+    def test_sysmeta_not_updated_by_POST_as_copy(self):
         self.app.object_post_as_copy = True
-        self._test_sysmeta_updated_by_POST(True)
+        self._test_sysmeta_not_updated_by_POST()
 
     def test_sysmeta_updated_by_COPY(self):
         # check sysmeta is updated by a COPY in same way as user meta

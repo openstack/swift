@@ -29,10 +29,9 @@ import hmac
 import os
 
 from swift.common.utils import get_logger, split_path
-from swift.common.request_helpers import get_obj_persisted_sysmeta_prefix, \
-    is_sys_meta, strip_sys_meta_prefix
+from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.wsgi import WSGIContext
-from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
+from swift.common.swob import Request, HTTPException
 
 
 class KeyMasterContext(WSGIContext):
@@ -82,7 +81,7 @@ class KeyMasterContext(WSGIContext):
             # object is copied to another location we can use the key_id
             # (rather than its new path) to calculate its key for a GET or
             # HEAD.
-            id_name = "%scrypto-id" % get_obj_persisted_sysmeta_prefix()
+            id_name = "%scrypto-id" % get_sys_meta_prefix(self.server_type)
             req.headers[id_name] = \
                 base64.b64encode(self.obj_path)
 
@@ -104,23 +103,6 @@ class KeyMasterContext(WSGIContext):
                        self._response_exc_info)
         return resp
 
-    def error_if_need_keys(self, req):
-        # Determine if keys will actually be needed
-        # Look for any "x-<server_type>-sysmeta-crypto-meta" headers
-        if not hasattr(self, '_response_headers'):
-            return
-        if any(strip_sys_meta_prefix(self.server_type, h).lower().startswith(
-                'crypto-meta-')
-               for (h, v) in self._response_headers
-               if is_sys_meta(self.server_type, h)):
-            self.logger.error("Cannot get necessary keys for path %s" %
-                              req.path)
-            raise HTTPUnprocessableEntity(
-                "Cannot get necessary keys for path %s" % req.path)
-
-        self.logger.debug("No encryption keys necessary for path %s" %
-                          req.path)
-
     def provide_keys_get_or_head(self, req):
         if self.obj_path:
             # TODO: re-examine need for this special handling once COPY has
@@ -131,7 +113,7 @@ class KeyMasterContext(WSGIContext):
             # new path.
             try:
                 id_name = \
-                    "%scrypto-id" % get_obj_persisted_sysmeta_prefix()
+                    "%scrypto-id" % get_sys_meta_prefix(self.server_type)
                 obj_key_path = self._response_header_value(id_name)
                 if not obj_key_path:
                     raise ValueError('No object key was found.')

@@ -72,7 +72,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    copy_header_subset, update_content_type, is_object_transient_sysmeta
+    remove_items, copy_header_subset, update_content_type, \
+    is_object_transient_sysmeta
 
 
 def copy_headers_into(from_r, to_r):
@@ -508,9 +509,7 @@ class BaseObjectController(Controller):
         if fresh_meta_flag or 'swift.post_as_copy' in sink_req.environ:
             # post-as-copy: ignore new sysmeta, copy existing sysmeta
             condition = lambda k: is_sys_meta('object', k)
-            # TODO - add tests to assert that obj sysmeta is persisted
-            # with the "remove_items" removed
-            # remove_items(sink_req.headers, condition)
+            remove_items(sink_req.headers, condition)
             copy_header_subset(source_resp, sink_req, condition)
         else:
             # copy/update existing sysmeta, transient_sysmeta and user meta
