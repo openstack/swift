@@ -674,6 +674,12 @@ use = egg:swift#account_quotas
 
 [filter:gatekeeper]
 use = egg:swift#gatekeeper
+# Set this to false if you want to allow clients to set arbitrary X-Timestamps
+# on uploaded objects. This may be used to preserve timestamps when migrating
+# from a previous storage system, but risks allowing users to upload
+# difficult-to-delete data.
+# shunt_inbound_x_timestamp = true
+#
 # You can override the default log routing for this filter here:
 # set log_name = gatekeeper
 # set log_facility = LOG_LOCAL0
