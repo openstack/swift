@@ -207,20 +207,21 @@ set to a True value (e.g. "True" or "1"). To handle only non-replication
 verbs, set to "False". Unless you have a separate replication network, you
 should not specify any value for "replication_server".
 .IP "\fBreplication_concurrency\fR"
-Set to restrict the number of concurrent incoming REPLICATION requests
-Set to 0 for unlimited (the default is 4). Note that REPLICATION is currently an ssync only item.
+Set to restrict the number of concurrent incoming SSYNC requests
+Set to 0 for unlimited (the default is 4). Note that SSYNC requests are only used
+by the object reconstructor or the object replicator when configured to use ssync.
 .IP "\fBreplication_one_per_device\fR"
-Restricts incoming REPLICATION requests to one per device,
+Restricts incoming SSYNC requests to one per device,
 replication_currency above allowing. This can help control I/O to each
-device, but you may wish to set this to False to allow multiple REPLICATION
+device, but you may wish to set this to False to allow multiple SSYNC
 requests (up to the above replication_concurrency setting) per device. The default is true.
 .IP "\fBreplication_lock_timeout\fR"
 Number of seconds to wait for an existing replication device lock before
 giving up. The default is 15.
 .IP "\fBreplication_failure_threshold\fR"
 .IP "\fBreplication_failure_ratio\fR"
-These two settings control when the REPLICATION subrequest handler will
-abort an incoming REPLICATION attempt. An abort will occur if there are at
+These two settings control when the SSYNC subrequest handler will
+abort an incoming SSYNC attempt. An abort will occur if there are at
 least threshold number of failures and the value of failures / successes
 exceeds the ratio. The defaults of 100 and 1.0 means that at least 100
 failures have to occur and there have to be more failures than successes for

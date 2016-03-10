@@ -1108,7 +1108,7 @@ def global_conf_callback(preloaded_app_conf, global_conf):
     """
     Callback for swift.common.wsgi.run_wsgi during the global_conf
     creation so that we can add our replication_semaphore, used to
-    limit the number of concurrent REPLICATION_REQUESTS across all
+    limit the number of concurrent SSYNC_REQUESTS across all
     workers.
 
     :param preloaded_app_conf: The preloaded conf for the WSGI app.

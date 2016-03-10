@@ -4398,7 +4398,7 @@ class TestSuffixHashes(unittest.TestCase):
          * get_hashes(device, partition, suffixes, policy)
          * invalidate_hash(suffix_dir)
 
-    The Manager.get_hashes method (used by the REPLICATION verb)
+    The Manager.get_hashes method (used by the REPLICATE verb)
     calls Manager._get_hashes (which may be an alias to the module
     method get_hashes), which calls hash_suffix, which calls
     hash_cleanup_listdir.

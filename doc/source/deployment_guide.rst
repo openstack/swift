@@ -569,15 +569,15 @@ replication_server                                    Configure parameter for cr
                                                       should not specify any value for
                                                       "replication_server".
 replication_concurrency        4                      Set to restrict the number of
-                                                      concurrent incoming REPLICATION
+                                                      concurrent incoming SSYNC
                                                       requests; set to 0 for unlimited
-replication_one_per_device     True                   Restricts incoming REPLICATION
+replication_one_per_device     True                   Restricts incoming SSYNC
                                                       requests to one per device,
                                                       replication_currency above
                                                       allowing. This can help control
                                                       I/O to each device, but you may
                                                       wish to set this to False to
-                                                      allow multiple REPLICATION
+                                                      allow multiple SSYNC
                                                       requests (up to the above
                                                       replication_concurrency setting)
                                                       per device.
@@ -589,9 +589,9 @@ replication_failure_threshold  100                    The number of subrequest f
                                                       replication_failure_ratio is
                                                       checked
 replication_failure_ratio      1.0                    If the value of failures /
-                                                      successes of REPLICATION
+                                                      successes of SSYNC
                                                       subrequests exceeds this ratio,
-                                                      the overall REPLICATION request
+                                                      the overall SSYNC request
                                                       will be aborted
 splice                         no                     Use splice() for zero-copy object
                                                       GETs. This requires Linux kernel
