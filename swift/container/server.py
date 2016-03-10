@@ -41,10 +41,11 @@ from swift.common.exceptions import ConnectionTimeout
 from swift.common.http import HTTP_NOT_FOUND, is_success
 from swift.common.storage_policy import POLICIES
 from swift.common.base_storage_server import BaseStorageServer
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
-    HTTPInsufficientStorage, HTTPException, HeaderKeyDict
+    HTTPInsufficientStorage, HTTPException
 
 
 def gen_resp_headers(info, is_deleted=False):

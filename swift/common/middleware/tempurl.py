@@ -169,8 +169,9 @@ from six.moves.urllib.parse import parse_qs
 from six.moves.urllib.parse import urlencode
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
-from swift.common.swob import HeaderKeyDict, header_to_environ_key, \
-    HTTPUnauthorized, HTTPBadRequest
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
+    HTTPBadRequest
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote
 

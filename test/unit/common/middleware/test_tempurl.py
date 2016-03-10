@@ -35,7 +35,8 @@ from hashlib import sha1
 from time import time
 
 from swift.common.middleware import tempauth, tempurl
-from swift.common.swob import Request, Response, HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import Request, Response
 from swift.common import utils
 
 

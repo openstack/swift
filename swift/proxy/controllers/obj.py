@@ -57,6 +57,7 @@ from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ResponseTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
     PutterConnectError, ChunkReadError
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
     HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
@@ -69,7 +70,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, ResumingGetter
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
+    HTTPServerError, HTTPServiceUnavailable, Request, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \

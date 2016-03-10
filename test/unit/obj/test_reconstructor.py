@@ -30,8 +30,8 @@ from contextlib import closing, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 from swift.common import utils
-from swift.common.swob import HeaderKeyDict
 from swift.common.exceptions import DiskFileError
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,

@@ -31,6 +31,7 @@ from six.moves import range
 
 import swift
 from swift.common import utils, swob, exceptions
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import get_info as _real_get_info
@@ -1074,7 +1075,7 @@ class StubResponse(object):
         self.status = status
         self.body = body
         self.readable = BytesIO(body)
-        self.headers = swob.HeaderKeyDict(headers)
+        self.headers = HeaderKeyDict(headers)
         fake_reason = ('Fake', 'This response is a lie.')
         self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
 

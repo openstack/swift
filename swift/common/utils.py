@@ -68,6 +68,7 @@ from swift import gettext_ as _
 import swift.common.exceptions
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.header_key_dict import HeaderKeyDict
 
 if six.PY3:
     stdlib_queue = eventlet.patcher.original('queue')
@@ -3648,7 +3649,6 @@ def parse_mime_headers(doc_file):
     :param doc_file: binary file-like object containing a MIME document
     :returns: a swift.common.swob.HeaderKeyDict containing the headers
     """
-    from swift.common.swob import HeaderKeyDict  # avoid circular import
     headers = []
     while True:
         line = doc_file.readline()

@@ -32,7 +32,7 @@ from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
     dump_recon_cache, mkdirs, config_true_value, list_from_csv, get_hub,
     tpool_reraise, GreenAsyncPile, Timestamp, remove_file)
-from swift.common.swob import HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.ring.utils import is_local_device

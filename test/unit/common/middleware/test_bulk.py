@@ -29,9 +29,10 @@ from eventlet import sleep
 from mock import patch, call
 from test.unit.common.middleware.helpers import FakeSwift
 from swift.common import utils, constraints
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import bulk
 from swift.common.swob import Request, Response, HTTPException, \
-    HTTPNoContent, HTTPCreated, HeaderKeyDict
+    HTTPNoContent, HTTPCreated
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 
 

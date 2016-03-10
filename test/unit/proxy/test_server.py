@@ -74,8 +74,9 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation, _get_info_cache
 import swift.proxy.controllers
 import swift.proxy.controllers.obj
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
-    HTTPException, HeaderKeyDict, HTTPBadRequest
+    HTTPException, HTTPBadRequest
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy, \
     StoragePolicyCollection, POLICIES

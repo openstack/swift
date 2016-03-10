@@ -24,6 +24,7 @@ from mock import patch
 from hashlib import md5
 from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
 from swift.common.utils import quote, closing_if_possible, close_if_possible
@@ -1054,7 +1055,7 @@ class TestSloHeadManifest(SloTestCase):
             '/v1/AUTH_test/headtest/man',
             environ={'REQUEST_METHOD': 'HEAD'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers.get('Etag', '').strip("'\""),
@@ -1331,7 +1332,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-bc',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         manifest_etag = md5hex(md5hex("b" * 10) + md5hex("c" * 15))
         self.assertEqual(status, '200 OK')
@@ -1382,7 +1383,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-aabbccdd',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, (
@@ -1469,7 +1470,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'If-None-Match': self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '304 Not Modified')
         self.assertEqual(headers['Content-Length'], '0')
@@ -1481,7 +1482,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'If-None-Match': "not-%s" % self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(
@@ -1493,7 +1494,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Match': self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(
@@ -1505,7 +1506,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Match': "not-%s" % self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '412 Precondition Failed')
         self.assertEqual(headers['Content-Length'], '0')
@@ -1518,7 +1519,7 @@ class TestSloGetManifest(SloTestCase):
             headers={'If-Match': self.manifest_abcd_etag,
                      'Range': 'bytes=3-6'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '4')
@@ -1529,7 +1530,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
@@ -1543,7 +1544,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=3-17'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '15')
@@ -1582,7 +1583,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=0-999999999'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(
@@ -1619,7 +1620,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=100000-199999'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         count_e = sum(1 if x == 'e' else 0 for x in body)
@@ -1656,7 +1657,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=0-999999999'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(
@@ -1678,7 +1679,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=5-29'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '25')
@@ -1706,7 +1707,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=0-0'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '1')
@@ -1726,7 +1727,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=25-30'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '6')
         self.assertEqual(body, 'cccccd')
@@ -1747,7 +1748,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=45-55'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '5')
@@ -1769,7 +1770,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=0-0,2-2'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
@@ -1799,7 +1800,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/ünicode/manifest',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, segment_body)
 
@@ -1808,7 +1809,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd-ranges',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '32')
@@ -1850,7 +1851,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd-subranges',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '17')
@@ -1899,7 +1900,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=7-26'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '20')
@@ -1937,7 +1938,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=4-12'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '9')
@@ -1988,7 +1989,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=0-999999999'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '32')
@@ -2025,7 +2026,7 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'Range': 'bytes=0-0,2-2'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Type'], 'application/json')
@@ -2039,7 +2040,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-badjson',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '0')
@@ -2113,7 +2114,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'HEAD'})
         status, headers, body = self.call_slo(req)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
@@ -2171,7 +2172,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/man1',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body, exc = self.call_slo(req, expect_exception=True)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertIsInstance(exc, ListingIterError)
         # we don't know at header-sending time that things are going to go
@@ -2319,7 +2320,7 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body, exc = self.call_slo(req, expect_exception=True)
-        headers = swob.HeaderKeyDict(headers)
+        headers = HeaderKeyDict(headers)
 
         self.assertIsInstance(exc, SegmentError)
         self.assertEqual(status, '200 OK')
