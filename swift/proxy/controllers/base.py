@@ -1057,7 +1057,7 @@ class ResumingGetter(object):
             self.used_nodes.append(node)
             src_headers = dict(
                 (k.lower(), v) for k, v in
-                possible_source.getheaders())
+                source.getheaders())
 
             # Save off the source etag so that, if we lose the connection
             # and have to resume from a different node, we can be sure that
