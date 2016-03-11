@@ -465,11 +465,11 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 
 // Clean up any old files in a device's tmp directories.
 func (r *Replicator) cleanTemp(dev *hummingbird.Device) {
-	tmpPath := filepath.Join(r.driveRoot, dev.Device, "tmp")
-	if tmpContents, err := ioutil.ReadDir(tmpPath); err == nil {
+	tempDir := TempDirPath(r.driveRoot, dev.Device)
+	if tmpContents, err := ioutil.ReadDir(tempDir); err == nil {
 		for _, tmpEntry := range tmpContents {
 			if time.Since(tmpEntry.ModTime()) > TmpEmptyTime {
-				os.RemoveAll(filepath.Join(tmpPath, tmpEntry.Name()))
+				os.RemoveAll(filepath.Join(tempDir, tmpEntry.Name()))
 			}
 		}
 	}
