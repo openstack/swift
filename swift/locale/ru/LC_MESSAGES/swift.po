@@ -6,16 +6,17 @@
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Filatov Sergey <filatecs@gmail.com>, 2016. #zanata
+# Grigory Mokhin <mokhin@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev176\n"
+"Project-Id-Version: swift 2.6.1.dev203\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"POT-Creation-Date: 2016-03-11 02:36+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-01-17 10:49+0000\n"
-"Last-Translator: Filatov Sergey <filatecs@gmail.com>\n"
+"PO-Revision-Date: 2016-03-10 07:41+0000\n"
+"Last-Translator: Grigory Mokhin <mokhin@gmail.com>\n"
 "Language: ru\n"
 "Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
 "%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n"
@@ -235,6 +236,9 @@ msgstr "Клиент отключен во время чтения"
 msgid "Client disconnected without sending enough data"
 msgstr "Клиент отключен без отправки данных"
 
+msgid "Client disconnected without sending last chunk"
+msgstr "Клиент отключился, не отправив последний фрагмент данных"
+
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
@@ -389,6 +393,11 @@ msgstr "Ошибка: ошибка закрытия DiskFile %(data_file)s: %(ex
 
 msgid "ERROR Exception causing client disconnect"
 msgstr "Ошибка. Исключительная ситуация при отключении клиента"
+
+#, python-format
+msgid "ERROR Exception transferring data to object servers %s"
+msgstr ""
+"ОШИБКА. Исключительная ситуация при передаче данных на серверы объектов %s"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "Ошибка: не удалось получить собственные IP-адреса?"
@@ -568,6 +577,12 @@ msgstr "Ошибка синхронизации раздела"
 msgid "Error syncing with node: %s"
 msgstr "Ошибка синхронизации с узлом %s"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr ""
+"Ошибка при попытке перекомпоновки стратегии  %(path)s: номер#%(policy)d "
+"фрагмент#%(frag_index)s"
+
 msgid "Error: An error occurred"
 msgstr "Ошибка: произошла ошибка"
 
@@ -628,6 +643,13 @@ msgstr "Следующая цепочка CNAME для %(given_domain)s в %(fou
 
 msgid "Found configs:"
 msgstr "Обнаружены конфигурации:"
+
+msgid ""
+"Handoffs first mode still has handoffs remaining.  Aborting current "
+"replication pass."
+msgstr ""
+"В режиме передачи управления не все операции завершены. Принудительное "
+"завершение текущего прохода репликации."
 
 msgid "Host unreachable"
 msgstr "Хост недоступен"
@@ -704,6 +726,10 @@ msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "Ограниченная ошибка узла %(ip)s:%(port)s (%(device)s)"
 
 #, python-format
+msgid "Not enough object servers ack'ed (got %d)"
+msgstr "Недостаточное число подтверждений с серверов объектов (получено %d)"
+
+#, python-format
 msgid ""
 "Not found %(sync_from)r => %(sync_to)r                       - object "
 "%(obj_name)r"
@@ -748,12 +774,28 @@ msgstr ""
 "скорость: %(audit_rate).2f"
 
 #, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"Проверка объекта (%(type)s). После %(start_time)s: локально: успешно - "
+"%(passes)d, в карантине - %(quars)d, файлов с ошибками %(errors)d в секунду: "
+"%(frate).2f , байт/с: %(brate).2f, общее время: %(total).2f, время контроля: "
+"%(audit).2f, скорость: %(audit_rate).2f"
+
+#, python-format
 msgid "Object audit stats: %s"
 msgstr "Состояние контроля объекта: %s"
 
 #, python-format
 msgid "Object reconstruction complete (once). (%.02f minutes)"
 msgstr "Реконструкция объекта выполнена (однократно). (%.02f мин.)"
+
+#, python-format
+msgid "Object reconstruction complete. (%.02f minutes)"
+msgstr "Реконструкция объекта выполнена. (%.02f мин.)"
 
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
@@ -818,9 +860,9 @@ msgstr "Неполадка при очистке %s"
 msgid "Problem cleaning up %s (%s)"
 msgstr "Возникла проблема при очистке %s (%s)"
 
-#, fuzzy, python-format
+#, python-format
 msgid "Problem writing durable state file %s (%s)"
-msgstr "Возникла проблема при записи файла состояния %s (%s)"
+msgstr "Возникла неполадка при записи файла сохраняемого состояния %s (%s)"
 
 #, python-format
 msgid "Profiling Error: %s"
@@ -996,6 +1038,10 @@ msgid "Trying to GET %(full_path)s"
 msgstr "Попытка GET-запроса %(full_path)s"
 
 #, python-format
+msgid "Trying to get %s status of PUT to %s"
+msgstr "Попытка получения состояния %s операции PUT в %s"
+
+#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "Попытка получения конечного состояния PUT в %s"
 
@@ -1007,6 +1053,10 @@ msgstr "Попытка чтения во время операции GET (вып
 
 msgid "Trying to send to client"
 msgstr "Попытка отправки клиенту"
+
+#, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "Попытка синхронизации суффиксов с  %s"
 
 #, python-format
 msgid "Trying to write to %s"
@@ -1030,6 +1080,10 @@ msgstr "Не удалось найти %s в libc.  Оставлено как no
 #, python-format
 msgid "Unable to locate config for %s"
 msgstr "Не удалось найти конфигурационный файл для %s"
+
+#, python-format
+msgid "Unable to locate config number %s for %s"
+msgstr "Не удается найти конфигурации с номером %s для %s"
 
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
