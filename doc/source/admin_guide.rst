@@ -234,9 +234,11 @@ using the format `regex_pattern_X = regex_expression`, where `X` is a number.
 This script has been tested on Ubuntu 10.04 and Ubuntu 12.04, so if you are
 using a different distro or OS, some care should be taken before using in production.
 
---------------
-Cluster Health
---------------
+.. _dispersion_report:
+
+-----------------
+Dispersion Report
+-----------------
 
 There is a swift-dispersion-report tool for measuring overall cluster health.
 This is accomplished by checking if a set of deliberately distributed
