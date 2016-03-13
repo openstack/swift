@@ -1340,7 +1340,7 @@ class TestReconMiddleware(unittest.TestCase):
         os.listdir = fail_os_listdir
         resp = self.real_app_get_device_info()
         os.listdir = self.real_listdir
-        device_path = resp.keys()[0]
+        device_path = list(resp)[0]
         self.assertIsNone(resp[device_path])
 
     def test_get_swift_conf_md5(self):
