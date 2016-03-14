@@ -19,6 +19,7 @@ from uuid import uuid4
 import random
 from hashlib import md5
 from collections import defaultdict
+import os
 
 from swiftclient import client
 
@@ -82,6 +83,22 @@ class TestObjectHandoff(ReplProbeTest):
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
 
+        # drop a tempfile in the handoff's datadir, like it might have
+        # had if there was an rsync failure while it was previously a
+        # primary
+        handoff_device_path = self.device_dir('object', another_onode)
+        data_filename = None
+        for root, dirs, files in os.walk(handoff_device_path):
+            for filename in files:
+                if filename.endswith('.data'):
+                    data_filename = filename
+                    temp_filename = '.%s.6MbL6r' % data_filename
+                    temp_filepath = os.path.join(root, temp_filename)
+        if not data_filename:
+            self.fail('Did not find any data files on %r' %
+                      handoff_device_path)
+        open(temp_filepath, 'w')
+
         # Assert container listing (via proxy and directly) has container/obj
         objs = [o['name'] for o in
                 client.get_container(self.url, self.token, container)[1]]
@@ -133,6 +150,20 @@ class TestObjectHandoff(ReplProbeTest):
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
+
+        # and that it does *not* have a temporary rsync dropping!
+        found_data_filename = False
+        primary_device_path = self.device_dir('object', onode)
+        for root, dirs, files in os.walk(primary_device_path):
+            for filename in files:
+                if filename.endswith('.6MbL6r'):
+                    self.fail('Found unexpected file %s' %
+                              os.path.join(root, filename))
+                if filename == data_filename:
+                    found_data_filename = True
+        self.assertTrue(found_data_filename,
+                        'Did not find data file %r on %r' % (
+                            data_filename, primary_device_path))
 
         # Assert the handoff server no longer has container/obj
         try:
