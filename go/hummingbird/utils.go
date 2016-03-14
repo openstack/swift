@@ -650,3 +650,17 @@ func CollectRuntimeMetrics(statsdHost string, statsdPort, statsdPause int64, pre
 	}
 
 }
+
+func DumpGoroutinesStackTrace(pid int) {
+	filename := filepath.Join("/tmp", strconv.Itoa(pid)+".dump")
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	ioutil.WriteFile(filename, buf, 0644)
+}

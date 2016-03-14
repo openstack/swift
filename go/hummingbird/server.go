@@ -226,9 +226,9 @@ type Server interface {
 }
 
 /*
-	SIGHUP - graceful restart
 	SIGINT - graceful shutdown
 	SIGTERM, SIGQUIT - immediate shutdown
+	SIGABRT - dump goroutines stacktrace
 
 	Graceful shutdown/restart gives any open connections 5 minutes to complete, then exits.
 */
@@ -276,7 +276,7 @@ func RunServers(GetServer func(string, *flag.FlagSet) (string, int, Server, SysL
 			ShutdownStdio()
 		}
 		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGABRT)
 		s := <-c
 		if s == syscall.SIGINT {
 			for _, srv := range servers {
@@ -290,6 +290,9 @@ func RunServers(GetServer func(string, *flag.FlagSet) (string, int, Server, SysL
 				srv.Wait()
 			}
 			time.Sleep(time.Second * 5)
+		} else if s == syscall.SIGABRT {
+			pid := os.Getpid()
+			DumpGoroutinesStackTrace(pid)
 		}
 	}
 }
