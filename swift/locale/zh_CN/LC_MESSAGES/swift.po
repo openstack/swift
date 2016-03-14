@@ -6,16 +6,18 @@
 # Pearl Yajing Tan(Seagate Tech) <pearl.y.tan@seagate.com>, 2014
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
+# Linda <duleish@cn.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev176\n"
+"Project-Id-Version: swift 2.6.1.dev205\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"POT-Creation-Date: 2016-03-12 17:33+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2015-08-11 11:22+0000\n"
-"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
+"PO-Revision-Date: 2016-03-13 07:28+0000\n"
+"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
 "Language: zh-CN\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -52,6 +54,16 @@ msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
 
 #, python-format
 msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"%(device)d/%(dtotal)d (%(dpercentage).2f%%) 设备的 %(reconstructed)d/"
+"%(total)d (%(percentage).2f%%) 分区已于 %(time).2fs 重构（%(rate).2f/秒，剩"
+"余  %(remaining)s）"
+
+#, python-format
+msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
 "%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
@@ -85,6 +97,10 @@ msgstr "%s不存在"
 #, python-format
 msgid "%s is not mounted"
 msgstr "%s未挂载"
+
+#, python-format
+msgid "%s responded as unmounted"
+msgstr "%s 响应为未安装"
 
 #, python-format
 msgid "%s running (%s - %s)"
@@ -216,10 +232,20 @@ msgstr "客户读取时中断"
 msgid "Client disconnected without sending enough data"
 msgstr "客户中断 尚未发送足够"
 
+msgid "Client disconnected without sending last chunk"
+msgstr "客户机已断开连接而未发送最后一个数据块"
+
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
 msgstr "客户路径%(client)s与对象元数据中存储的路径%(meta)s不符"
+
+msgid ""
+"Configuration option internal_client_conf_path not defined. Using default "
+"configuration, See internal-client.conf-sample for options"
+msgstr ""
+"未定义配置选项 internal_client_conf_path。正在使用缺省配置。请参阅 internal-"
+"client.conf-sample 以了解各个选项"
 
 msgid "Connection refused"
 msgstr "连接被拒绝"
@@ -277,6 +303,10 @@ msgstr "数据下载错误：%s"
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "设备通过完成： %.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr "目录 %r 未映射至有效策略 (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -348,6 +378,10 @@ msgstr "磁盘文件错误%(data_file)s关闭失败: %(exc)s : %(stack)s"
 
 msgid "ERROR Exception causing client disconnect"
 msgstr "错误 异常导致客户端中断连接"
+
+#, python-format
+msgid "ERROR Exception transferring data to object servers %s"
+msgstr "错误：向对象服务器 %s 传输数据时发生异常"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "错误 无法获得我方IPs?"
@@ -516,6 +550,10 @@ msgstr "执行同步分区时发生错误"
 msgid "Error syncing with node: %s"
 msgstr "执行同步时节点%s发生错误"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr "尝试重建 %(path)s 策略时出错：#%(policy)d frag#%(frag_index)s"
+
 msgid "Error: An error occurred"
 msgstr "错误：一个错误发生了"
 
@@ -534,6 +572,9 @@ msgstr "异常出现在top-level账号reaper环"
 
 msgid "Exception in top-level replication loop"
 msgstr "top-level复制圈出现异常"
+
+msgid "Exception in top-levelreconstruction loop"
+msgstr " top-levelreconstruction 环中发生异常"
 
 #, python-format
 msgid "Exception while deleting container %s %s"
@@ -571,6 +612,11 @@ msgstr "跟随CNAME链从%(given_domain)s到%(found_domain)s"
 msgid "Found configs:"
 msgstr "找到配置"
 
+msgid ""
+"Handoffs first mode still has handoffs remaining.  Aborting current "
+"replication pass."
+msgstr "Handoffs 优先方式仍有 handoffs。正在中止当前复制过程。"
+
 msgid "Host unreachable"
 msgstr "无法连接到主机"
 
@@ -589,6 +635,10 @@ msgstr "X-Container-Sync-To中无效主机%r"
 #, python-format
 msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "不可用的等待输入%(file)s: %(entry)s"
+
+#, python-format
+msgid "Invalid response %(resp)s from %(full_path)s"
+msgstr "从 %(full_path)s 返回了无效响应 %(resp)s"
 
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
@@ -625,18 +675,34 @@ msgid "No permission to signal PID %d"
 msgstr "无权限发送信号PID%d"
 
 #, python-format
+msgid "No policy with index %s"
+msgstr "没有具备索引 %s 的策略"
+
+#, python-format
 msgid "No realm key for %r"
 msgstr "%r权限key不存在"
+
+#, python-format
+msgid "No space left on device for %s (%s)"
+msgstr "设备上没有可容纳 %s (%s) 的空间"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "节点错误极限 %(ip)s:%(port)s (%(device)s)"
 
 #, python-format
+msgid "Not enough object servers ack'ed (got %d)"
+msgstr "没有足够的对象服务器应答（收到 %d）"
+
+#, python-format
 msgid ""
 "Not found %(sync_from)r => %(sync_to)r                       - object "
 "%(obj_name)r"
 msgstr "未找到： %(sync_from)r => %(sync_to)r - object %(obj_name)r"
+
+#, python-format
+msgid "Nothing reconstructed for %s seconds."
+msgstr "过去 %s 秒未重构任何对象。"
 
 #, python-format
 msgid "Nothing replicated for %s seconds."
@@ -670,8 +736,28 @@ msgstr ""
 "%(brate).2f, 审计时间: %(audit).2f, 速率: %(audit_rate).2f"
 
 #, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"对象审计 (%(type)s). 自 %(start_time)s 开始: 本地：%(passes)d 通"
+"过，%(quars)d 隔离，%(errors)d 错误，文件/秒：%(frate).2f，字节/秒："
+"%(brate).2f，总时间：%(total).2f，审计时间：%(audit).2f，速率："
+"%(audit_rate).2f"
+
+#, python-format
 msgid "Object audit stats: %s"
 msgstr "对象审计统计：%s"
+
+#, python-format
+msgid "Object reconstruction complete (once). (%.02f minutes)"
+msgstr "对象重构完成（一次）。（%.02f 分钟）"
+
+#, python-format
+msgid "Object reconstruction complete. (%.02f minutes)"
+msgstr "对象重构完成。（%.02f 分钟）"
 
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
@@ -730,6 +816,14 @@ msgid "Problem cleaning up %s"
 msgstr "问题清除%s"
 
 #, python-format
+msgid "Problem cleaning up %s (%s)"
+msgstr "清除 %s (%s) 时发生了问题"
+
+#, python-format
+msgid "Problem writing durable state file %s (%s)"
+msgstr "编写可持续状态文件 %s (%s) 时发生了问题"
+
+#, python-format
 msgid "Profiling Error: %s"
 msgstr "分析代码时出现错误：%s"
 
@@ -767,6 +861,10 @@ msgid "Removing partition: %s"
 msgstr "移除分区：%s"
 
 #, python-format
+msgid "Removing pid file %s with invalid pid"
+msgstr "正在移除带有无效 pid 的 pid 文件 %s"
+
+#, python-format
 msgid "Removing stale pid file %s"
 msgstr "移除原有pid文件%s"
 
@@ -785,12 +883,18 @@ msgstr ""
 "返还498从%(meth)s到%(acc)s/%(cont)s/%(obj)s，流量控制(Max \"\n"
 "\"Sleep) %(e)s"
 
+msgid "Ring change detected. Aborting current reconstruction pass."
+msgstr "检测到环更改。正在中止当前重构过程。"
+
 msgid "Ring change detected. Aborting current replication pass."
 msgstr "Ring改变被检测到。退出现有的复制通过"
 
 #, python-format
 msgid "Running %s once"
 msgstr "运行%s一次"
+
+msgid "Running object reconstructor in script mode."
+msgstr "正以脚本方式运行对象重构程序。"
 
 msgid "Running object replicator in script mode."
 msgstr "在加密模式下执行对象复制"
@@ -831,6 +935,12 @@ msgstr "挂载失败 跳过%s"
 msgid "Starting %s"
 msgstr "启动%s"
 
+msgid "Starting object reconstruction pass."
+msgstr "正在启动对象重构过程。"
+
+msgid "Starting object reconstructor in daemon mode."
+msgstr "正以守护程序方式启动对象重构程序。"
+
 msgid "Starting object replication pass."
 msgstr "开始通过对象复制"
 
@@ -855,8 +965,20 @@ msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "%(action)s超时 高性能内存对象缓存： %(server)s"
 
 #, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "%(ip)s:%(port)s/%(device)s 发生超时异常"
+
+#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "尝试执行%(method)s %(path)s"
+
+#, python-format
+msgid "Trying to GET %(full_path)s"
+msgstr "正尝试获取 %(full_path)s"
+
+#, python-format
+msgid "Trying to get %s status of PUT to %s"
+msgstr "正尝试将 PUT 的 %s 状态发送至 %s"
 
 #, python-format
 msgid "Trying to get final status of PUT to %s"
@@ -872,6 +994,10 @@ msgid "Trying to send to client"
 msgstr "尝试发送到客户端"
 
 #, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "正尝试使后缀与 %s 同步"
+
+#, python-format
 msgid "Trying to write to %s"
 msgstr "尝试执行书写%s"
 
@@ -883,8 +1009,20 @@ msgid "Unable to find %s config section in %s"
 msgstr "无法在%s中查找到%s设置部分"
 
 #, python-format
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr "无法从配置装入内部客户机：%r (%s)"
+
+#, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "无法查询到%s 保留为no-op"
+
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr "找不到 %s 的配置"
+
+#, python-format
+msgid "Unable to locate config number %s for %s"
+msgstr "找不到 %s 的配置编号 %s"
 
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
@@ -908,6 +1046,10 @@ msgstr "意外响应：%s"
 
 msgid "Unhandled exception"
 msgstr "未处理的异常"
+
+#, python-format
+msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
+msgstr "尝试获取 %(account)r %(container)r %(object)r 时发生未知异常"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
@@ -934,6 +1076,10 @@ msgstr "警告：无法修改内存极限，是否按非root运行？"
 #, python-format
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr "等待%s秒直到%s停止；放弃"
+
+#, python-format
+msgid "Waited %s seconds for %s to die; killing"
+msgstr "已消耗 %s 秒等待 %s 终止；正在终止"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：缺失缓存客户端 无法控制流量 "
