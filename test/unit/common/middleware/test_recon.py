@@ -98,17 +98,24 @@ class OpenAndReadTester(object):
 
 class MockOS(object):
 
-    def __init__(self, ls_out=None, im_out=False, statvfs_out=None):
+    def __init__(self, ls_out=None, isdir_out=None, ismount_out=False,
+                 statvfs_out=None):
         self.ls_output = ls_out
-        self.ismount_output = im_out
+        self.isdir_output = isdir_out
+        self.ismount_output = ismount_out
         self.statvfs_output = statvfs_out
         self.listdir_calls = []
-        self.statvfs_calls = []
+        self.isdir_calls = []
         self.ismount_calls = []
+        self.statvfs_calls = []
 
     def fake_listdir(self, *args, **kwargs):
         self.listdir_calls.append((args, kwargs))
         return self.ls_output
+
+    def fake_isdir(self, *args, **kwargs):
+        self.isdir_calls.append((args, kwargs))
+        return self.isdir_output
 
     def fake_ismount(self, *args, **kwargs):
         self.ismount_calls.append((args, kwargs))
@@ -164,7 +171,7 @@ class FakeRecon(object):
     def fake_unmounted(self):
         return {'unmountedtest': "1"}
 
-    def fake_no_unmounted(self):
+    def fake_unmounted_empty(self):
         return []
 
     def fake_diskusage(self):
@@ -214,9 +221,11 @@ class TestReconSuccess(TestCase):
         self.mockos = MockOS()
         self.fakecache = FakeFromCache()
         self.real_listdir = os.listdir
+        self.real_isdir = os.path.isdir
         self.real_ismount = utils.ismount
         self.real_statvfs = os.statvfs
         os.listdir = self.mockos.fake_listdir
+        os.path.isdir = self.mockos.fake_isdir
         utils.ismount = self.mockos.fake_ismount
         os.statvfs = self.mockos.fake_statvfs
         self.real_from_cache = self.app._from_recon_cache
@@ -241,6 +250,7 @@ class TestReconSuccess(TestCase):
 
     def tearDown(self):
         os.listdir = self.real_listdir
+        os.path.isdir = self.real_isdir
         utils.ismount = self.real_ismount
         os.statvfs = self.real_statvfs
         del self.mockos
@@ -931,39 +941,63 @@ class TestReconSuccess(TestCase):
         unmounted_resp = [{'device': 'fakeone', 'mounted': False},
                           {'device': 'faketwo', 'mounted': False}]
         self.mockos.ls_output = ['fakeone', 'faketwo']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/fakeone',), {}),
+                          (('/srv/node/faketwo',), {})])
         self.assertEqual(rv, unmounted_resp)
 
-    def test_get_unmounted_everything_normal(self):
+    def test_get_unmounted_excludes_files(self):
+        unmounted_resp = []
+        self.mockos.ls_output = ['somerando.log']
+        self.mockos.isdir_output = False
+        self.mockos.ismount_output = False
+        rv = self.app.get_unmounted()
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/somerando.log',), {})])
+        self.assertEqual(rv, unmounted_resp)
+
+    def test_get_unmounted_all_mounted(self):
         unmounted_resp = []
         self.mockos.ls_output = ['fakeone', 'faketwo']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = True
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/fakeone',), {}),
+                          (('/srv/node/faketwo',), {})])
         self.assertEqual(rv, unmounted_resp)
 
     def test_get_unmounted_checkmount_fail(self):
         unmounted_resp = [{'device': 'fakeone', 'mounted': 'brokendrive'}]
         self.mockos.ls_output = ['fakeone']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/fakeone',), {})])
         self.assertEqual(self.mockos.ismount_calls,
                          [(('/srv/node/fakeone',), {})])
         self.assertEqual(rv, unmounted_resp)
 
-    def test_no_get_unmounted(self):
+    def test_get_unmounted_no_mounts(self):
 
         def fake_checkmount_true(*args):
             return True
 
         unmounted_resp = []
         self.mockos.ls_output = []
+        self.mockos.isdir_output = False
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls, [])
         self.assertEqual(rv, unmounted_resp)
 
     def test_get_diskusage(self):
@@ -977,20 +1011,37 @@ class TestReconSuccess(TestCase):
         du_resp = [{'device': 'canhazdrive1', 'avail': 4150685696,
                     'mounted': True, 'used': 3890520064, 'size': 8041205760}]
         self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.isdir_output = True
         self.mockos.statvfs_output = statvfs_content
         self.mockos.ismount_output = True
         rv = self.app.get_diskusage()
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/canhazdrive1',), {})])
         self.assertEqual(self.mockos.statvfs_calls,
                          [(('/srv/node/canhazdrive1',), {})])
+        self.assertEqual(rv, du_resp)
+
+    def test_get_diskusage_excludes_files(self):
+        du_resp = []
+        self.mockos.ls_output = ['somerando.log']
+        self.mockos.isdir_output = False
+        rv = self.app.get_diskusage()
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/somerando.log',), {})])
+        self.assertEqual(self.mockos.statvfs_calls, [])
         self.assertEqual(rv, du_resp)
 
     def test_get_diskusage_checkmount_fail(self):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
                     'mounted': 'brokendrive', 'used': '', 'size': ''}]
         self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_diskusage()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/canhazdrive1',), {})])
         self.assertEqual(self.mockos.ismount_calls,
                          [(('/srv/node/canhazdrive1',), {})])
         self.assertEqual(rv, du_resp)
@@ -1000,6 +1051,7 @@ class TestReconSuccess(TestCase):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
                     'mounted': 'Input/Output Error', 'used': '', 'size': ''}]
         self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.isdir_output = True
         rv = self.app.get_diskusage()
         self.assertEqual(rv, du_resp)
 
@@ -1256,9 +1308,9 @@ class TestReconMiddleware(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_unmounted_resp)
 
-    def test_recon_no_get_unmounted(self):
+    def test_recon_get_unmounted_empty(self):
         get_unmounted_resp = '[]'
-        self.app.get_unmounted = self.frecon.fake_no_unmounted
+        self.app.get_unmounted = self.frecon.fake_unmounted_empty
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = ''.join(self.app(req.environ, start_response))
