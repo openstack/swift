@@ -735,9 +735,10 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=put_headers, body='test')
 
-        with mock.patch('swift.obj.server.http_connect', fake_http_connect):
-            with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''):
-                resp = req.get_response(self.object_controller)
+        with mock.patch('swift.obj.server.http_connect', fake_http_connect), \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                fake_spawn():
+            resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 201)
 
@@ -778,9 +779,10 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers=post_headers)
 
-        with mock.patch('swift.obj.server.http_connect', fake_http_connect):
-            with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''):
-                resp = req.get_response(self.object_controller)
+        with mock.patch('swift.obj.server.http_connect', fake_http_connect), \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                fake_spawn():
+            resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 202)
 
@@ -842,10 +844,10 @@ class TestObjectController(unittest.TestCase):
             os.listdir(os.path.join(
                 device_dir, diskfile.get_async_dir(policy))))
 
-    def test_PUT_then_POST_async_updates_with_repl_policy(self):
+    def test_PUT_then_POST_async_pendings_with_repl_policy(self):
         self._test_PUT_then_POST_async_pendings(POLICIES[0])
 
-    def test_PUT_then_POST_async_updates_with_EC_policy(self):
+    def test_PUT_then_POST_async_pendings_with_EC_policy(self):
         self._test_PUT_then_POST_async_pendings(
             POLICIES[1], update_etag='override_etag')
 
@@ -1970,10 +1972,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1',
                      'Content-Length': '0'})
-        with fake_spawn(), mock.patch.object(
-                object_server, 'http_connect',
-                mock_http_connect(201)):
-            resp = req.get_response(self.object_controller)
+        with mock.patch.object(
+                object_server, 'http_connect', mock_http_connect(201)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -1986,10 +1988,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1',
                      'Content-Length': '0'})
-        with fake_spawn(), mock.patch.object(
-                object_server, 'http_connect',
-                mock_http_connect(500)):
-            resp = req.get_response(self.object_controller)
+        with mock.patch.object(
+                object_server, 'http_connect', mock_http_connect(500)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -2002,10 +2004,11 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1',
                      'Content-Length': '0'})
-        with fake_spawn(), mock.patch.object(
+        with mock.patch.object(
                 object_server, 'http_connect',
                 mock_http_connect(500, with_exc=True)):
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
     def test_PUT_ssync_multi_frag(self):
@@ -3204,10 +3207,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p',
                                      'Content-Type': 'text/plain'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3243,10 +3246,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p',
                                      'Content-Type': 'text/html'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3281,10 +3284,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p',
                                      'Content-Type': 'text/enriched'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3319,10 +3322,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Host': '10.0.0.1:8080',
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3350,10 +3353,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Host': '10.0.0.1:8080',
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3819,9 +3822,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At-Partition': '6237',
                      'X-Delete-At-Device': 'sdp,sdq'})
 
-        with fake_spawn(), mock.patch.object(
+        with mock.patch.object(
                 object_server, 'http_connect', fake_http_connect):
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 201)
 
@@ -3931,9 +3935,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Container-Device': 'sdb1, sdf1'})
 
-        with fake_spawn(), mock.patch.object(
+        with mock.patch.object(
                 object_server, 'http_connect', fake_http_connect):
-            req.get_response(self.object_controller)
+            with fake_spawn():
+                req.get_response(self.object_controller)
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
@@ -4008,10 +4013,11 @@ class TestObjectController(unittest.TestCase):
             headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', body='', headers=headers)
-        with fake_spawn(), mocked_http_conn(
+        with mocked_http_conn(
                 500, 500, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(2, len(container_updates))
         delete_at_update, container_update = container_updates
@@ -4244,10 +4250,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Partition': 'cpartition',
                      'X-Container-Device': 'cdevice',
                      'Content-Type': 'text/plain'}, body='')
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(container_updates), 1)
         ip, port, method, path, headers = container_updates[0]
@@ -4285,10 +4291,10 @@ class TestObjectController(unittest.TestCase):
         }
         req = Request.blank('/sda1/0/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers, body='')
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(container_updates), 1)
         ip, port, method, path, headers = container_updates[0]
@@ -4326,7 +4332,7 @@ class TestObjectController(unittest.TestCase):
             given_args[:] = args
         diskfile_mgr = self.object_controller._diskfile_router[policy]
         diskfile_mgr.pickle_async_update = fake_pickle_async_update
-        with fake_spawn(), mocked_http_conn(500) as fake_conn:
+        with mocked_http_conn(500) as fake_conn, fake_spawn():
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
