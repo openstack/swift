@@ -72,6 +72,7 @@ from functools import partial
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
+HASH_INVALIDATIONS_FILE = 'hashes.invalid'
 METADATA_KEY = 'user.swift.metadata'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
@@ -221,6 +222,73 @@ def quarantine_renamer(device_path, corrupted_file_path):
     return to_dir
 
 
+def consolidate_hashes(partition_dir):
+    """
+    Take what's in hashes.pkl and hashes.invalid, combine them, write the
+    result back to hashes.pkl, and clear out hashes.invalid.
+
+    :param suffix_dir: absolute path to partition dir containing hashes.pkl
+                       and hashes.invalid
+
+    :returns: the hashes, or None if there's no hashes.pkl.
+    """
+    hashes_file = join(partition_dir, HASH_FILE)
+    invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
+
+    if not os.path.exists(hashes_file):
+        if os.path.exists(invalidations_file):
+            # no hashes at all -> everything's invalid, so empty the file with
+            # the invalid suffixes in it, if it exists
+            try:
+                with open(invalidations_file, 'wb'):
+                    pass
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    raise
+        return None
+
+    with lock_path(partition_dir):
+        try:
+            with open(hashes_file, 'rb') as hashes_fp:
+                pickled_hashes = hashes_fp.read()
+        except (IOError, OSError):
+            hashes = {}
+        else:
+            try:
+                hashes = pickle.loads(pickled_hashes)
+            except Exception:
+                # pickle.loads() can raise a wide variety of exceptions when
+                # given invalid input depending on the way in which the
+                # input is invalid.
+                hashes = None
+
+        modified = False
+        try:
+            with open(invalidations_file, 'rb') as inv_fh:
+                for line in inv_fh:
+                    suffix = line.strip()
+                    if hashes is not None and hashes.get(suffix) is not None:
+                        hashes[suffix] = None
+                        modified = True
+        except (IOError, OSError) as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+        if modified:
+            write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+
+        # Now that all the invalidations are reflected in hashes.pkl, it's
+        # safe to clear out the invalidations file.
+        try:
+            with open(invalidations_file, 'w') as inv_fh:
+                pass
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+        return hashes
+
+
 def invalidate_hash(suffix_dir):
     """
     Invalidates the hash for a suffix_dir in the partition's hashes file.
@@ -234,16 +302,11 @@ def invalidate_hash(suffix_dir):
     hashes_file = join(partition_dir, HASH_FILE)
     if not os.path.exists(hashes_file):
         return
+
+    invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
     with lock_path(partition_dir):
-        try:
-            with open(hashes_file, 'rb') as fp:
-                hashes = pickle.load(fp)
-            if suffix in hashes and not hashes[suffix]:
-                return
-        except Exception:
-            return
-        hashes[suffix] = None
-        write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+        with open(invalidations_file, 'ab') as inv_fh:
+            inv_fh.write(suffix + "\n")
 
 
 class AuditLocation(object):
@@ -395,6 +458,7 @@ class BaseDiskFileManager(object):
     diskfile_cls = None  # must be set by subclasses
 
     invalidate_hash = strip_self(invalidate_hash)
+    consolidate_hashes = strip_self(consolidate_hashes)
     quarantine_renamer = strip_self(quarantine_renamer)
 
     def __init__(self, conf, logger):
@@ -875,12 +939,22 @@ class BaseDiskFileManager(object):
             recalculate = []
 
         try:
-            with open(hashes_file, 'rb') as fp:
-                hashes = pickle.load(fp)
             mtime = getmtime(hashes_file)
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+        try:
+            hashes = self.consolidate_hashes(partition_path)
         except Exception:
             do_listdir = True
             force_rewrite = True
+        else:
+            if hashes is None:  # no hashes.pkl file; let's build it
+                do_listdir = True
+                force_rewrite = True
+                hashes = {}
+
         if do_listdir:
             for suff in os.listdir(partition_path):
                 if len(suff) == 3:
