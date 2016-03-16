@@ -290,6 +290,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Run direct to object server bench tool\n\n")
 		fmt.Fprintf(os.Stderr, "hummingbird thrash CONFIG\n")
 		fmt.Fprintf(os.Stderr, "  Run thrash bench tool\n")
+		fmt.Fprintf(os.Stderr, "hummingbird grep [ACCOUNT/CONTAINER/PREFIX] [SEARCH-STRING]\n")
+		fmt.Fprintf(os.Stderr, "  Run grep on the edge\n")
 	}
 
 	flag.Parse()
