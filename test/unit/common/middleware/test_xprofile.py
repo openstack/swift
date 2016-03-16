@@ -458,17 +458,17 @@ class Test_html_viewer(unittest.TestCase):
                               self.log_files)
 
     def test_format_source_code(self):
-        nfl_os = '%s:%d(%s)' % (os.__file__[:-1], 136, 'makedirs')
-        self.assertTrue('makedirs' in self.viewer.format_source_code(nfl_os))
-        self.assertFalse('makedirsXYZ' in
-                         self.viewer.format_source_code(nfl_os))
-        nfl_illegal = '%s:136(makedirs)' % os.__file__
-        self.assertTrue(_('The file type are forbidden to access!') in
-                        self.viewer.format_source_code(nfl_illegal))
-        nfl_not_exist = '%s.py:136(makedirs)' % os.__file__
-        expected_msg = _('Can not access the file %s.') % os.__file__
-        self.assertTrue(expected_msg in
-                        self.viewer.format_source_code(nfl_not_exist))
+        osfile = os.__file__.rstrip('c')
+        nfl_os = '%s:%d(%s)' % (osfile, 136, 'makedirs')
+        self.assertIn('makedirs', self.viewer.format_source_code(nfl_os))
+        self.assertNotIn('makedirsXYZ', self.viewer.format_source_code(nfl_os))
+        nfl_illegal = '%sc:136(makedirs)' % osfile
+        self.assertIn(_('The file type are forbidden to access!'),
+                      self.viewer.format_source_code(nfl_illegal))
+        nfl_not_exist = '%s.py:136(makedirs)' % osfile
+        expected_msg = _('Can not access the file %s.py.') % osfile
+        self.assertIn(expected_msg,
+                      self.viewer.format_source_code(nfl_not_exist))
 
 
 class TestStats2(unittest.TestCase):
