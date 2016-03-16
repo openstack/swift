@@ -306,6 +306,13 @@ use = egg:swift#recon
 # points and report the result after a full scan.
 # object_size_stats =
 
+# The auditor will cleanup old rsync tempfiles after they are "old
+# enough" to delete.  You can configure the time elapsed in seconds
+# before rsync tempfiles will be unlinked, or the default value of
+# "auto" try to use object-replicator's rsync_timeout + 900 and fallback
+# to 86400 (1 day).
+# rsync_tempfile_timeout = auto
+
 # Note: Put it at the beginning of the pipleline to profile all middleware. But
 # it is safer to put this after healthcheck.
 [filter:xprofile]

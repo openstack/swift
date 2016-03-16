@@ -499,6 +499,9 @@ and ensure that swift has read/write. The default is /var/cache/swift.
 Takes a comma separated list of ints. If set, the object auditor will
 increment a counter for every object whose size is <= to the given break
 points and report the result after a full scan.
+.IP \fBrsync_tempfile_timeout\fR
+Time elapsed in seconds before rsync tempfiles will be unlinked. Config value of "auto"
+will try to use object-replicator's rsync_timeout + 900 or fall-back to 86400 (1 day).
 .RE
 
 
