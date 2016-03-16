@@ -1299,7 +1299,7 @@ class Response(object):
         object length and body or app_iter to reset the content_length
         properties on the request.
 
-        It is ok to not call this method, the conditional resposne will be
+        It is ok to not call this method, the conditional response will be
         maintained for you when you __call__ the response.
         """
         self.response_iter = self._response_iter(self.app_iter, self._body)
