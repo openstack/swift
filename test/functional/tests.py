@@ -81,6 +81,14 @@ class Base(unittest.TestCase):
             'Status returned: %d Expected: %s' %
             (self.env.conn.response.status, status_or_statuses))
 
+    def assert_header(self, header_name, expected_value):
+        try:
+            actual_value = self.env.conn.response.getheader(header_name)
+        except KeyError:
+            self.fail(
+                'Expected header name %r not found in response.' % header_name)
+        self.assertEqual(expected_value, actual_value)
+
 
 class Base2(object):
     def setUp(self):
@@ -1377,32 +1385,35 @@ class TestFile(Base):
                 self.assert_status(416)
             else:
                 self.assertEqual(file_item.read(hdrs=hdrs), data[-i:])
+            self.assert_header('etag', file_item.md5)
+            self.assert_header('accept-ranges', 'bytes')
 
             range_string = 'bytes=%d-' % (i)
             hdrs = {'Range': range_string}
-            self.assertTrue(
-                file_item.read(hdrs=hdrs) == data[i - file_length:],
+            self.assertEqual(
+                file_item.read(hdrs=hdrs), data[i - file_length:],
                 range_string)
 
         range_string = 'bytes=%d-%d' % (file_length + 1000, file_length + 2000)
         hdrs = {'Range': range_string}
         self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
         self.assert_status(416)
+        self.assert_header('etag', file_item.md5)
+        self.assert_header('accept-ranges', 'bytes')
 
         range_string = 'bytes=%d-%d' % (file_length - 1000, file_length + 2000)
         hdrs = {'Range': range_string}
-        self.assertTrue(
-            file_item.read(hdrs=hdrs) == data[-1000:], range_string)
+        self.assertEqual(file_item.read(hdrs=hdrs), data[-1000:], range_string)
 
         hdrs = {'Range': '0-4'}
-        self.assertTrue(file_item.read(hdrs=hdrs) == data, range_string)
+        self.assertEqual(file_item.read(hdrs=hdrs), data, '0-4')
 
         # RFC 2616 14.35.1
         # "If the entity is shorter than the specified suffix-length, the
         # entire entity-body is used."
         range_string = 'bytes=-%d' % (file_length + 10)
         hdrs = {'Range': range_string}
-        self.assertTrue(file_item.read(hdrs=hdrs) == data, range_string)
+        self.assertEqual(file_item.read(hdrs=hdrs), data, range_string)
 
     def testRangedGetsWithLWSinHeader(self):
         # Skip this test until webob 1.2 can tolerate LWS in Range header.
@@ -2031,6 +2042,17 @@ class TestFileComparison(Base):
             hdrs = {'If-Match': 'bogus'}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
+            self.assert_header('etag', file_item.md5)
+
+    def testIfMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-Match': '"bogus1", "%s", "bogus2"' % file_item.md5}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(412)
+            self.assert_header('etag', file_item.md5)
 
     def testIfNoneMatch(self):
         for file_item in self.env.files:
@@ -2040,6 +2062,20 @@ class TestFileComparison(Base):
             hdrs = {'If-None-Match': file_item.md5}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
+            self.assert_header('etag', file_item.md5)
+            self.assert_header('accept-ranges', 'bytes')
+
+    def testIfNoneMatchMultipleEtags(self):
+        for file_item in self.env.files:
+            hdrs = {'If-None-Match': '"bogus1", "bogus2", "bogus3"'}
+            self.assertTrue(file_item.read(hdrs=hdrs))
+
+            hdrs = {'If-None-Match':
+                    '"bogus1", "bogus2", "%s"' % file_item.md5}
+            self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(304)
+            self.assert_header('etag', file_item.md5)
+            self.assert_header('accept-ranges', 'bytes')
 
     def testIfModifiedSince(self):
         for file_item in self.env.files:
@@ -2050,8 +2086,12 @@ class TestFileComparison(Base):
             hdrs = {'If-Modified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(304)
+            self.assert_header('etag', file_item.md5)
+            self.assert_header('accept-ranges', 'bytes')
             self.assertRaises(ResponseError, file_item.info, hdrs=hdrs)
             self.assert_status(304)
+            self.assert_header('etag', file_item.md5)
+            self.assert_header('accept-ranges', 'bytes')
 
     def testIfUnmodifiedSince(self):
         for file_item in self.env.files:
@@ -2062,8 +2102,10 @@ class TestFileComparison(Base):
             hdrs = {'If-Unmodified-Since': self.env.time_old_f2}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
+            self.assert_header('etag', file_item.md5)
             self.assertRaises(ResponseError, file_item.info, hdrs=hdrs)
             self.assert_status(412)
+            self.assert_header('etag', file_item.md5)
 
     def testIfMatchAndUnmodified(self):
         for file_item in self.env.files:
@@ -2075,33 +2117,38 @@ class TestFileComparison(Base):
                     'If-Unmodified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
+            self.assert_header('etag', file_item.md5)
 
             hdrs = {'If-Match': file_item.md5,
                     'If-Unmodified-Since': self.env.time_old_f3}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
+            self.assert_header('etag', file_item.md5)
 
     def testLastModified(self):
         file_name = Utils.create_name()
         content_type = Utils.create_name()
 
-        file = self.env.container.file(file_name)
-        file.content_type = content_type
-        resp = file.write_random_return_resp(self.env.file_size)
+        file_item = self.env.container.file(file_name)
+        file_item.content_type = content_type
+        resp = file_item.write_random_return_resp(self.env.file_size)
         put_last_modified = resp.getheader('last-modified')
+        etag = file_item.md5
 
-        file = self.env.container.file(file_name)
-        info = file.info()
+        file_item = self.env.container.file(file_name)
+        info = file_item.info()
         self.assertIn('last_modified', info)
         last_modified = info['last_modified']
         self.assertEqual(put_last_modified, info['last_modified'])
 
         hdrs = {'If-Modified-Since': last_modified}
-        self.assertRaises(ResponseError, file.read, hdrs=hdrs)
+        self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
         self.assert_status(304)
+        self.assert_header('etag', etag)
+        self.assert_header('accept-ranges', 'bytes')
 
         hdrs = {'If-Unmodified-Since': last_modified}
-        self.assertTrue(file.read(hdrs=hdrs))
+        self.assertTrue(file_item.read(hdrs=hdrs))
 
 
 class TestFileComparisonUTF8(Base2, TestFileComparison):
