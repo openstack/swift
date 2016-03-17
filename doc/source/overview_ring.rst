@@ -103,10 +103,14 @@ meta    string   A general-use field for storing additional information for the
 ======  =======  ==============================================================
 
 Note: The list of devices may contain holes, or indexes set to None, for
-devices that have been removed from the cluster. Generally, device ids are not
-reused. Also, some devices may be temporarily disabled by setting their weight
-to 0.0. To obtain a list of active devices (for uptime polling, for example)
-the Python code would look like: ``devices = list(self._iter_devs())``
+devices that have been removed from the cluster. However, device ids are
+reused. Device ids are reused to avoid potentially running out of device id
+slots when there are available slots (from prior removal of devices). A
+consequence of this device id reuse is that the device id (integer value) does
+not necessarily correspond with the chronology of when the device was added to
+the ring. Also, some devices may be temporarily disabled by setting their
+weight to 0.0. To obtain a list of active devices (for uptime polling, for
+example) the Python code would look like: ``devices = list(self._iter_devs())``
 
 *************************
 Partition Assignment List
