@@ -11,13 +11,13 @@
 # Monika Wolf <vcomas3@de.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev204\n"
+"Project-Id-Version: swift 2.6.1.dev218\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-11 13:27+0000\n"
+"POT-Creation-Date: 2016-03-16 11:38+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-11 04:57+0000\n"
+"PO-Revision-Date: 2016-03-16 12:06+0000\n"
 "Last-Translator: Monika Wolf <vcomas3@de.ibm.com>\n"
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -648,6 +648,13 @@ msgstr "CNAME-Kette für %(given_domain)s bis %(found_domain)s wird gefolgt"
 msgid "Found configs:"
 msgstr "Gefundene Konfigurationen:"
 
+msgid ""
+"Handoffs first mode still has handoffs remaining.  Aborting current "
+"replication pass."
+msgstr ""
+"Der Modus 'handoffs_first' ist noch nicht abgeschlossen. Der aktuelle "
+"Replikationsdurchgang wird abgebrochen."
+
 msgid "Host unreachable"
 msgstr "Host nicht erreichbar"
 
@@ -771,6 +778,18 @@ msgstr ""
 "%(brate).2f, Prüfungszeit: %(audit).2f, Geschwindigkeit: %(audit_rate).2f"
 
 #, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"Objektprüfung (%(type)s). Seit %(start_time)s: Lokal: %(passes)d übergeben, "
+"%(quars)d unter Quarantäne gestellt, %(errors)d Fehler, Dateien/s: "
+"%(frate).2f, Bytes/s: %(brate).2f, Zeit insgesamt: %(total).2f, "
+"Prüfungszeit: %(audit).2f, Geschwindigkeit: %(audit_rate).2f"
+
+#, python-format
 msgid "Object audit stats: %s"
 msgstr "Objektprüfungsstatistik: %s"
 
@@ -845,6 +864,10 @@ msgstr "Problem bei der Bereinigung von %s"
 #, python-format
 msgid "Problem cleaning up %s (%s)"
 msgstr "Problem bei der Bereinigung von %s (%s)"
+
+#, python-format
+msgid "Problem writing durable state file %s (%s)"
+msgstr "Problem beim Schreiben der langlebigen Statusdatei %s (%s)"
 
 #, python-format
 msgid "Profiling Error: %s"
