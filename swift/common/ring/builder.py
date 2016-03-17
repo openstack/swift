@@ -443,10 +443,10 @@ class RingBuilder(object):
         self._set_parts_wanted(replica_plan)
 
         assign_parts = defaultdict(list)
-        # gather parts from failed devices
-        removed_devs = self._gather_parts_from_failed_devices(assign_parts)
         # gather parts from replica count adjustment
         self._adjust_replica2part2dev_size(assign_parts)
+        # gather parts from failed devices
+        removed_devs = self._gather_parts_from_failed_devices(assign_parts)
         # gather parts for dispersion (N.B. this only picks up parts that
         # *must* disperse according to the replica plan)
         self._gather_parts_for_dispersion(assign_parts, replica_plan)

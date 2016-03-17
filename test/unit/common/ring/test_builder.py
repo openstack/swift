@@ -1385,6 +1385,21 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()  # this would crash since parts_wanted was not set
         rb.validate()
 
+    def test_reduce_replicas_after_remove_device(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.rebalance()
+        rb.remove_dev(0)
+        self.assertRaises(exceptions.RingValidationError, rb.rebalance)
+        rb.set_replicas(2)
+        rb.rebalance()
+        rb.validate()
+
     def test_rebalance_post_upgrade(self):
         rb = ring.RingBuilder(8, 3, 1)
         # 5 devices: 5 is the smallest number that does not divide 3 * 2^8,
