@@ -202,7 +202,7 @@ class TestTempURL(unittest.TestCase):
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
-    def test_head_valid(self):
+    def test_head_valid_with_filename(self):
         method = 'HEAD'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
@@ -211,11 +211,14 @@ class TestTempURL(unittest.TestCase):
         sig = hmac.new(key, hmac_body, sha1).hexdigest()
         req = self._make_request(path, keys=[key], environ={
             'REQUEST_METHOD': 'HEAD',
-            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s'
-            % (sig, expires)})
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+            'filename=bob_killer.txt' % (sig, expires)})
         self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['content-disposition'],
+                         'attachment; filename="bob_killer.txt"; ' +
+                         "filename*=UTF-8''bob_killer.txt")
 
     def test_head_and_get_headers_match(self):
         method = 'HEAD'
