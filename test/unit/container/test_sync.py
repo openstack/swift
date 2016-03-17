@@ -854,7 +854,6 @@ class TestContainerSync(unittest.TestCase):
 
     def _test_container_sync_row_put(self, realm, realm_key):
         orig_uuid = sync.uuid
-        orig_shuffle = sync.shuffle
         orig_put_object = sync.put_object
         try:
             class FakeUUID(object):
@@ -862,7 +861,6 @@ class TestContainerSync(unittest.TestCase):
                     hex = 'abcdef'
 
             sync.uuid = FakeUUID
-            sync.shuffle = lambda x: x
             ts_data = Timestamp(1.1)
             timestamp = Timestamp(1.2)
 
@@ -1064,7 +1062,6 @@ class TestContainerSync(unittest.TestCase):
             self.assertLogMessage('error', 'ERROR Syncing')
         finally:
             sync.uuid = orig_uuid
-            sync.shuffle = orig_shuffle
             sync.put_object = orig_put_object
 
     def test_select_http_proxy_None(self):
