@@ -333,11 +333,6 @@ This allows middleware higher in the WSGI pipeline to override auth
 processing, useful for middleware such as tempurl and formpost. If you know
 you're not going to use such middleware and you want a bit of extra security,
 you can set this to false.
-.IP \fBis_admin\fR
-[DEPRECATED] If is_admin is true, a user whose username is the same as the project name
-and who has any role on the project will have access rights elevated to be
-the same as if the user had an operator role. Note that the condition
-compares names rather than UUIDs. This option is deprecated.
 .IP \fBservice_roles\fR
 If the service_roles parameter is present, an X-Service-Token must be
 present in the request that when validated, grants at least one role listed
