@@ -34,17 +34,13 @@ import (
 #ifndef __O_TMPFILE
 #define __O_TMPFILE	020000000
 #endif
-
-#ifndef O_TMPFILE
-#define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
-#endif
 */
 import "C"
 
 var (
 	AT_FDCWD          = C.AT_FDCWD
 	AT_SYMLINK_FOLLOW = C.AT_SYMLINK_FOLLOW
-	O_TMPFILE         = C.O_TMPFILE
+	O_TMPFILE         = C.__O_TMPFILE | syscall.O_DIRECTORY
 	useOTempfile      = false
 )
 
