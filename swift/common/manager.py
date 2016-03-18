@@ -561,8 +561,8 @@ class Server(object):
                 safe_kill(pid, sig, 'swift-%s' % self.server)
             except InvalidPidFileException as e:
                 if kwargs.get('verbose'):
-                    print(_('Removing pid file %s with wrong pid %d') % (
-                          pid_file, pid))
+                    print(_('Removing pid file %(pid_file)s with wrong pid '
+                            '%(pid)d'), {'pid_file': pid_file, 'pid': pid})
                 remove_file(pid_file)
             except OSError as e:
                 if e.errno == errno.ESRCH:
