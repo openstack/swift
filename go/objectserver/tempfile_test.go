@@ -33,7 +33,7 @@ func TestTempFile(t *testing.T) {
 	f, err := NewAtomicFileWriter(dir, filepath.Join(dir, "somefile"))
 	require.Nil(t, err)
 	f.Write([]byte("some crap"))
-	f.Save()
+	require.Nil(t, f.Save())
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "somefile")))
 }
 
@@ -48,6 +48,21 @@ func TestTempFileDirRemoved(t *testing.T) {
 	require.Nil(t, err)
 	f.Write([]byte("some crap"))
 	os.RemoveAll(dir)
-	f.Save()
+	require.Nil(t, f.Save())
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "somefile")))
+}
+
+func TestTempFileReplace(t *testing.T) {
+	dir, err := ioutil.TempDir("", "")
+	require.Nil(t, err)
+	defer os.RemoveAll(dir)
+	require.Nil(t, ioutil.WriteFile(filepath.Join(dir, "somefile"), []byte("original contents"), 0666))
+	f, err := NewAtomicFileWriter(dir, filepath.Join(dir, "somefile"))
+	require.Nil(t, err)
+	f.Write([]byte("some crap"))
+	require.Nil(t, f.Save())
+	require.True(t, hummingbird.Exists(filepath.Join(dir, "somefile")))
+	data, err := ioutil.ReadFile(filepath.Join(dir, "somefile"))
+	require.Nil(t, err)
+	require.Equal(t, []byte("some crap"), data)
 }
