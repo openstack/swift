@@ -164,12 +164,27 @@ use = egg:swift#proxy
 # using affinity allows for finer control. In both the timing and
 # affinity cases, equally-sorting nodes are still randomly chosen to
 # spread load.
-# The valid values for sorting_method are "affinity", "shuffle", and "timing".
+# The valid values for sorting_method are "affinity", "shuffle", or "timing".
 # sorting_method = shuffle
 #
 # If the "timing" sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
+#
+# By default on a GET/HEAD swift will connect to a storage node one at a time
+# in a single thread. There is smarts in the order they are hit however. If you
+# turn on concurrent_gets below, then replica count threads will be used.
+# With addition of the concurrency_timeout option this will allow swift to send
+# out GET/HEAD requests to the storage nodes concurrently and answer with the
+# first to respond. With an EC policy the parameter only affects HEAD requests.
+# concurrent_gets = off
+#
+# This parameter controls how long to wait before firing off the next
+# concurrent_get thread. A value of 0 would be fully concurrent, any other
+# number will stagger the firing of the threads. This number should be
+# between 0 and node_timeout. The default is what ever you set for the
+# conn_timeout parameter.
+# concurrency_timeout = 0.5
 #
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of

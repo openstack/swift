@@ -4988,6 +4988,37 @@ class TestGreenAsyncPile(unittest.TestCase):
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
 
+    def test_waitfirst_only_returns_first(self):
+        def run_test(name):
+            eventlet.sleep(0)
+            completed.append(name)
+            return name
+
+        completed = []
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 'first')
+        pile.spawn(run_test, 'second')
+        pile.spawn(run_test, 'third')
+        self.assertEqual(pile.waitfirst(0.5), completed[0])
+        # 3 still completed, but only the first was returned.
+        self.assertEqual(3, len(completed))
+
+    def test_wait_with_firstn(self):
+        def run_test(name):
+            eventlet.sleep(0)
+            completed.append(name)
+            return name
+
+        for first_n in [None] + list(range(6)):
+            completed = []
+            pile = utils.GreenAsyncPile(10)
+            for i in range(10):
+                pile.spawn(run_test, i)
+            actual = pile._wait(1, first_n)
+            expected_n = first_n if first_n else 10
+            self.assertEqual(completed[:expected_n], actual)
+            self.assertEqual(10, len(completed))
+
     def test_pending(self):
         pile = utils.GreenAsyncPile(3)
         self.assertEqual(0, pile._pending)

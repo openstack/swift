@@ -2471,6 +2471,10 @@ class GreenAsyncPile(object):
         finally:
             self._inflight -= 1
 
+    @property
+    def inflight(self):
+        return self._inflight
+
     def spawn(self, func, *args, **kwargs):
         """
         Spawn a job in a green thread on the pile.
@@ -2479,6 +2483,16 @@ class GreenAsyncPile(object):
         self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
+    def waitfirst(self, timeout):
+        """
+        Wait up to timeout seconds for first result to come in.
+
+        :param timeout: seconds to wait for results
+        :returns: first item to come back, or None
+        """
+        for result in self._wait(timeout, first_n=1):
+            return result
+
     def waitall(self, timeout):
         """
         Wait timeout seconds for any results to come in.
@@ -2486,11 +2500,16 @@ class GreenAsyncPile(object):
         :param timeout: seconds to wait for results
         :returns: list of results accrued in that time
         """
+        return self._wait(timeout)
+
+    def _wait(self, timeout, first_n=None):
         results = []
         try:
             with GreenAsyncPileWaitallTimeout(timeout):
                 while True:
                     results.append(next(self))
+                    if first_n and len(results) >= first_n:
+                        break
         except (GreenAsyncPileWaitallTimeout, StopIteration):
             pass
         return results

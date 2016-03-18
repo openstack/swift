@@ -60,10 +60,12 @@ class AccountController(Controller):
             return resp
 
         partition = self.app.account_ring.get_part(self.account_name)
+        concurrency = self.app.account_ring.replica_count \
+            if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.account_ring, partition)
         resp = self.GETorHEAD_base(
             req, _('Account'), node_iter, partition,
-            req.swift_entity_path.rstrip('/'))
+            req.swift_entity_path.rstrip('/'), concurrency)
         if resp.status_int == HTTP_NOT_FOUND:
             if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
                 resp.status = HTTP_GONE
