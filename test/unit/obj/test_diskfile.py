@@ -402,6 +402,36 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                     'Skipping %s as it is not mounted',
                     'sdq')
 
+    def test_skipping_files(self):
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects",
+                                     "2607", "df3",
+                                     "ec2871fe724411f91787462f97d30df3"))
+            with open(os.path.join(tmpdir, "garbage"), "wb") as fh:
+                fh.write('')
+
+            locations = [
+                (loc.path, loc.device, loc.partition, loc.policy)
+                for loc in diskfile.object_audit_location_generator(
+                    devices=tmpdir, mount_check=False)]
+
+            self.assertEqual(
+                locations,
+                [(os.path.join(tmpdir, "sdp", "objects",
+                               "2607", "df3",
+                               "ec2871fe724411f91787462f97d30df3"),
+                  "sdp", "2607", POLICIES[0])])
+
+            # Do it again, this time with a logger.
+            ml = mock.MagicMock()
+            locations = [
+                (loc.path, loc.device, loc.partition, loc.policy)
+                for loc in diskfile.object_audit_location_generator(
+                    devices=tmpdir, mount_check=False, logger=ml)]
+            ml.debug.assert_called_once_with(
+                'Skipping %s: Not a directory' %
+                os.path.join(tmpdir, "garbage"))
+
     def test_only_catch_expected_errors(self):
         # Crazy exceptions should still escape object_audit_location_generator
         # so that errors get logged and a human can see what's going wrong;

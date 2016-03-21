@@ -296,7 +296,15 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                     _('Skipping %s as it is not mounted'), device)
             continue
         # loop through object dirs for all policies
-        for dir_ in os.listdir(os.path.join(devices, device)):
+        device_dir = os.path.join(devices, device)
+        try:
+            dirs = os.listdir(device_dir)
+        except OSError as e:
+            if logger:
+                logger.debug(
+                    _('Skipping %s: %s') % (device_dir, e.strerror))
+            continue
+        for dir_ in dirs:
             if not dir_.startswith(DATADIR_BASE):
                 continue
             try:
