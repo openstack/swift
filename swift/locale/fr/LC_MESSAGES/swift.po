@@ -6,17 +6,18 @@
 # Maxime COQUEREL <max.coquerel@gmail.com>, 2014
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
+# Angelique Pillal <pillal@fr.ibm.com>, 2016. #zanata
 # Gael Rehault <gael_rehault@dell.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev218\n"
+"Project-Id-Version: swift 2.6.1.dev235\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-16 11:38+0000\n"
+"POT-Creation-Date: 2016-03-18 23:11+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-16 11:53+0000\n"
-"Last-Translator: Gael Rehault <gael_rehault@dell.com>\n"
+"PO-Revision-Date: 2016-03-18 03:55+0000\n"
+"Last-Translator: Angelique Pillal <pillal@fr.ibm.com>\n"
 "Language: fr\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 "Generated-By: Babel 2.0\n"
@@ -55,6 +56,16 @@ msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
 
 #, python-format
 msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions sur %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) périphériques reconstruites en %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+
+#, python-format
+msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
 "%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
@@ -88,6 +99,10 @@ msgstr "%s n'existe pas"
 #, python-format
 msgid "%s is not mounted"
 msgstr "%s n'est pas monté"
+
+#, python-format
+msgid "%s responded as unmounted"
+msgstr "%s ont été identifié(es) comme étant démonté(es)"
 
 #, python-format
 msgid "%s running (%s - %s)"
@@ -225,6 +240,9 @@ msgstr "Client déconnecté lors de la lecture"
 msgid "Client disconnected without sending enough data"
 msgstr "Client déconnecté avant l'envoi de toutes les données requises"
 
+msgid "Client disconnected without sending last chunk"
+msgstr "Le client a été déconnecté avant l'envoi du dernier bloc"
+
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
@@ -232,11 +250,19 @@ msgstr ""
 "Le chemin d'accès au client %(client)s ne correspond pas au chemin stocké "
 "dans les métadonnées d'objet %(meta)s"
 
+msgid ""
+"Configuration option internal_client_conf_path not defined. Using default "
+"configuration, See internal-client.conf-sample for options"
+msgstr ""
+"L'option de configuration internal_client_conf_path n'a pas été définie. La "
+"configuration par défaut est utilisée. Consultez les options dans internal-"
+"client.conf-sample."
+
 msgid "Connection refused"
-msgstr "Connexion refusé"
+msgstr "Connexion refusée"
 
 msgid "Connection timeout"
-msgstr "Connexion timeout"
+msgstr "Dépassement du délai d'attente de connexion"
 
 msgid "Container"
 msgstr "Containeur"
@@ -281,7 +307,7 @@ msgstr "Liaison impossible à %s:%s après une tentative de %s secondes"
 
 #, python-format
 msgid "Could not load %r: %s"
-msgstr "Ne peut pas etre charger  %r: %s"
+msgstr "Impossible de charger  %r: %s"
 
 #, python-format
 msgid "Data download error: %s"
@@ -290,6 +316,10 @@ msgstr "Erreur de téléchargement des données: %s"
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "Session d'audit d'unité terminée : %.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr "Le répertoire %r n'est pas mappé à une stratégie valide (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -372,6 +402,11 @@ msgstr ""
 
 msgid "ERROR Exception causing client disconnect"
 msgstr "ERREUR Exception entraînant la déconnexion du client"
+
+#, python-format
+msgid "ERROR Exception transferring data to object servers %s"
+msgstr ""
+"ERREUR Exception lors du transfert de données vers des serveurs d'objets %s"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "ERREUR Obtention impossible de mes propres adresses IP ?"
@@ -551,6 +586,12 @@ msgstr "Erreur de synchronisation de la partition"
 msgid "Error syncing with node: %s"
 msgstr "Erreur de synchronisation avec le noeud : %s"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr ""
+"Une erreur est survenue lors de la tentative de régénération de %(path)s "
+"policy#%(policy)d frag#%(frag_index)s"
+
 msgid "Error: An error occurred"
 msgstr "Erreur : une erreur s'est produite"
 
@@ -569,6 +610,9 @@ msgstr "Exception dans la boucle de collecteur de compte de niveau supérieur"
 
 msgid "Exception in top-level replication loop"
 msgstr "Exception dans la boucle de réplication de niveau supérieur"
+
+msgid "Exception in top-levelreconstruction loop"
+msgstr "Exception dans la boucle de reconstruction de niveau supérieur"
 
 #, python-format
 msgid "Exception while deleting container %s %s"
@@ -607,7 +651,14 @@ msgstr ""
 "Suivi de la chaîne CNAME pour %(given_domain)s jusqu'à %(found_domain)s"
 
 msgid "Found configs:"
-msgstr "Configurations trouvés:"
+msgstr "Configurations trouvées :"
+
+msgid ""
+"Handoffs first mode still has handoffs remaining.  Aborting current "
+"replication pass."
+msgstr ""
+"Le premier mode de transferts contient d'autres transferts. Abandon de la "
+"session de réplication en cours."
 
 msgid "Host unreachable"
 msgstr "Hôte inaccessible"
@@ -668,6 +719,10 @@ msgid "No permission to signal PID %d"
 msgstr "Aucun droit pour signaler le PID %d"
 
 #, python-format
+msgid "No policy with index %s"
+msgstr "Aucune statégie avec un index de type %s"
+
+#, python-format
 msgid "No realm key for %r"
 msgstr "Aucune clé de domaine pour %r"
 
@@ -680,6 +735,11 @@ msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr ""
 "Noeud marqué avec limite d'erreurs (error_limited) %(ip)s:%(port)s "
 "(%(device)s)"
+
+#, python-format
+msgid "Not enough object servers ack'ed (got %d)"
+msgstr ""
+"Le nombre de serveurs d'objets reconnus n'est pas suffisant (%d obtenus)"
 
 #, python-format
 msgid ""
@@ -728,8 +788,26 @@ msgstr ""
 "%(audit_rate).2f"
 
 #, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"Audit d'objet (%(type)s). Depuis %(start_time)s, localement : %(passes)d "
+"succès. %(quars)d en quarantaine. %(errors)d erreurs. Fichiers/sec : "
+"%(frate).2f. Octets/sec : %(brate).2f. Durée totale : %(total).2f. Durée "
+"d'audit : %(audit).2f. Taux : %(audit_rate).2f"
+
+#, python-format
 msgid "Object audit stats: %s"
 msgstr "Statistiques de l'audit d'objet : %s"
+
+#, python-format
+msgid "Object reconstruction complete (once). (%.02f minutes)"
+msgstr ""
+"La reconstruction d'objet en mode Once (une fois) est terminée. (%.02f "
+"minutes)"
 
 #, python-format
 msgid "Object reconstruction complete. (%.02f minutes)"
@@ -801,6 +879,11 @@ msgid "Problem cleaning up %s (%s)"
 msgstr "Problème lors du nettoyage de %s (%s)"
 
 #, python-format
+msgid "Problem writing durable state file %s (%s)"
+msgstr ""
+"Un problème est survenu lors de l'écriture du fichier d'état durable %s (%s)"
+
+#, python-format
 msgid "Profiling Error: %s"
 msgstr "Erreur de profilage : %s"
 
@@ -845,7 +928,7 @@ msgstr "Suppression partition: %s"
 
 #, python-format
 msgid "Removing pid file %s with invalid pid"
-msgstr "Suppression du fichier pid %s  avec in pid invalide"
+msgstr "Suppression du fichier pid %s  comportant un pid non valide"
 
 #, python-format
 msgid "Removing stale pid file %s"
@@ -878,6 +961,9 @@ msgstr ""
 #, python-format
 msgid "Running %s once"
 msgstr "Exécution unique de %s"
+
+msgid "Running object reconstructor in script mode."
+msgstr "Exécution du reconstructeur d'objet en mode script."
 
 msgid "Running object replicator in script mode."
 msgstr "Exécution du réplicateur d'objet en mode script."
@@ -920,6 +1006,12 @@ msgstr "%s est ignoré car il n'est pas monté"
 msgid "Starting %s"
 msgstr "Démarrage %s"
 
+msgid "Starting object reconstruction pass."
+msgstr "Démarrage de la session de reconstruction d'objet."
+
+msgid "Starting object reconstructor in daemon mode."
+msgstr "Démarrage du reconstructeur d'objet en mode démon."
+
 msgid "Starting object replication pass."
 msgstr "Démarrage de la session de réplication d'objet."
 
@@ -944,6 +1036,12 @@ msgstr ""
 #, python-format
 msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "Délai d'attente de %(action)s dans memcached : %(server)s"
+
+#, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr ""
+"Exception liée à un dépassement de délai concernant %(ip)s:%(port)s/"
+"%(device)s"
 
 #, python-format
 msgid "Trying to %(method)s %(path)s"
@@ -971,6 +1069,10 @@ msgid "Trying to send to client"
 msgstr "Tentative d'envoi au client"
 
 #, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "Tentative de synchronisation de suffixes à l'aide de %s"
+
+#, python-format
 msgid "Trying to write to %s"
 msgstr "Tentative d'écriture sur %s"
 
@@ -979,7 +1081,12 @@ msgstr "EXCEPTION NON INTERCEPTEE"
 
 #, python-format
 msgid "Unable to find %s config section in %s"
-msgstr "Impossuble de trouvé la section configuration %s dans %s"
+msgstr "Impossible de trouver la section de configuration %s dans %s"
+
+#, python-format
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr ""
+"Impossible de charger le client interne depuis la configuration : %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
@@ -989,6 +1096,10 @@ msgstr ""
 #, python-format
 msgid "Unable to locate config for %s"
 msgstr "Impossible de trouver la configuration pour %s"
+
+#, python-format
+msgid "Unable to locate config number %s for %s"
+msgstr "Impossible de trouver la configuration portant le numéro %s pour %s"
 
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
@@ -1054,6 +1165,10 @@ msgstr ""
 #, python-format
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr "Attente de %s secondes pour la fin de %s ; abandon"
+
+#, python-format
+msgid "Waited %s seconds for %s to die; killing"
+msgstr "Attente de %s secondes pour la fin de %s . En cours d'arrêt"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Avertissement : impossible d'appliquer Ratelimit sans client memcached"
