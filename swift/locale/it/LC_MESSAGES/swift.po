@@ -6,16 +6,17 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
 # Alessandra <alessandra@translated.net>, 2016. #zanata
+# Remo Mattei <Remo@rm.ht>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev235\n"
+"Project-Id-Version: swift 2.6.1.dev244\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-18 23:11+0000\n"
+"POT-Creation-Date: 2016-03-22 03:44+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-19 05:14+0000\n"
-"Last-Translator: Alessandra <alessandra@translated.net>\n"
+"PO-Revision-Date: 2016-03-22 05:18+0000\n"
+"Last-Translator: Remo Mattei <Remo@rm.ht>\n"
 "Language: it\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
@@ -211,7 +212,7 @@ msgid "Beginning pass on account %s"
 msgstr "Avvio della trasmissione sull'account %s"
 
 msgid "Beginning replication run"
-msgstr "Avvio dell'esecuzione della replica"
+msgstr "Avvio replica"
 
 msgid "Broker error trying to rollback locked connection"
 msgstr ""
@@ -1013,7 +1014,7 @@ msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
 msgstr "Rsync di %(src)s eseguito correttamente su %(dst)s (%(time).03f)"
 
 msgid "The file type are forbidden to access!"
-msgstr "Non è consentito l'accesso al tipo di file."
+msgstr "Non è consentito l'accesso a questo tipo di file!"
 
 #, python-format
 msgid ""
