@@ -39,7 +39,6 @@ from swift.common.utils import (
     whataremyips, Timestamp, decode_timestamps)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
-from swift.common.storage_policy import POLICIES
 from swift.common.wsgi import ConfigString
 
 
@@ -238,15 +237,6 @@ class ContainerSync(Daemon):
                 _('Unable to load internal client from config: %r (%s)') %
                 (internal_client_conf_path, err))
 
-    def get_object_ring(self, policy_idx):
-        """
-        Get the ring object to use based on its policy.
-
-        :policy_idx: policy index as defined in swift.conf
-        :returns: appropriate ring object
-        """
-        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
-
     def run_forever(self, *args, **kwargs):
         """
         Runs container sync scans until stopped.
@@ -364,8 +354,6 @@ class ContainerSync(Daemon):
                     row = rows[0]
                     if row['ROWID'] > sync_point1:
                         break
-                    key = hash_path(info['account'], info['container'],
-                                    row['name'], raw_digest=True)
                     # This node will only initially sync out one third of the
                     # objects (if 3 replicas, 1/4 if 4, etc.) and will skip
                     # problematic rows as needed in case of faults.
