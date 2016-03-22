@@ -18,7 +18,7 @@ import os
 import uuid
 from swift import gettext_ as _
 from time import ctime, time
-from random import choice, random, shuffle
+from random import choice, random
 from struct import unpack_from
 
 from eventlet import sleep, Timeout
@@ -463,11 +463,6 @@ class ContainerSync(Daemon):
             else:
                 # when sync'ing a live object, use ts_meta - this is the time
                 # at which the source object was last modified by a PUT or POST
-                part, nodes = \
-                    self.get_object_ring(info['storage_policy_index']). \
-                    get_nodes(info['account'], info['container'],
-                              row['name'])
-                shuffle(nodes)
                 exc = None
                 # look up for the newest one
                 headers_out = {'X-Newest': True,
