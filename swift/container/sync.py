@@ -100,13 +100,6 @@ class ContainerSync(Daemon):
     If they exist, newer rows since the last sync will trigger PUTs or DELETEs
     to the other container.
 
-    .. note::
-
-        Container sync will sync object POSTs only if the proxy server is set
-        to use "object_post_as_copy = true" which is the default. So-called
-        fast object posts, "object_post_as_copy = false" do not update the
-        container listings and therefore can't be detected for synchronization.
-
     The actual syncing is slightly more complicated to make use of the three
     (or number-of-replicas) main nodes for a container without each trying to
     do the exact same work but also without missing work if one node happens to

@@ -1325,11 +1325,7 @@ object_post_as_copy           true             Set object_post_as_copy = false
                                                the metadata changes are stored
                                                anew and the original data file
                                                is kept in place. This makes for
-                                               quicker posts; but since the
-                                               container metadata isn't updated
-                                               in this mode, features like
-                                               container sync won't be able to
-                                               sync posts.
+                                               quicker posts.
 account_autocreate            false            If set to 'true' authorized
                                                accounts that do not yet exist
                                                within the Swift cluster will
