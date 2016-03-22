@@ -359,6 +359,9 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                  ]
             self.assertEqual(locations, expected)
 
+            # Reset status file for next run
+            diskfile.clear_auditor_status(tmpdir)
+
             # now without a logger
             locations = [(loc.path, loc.device, loc.partition, loc.policy)
                          for loc in diskfile.object_audit_location_generator(
@@ -432,6 +435,40 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                 self.assertRaises(OSError, list_locations, tmpdir)
             with mock.patch('os.listdir', splode_if_endswith("b54")):
                 self.assertRaises(OSError, list_locations, tmpdir)
+
+    def test_auditor_status(self):
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects", "2", "a", "b"))
+
+            # Auditor starts, there are two partitions to check
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen.next()
+            gen.next()
+
+            # Auditor stopped for some reason without raising StopIterator in
+            # the generator and restarts There is now only one remaining
+            # partition to check
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen.next()
+
+            # There are no more remaining partitions
+            self.assertRaises(StopIteration, gen.next)
+
+            # There are no partitions to check if the auditor restarts another
+            # time and the status files have not been cleared
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            self.assertRaises(StopIteration, gen.next)
+
+            # Reset status file
+            diskfile.clear_auditor_status(tmpdir)
+
+            # If the auditor restarts another time, we expect to
+            # check two partitions again, because the remaining
+            # partitions were empty and a new listdir was executed
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen.next()
+            gen.next()
 
 
 class TestDiskFileRouter(unittest.TestCase):

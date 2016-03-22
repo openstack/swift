@@ -26,7 +26,8 @@ from test.unit import FakeLogger, patch_policies, make_timestamp_iter, \
     DEFAULT_TEST_EC_TYPE
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
-    get_data_dir, DiskFileManager, ECDiskFileManager, AuditLocation
+    get_data_dir, DiskFileManager, ECDiskFileManager, AuditLocation, \
+    clear_auditor_status, get_auditor_status
 from swift.common.utils import mkdirs, normalize_timestamp, Timestamp
 from swift.common.storage_policy import ECStoragePolicy, StoragePolicy, \
     POLICIES
@@ -460,6 +461,7 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.isdir(quarantine_path))
         del(kwargs['zero_byte_fps'])
+        clear_auditor_status(self.devices)
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 
@@ -495,10 +497,20 @@ class TestAuditor(unittest.TestCase):
         self.setup_bad_zero_byte()
         kwargs = {'mode': 'once'}
         kwargs['zero_byte_fps'] = 50
-        self.auditor.run_audit(**kwargs)
+
+        called_args = [0]
+
+        def mock_get_auditor_status(path, logger, audit_type):
+            called_args[0] = audit_type
+            return get_auditor_status(path, logger, audit_type)
+
+        with mock.patch('swift.obj.diskfile.get_auditor_status',
+                        mock_get_auditor_status):
+                self.auditor.run_audit(**kwargs)
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
         self.assertTrue(os.path.isdir(quarantine_path))
+        self.assertEqual('ZBF', called_args[0])
 
     def test_object_run_fast_track_zero_check_closed(self):
         rat = [False]

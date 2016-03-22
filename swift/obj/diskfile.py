@@ -33,6 +33,7 @@ are also not considered part of the backend API.
 import six.moves.cPickle as pickle
 import errno
 import fcntl
+import json
 import os
 import time
 import uuid
@@ -326,7 +327,7 @@ class AuditLocation(object):
 
 
 def object_audit_location_generator(devices, mount_check=True, logger=None,
-                                    device_dirs=None):
+                                    device_dirs=None, auditor_type="ALL"):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
     objects stored under that directory if device_dirs isn't set.  If
@@ -340,7 +341,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
-    :device_dirs: a list of directories under devices to traverse
+    :param device_dirs: a list of directories under devices to traverse
+    :param auditor_type: either ALL or ZBF
     """
     if not device_dirs:
         device_dirs = listdir(devices)
@@ -370,8 +372,12 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                                      'to a valid policy (%s)') % (dir_, e))
                 continue
             datadir_path = os.path.join(devices, device, dir_)
-            partitions = listdir(datadir_path)
-            for partition in partitions:
+
+            partitions = get_auditor_status(datadir_path, logger, auditor_type)
+
+            for pos, partition in enumerate(partitions):
+                update_auditor_status(datadir_path, logger,
+                                      partitions[pos:], auditor_type)
                 part_path = os.path.join(datadir_path, partition)
                 try:
                     suffixes = listdir(part_path)
@@ -391,6 +397,51 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                         hsh_path = os.path.join(suff_path, hsh)
                         yield AuditLocation(hsh_path, device, partition,
                                             policy)
+
+            update_auditor_status(datadir_path, logger, [], auditor_type)
+
+
+def get_auditor_status(datadir_path, logger, auditor_type):
+    auditor_status = os.path.join(
+        datadir_path, "auditor_status_%s.json" % auditor_type)
+    status = {}
+    try:
+        with open(auditor_status) as statusfile:
+            status = statusfile.read()
+    except (OSError, IOError) as e:
+        if e.errno != errno.ENOENT and logger:
+            logger.warning(_('Cannot read %s (%s)') % (auditor_status, e))
+        return listdir(datadir_path)
+    try:
+        status = json.loads(status)
+    except ValueError as e:
+        logger.warning(_('Loading JSON from %s failed (%s)') % (
+                       auditor_status, e))
+        return listdir(datadir_path)
+    return status['partitions']
+
+
+def update_auditor_status(datadir_path, logger, partitions, auditor_type):
+    status = json.dumps({'partitions': partitions})
+    auditor_status = os.path.join(
+        datadir_path, "auditor_status_%s.json" % auditor_type)
+    try:
+        with open(auditor_status, "wb") as statusfile:
+            statusfile.write(status)
+    except (OSError, IOError) as e:
+        if logger:
+            logger.warning(_('Cannot write %s (%s)') % (auditor_status, e))
+
+
+def clear_auditor_status(devices, auditor_type="ALL"):
+    for device in os.listdir(devices):
+        for dir_ in os.listdir(os.path.join(devices, device)):
+            if not dir_.startswith("objects"):
+                continue
+            datadir_path = os.path.join(devices, device, dir_)
+            auditor_status = os.path.join(
+                datadir_path, "auditor_status_%s.json" % auditor_type)
+            remove_file(auditor_status)
 
 
 def strip_self(f):
@@ -1081,14 +1132,17 @@ class BaseDiskFileManager(object):
                                  policy=policy, use_splice=self.use_splice,
                                  pipe_size=self.pipe_size, **kwargs)
 
-    def object_audit_location_generator(self, device_dirs=None):
+    def object_audit_location_generator(self, device_dirs=None,
+                                        auditor_type="ALL"):
         """
         Yield an AuditLocation for all objects stored under device_dirs.
 
         :param device_dirs: directory of target device
+        :param auditor_type: either ALL or ZBF
         """
         return object_audit_location_generator(self.devices, self.mount_check,
-                                               self.logger, device_dirs)
+                                               self.logger, device_dirs,
+                                               auditor_type)
 
     def get_diskfile_from_audit_location(self, audit_location):
         """

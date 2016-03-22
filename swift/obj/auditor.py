@@ -95,7 +95,9 @@ class AuditorWorker(object):
         # can find all diskfile locations regardless of policy -- so for now
         # just use Policy-0's manager.
         all_locs = (self.diskfile_router[POLICIES[0]]
-                    .object_audit_location_generator(device_dirs=device_dirs))
+                    .object_audit_location_generator(
+                        device_dirs=device_dirs,
+                        auditor_type=self.auditor_type))
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -155,6 +157,9 @@ class AuditorWorker(object):
         if self.stats_sizes:
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
+
+        # Unset remaining partitions to not skip them in the next run
+        diskfile.clear_auditor_status(self.devices, self.auditor_type)
 
     def record_stats(self, obj_size):
         """
