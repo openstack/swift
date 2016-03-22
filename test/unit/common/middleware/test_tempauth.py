@@ -268,16 +268,19 @@ class TestAuth(unittest.TestCase):
     def test_auth_with_s3_authorization(self):
         local_app = FakeApp()
         local_auth = auth.filter_factory(
-            {'user_s3_s3': 's3 .admin'})(local_app)
-        req = self._make_request('/v1/AUTH_s3',
-                                 headers={'X-Auth-Token': 't',
-                                          'AUTHORIZATION': 'AWS s3:s3:pass'})
+            {'user_s3_s3': 'secret .admin'})(local_app)
+        req = self._make_request('/v1/AUTH_s3', environ={
+            'swift3.auth_details': {
+                'access_key': 's3:s3',
+                'signature': b64encode('sig'),
+                'string_to_sign': 't'}})
 
-        with mock.patch('base64.urlsafe_b64decode') as msg, \
-                mock.patch('base64.encodestring') as sign:
-            msg.return_value = ''
-            sign.return_value = 'pass'
+        with mock.patch('hmac.new') as hmac:
+            hmac.return_value.digest.return_value = 'sig'
             resp = req.get_response(local_auth)
+            self.assertEqual(hmac.mock_calls, [
+                mock.call('secret', 't', mock.ANY),
+                mock.call().digest()])
 
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(local_app.calls, 1)
