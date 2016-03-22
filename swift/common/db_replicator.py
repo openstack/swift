@@ -860,7 +860,8 @@ class ReplicatorRpc(object):
             mkdirs(os.path.join(self.root, drive, 'tmp'))
             if not self._db_file_exists(db_file):
                 return HTTPNotFound()
-            return getattr(self, op)(self.broker_class(db_file), args)
+            return getattr(self, op)(
+                self.broker_class(db_file, logger=self.logger), args)
 
     @contextmanager
     def debug_timing(self, name):
@@ -970,7 +971,7 @@ class ReplicatorRpc(object):
             return HTTPNotFound()
         if not os.path.exists(old_filename):
             return HTTPNotFound()
-        broker = self.broker_class(old_filename)
+        broker = self.broker_class(old_filename, logger=self.logger)
         broker.newid(args[0])
         renamer(old_filename, db_file)
         return HTTPNoContent()
@@ -987,8 +988,8 @@ class ReplicatorRpc(object):
         tmp_filename = os.path.join(self.root, drive, 'tmp', args[0])
         if self._abort_rsync_then_merge(db_file, tmp_filename):
             return HTTPNotFound()
-        new_broker = self.broker_class(tmp_filename)
-        existing_broker = self.broker_class(db_file)
+        new_broker = self.broker_class(tmp_filename, logger=self.logger)
+        existing_broker = self.broker_class(db_file, logger=self.logger)
         db_file = existing_broker.db_file
         point = -1
         objects = existing_broker.get_items_since(point, 1000)
