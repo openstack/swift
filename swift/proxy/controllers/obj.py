@@ -1772,7 +1772,7 @@ class ECPutter(object):
 
     @classmethod
     def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
-                chunked=False):
+                chunked=False, expected_frag_archive_size=None):
         """
         Connect to a backend node and send the headers.
 
@@ -1794,9 +1794,10 @@ class ECPutter(object):
         # we must use chunked encoding.
         headers['Transfer-Encoding'] = 'chunked'
         headers['Expect'] = '100-continue'
-        if 'Content-Length' in headers:
-            headers['X-Backend-Obj-Content-Length'] = \
-                headers.pop('Content-Length')
+
+        # make sure this isn't there
+        headers.pop('Content-Length')
+        headers['X-Backend-Obj-Content-Length'] = expected_frag_archive_size
 
         headers['X-Backend-Obj-Multipart-Mime-Boundary'] = mime_boundary
 
@@ -2121,8 +2122,32 @@ class ECObjectController(BaseObjectController):
         # the object server will get different bytes, so these
         # values do not apply (Content-Length might, in general, but
         # in the specific case of replication vs. EC, it doesn't).
-        headers.pop('Content-Length', None)
+        client_cl = headers.pop('Content-Length', None)
         headers.pop('Etag', None)
+
+        expected_frag_size = None
+        if client_cl:
+            policy_index = int(headers.get('X-Backend-Storage-Policy-Index'))
+            policy = POLICIES.get_by_index(policy_index)
+            # TODO: PyECLib <= 1.2.0 looks to return the segment info
+            # different from the input for aligned data efficiency but
+            # Swift never does. So calculate the fragment length Swift
+            # will actually send to object sever by making two different
+            # get_segment_info calls (until PyECLib fixed).
+            # policy.fragment_size makes the call using segment size,
+            # and the next call is to get info for the last segment
+
+            # get number of fragments except the tail - use truncation //
+            num_fragments = int(client_cl) // policy.ec_segment_size
+            expected_frag_size = policy.fragment_size * num_fragments
+
+            # calculate the tail fragment_size by hand and add it to
+            # expected_frag_size
+            last_segment_size = int(client_cl) % policy.ec_segment_size
+            if last_segment_size:
+                last_info = policy.pyeclib_driver.get_segment_info(
+                    last_segment_size, policy.ec_segment_size)
+                expected_frag_size += last_info['fragment_size']
 
         self.app.logger.thread_locals = logger_thread_locals
         for node in node_iter:
@@ -2130,7 +2155,8 @@ class ECObjectController(BaseObjectController):
                 putter = ECPutter.connect(
                     node, part, path, headers,
                     conn_timeout=self.app.conn_timeout,
-                    node_timeout=self.app.node_timeout)
+                    node_timeout=self.app.node_timeout,
+                    expected_frag_archive_size=expected_frag_size)
                 self.app.set_node_timing(node, putter.connect_duration)
                 return putter
             except InsufficientStorage:
