@@ -34,6 +34,19 @@ from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
 
 
+class FakeConn(object):
+    def __init__(self, body=None):
+        if body is None:
+            body = []
+        self.body = body
+
+    def read(self):
+        return json.dumps(self.body)
+
+    def info(self):
+        return {}
+
+
 def not_sleep(seconds):
     pass
 
@@ -339,17 +352,10 @@ class TestInternalClient(unittest.TestCase):
         # verify that base_request passes timeout arg on to urlopen
         body = {"some": "content"}
 
-        class FakeConn(object):
-            def read(self):
-                return json.dumps(body)
-
-            def info(self):
-                return {}
-
         for timeout in (0.0, 42.0, None):
             mocked_func = 'swift.common.internal_client.urllib2.urlopen'
             with mock.patch(mocked_func) as mock_urlopen:
-                mock_urlopen.side_effect = [FakeConn()]
+                mock_urlopen.side_effect = [FakeConn(body)]
                 sc = internal_client.SimpleClient('http://0.0.0.0/')
                 _, resp_body = sc.base_request('GET', timeout=timeout)
                 mock_urlopen.assert_called_once_with(mock.ANY, timeout=timeout)
@@ -361,23 +367,21 @@ class TestInternalClient(unittest.TestCase):
         body2 = [{'name': 'd'}]
         body3 = []
 
-        class FakeConn(object):
-            def __init__(self, body):
-                self.body = body
-
-            def read(self):
-                return json.dumps(self.body)
-
-            def info(self):
-                return {}
-
         mocked_func = 'swift.common.internal_client.urllib2.urlopen'
         with mock.patch(mocked_func) as mock_urlopen:
             mock_urlopen.side_effect = [
                 FakeConn(body1), FakeConn(body2), FakeConn(body3)]
             sc = internal_client.SimpleClient('http://0.0.0.0/')
             _, resp_body = sc.base_request('GET', full_listing=True)
-            self.assertEqual(body1 + body2, resp_body)
+        self.assertEqual(body1 + body2, resp_body)
+        self.assertEqual(3, mock_urlopen.call_count)
+        actual_requests = map(
+            lambda call: call[0][0], mock_urlopen.call_args_list)
+        self.assertEqual('/?format=json', actual_requests[0].get_selector())
+        self.assertEqual(
+            '/?format=json&marker=c', actual_requests[1].get_selector())
+        self.assertEqual(
+            '/?format=json&marker=d', actual_requests[2].get_selector())
 
     def test_make_request_method_path_headers(self):
         class InternalClient(internal_client.InternalClient):
@@ -1414,14 +1418,6 @@ class TestSimpleClient(unittest.TestCase):
         proxy_host = '127.0.0.1:80'
         proxy = '%s://%s' % (scheme, proxy_host)
         url = 'https://127.0.0.1:1/a'
-
-        class FakeConn(object):
-
-            def read(self):
-                return 'irrelevant'
-
-            def info(self):
-                return {}
 
         mocked = 'swift.common.internal_client.urllib2.urlopen'
 
