@@ -9,13 +9,13 @@
 # Remo Mattei <Remo@rm.ht>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev244\n"
+"Project-Id-Version: swift 2.6.1.dev254\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 03:44+0000\n"
+"POT-Creation-Date: 2016-03-22 19:48+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-22 05:18+0000\n"
+"PO-Revision-Date: 2016-03-22 05:31+0000\n"
 "Last-Translator: Remo Mattei <Remo@rm.ht>\n"
 "Language: it\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -226,6 +226,14 @@ msgstr "Impossibile accedere al file %s."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "Impossibile caricare i dati del profilo da %s."
+
+#, python-format
+msgid "Cannot read %s (%s)"
+msgstr "Non e' possibile leggere %s (%s)"
+
+#, python-format
+msgid "Cannot write %s (%s)"
+msgstr "Non e' possibile scriver %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -440,7 +448,7 @@ msgstr "ERRORE Eccezione non gestita nella richiesta"
 
 #, python-format
 msgid "ERROR __call__ error with %(method)s %(path)s "
-msgstr "ERRORE Errore __call__ con %(method)s %(path)s "
+msgstr "ERRORE  errore __call__ con %(method)s %(path)s "
 
 #, python-format
 msgid ""
@@ -588,7 +596,7 @@ msgstr ""
 "%(frag_index)s"
 
 msgid "Error: An error occurred"
-msgstr "Errore: si è verificato un errore"
+msgstr "Errore: Si è verificato un errore"
 
 msgid "Error: missing config path argument"
 msgstr "Errore: Argomento path della configurazione mancante"
@@ -598,7 +606,7 @@ msgid "Error: unable to locate %s"
 msgstr "Errore: impossibile individuare %s"
 
 msgid "Exception dumping recon cache"
-msgstr "Eccezione durante il dump della cache di riconoscimento"
+msgstr "Eccezione durante il dump della cache di recon"
 
 msgid "Exception in top-level account reaper loop"
 msgstr "Eccezione nel loop reaper dell'account di livello superiore"
@@ -693,6 +701,10 @@ msgstr ""
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr "Chiusura rsync ad elaborazione prolungata: %s"
+
+#, python-format
+msgid "Loading JSON from %s failed (%s)"
+msgstr "Caricamento JSON dal %s fallito (%s)"
 
 msgid "Lockup detected.. killing live coros."
 msgstr "Blocco rilevato... chiusura dei coros attivi."
@@ -926,7 +938,7 @@ msgstr "Esecuzione della replica TERMINATA"
 
 #, python-format
 msgid "Returning 497 because of blacklisting: %s"
-msgstr "Viene restituito 497 a causa della blacklist: %s"
+msgstr "Viene restituito il codice 497 a causa della blacklist: %s"
 
 #, python-format
 msgid ""

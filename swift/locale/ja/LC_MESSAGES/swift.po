@@ -7,16 +7,17 @@
 # Akihiro Motoki <amotoki@gmail.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
+# 笹原 昌美 <ebb0de1@jp.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev176\n"
+"Project-Id-Version: swift 2.6.1.dev254\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"POT-Creation-Date: 2016-03-22 19:48+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2015-09-26 09:26+0000\n"
-"Last-Translator: Akihiro Motoki <amotoki@gmail.com>\n"
+"PO-Revision-Date: 2016-03-23 02:20+0000\n"
+"Last-Translator: 笹原 昌美 <ebb0de1@jp.ibm.com>\n"
 "Language: ja\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -888,6 +889,10 @@ msgstr ""
 #, python-format
 msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "memcached %(server)s に対する %(action)s がタイムアウトになりました"
+
+#, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "%(ip)s:%(port)s/%(device)s のタイムアウト例外"
 
 #, python-format
 msgid "Trying to %(method)s %(path)s"
