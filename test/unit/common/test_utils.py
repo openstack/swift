@@ -18,6 +18,7 @@ from __future__ import print_function
 from test.unit import temptree
 
 import ctypes
+import contextlib
 import errno
 import eventlet
 import eventlet.event
@@ -3420,6 +3421,86 @@ class ResellerConfReader(unittest.TestCase):
                          options['AUTH_'].get('require_group'))
         self.assertEqual('auth_blank_group', options[''].get('require_group'))
         self.assertEqual('pre2_group', options['PRE2_'].get('require_group'))
+
+
+class TestUnlinkOlder(unittest.TestCase):
+
+    def setUp(self):
+        self.tempdir = mkdtemp()
+        self.mtime = {}
+
+    def tearDown(self):
+        rmtree(self.tempdir, ignore_errors=True)
+
+    def touch(self, fpath, mtime=None):
+        self.mtime[fpath] = mtime or time.time()
+        open(fpath, 'w')
+
+    @contextlib.contextmanager
+    def high_resolution_getmtime(self):
+        orig_getmtime = os.path.getmtime
+
+        def mock_getmtime(fpath):
+            mtime = self.mtime.get(fpath)
+            if mtime is None:
+                mtime = orig_getmtime(fpath)
+            return mtime
+
+        with mock.patch('os.path.getmtime', mock_getmtime):
+            yield
+
+    def test_unlink_older_than_path_not_exists(self):
+        path = os.path.join(self.tempdir, 'does-not-exist')
+        # just make sure it doesn't blow up
+        utils.unlink_older_than(path, time.time())
+
+    def test_unlink_older_than_file(self):
+        path = os.path.join(self.tempdir, 'some-file')
+        self.touch(path)
+        with self.assertRaises(OSError) as ctx:
+            utils.unlink_older_than(path, time.time())
+        self.assertEqual(ctx.exception.errno, errno.ENOTDIR)
+
+    def test_unlink_older_than_now(self):
+        self.touch(os.path.join(self.tempdir, 'test'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, time.time())
+        self.assertEqual([], os.listdir(self.tempdir))
+
+    def test_unlink_not_old_enough(self):
+        start = time.time()
+        self.touch(os.path.join(self.tempdir, 'test'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, start)
+        self.assertEqual(['test'], os.listdir(self.tempdir))
+
+    def test_unlink_mixed(self):
+        self.touch(os.path.join(self.tempdir, 'first'))
+        cutoff = time.time()
+        self.touch(os.path.join(self.tempdir, 'second'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, cutoff)
+        self.assertEqual(['second'], os.listdir(self.tempdir))
+
+    def test_unlink_paths(self):
+        paths = []
+        for item in ('first', 'second', 'third'):
+            path = os.path.join(self.tempdir, item)
+            self.touch(path)
+            paths.append(path)
+        # don't unlink everyone
+        with self.high_resolution_getmtime():
+            utils.unlink_paths_older_than(paths[:2], time.time())
+        self.assertEqual(['third'], os.listdir(self.tempdir))
+
+    def test_unlink_empty_paths(self):
+        # just make sure it doesn't blow up
+        utils.unlink_paths_older_than([], time.time())
+
+    def test_unlink_not_exists_paths(self):
+        path = os.path.join(self.tempdir, 'does-not-exist')
+        # just make sure it doesn't blow up
+        utils.unlink_paths_older_than([path], time.time())
 
 
 class TestSwiftInfo(unittest.TestCase):

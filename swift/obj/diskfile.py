@@ -741,7 +741,10 @@ class BaseDiskFileManager(object):
         # dicts for the files having that extension. The file_info dicts are of
         # the form returned by parse_on_disk_filename, with the filename added.
         # Each list is sorted in reverse timestamp order.
-        #
+
+        # the results dict is used to collect results of file filtering
+        results = {}
+
         # The exts dict will be modified during subsequent processing as files
         # are removed to be discarded or ignored.
         exts = defaultdict(list)
@@ -752,15 +755,14 @@ class BaseDiskFileManager(object):
                 file_info['filename'] = afile
                 exts[file_info['ext']].append(file_info)
             except DiskFileError as e:
-                self.logger.warning('Unexpected file %s: %s' %
-                                    (os.path.join(datadir or '', afile), e))
+                file_path = os.path.join(datadir or '', afile)
+                self.logger.warning('Unexpected file %s: %s',
+                                    file_path, e)
+                results.setdefault('unexpected', []).append(file_path)
         for ext in exts:
             # For each extension sort files into reverse chronological order.
             exts[ext] = sorted(
                 exts[ext], key=lambda info: info['timestamp'], reverse=True)
-
-        # the results dict is used to collect results of file filtering
-        results = {}
 
         if exts.get('.ts'):
             # non-tombstones older than or equal to latest tombstone are

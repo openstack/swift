@@ -738,6 +738,11 @@ concurrency                 1                   The number of parallel processes
 zero_byte_files_per_second  50
 object_size_stats
 recon_cache_path            /var/cache/swift    Path to recon cache
+rsync_tempfile_timeout      auto                Time elapsed in seconds before rsync
+                                                tempfiles will be unlinked. Config value
+                                                of "auto" try to use object-replicator's
+                                                rsync_timeout + 900 or fallback to 86400
+                                                (1 day).
 =========================== =================== ==========================================
 
 ------------------------------

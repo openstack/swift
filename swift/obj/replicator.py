@@ -41,6 +41,7 @@ from swift.obj import ssync_sender
 from swift.obj.diskfile import DiskFileManager, get_data_dir, get_tmp_dir
 from swift.common.storage_policy import POLICIES, REPL_POLICY
 
+DEFAULT_RSYNC_TIMEOUT = 900
 
 hubs.use_hub(get_hub())
 
@@ -76,7 +77,8 @@ class ObjectReplicator(Daemon):
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.rsync_timeout = int(conf.get('rsync_timeout', 900))
+        self.rsync_timeout = int(conf.get('rsync_timeout',
+                                          DEFAULT_RSYNC_TIMEOUT))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
         self.rsync_compress = config_true_value(

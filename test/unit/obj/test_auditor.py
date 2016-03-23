@@ -22,15 +22,18 @@ import string
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
-from test.unit import FakeLogger, patch_policies, make_timestamp_iter, \
-    DEFAULT_TEST_EC_TYPE
-from swift.obj import auditor
-from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
-    get_data_dir, DiskFileManager, ECDiskFileManager, AuditLocation, \
-    clear_auditor_status, get_auditor_status
-from swift.common.utils import mkdirs, normalize_timestamp, Timestamp
-from swift.common.storage_policy import ECStoragePolicy, StoragePolicy, \
-    POLICIES
+import textwrap
+from test.unit import (FakeLogger, patch_policies, make_timestamp_iter,
+                       DEFAULT_TEST_EC_TYPE)
+from swift.obj import auditor, replicator
+from swift.obj.diskfile import (
+    DiskFile, write_metadata, invalidate_hash, get_data_dir,
+    DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
+    get_auditor_status)
+from swift.common.utils import (
+    mkdirs, normalize_timestamp, Timestamp, readconf)
+from swift.common.storage_policy import (
+    ECStoragePolicy, StoragePolicy, POLICIES)
 
 
 _mocked_policies = [
@@ -274,6 +277,161 @@ class TestAuditor(unittest.TestCase):
                 AuditLocation(os.path.dirname(path), 'sda', '0',
                               policy=POLICIES.legacy))
         self.assertEqual(auditor_worker.errors, 1)
+
+    def test_audit_location_gets_quarantined(self):
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+
+        location = AuditLocation(self.disk_file._datadir, 'sda', '0',
+                                 policy=self.disk_file.policy)
+
+        # instead of a datadir, we'll make a file!
+        mkdirs(os.path.dirname(self.disk_file._datadir))
+        open(self.disk_file._datadir, 'w')
+
+        # after we turn the crank ...
+        auditor_worker.object_audit(location)
+
+        # ... it should get quarantined
+        self.assertFalse(os.path.exists(self.disk_file._datadir))
+        self.assertEqual(1, auditor_worker.quarantines)
+
+    def test_rsync_tempfile_timeout_auto_option(self):
+        # if we don't have access to the replicator config section we'll use
+        # our default
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout, 86400)
+        # if the rsync_tempfile_timeout option is set explicitly we use that
+        self.conf['rsync_tempfile_timeout'] = '1800'
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout, 1800)
+        # if we have a real config we can be a little smarter
+        config_path = os.path.join(self.testdir, 'objserver.conf')
+        stub_config = """
+        [object-auditor]
+        rsync_tempfile_timeout = auto
+        """
+        with open(config_path, 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        # the Daemon loader will hand the object-auditor config to the
+        # auditor who will build the workers from it
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        # if there is no object-replicator section we still have to fall back
+        # to default because we can't parse the config for that section!
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout, 86400)
+        stub_config = """
+        [object-replicator]
+        [object-auditor]
+        rsync_tempfile_timeout = auto
+        """
+        with open(os.path.join(self.testdir, 'objserver.conf'), 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        # if the object-replicator section will parse but does not override
+        # the default rsync_timeout we assume the default rsync_timeout value
+        # and add 15mins
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout,
+                         replicator.DEFAULT_RSYNC_TIMEOUT + 900)
+        stub_config = """
+        [DEFAULT]
+        reclaim_age = 1209600
+        [object-replicator]
+        rsync_timeout = 3600
+        [object-auditor]
+        rsync_tempfile_timeout = auto
+        """
+        with open(os.path.join(self.testdir, 'objserver.conf'), 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        # if there is an object-replicator section with a rsync_timeout
+        # configured we'll use that value (3600) + 900
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout, 3600 + 900)
+
+    def test_inprogress_rsync_tempfiles_get_cleaned_up(self):
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+
+        location = AuditLocation(self.disk_file._datadir, 'sda', '0',
+                                 policy=self.disk_file.policy)
+
+        data = 'VERIFY'
+        etag = md5()
+        timestamp = str(normalize_timestamp(time.time()))
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            etag.update(data)
+            metadata = {
+                'ETag': etag.hexdigest(),
+                'X-Timestamp': timestamp,
+                'Content-Length': str(os.fstat(writer._fd).st_size),
+            }
+            writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
+
+        datafilename = None
+        datadir_files = os.listdir(self.disk_file._datadir)
+        for filename in datadir_files:
+            if filename.endswith('.data'):
+                datafilename = filename
+                break
+        else:
+            self.fail('Did not find .data file in %r: %r' %
+                      (self.disk_file._datadir, datadir_files))
+        rsynctempfile_path = os.path.join(self.disk_file._datadir,
+                                          '.%s.9ILVBL' % datafilename)
+        open(rsynctempfile_path, 'w')
+        # sanity check we have an extra file
+        rsync_files = os.listdir(self.disk_file._datadir)
+        self.assertEqual(len(datadir_files) + 1, len(rsync_files))
+
+        # and after we turn the crank ...
+        auditor_worker.object_audit(location)
+
+        # ... we've still got the rsync file
+        self.assertEqual(rsync_files, os.listdir(self.disk_file._datadir))
+
+        # and we'll keep it - depending on the rsync_tempfile_timeout
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout, 86400)
+        self.conf['rsync_tempfile_timeout'] = '3600'
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout, 3600)
+        now = time.time() + 1900
+        with mock.patch('swift.obj.auditor.time.time',
+                        return_value=now):
+            auditor_worker.object_audit(location)
+        self.assertEqual(rsync_files, os.listdir(self.disk_file._datadir))
+
+        # but *tomorrow* when we run
+        tomorrow = time.time() + 86400
+        with mock.patch('swift.obj.auditor.time.time',
+                        return_value=tomorrow):
+            auditor_worker.object_audit(location)
+
+        # ... we'll totally clean that stuff up!
+        self.assertEqual(datadir_files, os.listdir(self.disk_file._datadir))
+
+        # but if we have some random crazy file in there
+        random_crazy_file_path = os.path.join(self.disk_file._datadir,
+                                              '.random.crazy.file')
+        open(random_crazy_file_path, 'w')
+
+        tomorrow = time.time() + 86400
+        with mock.patch('swift.obj.auditor.time.time',
+                        return_value=tomorrow):
+            auditor_worker.object_audit(location)
+
+        # that's someone elses problem
+        self.assertIn(os.path.basename(random_crazy_file_path),
+                      os.listdir(self.disk_file._datadir))
 
     def test_generic_exception_handling(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,

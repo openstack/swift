@@ -2122,10 +2122,21 @@ def unlink_older_than(path, mtime):
     Remove any file in a given path that that was last modified before mtime.
 
     :param path: path to remove file from
-    :mtime: timestamp of oldest file to keep
+    :param mtime: timestamp of oldest file to keep
     """
-    for fname in listdir(path):
-        fpath = os.path.join(path, fname)
+    filepaths = map(functools.partial(os.path.join, path), listdir(path))
+    return unlink_paths_older_than(filepaths, mtime)
+
+
+def unlink_paths_older_than(filepaths, mtime):
+    """
+    Remove any files from the given list that that were
+    last modified before mtime.
+
+    :param filepaths: a list of strings, the full paths of files to check
+    :param mtime: timestamp of oldest file to keep
+    """
+    for fpath in filepaths:
         try:
             if os.path.getmtime(fpath) < mtime:
                 os.unlink(fpath)
