@@ -971,8 +971,7 @@ is false.
 .IP \fBobject_post_as_copy\fR
 Set object_post_as_copy = false to turn on fast posts where only the metadata changes
 are stored as new and the original data file is kept in place. This makes for quicker
-posts; but since the container metadata isn't updated in this mode, features like
-container sync won't be able to sync posts. The default is True.
+posts. The default is True.
 .IP \fBaccount_autocreate\fR
 If set to 'true' authorized accounts that do not yet exist within the Swift cluster
 will be automatically created. The default is set to false.
