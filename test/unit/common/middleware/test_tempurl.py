@@ -215,6 +215,31 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
 
+    def test_head_and_get_headers_match(self):
+        method = 'HEAD'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'REQUEST_METHOD': 'HEAD',
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s'
+            % (sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+
+        get_method = 'GET'
+        get_hmac_body = '%s\n%s\n%s' % (get_method, expires, path)
+        get_sig = hmac.new(key, get_hmac_body, sha1).hexdigest()
+        get_req = self._make_request(path, keys=[key], environ={
+            'REQUEST_METHOD': 'GET',
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s'
+            % (get_sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        get_resp = get_req.get_response(self.tempurl)
+        self.assertEqual(resp.headers, get_resp.headers)
+
     def test_get_valid_with_filename_and_inline(self):
         method = 'GET'
         expires = int(time() + 86400)
