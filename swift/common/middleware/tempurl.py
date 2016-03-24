@@ -400,7 +400,7 @@ class TempURL(object):
 
         def _start_response(status, headers, exc_info=None):
             headers = self._clean_outgoing_headers(headers)
-            if env['REQUEST_METHOD'] == 'GET' and status[0] == '2':
+            if env['REQUEST_METHOD'] in ('GET', 'HEAD') and status[0] == '2':
                 # figure out the right value for content-disposition
                 # 1) use the value from the query string
                 # 2) use the value from the object metadata
