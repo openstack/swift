@@ -1118,6 +1118,11 @@ class ECAppIter(object):
         self.stashed_iter = None
 
     def close(self):
+        # close down the stashed iter first so the ContextPool can
+        # cleanup the frag queue feeding coros that may be currently
+        # executing the internal_parts_iters.
+        if self.stashed_iter:
+            self.stashed_iter.close()
         for it in self.internal_parts_iters:
             close_if_possible(it)
 
