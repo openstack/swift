@@ -356,6 +356,29 @@ class TestInternalClient(unittest.TestCase):
                 # sanity check
                 self.assertEqual(body, resp_body)
 
+    def test_base_full_listing(self):
+        body1 = [{'name': 'a'}, {'name': "b"}, {'name': "c"}]
+        body2 = [{'name': 'd'}]
+        body3 = []
+
+        class FakeConn(object):
+            def __init__(self, body):
+                self.body = body
+
+            def read(self):
+                return json.dumps(self.body)
+
+            def info(self):
+                return {}
+
+        mocked_func = 'swift.common.internal_client.urllib2.urlopen'
+        with mock.patch(mocked_func) as mock_urlopen:
+            mock_urlopen.side_effect = [
+                FakeConn(body1), FakeConn(body2), FakeConn(body3)]
+            sc = internal_client.SimpleClient('http://0.0.0.0/')
+            _, resp_body = sc.base_request('GET', full_listing=True)
+            self.assertEqual(body1 + body2, resp_body)
+
     def test_make_request_method_path_headers(self):
         class InternalClient(internal_client.InternalClient):
             def __init__(self):

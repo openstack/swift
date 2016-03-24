@@ -741,10 +741,24 @@ class SimpleClient(object):
     def base_request(self, method, container=None, name=None, prefix=None,
                      headers=None, proxy=None, contents=None,
                      full_listing=None, logger=None, additional_info=None,
-                     timeout=None):
+                     timeout=None, marker=None):
         # Common request method
         trans_start = time()
         url = self.url
+
+        if full_listing:
+            body_data = self.base_request(method, container, name, prefix,
+                                          headers, proxy, timeout=timeout,
+                                          marker=marker)
+            listing = body_data[1]
+            while listing:
+                marker = listing[-1]['name']
+                listing = self.base_request(method, container, name, prefix,
+                                            headers, proxy, timeout=timeout,
+                                            marker=marker)[1]
+                if listing:
+                    body_data[1].extend(listing)
+            return body_data
 
         if headers is None:
             headers = {}
@@ -761,6 +775,9 @@ class SimpleClient(object):
             url += '?format=json'
             if prefix:
                 url += '&prefix=%s' % prefix
+
+            if marker:
+                url += '&marker=%s' % quote(marker)
 
         req = urllib2.Request(url, headers=headers, data=contents)
         if proxy:
