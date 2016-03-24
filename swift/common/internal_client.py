@@ -747,18 +747,18 @@ class SimpleClient(object):
         url = self.url
 
         if full_listing:
-            body_data = self.base_request(method, container, name, prefix,
-                                          headers, proxy, timeout=timeout,
-                                          marker=marker)
-            listing = body_data[1]
+            info, body_data = self.base_request(
+                method, container, name, prefix, headers, proxy,
+                timeout=timeout, marker=marker)
+            listing = body_data
             while listing:
                 marker = listing[-1]['name']
-                listing = self.base_request(method, container, name, prefix,
-                                            headers, proxy, timeout=timeout,
-                                            marker=marker)[1]
+                info, listing = self.base_request(
+                    method, container, name, prefix, headers, proxy,
+                    timeout=timeout, marker=marker)
                 if listing:
-                    body_data[1].extend(listing)
-            return body_data
+                    body_data.extend(listing)
+            return [info, body_data]
 
         if headers is None:
             headers = {}
