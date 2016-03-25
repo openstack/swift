@@ -10,13 +10,13 @@
 # 笹原 昌美 <ebb0de1@jp.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev254\n"
+"Project-Id-Version: swift 2.6.1.dev268\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 19:48+0000\n"
+"POT-Creation-Date: 2016-03-24 22:25+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-23 02:20+0000\n"
+"PO-Revision-Date: 2016-03-25 06:32+0000\n"
 "Last-Translator: 笹原 昌美 <ebb0de1@jp.ibm.com>\n"
 "Language: ja\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -53,6 +53,16 @@ msgstr "%(ip)s/%(device)s はアンマウントとして応答しました"
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
+
+#, python-format
+msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"%(device)d/%(dtotal)d (%(dpercentage).2f%%) デバイスの %(reconstructed)d/"
+"%(total)d (%(percentage).2f%%) パーティションが %(time).2fs で再構成されまし"
+"た (%(rate).2f/秒、残り %(remaining)s)"
 
 #, python-format
 msgid ""
@@ -211,6 +221,10 @@ msgid "Can not load profile data from %s."
 msgstr "プロファイルデータを %s からロードできません。"
 
 #, python-format
+msgid "Cannot read %s (%s)"
+msgstr "%s を読み取ることができません (%s)"
+
+#, python-format
 msgid "Client did not read from proxy within %ss"
 msgstr "クライアントは %s 内のプロキシーからの読み取りを行いませんでした"
 
@@ -226,6 +240,14 @@ msgid ""
 msgstr ""
 "クライアントパス %(client)s はオブジェクトメタデータ %(meta)s に保管されたパ"
 "スに一致しません"
+
+msgid ""
+"Configuration option internal_client_conf_path not defined. Using default "
+"configuration, See internal-client.conf-sample for options"
+msgstr ""
+"設定オプション internal_client_conf_path が定義されていません。デフォルト設定"
+"を使用しています。オプションについては internal-client.conf-sample を参照して"
+"ください"
 
 msgid "Connection refused"
 msgstr "接続が拒否されました"
@@ -283,6 +305,10 @@ msgstr "データダウンロードエラー: %s"
 #, fuzzy, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "デバイスパスが完了しました: %.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr "ディレクトリー %r は有効なポリシーにマップしていません (%s) "
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -534,6 +560,12 @@ msgstr "パーティションとの同期エラー"
 msgid "Error syncing with node: %s"
 msgstr "ノードとの同期エラー: %s"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr ""
+"%(path)s の再構築を試行中にエラーが発生しました。ポリシー #%(policy)d フラグ"
+"メント #%(frag_index)s"
+
 msgid "Error: An error occurred"
 msgstr "エラー: エラーが発生しました"
 
@@ -611,6 +643,10 @@ msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "無効な保留中項目 %(file)s: %(entry)s"
 
 #, python-format
+msgid "Invalid response %(resp)s from %(full_path)s"
+msgstr "%(full_path)s からの応答 %(resp)s が無効です"
+
+#, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
 msgstr "%(ip)s からの応答 %(resp)s が無効です"
 
@@ -625,6 +661,10 @@ msgstr ""
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr "長期実行の再同期を強制終了中: %s"
+
+#, python-format
+msgid "Loading JSON from %s failed (%s)"
+msgstr "%s からの JSON のロードが失敗しました (%s)"
 
 msgid "Lockup detected.. killing live coros."
 msgstr "ロックが検出されました.. ライブ coros を強制終了中"
@@ -646,8 +686,16 @@ msgid "No permission to signal PID %d"
 msgstr "PID %d にシグナル通知する許可がありません"
 
 #, python-format
+msgid "No policy with index %s"
+msgstr "インデックス %s のポリシーはありません"
+
+#, python-format
 msgid "No realm key for %r"
 msgstr "%r のレルムキーがありません"
+
+#, python-format
+msgid "No space left on device for %s (%s)"
+msgstr "%s 用のデバイス容量が残っていません (%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -660,6 +708,10 @@ msgid ""
 msgstr ""
 "不検出 %(sync_from)r => %(sync_to)r                       - オブジェクト "
 "%(obj_name)r"
+
+#, python-format
+msgid "Nothing reconstructed for %s seconds."
+msgstr "%s 秒間で何も再構成されませんでした。"
 
 #, python-format
 msgid "Nothing replicated for %s seconds."
@@ -691,6 +743,18 @@ msgstr ""
 "オブジェクト監査 (%(type)s) 「%(mode)s」モード完了: %(elapsed).02fs。合計検疫"
 "済み: %(quars)d、合計エラー: %(errors)d、合計ファイル/秒: %(frate).2f、合計バ"
 "イト/秒: %(brate).2f、監査時間: %(audit).2f、率: %(audit_rate).2f"
+
+#, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"オブジェクト監査 (%(type)s)。%(start_time)s 以降: ローカル: 合格した監査 "
+"%(passes)d、検疫済み %(quars)d、エラー %(errors)d、ファイル/秒: %(frate).2f、"
+"バイト/秒: %(brate).2f、合計時間: %(total).2f、監査時間: %(audit).2f、率: "
+"%(audit_rate).2f"
 
 #, python-format
 msgid "Object audit stats: %s"
@@ -758,6 +822,14 @@ msgid "Problem cleaning up %s"
 msgstr "%s のクリーンアップ中に問題が発生しました"
 
 #, python-format
+msgid "Problem cleaning up %s (%s)"
+msgstr "%s のクリーンアップ中に問題が発生しました (%s)"
+
+#, python-format
+msgid "Problem writing durable state file %s (%s)"
+msgstr "永続状態ファイル %s の書き込み中に問題が発生しました (%s)"
+
+#, python-format
 msgid "Profiling Error: %s"
 msgstr "プロファイル作成エラー: %s"
 
@@ -796,6 +868,14 @@ msgstr "%s オブジェクトの削除中"
 #, python-format
 msgid "Removing partition: %s"
 msgstr "パーティションの削除中: %s"
+
+#, python-format
+msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
+msgstr "正しくない pid %(pid)d の pid ファイル %(pid_file)s を削除中"
+
+#, python-format
+msgid "Removing pid file %s with invalid pid"
+msgstr "無効な pid の pid ファイル %s を削除中"
 
 #, python-format
 msgid "Removing stale pid file %s"
@@ -899,6 +979,10 @@ msgid "Trying to %(method)s %(path)s"
 msgstr "%(method)s %(path)s を試行中"
 
 #, python-format
+msgid "Trying to GET %(full_path)s"
+msgstr "GET %(full_path)s を試行中"
+
+#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "%s への PUT の最終状況の取得を試行中"
 
@@ -912,6 +996,10 @@ msgid "Trying to send to client"
 msgstr "クライアントへの送信を試行中"
 
 #, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "%s でサフィックスの同期を試行中"
+
+#, python-format
 msgid "Trying to write to %s"
 msgstr "%s への書き込みを試行中"
 
@@ -923,8 +1011,20 @@ msgid "Unable to find %s config section in %s"
 msgstr "%s 構成セクションが %s に見つかりません"
 
 #, python-format
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr "設定から内部クライアントをロードできません: %r (%s)"
+
+#, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "%s が libc に見つかりません。no-op として終了します。"
+
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr "%s の設定が見つかりません"
+
+#, python-format
+msgid "Unable to locate config number %s for %s"
+msgstr "%s の設定番号 %s が見つかりません"
 
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
@@ -949,6 +1049,11 @@ msgstr "予期しない応答: %s"
 
 msgid "Unhandled exception"
 msgstr "未処理例外"
+
+#, python-format
+msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
+msgstr ""
+"GET を試行中に不明な例外が発生しました: %(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
@@ -977,6 +1082,10 @@ msgstr "警告: メモリー制限を変更できません。非ルートとし�
 #, python-format
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr "%s 秒間、%s の停止を待機しました。中止します"
+
+#, python-format
+msgid "Waited %s seconds for %s to die; killing"
+msgstr "%s 秒間、%s の停止を待機しました。強制終了します"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告: memcached クライアントなしで ratelimit を行うことはできません"
