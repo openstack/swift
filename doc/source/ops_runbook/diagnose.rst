@@ -874,7 +874,7 @@ cycle of 15-20 hours can occur if nodes are added to the system and a
 new ring has been deployed.
 
 You can further check if the object replicator is stuck by logging on
-the the object server and checking the object replicator progress with
+the object server and checking the object replicator progress with
 the following command:
 
 .. code::
