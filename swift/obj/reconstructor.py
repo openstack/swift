@@ -68,7 +68,7 @@ def _get_partners(frag_index, part_nodes):
 
 class RebuildingECDiskFileStream(object):
     """
-    This class wraps the the reconstructed fragment archive data and
+    This class wraps the reconstructed fragment archive data and
     metadata in the DiskFile interface for ssync.
     """
 

@@ -47,7 +47,7 @@ class TestRingBuilder(unittest.TestCase):
     def _partition_counts(self, builder, key='id'):
         """
         Returns a dictionary mapping the given device key to (number of
-        partitions assigned to to that key).
+        partitions assigned to that key).
         """
         counts = defaultdict(int)
         for part2dev_id in builder._replica2part2dev:
