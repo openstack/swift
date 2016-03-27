@@ -19,7 +19,7 @@ import json
 import urllib
 from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.utils import get_logger, config_true_value
-from swift.common.request_helpers import get_object_transient_sysmeta_prefix, \
+from swift.common.request_helpers import get_object_transient_sysmeta, \
     strip_user_meta_prefix, is_user_meta
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity
@@ -167,7 +167,7 @@ class EncrypterObjContext(CryptoWSGIContext):
         if error_response:
                 return error_response
 
-        prefix = "%scrypto-meta-" % get_object_transient_sysmeta_prefix()
+        prefix = get_object_transient_sysmeta('crypto-meta-')
 
         for name, val in req.headers.items():
             # TODO - when encrypting account/container meta,

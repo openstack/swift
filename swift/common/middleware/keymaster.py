@@ -29,9 +29,10 @@ import hmac
 import os
 
 from swift.common.utils import get_logger, split_path
+from swift.common.crypto_utils import is_crypto_meta
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.wsgi import WSGIContext
-from swift.common.swob import Request, HTTPException
+from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
 
 
 class KeyMasterContext(WSGIContext):
@@ -107,6 +108,18 @@ class KeyMasterContext(WSGIContext):
                        self._response_exc_info)
         return resp
 
+    def error_if_need_keys(self, req):
+        # Determine if keys will actually be needed
+        # Look for any crypto-meta headers
+        if not hasattr(self, '_response_headers'):
+            return
+        for (h, v) in self._response_headers:
+            if is_crypto_meta(h, self.server_type):
+                    raise HTTPUnprocessableEntity(
+                        "Cannot get keys for path %s" % req.path)
+
+        self.logger.debug("No keys necessary for path %s" % req.path)
+
     def provide_keys_get_or_head(self, req, rederive):
         if rederive and self.obj_path:
             # TODO: re-examine need for this special handling once COPY has
@@ -139,13 +152,7 @@ class KeyMasterContext(WSGIContext):
                     obj_key_path)
             except ValueError:
                 req.environ['swift.crypto.override'] = True
-                # TODO: uncomment when FakeFooters has been replaced with
-                # real footer support. Fake Footers will insert crypto sysmeta
-                # headers into all responses including 4xx that may have been
-                # generated in the proxy (e.g. auth failures). This will cause
-                # error_if_need_keys to replace the expected 4xx with a 422.
-                # So disable the check for now.
-                # self.error_if_need_keys(req)
+                self.error_if_need_keys(req)
 
         if not req.environ.get('swift.crypto.override'):
             req.environ['swift.crypto.fetch_crypto_keys'] = \

@@ -16,6 +16,8 @@
 from swift import gettext_ as _
 from swift.common.swob import HTTPInternalServerError
 from swift.common.wsgi import WSGIContext
+from swift.common.request_helpers import strip_sys_meta_prefix, \
+    strip_object_transient_sysmeta_prefix
 
 
 class CryptoWSGIContext(WSGIContext):
@@ -47,3 +49,10 @@ class CryptoWSGIContext(WSGIContext):
             raise HTTPInternalServerError(
                 "swift.crypto.fetch_crypto_keys had exception: %s"
                 % err.message)
+
+
+def is_crypto_meta(header, server_type):
+    return (strip_sys_meta_prefix(
+        server_type, header.lower()).startswith('crypto-meta') or
+        strip_object_transient_sysmeta_prefix(
+        header.lower()).startswith('crypto-meta'))

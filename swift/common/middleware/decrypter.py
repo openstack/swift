@@ -22,7 +22,7 @@ from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.exceptions import EncryptionException
 from swift.common.middleware.crypto import Crypto
 from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
-    get_object_transient_sysmeta_prefix
+    get_object_transient_sysmeta
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible, parse_content_type, \
@@ -149,7 +149,7 @@ class DecrypterObjContext(BaseDecrypterContext):
         self.server_type = 'object'
 
     def decrypt_user_metadata(self, keys):
-        prefix = "%scrypto-meta-" % get_object_transient_sysmeta_prefix()
+        prefix = get_object_transient_sysmeta('crypto-meta-')
         result = []
         for name, val in self._response_headers:
             if is_user_meta(self.server_type, name) and val:

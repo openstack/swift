@@ -18,7 +18,7 @@ import unittest
 
 from swift.common.middleware import keymaster
 from swift.common import swob
-Request = swob.Request
+from swift.common.swob import Request
 
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 
@@ -144,12 +144,7 @@ class TestKeymaster(unittest.TestCase):
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
             self.assertEqual(1, len(calls))
-            # TODO change to expect 422 once FakeFooters is removed.
-            # error_if_need_keys is currently disabled in keymaster
-            # because of how FakeFooters works. So 422's will not currently be
-            # returned when keys are 'missing' and crypto-meta is found.
-            self.assertEqual('200 OK', calls[0][0])
-            # self.assertEqual('422 Unprocessable Entity', calls[0][0])
+            self.assertEqual('422 Unprocessable Entity', calls[0][0])
 
             # object has x-object-sysmeta-crypto-meta but no key id
             self.swift.register(
@@ -160,8 +155,7 @@ class TestKeymaster(unittest.TestCase):
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
             self.assertEqual(1, len(calls))
-            # TODO change to expect 422 once FakeFooters is removed.
-            self.assertEqual('200 OK', calls[0][0])
+            self.assertEqual('422 Unprocessable Entity', calls[0][0])
 
         # but "crypto-meta" in other headers is ok
         path = '/v1/a/c/o'

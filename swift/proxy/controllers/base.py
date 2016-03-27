@@ -57,8 +57,8 @@ from swift.common.swob import Request, Response, Range, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
-    http_response_to_document_iters, get_object_transient_sysmeta_prefix, \
-    is_object_transient_sysmeta
+    http_response_to_document_iters, is_object_transient_sysmeta, \
+    strip_object_transient_sysmeta_prefix
 from swift.common.storage_policy import POLICIES
 
 
@@ -187,7 +187,7 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
     transient_sysmeta = {}
     for key, val in headers.iteritems():
         if is_object_transient_sysmeta(key):
-            key = key.lower()[len(get_object_transient_sysmeta_prefix()):]
+            key = strip_object_transient_sysmeta_prefix(key.lower())
             transient_sysmeta[key] = val
     info = {'status': status_int,
             'length': headers.get('content-length'),

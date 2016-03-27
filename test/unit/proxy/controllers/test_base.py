@@ -32,7 +32,7 @@ from swift.common.storage_policy import StoragePolicy, POLICIES
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
 from swift.common.request_helpers import (
-    get_sys_meta_prefix, get_object_transient_sysmeta_prefix
+    get_sys_meta_prefix, get_object_transient_sysmeta
 )
 
 from test.unit import patch_policies
@@ -647,9 +647,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['sysmeta']['somethingelse'], 0)
 
     def test_headers_to_object_info_transient_sysmeta(self):
-        prefix = get_object_transient_sysmeta_prefix()
-        headers = {'%sWhatevs' % prefix: 14,
-                   '%ssomethingelse' % prefix: 0}
+        headers = {get_object_transient_sysmeta('Whatevs'): 14,
+                   get_object_transient_sysmeta('somethingelse'): 0}
         resp = headers_to_object_info(headers.items(), 200)
         self.assertEqual(len(resp['transient_sysmeta']), 2)
         self.assertEqual(resp['transient_sysmeta']['whatevs'], 14)
