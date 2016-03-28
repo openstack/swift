@@ -27,6 +27,12 @@ To execute the tests:
 
     pip install tox
 
+* Generate list of  distribution packages to install for testing::
+
+    tox -e bindep
+
+  Now install these packages using your distribution package manager
+  like apt-get, dnf, yum, or zypper.
 
 * Run Tox from the root of the swift repo::
 
