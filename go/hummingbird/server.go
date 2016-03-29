@@ -128,6 +128,7 @@ func CopyRequestHeaders(r *http.Request, dst *http.Request) {
 type RequestLogger struct {
 	Request *http.Request
 	Logger  SysLogLike
+	W       *WebWriter
 }
 
 func (r RequestLogger) LogError(format string, args ...interface{}) {
@@ -145,13 +146,13 @@ func (r RequestLogger) LogDebug(format string, args ...interface{}) {
 	r.Logger.Debug(fmt.Sprintf(format, args...) + " (txn:" + transactionId + ")")
 }
 
-func (r RequestLogger) LogPanics(w *WebWriter) {
+func (r RequestLogger) LogPanics(msg string) {
 	if e := recover(); e != nil {
 		transactionId := r.Request.Header.Get("X-Trans-Id")
-		r.Logger.Err(fmt.Sprintf("PANIC: %s: %s", e, debug.Stack()) + " (txn:" + transactionId + ")")
+		r.Logger.Err(fmt.Sprintf("PANIC (%s): %s: %s", msg, e, debug.Stack()) + " (txn:" + transactionId + ")")
 		// if we haven't set a status code yet, we can send a 500 response.
-		if !w.ResponseStarted {
-			StandardResponse(w, http.StatusInternalServerError)
+		if !r.W.ResponseStarted {
+			StandardResponse(r.W, http.StatusInternalServerError)
 		}
 	}
 }
@@ -164,6 +165,7 @@ type LoggingContext interface {
 	LogError(format string, args ...interface{})
 	LogInfo(format string, args ...interface{})
 	LogDebug(format string, args ...interface{})
+	LogPanics(format string)
 }
 
 type SysLogLike interface {

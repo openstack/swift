@@ -40,10 +40,6 @@ func (a *DummyLogger) LogPanics(m string) {
 	}
 }
 
-func addDummyLogger(req *http.Request) {
-	hummingbird.SetLogger(req, &DummyLogger{})
-}
-
 func TestExpirerContainer(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
@@ -92,17 +88,17 @@ func TestUpdateDeleteAt(t *testing.T) {
 	req.Header.Add("X-Delete-At-Device", "sdb")
 	req.Header.Add("X-Timestamp", "12345.6789")
 
-	addDummyLogger(req)
+	dl := DummyLogger{}
 
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
 	hummingbird.SetVars(req, vars)
 	defer context.Clear(req)
 	deleteAtStr := "1434707411"
-	server.updateDeleteAt(req, deleteAtStr, vars)
+	server.updateDeleteAt(req, deleteAtStr, vars, &dl)
 	require.True(t, requestSent)
 
 	cs.Close()
-	server.updateDeleteAt(req, deleteAtStr, vars)
+	server.updateDeleteAt(req, deleteAtStr, vars, &dl)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "8fc", "02cc012fe572f27e455edbea32da78fc-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -131,7 +127,7 @@ func TestUpdateDeleteAtNoHeaders(t *testing.T) {
 	hummingbird.SetVars(req, vars)
 	defer context.Clear(req)
 	deleteAtStr := "1434707411"
-	server.updateDeleteAt(req, deleteAtStr, vars)
+	server.updateDeleteAt(req, deleteAtStr, vars, &DummyLogger{})
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "8fc", "02cc012fe572f27e455edbea32da78fc-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -171,7 +167,7 @@ func TestUpdateContainer(t *testing.T) {
 	req.Header.Add("X-Container-Device", "sdb")
 	req.Header.Add("X-Timestamp", "12345.6789")
 
-	addDummyLogger(req)
+	dl := DummyLogger{}
 
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
 	hummingbird.SetVars(req, vars)
@@ -182,11 +178,11 @@ func TestUpdateContainer(t *testing.T) {
 		"Content-Length": "30",
 		"ETag":           "ffffffffffffffffffffffffffffffff",
 	}
-	server.updateContainer(metadata, req, vars)
+	server.updateContainer(metadata, req, vars, &dl)
 	require.True(t, requestSent)
 
 	cs.Close()
-	server.updateContainer(metadata, req, vars)
+	server.updateContainer(metadata, req, vars, &dl)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "099", "2f714cd91b0e5d803cde2012b01d7099-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -226,11 +222,12 @@ func TestUpdateContainerNoHeaders(t *testing.T) {
 		"Content-Length": "30",
 		"ETag":           "ffffffffffffffffffffffffffffffff",
 	}
-	server.updateContainer(metadata, req, vars)
+	dl := DummyLogger{}
+	server.updateContainer(metadata, req, vars, &dl)
 	require.False(t, requestSent)
 
 	cs.Close()
-	server.updateContainer(metadata, req, vars)
+	server.updateContainer(metadata, req, vars, &dl)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "099", "2f714cd91b0e5d803cde2012b01d7099-12345.6789")
 	require.False(t, hummingbird.Exists(expectedFile))
 }

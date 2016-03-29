@@ -319,7 +319,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 		}
 		InvalidateHash(hashDir)
 	}()
-	server.containerUpdates(request, metadata, request.Header.Get("X-Delete-At"), vars)
+	server.containerUpdates(request, metadata, request.Header.Get("X-Delete-At"), vars, hummingbird.GetLogger(request))
 	hummingbird.StandardResponse(writer, http.StatusCreated)
 }
 
@@ -434,7 +434,7 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 		}
 		InvalidateHash(hashDir)
 	}()
-	server.containerUpdates(request, metadata, deleteAt, vars)
+	server.containerUpdates(request, metadata, deleteAt, vars, hummingbird.GetLogger(request))
 	hummingbird.StandardResponse(writer, responseStatus)
 }
 
@@ -589,9 +589,9 @@ func (server *ObjectServer) DiskUsageHandler(writer http.ResponseWriter, request
 }
 func (server *ObjectServer) LogRequest(next http.Handler) http.Handler {
 	fn := func(writer http.ResponseWriter, request *http.Request) {
-		requestLogger := &hummingbird.RequestLogger{Request: request, Logger: server.logger}
 		newWriter := &hummingbird.WebWriter{ResponseWriter: writer, Status: 500, ResponseStarted: false}
-		defer requestLogger.LogPanics(newWriter)
+		requestLogger := &hummingbird.RequestLogger{Request: request, Logger: server.logger, W: newWriter}
+		defer requestLogger.LogPanics("LOGGING REQUEST")
 		start := time.Now()
 		hummingbird.SetLogger(request, requestLogger)
 		next.ServeHTTP(newWriter, request)
