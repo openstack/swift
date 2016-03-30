@@ -108,7 +108,7 @@ func (server *ObjectServer) saveAsync(method, account, container, obj, localDevi
 	}
 }
 
-func (server *ObjectServer) updateContainer(metadata map[string]string, request *http.Request, vars map[string]string) {
+func (server *ObjectServer) updateContainer(metadata map[string]string, request *http.Request, vars map[string]string, logger hummingbird.LoggingContext) {
 	partition := request.Header.Get("X-Container-Partition")
 	hosts := splitHeader(request.Header.Get("X-Container-Host"))
 	devices := splitHeader(request.Header.Get("X-Container-Device"))
@@ -129,7 +129,7 @@ func (server *ObjectServer) updateContainer(metadata map[string]string, request 
 	failures := 0
 	for index := range hosts {
 		if !server.sendContainerUpdate(hosts[index], devices[index], request.Method, partition, vars["account"], vars["container"], vars["obj"], requestHeaders) {
-			hummingbird.GetLogger(request).LogError("ERROR container update failed with %s/%s (saving for async update later)", hosts[index], devices[index])
+			logger.LogError("ERROR container update failed with %s/%s (saving for async update later)", hosts[index], devices[index])
 			failures++
 		}
 	}
@@ -138,7 +138,7 @@ func (server *ObjectServer) updateContainer(metadata map[string]string, request 
 	}
 }
 
-func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr string, vars map[string]string) {
+func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr string, vars map[string]string, logger hummingbird.LoggingContext) {
 	deleteAt, err := hummingbird.ParseDate(deleteAtStr)
 	if err != nil {
 		return
@@ -165,7 +165,7 @@ func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr st
 	failures := 0
 	for index := range hosts {
 		if !server.sendContainerUpdate(hosts[index], devices[index], request.Method, partition, deleteAtAccount, container, obj, requestHeaders) {
-			hummingbird.GetLogger(request).LogError("ERROR container update failed with %s/%s (saving for async update later)", hosts[index], devices[index])
+			logger.LogError("ERROR container update failed with %s/%s (saving for async update later)", hosts[index], devices[index])
 			failures++
 		}
 	}
@@ -174,14 +174,15 @@ func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr st
 	}
 }
 
-func (server *ObjectServer) containerUpdates(request *http.Request, metadata map[string]string, deleteAt string, vars map[string]string) {
+func (server *ObjectServer) containerUpdates(request *http.Request, metadata map[string]string, deleteAt string, vars map[string]string, logger hummingbird.LoggingContext) {
+	defer logger.LogPanics("PANIC WHILE UPDATING CONTAINER LISTINGS")
 	if deleteAt != "" {
-		go server.updateDeleteAt(request, deleteAt, vars)
+		go server.updateDeleteAt(request, deleteAt, vars, logger)
 	}
 
 	firstDone := make(chan struct{}, 1)
 	go func() {
-		server.updateContainer(metadata, request, vars)
+		server.updateContainer(metadata, request, vars, logger)
 		firstDone <- struct{}{}
 	}()
 	go func() {
