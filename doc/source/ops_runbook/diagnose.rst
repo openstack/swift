@@ -575,7 +575,7 @@ command-line wrong.
 Pick a ``source`` and ``target`` node. The source is often a proxy node
 and the target is often an object node. Using the same source proxy you
 can test communication to different object nodes in different AZs to
-identity possible bottlekecks.
+identity possible bottlenecks.
 
 Running tests
 ^^^^^^^^^^^^^
