@@ -146,7 +146,7 @@ def update_new_item_from_existing(new_item, existing):
     their timestamps are newer.
 
     The multiple timestamps are encoded into a single string for storing
-    in the 'created_at' column of the the objects db table.
+    in the 'created_at' column of the objects db table.
 
     :param new_item: A dict of object update attributes
     :param existing: A dict of existing object attributes
@@ -410,6 +410,7 @@ class ContainerBroker(DatabaseBroker):
 
         :param name: object name to be deleted
         :param timestamp: timestamp when the object was marked as deleted
+        :param storage_policy_index: the storage policy index for the object
         """
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
                         deleted=1, storage_policy_index=storage_policy_index)
@@ -670,6 +671,7 @@ class ContainerBroker(DatabaseBroker):
         :param delimiter: delimiter for query
         :param path: if defined, will set the prefix and delimiter based on
                      the path
+        :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
 
         :returns: list of tuples of (name, created_at, size, content_type,

@@ -359,6 +359,9 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                  ]
             self.assertEqual(locations, expected)
 
+            # Reset status file for next run
+            diskfile.clear_auditor_status(tmpdir)
+
             # now without a logger
             locations = [(loc.path, loc.device, loc.partition, loc.policy)
                          for loc in diskfile.object_audit_location_generator(
@@ -402,6 +405,36 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                     'Skipping %s as it is not mounted',
                     'sdq')
 
+    def test_skipping_files(self):
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects",
+                                     "2607", "df3",
+                                     "ec2871fe724411f91787462f97d30df3"))
+            with open(os.path.join(tmpdir, "garbage"), "wb") as fh:
+                fh.write('')
+
+            locations = [
+                (loc.path, loc.device, loc.partition, loc.policy)
+                for loc in diskfile.object_audit_location_generator(
+                    devices=tmpdir, mount_check=False)]
+
+            self.assertEqual(
+                locations,
+                [(os.path.join(tmpdir, "sdp", "objects",
+                               "2607", "df3",
+                               "ec2871fe724411f91787462f97d30df3"),
+                  "sdp", "2607", POLICIES[0])])
+
+            # Do it again, this time with a logger.
+            ml = mock.MagicMock()
+            locations = [
+                (loc.path, loc.device, loc.partition, loc.policy)
+                for loc in diskfile.object_audit_location_generator(
+                    devices=tmpdir, mount_check=False, logger=ml)]
+            ml.debug.assert_called_once_with(
+                'Skipping %s: Not a directory' %
+                os.path.join(tmpdir, "garbage"))
+
     def test_only_catch_expected_errors(self):
         # Crazy exceptions should still escape object_audit_location_generator
         # so that errors get logged and a human can see what's going wrong;
@@ -432,6 +465,40 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                 self.assertRaises(OSError, list_locations, tmpdir)
             with mock.patch('os.listdir', splode_if_endswith("b54")):
                 self.assertRaises(OSError, list_locations, tmpdir)
+
+    def test_auditor_status(self):
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects", "2", "a", "b"))
+
+            # Auditor starts, there are two partitions to check
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen.next()
+            gen.next()
+
+            # Auditor stopped for some reason without raising StopIterator in
+            # the generator and restarts There is now only one remaining
+            # partition to check
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen.next()
+
+            # There are no more remaining partitions
+            self.assertRaises(StopIteration, gen.next)
+
+            # There are no partitions to check if the auditor restarts another
+            # time and the status files have not been cleared
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            self.assertRaises(StopIteration, gen.next)
+
+            # Reset status file
+            diskfile.clear_auditor_status(tmpdir)
+
+            # If the auditor restarts another time, we expect to
+            # check two partitions again, because the remaining
+            # partitions were empty and a new listdir was executed
+            gen = diskfile.object_audit_location_generator(tmpdir, False)
+            gen.next()
+            gen.next()
 
 
 class TestDiskFileRouter(unittest.TestCase):
@@ -569,13 +636,13 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             expected_after_cleanup = set([f[0] for f in test
                                           if (f[2] if len(f) > 2 else f[1])])
             if reclaim_age:
-                class_under_test.hash_cleanup_listdir(
-                    hashdir, reclaim_age=reclaim_age)
+                class_under_test.cleanup_ondisk_files(
+                    hashdir, reclaim_age=reclaim_age)['files']
             else:
                 with mock.patch('swift.obj.diskfile.time') as mock_time:
                     # don't reclaim anything
                     mock_time.time.return_value = 0.0
-                    class_under_test.hash_cleanup_listdir(hashdir)
+                    class_under_test.cleanup_ondisk_files(hashdir)['files']
             after_cleanup = set(os.listdir(hashdir))
             errmsg = "expected %r, got %r for test %r" % (
                 sorted(expected_after_cleanup), sorted(after_cleanup), test
@@ -746,9 +813,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = ['1381679759.90941.data']
+            hclistdir.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 DiskFileDeviceUnavailable,
@@ -759,7 +826,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
                 mock.patch(self._manager_mock(
                     'quarantine_renamer')) as quarantine_renamer:
@@ -779,7 +846,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             osexc = OSError()
             osexc.errno = errno.ENOENT
@@ -794,7 +861,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             osexc = OSError()
             hclistdir.side_effect = osexc
@@ -808,9 +875,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = []
+            hclistdir.return_value = {'files': []}
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 DiskFileNotExist,
@@ -821,9 +888,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = ['1381679759.90941.data']
+            hclistdir.return_value = {'files': ['1381679759.90941.data']}
             readmeta.side_effect = EOFError()
             self.assertRaises(
                 DiskFileNotExist,
@@ -834,9 +901,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = ['1381679759.90941.data']
+            hclistdir.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {}
             try:
                 self.df_mgr.get_diskfile_from_hash(
@@ -850,9 +917,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = ['1381679759.90941.data']
+            hclistdir.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': 'bad'}
             try:
                 self.df_mgr.get_diskfile_from_hash(
@@ -866,9 +933,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')) as dfclass, \
                 mock.patch(self._manager_mock(
-                    'hash_cleanup_listdir')) as hclistdir, \
+                    'cleanup_ondisk_files')) as hclistdir, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = ['1381679759.90941.data']
+            hclistdir.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': '/a/c/o'}
             self.df_mgr.get_diskfile_from_hash(
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
@@ -1649,7 +1716,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 fname = '%s#%s.data' % (ts.internal, frag)
                 with self.assertRaises(DiskFileError) as cm:
                     mgr.parse_on_disk_filename(fname)
-                self.assertTrue(msg in str(cm.exception).lower())
+                self.assertIn(msg, str(cm.exception).lower())
 
         with self.assertRaises(DiskFileError) as cm:
             mgr.parse_on_disk_filename('junk')
@@ -2289,7 +2356,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # non-fast-post updateable keys are preserved
             self.assertEqual('text/garbage', df._metadata['Content-Type'])
             # original fast-post updateable keys are removed
-            self.assertTrue('X-Object-Meta-Key1' not in df._metadata)
+            self.assertNotIn('X-Object-Meta-Key1', df._metadata)
             self.assertNotIn('X-Object-Transient-Sysmeta-KeyA', df._metadata)
             # new fast-post updateable keys are added
             self.assertEqual('Value2', df._metadata['X-Object-Meta-Key2'])
@@ -2370,9 +2437,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('0123456789' in value)
-        self.assertTrue('1123456789' in value)
-        self.assertTrue('2123456789' in value)
+        self.assertIn('0123456789', value)
+        self.assertIn('1123456789', value)
+        self.assertIn('2123456789', value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_w_quarantine(self):
@@ -2384,9 +2451,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('0123456789' in value)
-        self.assertTrue('1123456789' in value)
-        self.assertTrue('2123456789' in value)
+        self.assertIn('0123456789', value)
+        self.assertIn('1123456789', value)
+        self.assertIn('2123456789', value)
         self.assertEqual(quarantine_msgs,
                          ["Bytes read: 30, does not match metadata: 31"])
 
@@ -2398,7 +2465,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     'plain/text',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('0123456789' in value)
+        self.assertIn('0123456789', value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_edges(self):
@@ -2408,8 +2475,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         it = reader.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
                                     '\r\n--someheader\r\n', 30)
         value = ''.join(it)
-        self.assertTrue('3456789' in value)
-        self.assertTrue('01' in value)
+        self.assertIn('3456789', value)
+        self.assertIn('01', value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_large_app_iter_ranges(self):
@@ -2875,7 +2942,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), file_count + 1)
         exp_name = '%s.meta' % timestamp
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
 
     def test_write_metadata_with_content_type(self):
         # if metadata has content-type then its time should be in file name
@@ -3096,7 +3163,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 }
                 writer.put(metadata)
                 with mock.patch(self._manager_mock(
-                        'hash_cleanup_listdir', df), mock_hcl):
+                        'cleanup_ondisk_files', df), mock_hcl):
                     writer.commit(timestamp)
             expected = {
                 EC_POLICY: 1,
@@ -3130,11 +3197,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     'Content-Length': '0',
                 }
                 with mock.patch(self._manager_mock(
-                        'hash_cleanup_listdir', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_hcl:
                     writer.put(metadata)
                     self.assertEqual(expected[0], mock_hcl.call_count)
                 with mock.patch(self._manager_mock(
-                        'hash_cleanup_listdir', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_hcl:
                     writer.commit(timestamp)
                     self.assertEqual(expected[1], mock_hcl.call_count)
 
@@ -3156,15 +3223,15 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     'Content-Length': '0',
                 }
                 with mock.patch(self._manager_mock(
-                        'hash_cleanup_listdir', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_hcl:
                     writer.put(metadata)
                     self.assertEqual(expected[0], mock_hcl.call_count)
                 with mock.patch(self._manager_mock(
-                        'hash_cleanup_listdir', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_hcl:
                     writer.commit(timestamp)
                     self.assertEqual(expected[1], mock_hcl.call_count)
                 with mock.patch(self._manager_mock(
-                        'hash_cleanup_listdir', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_hcl:
                     timestamp = Timestamp(time())
                     df.delete(timestamp)
                     self.assertEqual(expected[2], mock_hcl.call_count)
@@ -3185,8 +3252,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             exp_name = '%s.ts' % ts.internal
             dl = os.listdir(df._datadir)
             self.assertEqual(len(dl), 1)
-            self.assertTrue(exp_name in set(dl),
-                            'Expected file %s missing in %s' % (exp_name, dl))
+            self.assertIn(exp_name, set(dl))
             # cleanup before next policy
             os.unlink(os.path.join(df._datadir, exp_name))
 
@@ -3197,7 +3263,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         df = self._simple_get_diskfile()
         self.assertRaises(DiskFileDeleted, df.open)
 
@@ -3208,7 +3274,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         # it's pickle-format, so removing the last byte is sufficient to
         # corrupt it
         ts_fullpath = os.path.join(df._datadir, exp_name)
@@ -3260,8 +3326,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(reader._fp, None)
         error_lines = df._logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
-        self.assertTrue('close failure' in error_lines[0])
-        self.assertTrue('Bad' in error_lines[0])
+        self.assertIn('close failure', error_lines[0])
+        self.assertIn('Bad', error_lines[0])
 
     def test_mount_checking(self):
 
@@ -3319,10 +3385,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._create_ondisk_file(df, '', ext='.ts', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertIn('X-Timestamp', df._metadata)
             self.assertEqual(df._metadata['X-Timestamp'],
                              Timestamp(10).internal)
-            self.assertTrue('deleted' not in df._metadata)
+            self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_multiple_meta_data(self):
         df = self._simple_get_diskfile()
@@ -3384,10 +3450,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertIn('X-Timestamp', df._metadata)
             self.assertEqual(df._metadata['X-Timestamp'],
                              Timestamp(10).internal)
-            self.assertTrue('deleted' not in df._metadata)
+            self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
         df = self._simple_get_diskfile()
@@ -3403,10 +3469,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertTrue('X-Timestamp' in df._metadata)
+            self.assertIn('X-Timestamp', df._metadata)
             self.assertEqual(df._metadata['X-Timestamp'],
                              Timestamp(10).internal)
-            self.assertTrue('deleted' not in df._metadata)
+            self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_listdir_error(self):
         df = self._simple_get_diskfile()
@@ -3440,7 +3506,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
-        self.assertTrue('a very special error' in log_lines[-1])
+        self.assertIn('a very special error', log_lines[-1])
 
     def test_diskfile_names(self):
         df = self._simple_get_diskfile()
@@ -3464,7 +3530,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         df = self._simple_get_diskfile()
         exc = None
         try:
@@ -3496,7 +3562,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
         df = self._simple_get_diskfile()
         exc = None
         try:
@@ -3599,7 +3665,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._get_open_disk_file()
         file_count = len(os.listdir(df._datadir))
         ts = time()
-        with mock.patch(self._manager_mock('hash_cleanup_listdir'), mock_hcl):
+        with mock.patch(self._manager_mock('cleanup_ondisk_files'), mock_hcl):
             try:
                 df.delete(ts)
             except OSError:
@@ -3607,7 +3673,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), file_count + 1)
-        self.assertTrue(exp_name in set(dl))
+        self.assertIn(exp_name, set(dl))
 
     def _system_can_zero_copy(self):
         if not splice.available:
@@ -3650,7 +3716,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertFalse(reader.can_zero_copy_send())
 
             log_lines = df_mgr.logger.get_lines_for_level('warning')
-            self.assertTrue('MD5 sockets' in log_lines[-1])
+            self.assertIn('MD5 sockets', log_lines[-1])
 
     def test_tee_to_md5_pipe_length_mismatch(self):
         if not self._system_can_zero_copy():
@@ -3761,7 +3827,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     self.fail("Expected exception DiskFileNoSpace")
         self.assertTrue(_m_fallocate.called)
         self.assertTrue(_m_unlink.called)
-        self.assertTrue('error' not in self.logger.all_log_lines())
+        self.assertNotIn('error', self.logger.all_log_lines())
 
     def test_create_unlink_cleanup_renamer_fails(self):
         # Test cleanup when renamer fails
@@ -3788,7 +3854,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertFalse(writer.put_succeeded)
         self.assertTrue(_m_renamer.called)
         self.assertTrue(_m_unlink.called)
-        self.assertTrue('error' not in self.logger.all_log_lines())
+        self.assertNotIn('error', self.logger.all_log_lines())
 
     def test_create_unlink_cleanup_logging(self):
         # Test logging of os.unlink() failures.
@@ -4404,7 +4470,7 @@ class TestSuffixHashes(unittest.TestCase):
          * get_hashes(device, partition, suffixes, policy)
          * invalidate_hash(suffix_dir)
 
-    The Manager.get_hashes method (used by the REPLICATION verb)
+    The Manager.get_hashes method (used by the REPLICATE verb)
     calls Manager._get_hashes (which may be an alias to the module
     method get_hashes), which calls hash_suffix, which calls
     hash_cleanup_listdir.
@@ -4511,9 +4577,9 @@ class TestSuffixHashes(unittest.TestCase):
             if isinstance(output_files, Exception):
                 path = os.path.join(self.testdir, 'does-not-matter')
                 self.assertRaises(output_files.__class__,
-                                  df_mgr.hash_cleanup_listdir, path)
+                                  df_mgr.cleanup_ondisk_files, path)
                 return
-            files = df_mgr.hash_cleanup_listdir('/whatever')
+            files = df_mgr.cleanup_ondisk_files('/whatever')['files']
             self.assertEqual(files, output_files)
 
     # hash_cleanup_listdir tests - behaviors
@@ -4726,7 +4792,7 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr = self.df_router[policy]
             # common.utils.listdir *completely* mutes ENOENT
             path = os.path.join(self.testdir, 'does-not-exist')
-            self.assertEqual(df_mgr.hash_cleanup_listdir(path), [])
+            self.assertEqual(df_mgr.cleanup_ondisk_files(path)['files'], [])
 
     def test_hash_cleanup_listdir_hsh_path_other_oserror(self):
         for policy in self.iter_policies():
@@ -4735,7 +4801,7 @@ class TestSuffixHashes(unittest.TestCase):
                 mock_listdir.side_effect = OSError('kaboom!')
                 # but it will raise other OSErrors
                 path = os.path.join(self.testdir, 'does-not-matter')
-                self.assertRaises(OSError, df_mgr.hash_cleanup_listdir,
+                self.assertRaises(OSError, df_mgr.cleanup_ondisk_files,
                                   path)
 
     def test_hash_cleanup_listdir_reclaim_tombstone_remove_file_error(self):
@@ -4766,12 +4832,15 @@ class TestSuffixHashes(unittest.TestCase):
             part_path = os.path.join(self.devices, 'sda1',
                                      diskfile.get_data_dir(policy), '0')
             hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            inv_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
             self.assertFalse(os.path.exists(hashes_file))  # sanity
             with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
                 df_mgr.invalidate_hash(suffix_dir)
             self.assertFalse(mock_lock.called)
-            # does not create file
+            # does not create files
             self.assertFalse(os.path.exists(hashes_file))
+            self.assertFalse(os.path.exists(inv_file))
 
     def test_invalidate_hash_file_exists(self):
         for policy in self.iter_policies():
@@ -4783,19 +4852,32 @@ class TestSuffixHashes(unittest.TestCase):
             suffix_dir = os.path.dirname(df._datadir)
             suffix = os.path.basename(suffix_dir)
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertTrue(suffix in hashes)  # sanity
+            self.assertIn(suffix, hashes)  # sanity
             # sanity check hashes file
             part_path = os.path.join(self.devices, 'sda1',
                                      diskfile.get_data_dir(policy), '0')
             hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            invalidations_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
             with open(hashes_file, 'rb') as f:
                 self.assertEqual(hashes, pickle.load(f))
+
             # invalidate the hash
             with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
                 df_mgr.invalidate_hash(suffix_dir)
             self.assertTrue(mock_lock.called)
+            with open(invalidations_file, 'rb') as f:
+                self.assertEqual(suffix + "\n", f.read())
+
+            # consolidate the hash and the invalidations
+            with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
+                hashes = df_mgr.consolidate_hashes(part_path)
+            self.assertIsNone(hashes.get(suffix))
+
             with open(hashes_file, 'rb') as f:
-                self.assertEqual({suffix: None}, pickle.load(f))
+                self.assertEqual(hashes, pickle.load(f))
+            with open(invalidations_file, 'rb') as f:
+                self.assertEqual("", f.read())
 
     # invalidate_hash tests - error handling
 
@@ -4822,7 +4904,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual(f.read(), 'asdf')
             # ... but get_hashes will
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
 
     # get_hashes tests - hash_suffix behaviors
 
@@ -5249,7 +5331,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertTrue(os.path.exists(hsh_path))  # sanity
             # get_hashes will cleanup empty hsh_path and leave valid one
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
             self.assertTrue(os.path.exists(df._datadir))
             for hsh_path in empty_hsh_paths:
                 self.assertFalse(os.path.exists(hsh_path))
@@ -5475,7 +5557,7 @@ class TestSuffixHashes(unittest.TestCase):
             # get_hashes will find the untracked suffix dir
             self.assertFalse(os.path.exists(hashes_file))  # sanity
             hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
             # ... and create a hashes pickle for it
             self.assertTrue(os.path.exists(hashes_file))
 
@@ -5505,7 +5587,7 @@ class TestSuffixHashes(unittest.TestCase):
             # ... unless remote end asks for a recalc
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
 
     def test_get_hashes_does_not_rehash_known_suffix_dirs(self):
         for policy in self.iter_policies():
@@ -5517,7 +5599,7 @@ class TestSuffixHashes(unittest.TestCase):
             df.delete(timestamp)
             # create the baseline hashes file
             hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
-            self.assertTrue(suffix in hashes)
+            self.assertIn(suffix, hashes)
             # now change the contents of the suffix w/o calling
             # invalidate_hash
             rmtree(df._datadir)
@@ -5699,8 +5781,8 @@ class TestSuffixHashes(unittest.TestCase):
                                     diskfile.get_data_dir(policy), '0')
             open(os.path.join(part_dir, 'bad'), 'w').close()
             hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
-            self.assertTrue(suffix in hashes)
-            self.assertFalse('bad' in hashes)
+            self.assertIn(suffix, hashes)
+            self.assertNotIn('bad', hashes)
 
     def test_get_hashes_hash_suffix_other_oserror(self):
         for policy in self.iter_policies():

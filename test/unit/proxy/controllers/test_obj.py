@@ -31,6 +31,7 @@ from six.moves import range
 
 import swift
 from swift.common import utils, swob, exceptions
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import get_info as _real_get_info
@@ -721,9 +722,15 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(503, 200):
+        self.app.logger.txn_id = req.environ['swift.trans_id'] = 'my-txn-id'
+        stdout = BytesIO()
+        with set_http_connect(503, 200), \
+                mock.patch('sys.stdout', stdout):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        for line in stdout.getvalue().splitlines():
+            self.assertIn('my-txn-id', line)
+        self.assertIn('From Object Server', stdout.getvalue())
 
     def test_GET_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -1074,7 +1081,7 @@ class StubResponse(object):
         self.status = status
         self.body = body
         self.readable = BytesIO(body)
-        self.headers = swob.HeaderKeyDict(headers)
+        self.headers = HeaderKeyDict(headers)
         fake_reason = ('Fake', 'This response is a lie.')
         self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
 
@@ -1490,6 +1497,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             conn_id = kwargs['connection_id']
             put_requests[conn_id]['boundary'] = headers[
                 'X-Backend-Obj-Multipart-Mime-Boundary']
+            put_requests[conn_id]['backend-content-length'] = headers[
+                'X-Backend-Obj-Content-Length']
 
         with set_http_connect(*codes, expect_headers=expect_headers,
                               give_send=capture_body,
@@ -1502,6 +1511,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             body = unchunk_body(''.join(info['chunks']))
             self.assertTrue(info['boundary'] is not None,
                             "didn't get boundary for conn %r" % (
+                                connection_id,))
+            self.assertTrue(size > int(info['backend-content-length']) > 0,
+                            "invalid backend-content-length for conn %r" % (
                                 connection_id,))
 
             # email.parser.FeedParser doesn't know how to take a multipart
@@ -1523,6 +1535,13 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             # attach the body to frag_archives list
             self.assertEqual(obj_part['X-Document'], 'object body')
             frag_archives.append(obj_part.get_payload())
+
+            # assert length was correct for this connection
+            self.assertEqual(int(info['backend-content-length']),
+                             len(frag_archives[-1]))
+            # assert length was the same for all connections
+            self.assertEqual(int(info['backend-content-length']),
+                             len(frag_archives[0]))
 
             # validate some footer metadata
             self.assertEqual(footer_part['X-Document'], 'object metadata')
@@ -2394,7 +2413,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
 
     def test_GET_with_invalid_ranges(self):
-        # reall body size is segment_size - 10 (just 1 segment)
+        # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
         real_body = ('a' * segment_size)[:-10]
 
@@ -2406,7 +2425,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                                   segment_size, '%s-' % (segment_size + 10))
 
     def test_COPY_with_invalid_ranges(self):
-        # reall body size is segment_size - 10 (just 1 segment)
+        # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
         real_body = ('a' * segment_size)[:-10]
 
@@ -2419,6 +2438,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
     def _test_invalid_ranges(self, method, real_body, segment_size, req_range):
         # make a request with range starts from more than real size.
+        body_etag = md5(real_body).hexdigest()
         req = swift.common.swob.Request.blank(
             '/v1/a/c/o', method=method,
             headers={'Destination': 'c1/o',
@@ -2429,7 +2449,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
         node_fragments = zip(*fragment_payloads)
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
-        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body)),
+                   'X-Object-Sysmeta-Ec-Etag': body_etag}
         start = int(req_range.split('-')[0])
         self.assertTrue(start >= 0)  # sanity
         title, exp = swob.RESPONSE_REASONS[416]
@@ -2452,6 +2473,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 416)
         self.assertEqual(resp.content_length, len(range_not_satisfiable_body))
         self.assertEqual(resp.body, range_not_satisfiable_body)
+        self.assertEqual(resp.etag, body_etag)
+        self.assertEqual(resp.headers['Accept-Ranges'], 'bytes')
 
 
 if __name__ == '__main__':

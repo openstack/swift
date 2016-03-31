@@ -26,6 +26,7 @@ from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
 import random
+import uuid
 
 from six.moves import range
 
@@ -46,7 +47,7 @@ class TestRingBuilder(unittest.TestCase):
     def _partition_counts(self, builder, key='id'):
         """
         Returns a dictionary mapping the given device key to (number of
-        partitions assigned to to that key).
+        partitions assigned to that key).
         """
         counts = defaultdict(int)
         for part2dev_id in builder._replica2part2dev:
@@ -1384,6 +1385,21 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()  # this would crash since parts_wanted was not set
         rb.validate()
 
+    def test_reduce_replicas_after_remove_device(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.rebalance()
+        rb.remove_dev(0)
+        self.assertRaises(exceptions.RingValidationError, rb.rebalance)
+        rb.set_replicas(2)
+        rb.rebalance()
+        rb.validate()
+
     def test_rebalance_post_upgrade(self):
         rb = ring.RingBuilder(8, 3, 1)
         # 5 devices: 5 is the smallest number that does not divide 3 * 2^8,
@@ -2423,6 +2439,72 @@ class TestRingBuilder(unittest.TestCase):
             self.assertEqual(new_dev_id, exp_new_dev_id)
         except exceptions.DuplicateDeviceError:
             self.fail("device hole not reused")
+
+    def test_increase_partition_power(self):
+        rb = ring.RingBuilder(8, 3.0, 1)
+        self.assertEqual(rb.part_power, 8)
+
+        # add more devices than replicas to the ring
+        for i in range(10):
+            dev = "sdx%s" % i
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 1,
+                        'ip': '127.0.0.1', 'port': 10000, 'device': dev})
+        rb.rebalance(seed=1)
+
+        # Let's save the ring, and get the nodes for an object
+        ring_file = os.path.join(self.testdir, 'test_partpower.ring.gz')
+        rd = rb.get_ring()
+        rd.save(ring_file)
+        r = ring.Ring(ring_file)
+        old_part, old_nodes = r.get_nodes("acc", "cont", "obj")
+        old_version = rb.version
+
+        rb.increase_partition_power()
+        rb.validate()
+        changed_parts, _balance, removed_devs = rb.rebalance()
+
+        self.assertEqual(changed_parts, 0)
+        self.assertEqual(removed_devs, 0)
+
+        old_ring = r
+        rd = rb.get_ring()
+        rd.save(ring_file)
+        r = ring.Ring(ring_file)
+        new_part, new_nodes = r.get_nodes("acc", "cont", "obj")
+
+        # sanity checks
+        self.assertEqual(rb.part_power, 9)
+        self.assertEqual(rb.version, old_version + 2)
+
+        # make sure there is always the same device assigned to every pair of
+        # partitions
+        for replica in rb._replica2part2dev:
+            for part in range(0, len(replica), 2):
+                dev = replica[part]
+                next_dev = replica[part + 1]
+                self.assertEqual(dev, next_dev)
+
+        # same for last_part moves
+        for part in range(0, rb.parts, 2):
+            this_last_moved = rb._last_part_moves[part]
+            next_last_moved = rb._last_part_moves[part + 1]
+            self.assertEqual(this_last_moved, next_last_moved)
+
+        for i in range(100):
+            suffix = uuid.uuid4()
+            account = 'account_%s' % suffix
+            container = 'container_%s' % suffix
+            obj = 'obj_%s' % suffix
+            old_part, old_nodes = old_ring.get_nodes(account, container, obj)
+            new_part, new_nodes = r.get_nodes(account, container, obj)
+            # Due to the increased partition power, the partition each object
+            # is assigned to has changed. If the old partition was X, it will
+            # now be either located in 2*X or 2*X+1
+            self.assertTrue(new_part in [old_part * 2, old_part * 2 + 1])
+
+            # Importantly, we expect the objects to be placed on the same
+            # nodes after increasing the partition power
+            self.assertEqual(old_nodes, new_nodes)
 
 
 class TestGetRequiredOverload(unittest.TestCase):

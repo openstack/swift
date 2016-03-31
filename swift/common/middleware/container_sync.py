@@ -97,6 +97,11 @@ class ContainerSync(object):
                         req.environ.setdefault('swift.log_info', []).append(
                             'cs:no-local-user-key')
                     else:
+                        # x-timestamp headers get shunted by gatekeeper
+                        if 'x-backend-inbound-x-timestamp' in req.headers:
+                            req.headers['x-timestamp'] = req.headers.pop(
+                                'x-backend-inbound-x-timestamp')
+
                         expected = self.realms_conf.get_sig(
                             req.method, req.path,
                             req.headers.get('x-timestamp', '0'), nonce,

@@ -48,13 +48,15 @@ from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
+from swift.obj import updater
 from swift.obj import diskfile
 from swift.common import utils, bufferedhttp
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication, encode_timestamps, \
     Timestamp
 from swift.common import constraints
-from swift.common.swob import Request, HeaderKeyDict, WsgiBytesIO
+from swift.common.swob import Request, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
@@ -502,17 +504,18 @@ class TestObjectController(unittest.TestCase):
         update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
 
         def mock_container_update(ctlr, op, account, container, obj, request,
-                                  headers_out, objdevice, policy_idx):
-            calls_made.append(headers_out)
+                                  headers_out, objdevice, policy):
+            calls_made.append((headers_out, policy))
 
         headers = {
             'X-Timestamp': t[1].internal,
             'Content-Type': 'application/octet-stream;swift_bytes=123456789',
             'Content-Length': '4',
-            'X-Backend-Storage-Policy': int(policy)}
+            'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
             headers['X-Backend-Container-Update-Override-Etag'] = update_etag
             headers['X-Object-Sysmeta-Ec-Etag'] = update_etag
+            headers['X-Object-Sysmeta-Ec-Frag-Index'] = 2
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
@@ -530,15 +533,16 @@ class TestObjectController(unittest.TestCase):
             'x-content-type': 'application/octet-stream;swift_bytes=123456789',
             'x-timestamp': t[1].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with no metadata newer than the data should return 409,
         # container update not expected
         calls_made = []
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': t[0].internal,
-                                     'X-Backend-Storage-Policy': int(policy)})
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': t[0].internal,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -552,10 +556,10 @@ class TestObjectController(unittest.TestCase):
         # POST with newer metadata returns success and container update
         # is expected
         calls_made = []
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': t[3].internal,
-                                     'X-Backend-Storage-Policy': int(policy)})
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': t[3].internal,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -570,15 +574,16 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[1].internal,
             'x-meta-timestamp': t[3].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with no metadata newer than existing metadata should return
         # 409, container update not expected
         calls_made = []
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': t[2].internal,
-                                     'X-Backend-Storage-Policy': int(policy)})
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': t[2].internal,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -599,7 +604,7 @@ class TestObjectController(unittest.TestCase):
                                 'X-Timestamp': t[2].internal,
                                 'Content-Type': 'text/plain',
                                 'Content-Type-Timestamp': t[2].internal,
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -615,7 +620,8 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[2].internal,
             'x-meta-timestamp': t[3].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with older content-type but newer metadata returns success
         # and container update is expected
@@ -626,7 +632,7 @@ class TestObjectController(unittest.TestCase):
                                 'X-Timestamp': t[4].internal,
                                 'Content-Type': 'older',
                                 'Content-Type-Timestamp': t[1].internal,
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -642,7 +648,8 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[2].internal,
             'x-meta-timestamp': t[4].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
         # POST with same-time content-type and metadata returns 409
         # and no container update is expected
@@ -653,7 +660,7 @@ class TestObjectController(unittest.TestCase):
                                 'X-Timestamp': t[4].internal,
                                 'Content-Type': 'ignored',
                                 'Content-Type-Timestamp': t[2].internal,
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -672,7 +679,7 @@ class TestObjectController(unittest.TestCase):
                             headers={
                                 'X-Timestamp': t[3].internal,
                                 'Content-Type': 'text/newer',
-                                'X-Backend-Storage-Policy': int(policy)
+                                'X-Backend-Storage-Policy-Index': int(policy)
                             })
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
@@ -688,13 +695,160 @@ class TestObjectController(unittest.TestCase):
             'x-content-type-timestamp': t[3].internal,
             'x-meta-timestamp': t[4].internal,
             'x-etag': update_etag})
-        self.assertDictEqual(expected_headers, calls_made[0])
+        self.assertDictEqual(expected_headers, calls_made[0][0])
+        self.assertEqual(policy, calls_made[0][1])
 
     def test_POST_container_updates_with_replication_policy(self):
         self._test_POST_container_updates(POLICIES[0])
 
     def test_POST_container_updates_with_EC_policy(self):
         self._test_POST_container_updates(
+            POLICIES[1], update_etag='override_etag')
+
+    def _test_PUT_then_POST_async_pendings(self, policy, update_etag=None):
+        # Test that PUT and POST requests result in distinct async pending
+        # files when sync container update fails.
+        def fake_http_connect(*args):
+            raise Exception('test')
+
+        device_dir = os.path.join(self.testdir, 'sda1')
+        ts_iter = make_timestamp_iter()
+        t_put = ts_iter.next()
+        update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
+
+        put_headers = {
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Container-Host': 'chost:cport',
+            'X-Container-Partition': 'cpartition',
+            'X-Container-Device': 'cdevice'}
+        if policy.policy_type == EC_POLICY:
+            put_headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '2',
+                'X-Backend-Container-Update-Override-Etag': update_etag,
+                'X-Object-Sysmeta-Ec-Etag': update_etag})
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=put_headers, body='test')
+
+        with mock.patch('swift.obj.server.http_connect', fake_http_connect), \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                fake_spawn():
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 201)
+
+        async_pending_file_put = os.path.join(
+            device_dir, diskfile.get_async_dir(policy), 'a83',
+            '06fbf0b514e5199dfc4e00f42eb5ea83-%s' % t_put.internal)
+        self.assertTrue(os.path.isfile(async_pending_file_put),
+                        'Expected %s to be a file but it is not.'
+                        % async_pending_file_put)
+        expected_put_headers = {
+            'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+            'X-Trans-Id': 'put_trans_id',
+            'X-Timestamp': t_put.internal,
+            'X-Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'X-Size': '4',
+            'X-Etag': '098f6bcd4621d373cade4e832627b4f6',
+            'User-Agent': 'object-server %s' % os.getpid(),
+            'X-Backend-Storage-Policy-Index': '%d' % int(policy)}
+        if policy.policy_type == EC_POLICY:
+            expected_put_headers['X-Etag'] = update_etag
+        self.assertDictEqual(
+            pickle.load(open(async_pending_file_put)),
+            {'headers': expected_put_headers,
+             'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
+
+        # POST with newer metadata returns success and container update
+        # is expected
+        t_post = ts_iter.next()
+        post_headers = {
+            'X-Trans-Id': 'post_trans_id',
+            'X-Timestamp': t_post.internal,
+            'Content-Type': 'application/other',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Container-Host': 'chost:cport',
+            'X-Container-Partition': 'cpartition',
+            'X-Container-Device': 'cdevice'}
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=post_headers)
+
+        with mock.patch('swift.obj.server.http_connect', fake_http_connect), \
+                mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                fake_spawn():
+            resp = req.get_response(self.object_controller)
+
+        self.assertEqual(resp.status_int, 202)
+
+        self.maxDiff = None
+        # check async pending file for PUT is still intact
+        self.assertDictEqual(
+            pickle.load(open(async_pending_file_put)),
+            {'headers': expected_put_headers,
+             'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
+
+        # check distinct async pending file for POST
+        async_pending_file_post = os.path.join(
+            device_dir, diskfile.get_async_dir(policy), 'a83',
+            '06fbf0b514e5199dfc4e00f42eb5ea83-%s' % t_post.internal)
+        self.assertTrue(os.path.isfile(async_pending_file_post),
+                        'Expected %s to be a file but it is not.'
+                        % async_pending_file_post)
+        expected_post_headers = {
+            'Referer': 'POST http://localhost/sda1/p/a/c/o',
+            'X-Trans-Id': 'post_trans_id',
+            'X-Timestamp': t_put.internal,
+            'X-Content-Type': 'application/other;swift_bytes=123456789',
+            'X-Size': '4',
+            'X-Etag': '098f6bcd4621d373cade4e832627b4f6',
+            'User-Agent': 'object-server %s' % os.getpid(),
+            'X-Backend-Storage-Policy-Index': '%d' % int(policy),
+            'X-Meta-Timestamp': t_post.internal,
+            'X-Content-Type-Timestamp': t_post.internal,
+        }
+        if policy.policy_type == EC_POLICY:
+            expected_post_headers['X-Etag'] = update_etag
+        self.assertDictEqual(
+            pickle.load(open(async_pending_file_post)),
+            {'headers': expected_post_headers,
+             'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
+
+        # verify that only the POST (most recent) async update gets sent by the
+        # object updater, and that both update files are deleted
+        with mock.patch(
+            'swift.obj.updater.ObjectUpdater.object_update') as mock_update, \
+                mock.patch('swift.obj.updater.dump_recon_cache'):
+            object_updater = updater.ObjectUpdater(
+                {'devices': self.testdir,
+                 'mount_check': 'false'}, logger=debug_logger())
+            node = {'id': 1}
+            mock_ring = mock.MagicMock()
+            mock_ring.get_nodes.return_value = (99, [node])
+            object_updater.container_ring = mock_ring
+            mock_update.return_value = ((True, 1))
+            object_updater.run_once()
+        self.assertEqual(1, mock_update.call_count)
+        self.assertEqual((node, 99, 'PUT', '/a/c/o'),
+                         mock_update.call_args_list[0][0][0:4])
+        actual_headers = mock_update.call_args_list[0][0][4]
+        self.assertTrue(
+            actual_headers.pop('user-agent').startswith('object-updater'))
+        self.assertDictEqual(expected_post_headers, actual_headers)
+        self.assertFalse(
+            os.listdir(os.path.join(
+                device_dir, diskfile.get_async_dir(policy))))
+
+    def test_PUT_then_POST_async_pendings_with_repl_policy(self):
+        self._test_PUT_then_POST_async_pendings(POLICIES[0])
+
+    def test_PUT_then_POST_async_pendings_with_EC_policy(self):
+        self._test_PUT_then_POST_async_pendings(
             POLICIES[1], update_etag='override_etag')
 
     def test_POST_quarantine_zbyte(self):
@@ -1883,10 +2037,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1',
                      'Content-Length': '0'})
-        with fake_spawn(), mock.patch.object(
-                object_server, 'http_connect',
-                mock_http_connect(201)):
-            resp = req.get_response(self.object_controller)
+        with mock.patch.object(
+                object_server, 'http_connect', mock_http_connect(201)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -1899,10 +2053,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1',
                      'Content-Length': '0'})
-        with fake_spawn(), mock.patch.object(
-                object_server, 'http_connect',
-                mock_http_connect(500)):
-            resp = req.get_response(self.object_controller)
+        with mock.patch.object(
+                object_server, 'http_connect', mock_http_connect(500)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -1915,10 +2069,11 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Timestamp': '1',
                      'Content-Type': 'application/new1',
                      'Content-Length': '0'})
-        with fake_spawn(), mock.patch.object(
+        with mock.patch.object(
                 object_server, 'http_connect',
                 mock_http_connect(500, with_exc=True)):
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
     def test_PUT_ssync_multi_frag(self):
@@ -3117,10 +3272,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p',
                                      'Content-Type': 'text/plain'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3156,10 +3311,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p',
                                      'Content-Type': 'text/html'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3194,10 +3349,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p',
                                      'Content-Type': 'text/enriched'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3232,10 +3387,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Host': '10.0.0.1:8080',
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3263,10 +3418,10 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Host': '10.0.0.1:8080',
                                      'X-Container-Device': 'sda1',
                                      'X-Container-Partition': 'p'})
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(1, len(container_updates))
         for update in container_updates:
@@ -3732,9 +3887,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At-Partition': '6237',
                      'X-Delete-At-Device': 'sdp,sdq'})
 
-        with fake_spawn(), mock.patch.object(
+        with mock.patch.object(
                 object_server, 'http_connect', fake_http_connect):
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 201)
 
@@ -3844,9 +4000,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Container-Device': 'sdb1, sdf1'})
 
-        with fake_spawn(), mock.patch.object(
+        with mock.patch.object(
                 object_server, 'http_connect', fake_http_connect):
-            req.get_response(self.object_controller)
+            with fake_spawn():
+                req.get_response(self.object_controller)
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
@@ -3921,10 +4078,11 @@ class TestObjectController(unittest.TestCase):
             headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', body='', headers=headers)
-        with fake_spawn(), mocked_http_conn(
+        with mocked_http_conn(
                 500, 500, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(2, len(container_updates))
         delete_at_update, container_update = container_updates
@@ -4157,10 +4315,10 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Partition': 'cpartition',
                      'X-Container-Device': 'cdevice',
                      'Content-Type': 'text/plain'}, body='')
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(container_updates), 1)
         ip, port, method, path, headers = container_updates[0]
@@ -4198,10 +4356,10 @@ class TestObjectController(unittest.TestCase):
         }
         req = Request.blank('/sda1/0/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers, body='')
-        with fake_spawn(), mocked_http_conn(
-                200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(container_updates), 1)
         ip, port, method, path, headers = container_updates[0]
@@ -4239,7 +4397,7 @@ class TestObjectController(unittest.TestCase):
             given_args[:] = args
         diskfile_mgr = self.object_controller._diskfile_router[policy]
         diskfile_mgr.pickle_async_update = fake_pickle_async_update
-        with fake_spawn(), mocked_http_conn(500) as fake_conn:
+        with mocked_http_conn(500) as fake_conn, fake_spawn():
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)

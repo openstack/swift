@@ -34,8 +34,8 @@ from six import BytesIO
 from six import StringIO
 
 from swift import __version__ as swift_version
-from swift.common.swob import (Request, HeaderKeyDict,
-                               WsgiBytesIO, HTTPNoContent)
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent)
 import swift.container
 from swift.container import server as container_server
 from swift.common import constraints

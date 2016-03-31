@@ -56,19 +56,20 @@ from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ResponseTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
     PutterConnectError, ChunkReadError
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
-    HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
+    is_redirection, HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
     HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT,
-    HTTP_UNPROCESSABLE_ENTITY)
+    HTTP_UNPROCESSABLE_ENTITY, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, ResumingGetter
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
+    HTTPServerError, HTTPServiceUnavailable, Request, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
@@ -866,9 +867,11 @@ class BaseObjectController(Controller):
 class ReplicatedObjectController(BaseObjectController):
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
+        concurrency = self.app.get_object_ring(policy.idx).replica_count \
+            if self.app.concurrent_gets else 1
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
-            req.swift_entity_path)
+            req.swift_entity_path, concurrency)
         return resp
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -1757,7 +1760,7 @@ class ECPutter(object):
 
     @classmethod
     def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
-                chunked=False):
+                chunked=False, expected_frag_archive_size=None):
         """
         Connect to a backend node and send the headers.
 
@@ -1779,9 +1782,10 @@ class ECPutter(object):
         # we must use chunked encoding.
         headers['Transfer-Encoding'] = 'chunked'
         headers['Expect'] = '100-continue'
-        if 'Content-Length' in headers:
-            headers['X-Backend-Obj-Content-Length'] = \
-                headers.pop('Content-Length')
+
+        # make sure this isn't there
+        headers.pop('Content-Length')
+        headers['X-Backend-Obj-Content-Length'] = expected_frag_archive_size
 
         headers['X-Backend-Obj-Multipart-Mime-Boundary'] = mime_boundary
 
@@ -1987,9 +1991,10 @@ class ECObjectController(BaseObjectController):
             # no fancy EC decoding here, just one plain old HEAD request to
             # one object server because all fragments hold all metadata
             # information about the object.
+            concurrency = policy.ec_ndata if self.app.concurrent_gets else 1
             resp = self.GETorHEAD_base(
                 req, _('Object'), node_iter, partition,
-                req.swift_entity_path)
+                req.swift_entity_path, concurrency)
         else:  # GET request
             orig_range = None
             range_specs = []
@@ -1998,6 +2003,12 @@ class ECObjectController(BaseObjectController):
                 range_specs = self._convert_range(req, policy)
 
             safe_iter = GreenthreadSafeIterator(node_iter)
+            # Sending the request concurrently to all nodes, and responding
+            # with the first response isn't something useful for EC as all
+            # nodes contain different fragments. Also EC has implemented it's
+            # own specific implementation of concurrent gets to ec_ndata nodes.
+            # So we don't need to  worry about plumbing and sending a
+            # concurrency value to ResumingGetter.
             with ContextPool(policy.ec_ndata) as pool:
                 pile = GreenAsyncPile(pool)
                 for _junk in range(policy.ec_ndata):
@@ -2052,8 +2063,12 @@ class ECObjectController(BaseObjectController):
                     headers=resp_headers,
                     conditional_response=True,
                     app_iter=app_iter)
-                resp.accept_ranges = 'bytes'
-                app_iter.kickoff(req, resp)
+                try:
+                    app_iter.kickoff(req, resp)
+                except HTTPException as err_resp:
+                    # catch any HTTPException response here so that we can
+                    # process response headers uniformly in _fix_response
+                    resp = err_resp
             else:
                 statuses = []
                 reasons = []
@@ -2073,10 +2088,12 @@ class ECObjectController(BaseObjectController):
     def _fix_response(self, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
-        # sysmeta, so we copy that here so the client gets it.
+        # sysmeta, so we copy that here (if it exists) so the client gets it.
+        resp.headers['Etag'] = resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+        if (is_success(resp.status_int) or is_redirection(resp.status_int) or
+                resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE):
+            resp.accept_ranges = 'bytes'
         if is_success(resp.status_int):
-            resp.headers['Etag'] = resp.headers.get(
-                'X-Object-Sysmeta-Ec-Etag')
             resp.headers['Content-Length'] = resp.headers.get(
                 'X-Object-Sysmeta-Ec-Content-Length')
             resp.fix_conditional_response()
@@ -2093,8 +2110,32 @@ class ECObjectController(BaseObjectController):
         # the object server will get different bytes, so these
         # values do not apply (Content-Length might, in general, but
         # in the specific case of replication vs. EC, it doesn't).
-        headers.pop('Content-Length', None)
+        client_cl = headers.pop('Content-Length', None)
         headers.pop('Etag', None)
+
+        expected_frag_size = None
+        if client_cl:
+            policy_index = int(headers.get('X-Backend-Storage-Policy-Index'))
+            policy = POLICIES.get_by_index(policy_index)
+            # TODO: PyECLib <= 1.2.0 looks to return the segment info
+            # different from the input for aligned data efficiency but
+            # Swift never does. So calculate the fragment length Swift
+            # will actually send to object sever by making two different
+            # get_segment_info calls (until PyECLib fixed).
+            # policy.fragment_size makes the call using segment size,
+            # and the next call is to get info for the last segment
+
+            # get number of fragments except the tail - use truncation //
+            num_fragments = int(client_cl) // policy.ec_segment_size
+            expected_frag_size = policy.fragment_size * num_fragments
+
+            # calculate the tail fragment_size by hand and add it to
+            # expected_frag_size
+            last_segment_size = int(client_cl) % policy.ec_segment_size
+            if last_segment_size:
+                last_info = policy.pyeclib_driver.get_segment_info(
+                    last_segment_size, policy.ec_segment_size)
+                expected_frag_size += last_info['fragment_size']
 
         self.app.logger.thread_locals = logger_thread_locals
         for node in node_iter:
@@ -2102,7 +2143,8 @@ class ECObjectController(BaseObjectController):
                 putter = ECPutter.connect(
                     node, part, path, headers,
                     conn_timeout=self.app.conn_timeout,
-                    node_timeout=self.app.node_timeout)
+                    node_timeout=self.app.node_timeout,
+                    expected_frag_archive_size=expected_frag_size)
                 self.app.set_node_timing(node, putter.connect_duration)
                 return putter
             except InsufficientStorage:

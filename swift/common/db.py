@@ -45,7 +45,8 @@ DB_PREALLOCATION = False
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
 PICKLE_PROTOCOL = 2
-#: Max number of pending entries
+#: Max size of .pending file in bytes. When this is exceeded, the pending
+# records will be merged.
 PENDING_CAP = 131072
 
 

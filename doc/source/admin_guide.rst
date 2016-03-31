@@ -234,9 +234,11 @@ using the format `regex_pattern_X = regex_expression`, where `X` is a number.
 This script has been tested on Ubuntu 10.04 and Ubuntu 12.04, so if you are
 using a different distro or OS, some care should be taken before using in production.
 
---------------
-Cluster Health
---------------
+.. _dispersion_report:
+
+-----------------
+Dispersion Report
+-----------------
 
 There is a swift-dispersion-report tool for measuring overall cluster health.
 This is accomplished by checking if a set of deliberately distributed
@@ -684,8 +686,7 @@ of async_pendings in real-time, but will not tell you the current number of
 async_pending container updates on disk at any point in time.
 
 Note also that the set of metrics collected, their names, and their semantics
-are not locked down and will change over time.  StatsD logging is currently in
-a "beta" stage and will continue to evolve.
+are not locked down and will change over time.
 
 Metrics for `account-auditor`:
 

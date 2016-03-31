@@ -14,13 +14,6 @@ synchronization key.
 
 .. note::
 
-    Container sync will sync object POSTs only if the proxy server is set to
-    use "object_post_as_copy = true" which is the default. So-called fast
-    object posts, "object_post_as_copy = false" do not update the container
-    listings and therefore can't be detected for synchronization.
-
-.. note::
-
     If you are using the large objects feature you will need to ensure both
     your manifest file and your segment files are synced if they happen to be
     in different containers.
@@ -385,13 +378,6 @@ from ``sync-containers``.
     cluster and talks to the proxy servers (or load balancers) in the remote
     cluster. Therefore, the container servers must be permitted to initiate
     outbound connections to the remote proxy servers (or load balancers).
-
-.. note::
-
-    Container sync will sync object POSTs only if the proxy server is set to
-    use "object_post_as_copy = true" which is the default. So-called fast
-    object posts, "object_post_as_copy = false" do not update the container
-    listings and therefore can't be detected for synchronization.
 
 The actual syncing is slightly more complicated to make use of the three
 (or number-of-replicas) main nodes for a container without each trying to
