@@ -47,11 +47,12 @@ from swift.common.utils import Timestamp, config_true_value, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
-from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
+from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
@@ -629,7 +630,8 @@ def bytes_to_skip(record_size, range_start):
 
 class ResumingGetter(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
-                 backend_headers, client_chunk_size=None, newest=None):
+                 backend_headers, concurrency=1, client_chunk_size=None,
+                 newest=None):
         self.app = app
         self.node_iter = node_iter
         self.server_type = server_type
@@ -640,6 +642,7 @@ class ResumingGetter(object):
         self.skip_bytes = 0
         self.used_nodes = []
         self.used_source_etag = ''
+        self.concurrency = concurrency
 
         # stuff from request
         self.req_method = req.method
@@ -655,6 +658,7 @@ class ResumingGetter(object):
         self.reasons = []
         self.bodies = []
         self.source_headers = []
+        self.sources = []
 
         # populated from response headers
         self.start_byte = self.end_byte = self.length = None
@@ -977,93 +981,111 @@ class ResumingGetter(object):
         else:
             return None
 
+    def _make_node_request(self, node, node_timeout, logger_thread_locals):
+        self.app.logger.thread_locals = logger_thread_locals
+        if node in self.used_nodes:
+            return False
+        start_node_timing = time.time()
+        try:
+            with ConnectionTimeout(self.app.conn_timeout):
+                conn = http_connect(
+                    node['ip'], node['port'], node['device'],
+                    self.partition, self.req_method, self.path,
+                    headers=self.backend_headers,
+                    query_string=self.req_query_string)
+            self.app.set_node_timing(node, time.time() - start_node_timing)
+
+            with Timeout(node_timeout):
+                possible_source = conn.getresponse()
+                # See NOTE: swift_conn at top of file about this.
+                possible_source.swift_conn = conn
+        except (Exception, Timeout):
+            self.app.exception_occurred(
+                node, self.server_type,
+                _('Trying to %(method)s %(path)s') %
+                {'method': self.req_method, 'path': self.req_path})
+            return False
+        if self.is_good_source(possible_source):
+            # 404 if we know we don't have a synced copy
+            if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
+                self.statuses.append(HTTP_NOT_FOUND)
+                self.reasons.append('')
+                self.bodies.append('')
+                self.source_headers.append([])
+                close_swift_conn(possible_source)
+            else:
+                if self.used_source_etag:
+                    src_headers = dict(
+                        (k.lower(), v) for k, v in
+                        possible_source.getheaders())
+
+                    if self.used_source_etag != src_headers.get(
+                            'x-object-sysmeta-ec-etag',
+                            src_headers.get('etag', '')).strip('"'):
+                        self.statuses.append(HTTP_NOT_FOUND)
+                        self.reasons.append('')
+                        self.bodies.append('')
+                        self.source_headers.append([])
+                        return False
+
+                self.statuses.append(possible_source.status)
+                self.reasons.append(possible_source.reason)
+                self.bodies.append(None)
+                self.source_headers.append(possible_source.getheaders())
+                self.sources.append((possible_source, node))
+                if not self.newest:  # one good source is enough
+                    return True
+        else:
+            self.statuses.append(possible_source.status)
+            self.reasons.append(possible_source.reason)
+            self.bodies.append(possible_source.read())
+            self.source_headers.append(possible_source.getheaders())
+            if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
+                self.app.error_limit(node, _('ERROR Insufficient Storage'))
+            elif is_server_error(possible_source.status):
+                self.app.error_occurred(
+                    node, _('ERROR %(status)d %(body)s '
+                            'From %(type)s Server') %
+                    {'status': possible_source.status,
+                     'body': self.bodies[-1][:1024],
+                     'type': self.server_type})
+        return False
+
     def _get_source_and_node(self):
         self.statuses = []
         self.reasons = []
         self.bodies = []
         self.source_headers = []
-        sources = []
+        self.sources = []
+
+        nodes = GreenthreadSafeIterator(self.node_iter)
 
         node_timeout = self.app.node_timeout
         if self.server_type == 'Object' and not self.newest:
             node_timeout = self.app.recoverable_node_timeout
-        for node in self.node_iter:
-            if node in self.used_nodes:
-                continue
-            start_node_timing = time.time()
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(
-                        node['ip'], node['port'], node['device'],
-                        self.partition, self.req_method, self.path,
-                        headers=self.backend_headers,
-                        query_string=self.req_query_string)
-                self.app.set_node_timing(node, time.time() - start_node_timing)
 
-                with Timeout(node_timeout):
-                    possible_source = conn.getresponse()
-                    # See NOTE: swift_conn at top of file about this.
-                    possible_source.swift_conn = conn
-            except (Exception, Timeout):
-                self.app.exception_occurred(
-                    node, self.server_type,
-                    _('Trying to %(method)s %(path)s') %
-                    {'method': self.req_method, 'path': self.req_path})
-                continue
-            if self.is_good_source(possible_source):
-                # 404 if we know we don't have a synced copy
-                if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                    self.statuses.append(HTTP_NOT_FOUND)
-                    self.reasons.append('')
-                    self.bodies.append('')
-                    self.source_headers.append([])
-                    close_swift_conn(possible_source)
-                else:
-                    if self.used_source_etag:
-                        src_headers = dict(
-                            (k.lower(), v) for k, v in
-                            possible_source.getheaders())
+        pile = GreenAsyncPile(self.concurrency)
 
-                        if self.used_source_etag != src_headers.get(
-                                'x-object-sysmeta-ec-etag',
-                                src_headers.get('etag', '')).strip('"'):
-                            self.statuses.append(HTTP_NOT_FOUND)
-                            self.reasons.append('')
-                            self.bodies.append('')
-                            self.source_headers.append([])
-                            continue
+        for node in nodes:
+            pile.spawn(self._make_node_request, node, node_timeout,
+                       self.app.logger.thread_locals)
+            _timeout = self.app.concurrency_timeout \
+                if pile.inflight < self.concurrency else None
+            if pile.waitfirst(_timeout):
+                break
+        else:
+            # ran out of nodes, see if any stragglers will finish
+            any(pile)
 
-                    self.statuses.append(possible_source.status)
-                    self.reasons.append(possible_source.reason)
-                    self.bodies.append(None)
-                    self.source_headers.append(possible_source.getheaders())
-                    sources.append((possible_source, node))
-                    if not self.newest:  # one good source is enough
-                        break
-            else:
-                self.statuses.append(possible_source.status)
-                self.reasons.append(possible_source.reason)
-                self.bodies.append(possible_source.read())
-                self.source_headers.append(possible_source.getheaders())
-                if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
-                elif is_server_error(possible_source.status):
-                    self.app.error_occurred(
-                        node, _('ERROR %(status)d %(body)s '
-                                'From %(type)s Server') %
-                        {'status': possible_source.status,
-                         'body': self.bodies[-1][:1024],
-                         'type': self.server_type})
-
-        if sources:
-            sources.sort(key=lambda s: source_key(s[0]))
-            source, node = sources.pop()
-            for src, _junk in sources:
+        if self.sources:
+            self.sources.sort(key=lambda s: source_key(s[0]))
+            source, node = self.sources.pop()
+            for src, _junk in self.sources:
                 close_swift_conn(src)
             self.used_nodes.append(node)
             src_headers = dict(
                 (k.lower(), v) for k, v in
-                possible_source.getheaders())
+                source.getheaders())
 
             # Save off the source etag so that, if we lose the connection
             # and have to resume from a different node, we can be sure that
@@ -1619,7 +1641,7 @@ class Controller(object):
             self.app.logger.warning('Could not autocreate account %r' % path)
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
-                       client_chunk_size=None):
+                       concurrency=1, client_chunk_size=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
@@ -1628,6 +1650,7 @@ class Controller(object):
         :param node_iter: an iterator to obtain nodes from
         :param partition: partition
         :param path: path for the request
+        :param concurrency: number of requests to run concurrently
         :param client_chunk_size: chunk size for response body iterator
         :returns: swob.Response object
         """
@@ -1636,6 +1659,7 @@ class Controller(object):
 
         handler = GetOrHeadHandler(self.app, req, self.server_type, node_iter,
                                    partition, path, backend_headers,
+                                   concurrency,
                                    client_chunk_size=client_chunk_size)
         res = handler.get_working_response(req)
 

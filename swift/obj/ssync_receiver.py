@@ -66,7 +66,6 @@ def encode_wanted(remote, local):
     The decoder for this line is
     :py:func:`~swift.obj.ssync_sender.decode_wanted`
     """
-
     want = {}
     if 'ts_data' in local:
         # we have something, let's get just the right stuff
@@ -248,7 +247,7 @@ class Receiver(object):
             raise swob.HTTPInsufficientStorage(drive=self.device)
         self.fp = self.request.environ['wsgi.input']
 
-    def _check_local(self, object_hash):
+    def _check_local(self, remote, make_durable=True):
         """
         Parse local diskfile and return results of current
         representative for comparison to remote.
@@ -257,21 +256,42 @@ class Receiver(object):
         """
         try:
             df = self.diskfile_mgr.get_diskfile_from_hash(
-                self.device, self.partition, object_hash,
+                self.device, self.partition, remote['object_hash'],
                 self.policy, frag_index=self.frag_index)
         except exceptions.DiskFileNotExist:
             return {}
         try:
             df.open()
         except exceptions.DiskFileDeleted as err:
-            return {'ts_data': err.timestamp}
-        except exceptions.DiskFileError as err:
-            return {}
-        return {
-            'ts_data': df.data_timestamp,
-            'ts_meta': df.timestamp,
-            'ts_ctype': df.content_type_timestamp,
-        }
+            result = {'ts_data': err.timestamp}
+        except exceptions.DiskFileError:
+            result = {}
+        else:
+            result = {
+                'ts_data': df.data_timestamp,
+                'ts_meta': df.timestamp,
+                'ts_ctype': df.content_type_timestamp,
+            }
+        if (make_durable and df.fragments and
+            remote['ts_data'] in df.fragments and
+            self.frag_index in df.fragments[remote['ts_data']] and
+            (df.durable_timestamp is None or
+             df.durable_timestamp < remote['ts_data'])):
+            # We have the frag, just missing a .durable, so try to create the
+            # .durable now. Try this just once to avoid looping if it fails.
+            try:
+                with df.create() as writer:
+                    writer.commit(remote['ts_data'])
+                return self._check_local(remote, make_durable=False)
+            except Exception:
+                # if commit fails then log exception and fall back to wanting
+                # a full update
+                self.app.logger.exception(
+                    '%s/%s/%s EXCEPTION in replication.Receiver while '
+                    'attempting commit of %s'
+                    % (self.request.remote_addr, self.device, self.partition,
+                       df._datadir))
+        return result
 
     def _check_missing(self, line):
         """
@@ -282,7 +302,7 @@ class Receiver(object):
         Anchor point for tests to mock legacy protocol changes.
         """
         remote = decode_missing(line)
-        local = self._check_local(remote['object_hash'])
+        local = self._check_local(remote)
         return encode_wanted(remote, local)
 
     def missing_check(self):

@@ -577,10 +577,13 @@ def setup_package():
             # if the test.conf file is not found, or does not provide a usable
             # configuration.
             config.update(get_config('func_test'))
-            if config:
-                in_process = False
-            else:
+            if not config:
                 in_process = True
+            # else... leave in_process value unchanged. It may be that
+            # setup_package is called twice, in which case in_process_setup may
+            # have loaded config before we reach here a second time, so the
+            # existence of config is not reliable to determine that in_process
+            # should be False. Anyway, it's default value is False.
         else:
             # Explicitly set to False, do not attempt to use in-process
             # functional tests, be sure we attempt to read from local
@@ -775,10 +778,12 @@ def teardown_package():
 
     # clean up containers and objects left behind after running tests
     global config
-    conn = Connection(config)
-    conn.authenticate()
-    account = Account(conn, config.get('account', config['username']))
-    account.delete_containers()
+
+    if config:
+        conn = Connection(config)
+        conn.authenticate()
+        account = Account(conn, config.get('account', config['username']))
+        account.delete_containers()
 
     global in_process
     global _test_socks

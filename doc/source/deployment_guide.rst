@@ -569,15 +569,15 @@ replication_server                                    Configure parameter for cr
                                                       should not specify any value for
                                                       "replication_server".
 replication_concurrency        4                      Set to restrict the number of
-                                                      concurrent incoming REPLICATION
+                                                      concurrent incoming SSYNC
                                                       requests; set to 0 for unlimited
-replication_one_per_device     True                   Restricts incoming REPLICATION
+replication_one_per_device     True                   Restricts incoming SSYNC
                                                       requests to one per device,
                                                       replication_currency above
                                                       allowing. This can help control
                                                       I/O to each device, but you may
                                                       wish to set this to False to
-                                                      allow multiple REPLICATION
+                                                      allow multiple SSYNC
                                                       requests (up to the above
                                                       replication_concurrency setting)
                                                       per device.
@@ -589,9 +589,9 @@ replication_failure_threshold  100                    The number of subrequest f
                                                       replication_failure_ratio is
                                                       checked
 replication_failure_ratio      1.0                    If the value of failures /
-                                                      successes of REPLICATION
+                                                      successes of SSYNC
                                                       subrequests exceeds this ratio,
-                                                      the overall REPLICATION request
+                                                      the overall SSYNC request
                                                       will be aborted
 splice                         no                     Use splice() for zero-copy object
                                                       GETs. This requires Linux kernel
@@ -738,6 +738,11 @@ concurrency                 1                   The number of parallel processes
 zero_byte_files_per_second  50
 object_size_stats
 recon_cache_path            /var/cache/swift    Path to recon cache
+rsync_tempfile_timeout      auto                Time elapsed in seconds before rsync
+                                                tempfiles will be unlinked. Config value
+                                                of "auto" try to use object-replicator's
+                                                rsync_timeout + 900 or fallback to 86400
+                                                (1 day).
 =========================== =================== ==========================================
 
 ------------------------------
@@ -1325,11 +1330,7 @@ object_post_as_copy           true             Set object_post_as_copy = false
                                                the metadata changes are stored
                                                anew and the original data file
                                                is kept in place. This makes for
-                                               quicker posts; but since the
-                                               container metadata isn't updated
-                                               in this mode, features like
-                                               container sync won't be able to
-                                               sync posts.
+                                               quicker posts.
 account_autocreate            false            If set to 'true' authorized
                                                accounts that do not yet exist
                                                within the Swift cluster will
@@ -1367,6 +1368,36 @@ swift_owner_headers           <see the sample  These are the headers whose
                               headers>         up to the auth system in use,
                                                but usually indicates
                                                administrative responsibilities.
+sorting_method                shuffle          Storage nodes can be chosen at
+                                               random (shuffle), by using timing
+                                               measurements (timing), or by using
+                                               an explicit match (affinity).
+                                               Using timing measurements may allow
+                                               for lower overall latency, while
+                                               using affinity allows for finer
+                                               control. In both the timing and
+                                               affinity cases, equally-sorting nodes
+                                               are still randomly chosen to spread
+                                               load.
+timing_expiry                 300              If the "timing" sorting_method is
+                                               used, the timings will only be valid
+                                               for the number of seconds configured
+                                               by timing_expiry.
+concurrent_gets               off              Use replica count number of
+                                               threads concurrently during a
+                                               GET/HEAD and return with the
+                                               first successful response. In
+                                               the EC case, this parameter only
+                                               effects an EC HEAD as an EC GET
+                                               behaves differently.
+concurrency_timeout           conn_timeout     This parameter controls how long
+                                               to wait before firing off the
+                                               next concurrent_get thread. A
+                                               value of 0 would we fully concurrent
+                                               any other number will stagger the
+                                               firing of the threads. This number
+                                               should be between 0 and node_timeout.
+                                               The default is conn_timeout (0.5).
 ============================  ===============  =============================
 
 [tempauth]

@@ -51,8 +51,7 @@ aliases = yellow, orange
 #policy_type = replication
 
 # The following declares a storage policy of type 'erasure_coding' which uses
-# Erasure Coding for data reliability.  The 'erasure_coding' storage policy in
-# Swift is available as a "beta".  Please refer to Swift documentation for
+# Erasure Coding for data reliability. Please refer to Swift documentation for
 # details on how the 'erasure_coding' storage policy is implemented.
 #
 # Swift uses PyECLib, a Python Erasure coding API library, for encode/decode

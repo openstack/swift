@@ -19,6 +19,7 @@ from collections import defaultdict
 from hashlib import md5
 from swift.common import swob
 from swift.common.swob import HTTPException
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import split_path
 
 from test.unit import FakeLogger, FakeRing
@@ -85,18 +86,18 @@ class FakeSwift(object):
 
         try:
             resp_class, raw_headers, body = self._find_response(method, path)
-            headers = swob.HeaderKeyDict(raw_headers)
+            headers = HeaderKeyDict(raw_headers)
         except KeyError:
             if (env.get('QUERY_STRING')
                     and (method, env['PATH_INFO']) in self._responses):
                 resp_class, raw_headers, body = self._find_response(
                     method, env['PATH_INFO'])
-                headers = swob.HeaderKeyDict(raw_headers)
+                headers = HeaderKeyDict(raw_headers)
             elif method == 'HEAD' and ('GET', path) in self._responses:
                 resp_class, raw_headers, body = self._find_response(
                     'GET', path)
                 body = None
-                headers = swob.HeaderKeyDict(raw_headers)
+                headers = HeaderKeyDict(raw_headers)
             elif method == 'GET' and obj and path in self.uploaded:
                 resp_class = swob.HTTPOk
                 headers, body = self.uploaded[path]

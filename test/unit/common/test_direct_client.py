@@ -26,8 +26,9 @@ from six.moves import urllib
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import Timestamp
-from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
+from swift.common.swob import RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 from six.moves.http_client import HTTPException
 

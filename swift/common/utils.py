@@ -68,6 +68,7 @@ from swift import gettext_ as _
 import swift.common.exceptions
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.header_key_dict import HeaderKeyDict
 
 if six.PY3:
     stdlib_queue = eventlet.patcher.original('queue')
@@ -2121,10 +2122,21 @@ def unlink_older_than(path, mtime):
     Remove any file in a given path that that was last modified before mtime.
 
     :param path: path to remove file from
-    :mtime: timestamp of oldest file to keep
+    :param mtime: timestamp of oldest file to keep
     """
-    for fname in listdir(path):
-        fpath = os.path.join(path, fname)
+    filepaths = map(functools.partial(os.path.join, path), listdir(path))
+    return unlink_paths_older_than(filepaths, mtime)
+
+
+def unlink_paths_older_than(filepaths, mtime):
+    """
+    Remove any files from the given list that that were
+    last modified before mtime.
+
+    :param filepaths: a list of strings, the full paths of files to check
+    :param mtime: timestamp of oldest file to keep
+    """
+    for fpath in filepaths:
         try:
             if os.path.getmtime(fpath) < mtime:
                 os.unlink(fpath)
@@ -2470,6 +2482,10 @@ class GreenAsyncPile(object):
         finally:
             self._inflight -= 1
 
+    @property
+    def inflight(self):
+        return self._inflight
+
     def spawn(self, func, *args, **kwargs):
         """
         Spawn a job in a green thread on the pile.
@@ -2478,6 +2494,16 @@ class GreenAsyncPile(object):
         self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
+    def waitfirst(self, timeout):
+        """
+        Wait up to timeout seconds for first result to come in.
+
+        :param timeout: seconds to wait for results
+        :returns: first item to come back, or None
+        """
+        for result in self._wait(timeout, first_n=1):
+            return result
+
     def waitall(self, timeout):
         """
         Wait timeout seconds for any results to come in.
@@ -2485,11 +2511,16 @@ class GreenAsyncPile(object):
         :param timeout: seconds to wait for results
         :returns: list of results accrued in that time
         """
+        return self._wait(timeout)
+
+    def _wait(self, timeout, first_n=None):
         results = []
         try:
             with GreenAsyncPileWaitallTimeout(timeout):
                 while True:
                     results.append(next(self))
+                    if first_n and len(results) >= first_n:
+                        break
         except (GreenAsyncPileWaitallTimeout, StopIteration):
             pass
         return results
@@ -3648,7 +3679,6 @@ def parse_mime_headers(doc_file):
     :param doc_file: binary file-like object containing a MIME document
     :returns: a swift.common.swob.HeaderKeyDict containing the headers
     """
-    from swift.common.swob import HeaderKeyDict  # avoid circular import
     headers = []
     while True:
         line = doc_file.readline()

@@ -33,6 +33,7 @@ are also not considered part of the backend API.
 import six.moves.cPickle as pickle
 import errno
 import fcntl
+import json
 import os
 import time
 import uuid
@@ -72,6 +73,7 @@ from functools import partial
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
+HASH_INVALIDATIONS_FILE = 'hashes.invalid'
 METADATA_KEY = 'user.swift.metadata'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
@@ -221,6 +223,73 @@ def quarantine_renamer(device_path, corrupted_file_path):
     return to_dir
 
 
+def consolidate_hashes(partition_dir):
+    """
+    Take what's in hashes.pkl and hashes.invalid, combine them, write the
+    result back to hashes.pkl, and clear out hashes.invalid.
+
+    :param suffix_dir: absolute path to partition dir containing hashes.pkl
+                       and hashes.invalid
+
+    :returns: the hashes, or None if there's no hashes.pkl.
+    """
+    hashes_file = join(partition_dir, HASH_FILE)
+    invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
+
+    if not os.path.exists(hashes_file):
+        if os.path.exists(invalidations_file):
+            # no hashes at all -> everything's invalid, so empty the file with
+            # the invalid suffixes in it, if it exists
+            try:
+                with open(invalidations_file, 'wb'):
+                    pass
+            except OSError as e:
+                if e.errno != errno.ENOENT:
+                    raise
+        return None
+
+    with lock_path(partition_dir):
+        try:
+            with open(hashes_file, 'rb') as hashes_fp:
+                pickled_hashes = hashes_fp.read()
+        except (IOError, OSError):
+            hashes = {}
+        else:
+            try:
+                hashes = pickle.loads(pickled_hashes)
+            except Exception:
+                # pickle.loads() can raise a wide variety of exceptions when
+                # given invalid input depending on the way in which the
+                # input is invalid.
+                hashes = None
+
+        modified = False
+        try:
+            with open(invalidations_file, 'rb') as inv_fh:
+                for line in inv_fh:
+                    suffix = line.strip()
+                    if hashes is not None and hashes.get(suffix) is not None:
+                        hashes[suffix] = None
+                        modified = True
+        except (IOError, OSError) as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+        if modified:
+            write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+
+        # Now that all the invalidations are reflected in hashes.pkl, it's
+        # safe to clear out the invalidations file.
+        try:
+            with open(invalidations_file, 'w') as inv_fh:
+                pass
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+        return hashes
+
+
 def invalidate_hash(suffix_dir):
     """
     Invalidates the hash for a suffix_dir in the partition's hashes file.
@@ -234,16 +303,11 @@ def invalidate_hash(suffix_dir):
     hashes_file = join(partition_dir, HASH_FILE)
     if not os.path.exists(hashes_file):
         return
+
+    invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
     with lock_path(partition_dir):
-        try:
-            with open(hashes_file, 'rb') as fp:
-                hashes = pickle.load(fp)
-            if suffix in hashes and not hashes[suffix]:
-                return
-        except Exception:
-            return
-        hashes[suffix] = None
-        write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+        with open(invalidations_file, 'ab') as inv_fh:
+            inv_fh.write(suffix + "\n")
 
 
 class AuditLocation(object):
@@ -263,7 +327,7 @@ class AuditLocation(object):
 
 
 def object_audit_location_generator(devices, mount_check=True, logger=None,
-                                    device_dirs=None):
+                                    device_dirs=None, auditor_type="ALL"):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
     objects stored under that directory if device_dirs isn't set.  If
@@ -277,7 +341,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
-    :device_dirs: a list of directories under devices to traverse
+    :param device_dirs: a list of directories under devices to traverse
+    :param auditor_type: either ALL or ZBF
     """
     if not device_dirs:
         device_dirs = listdir(devices)
@@ -296,7 +361,15 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                     _('Skipping %s as it is not mounted'), device)
             continue
         # loop through object dirs for all policies
-        for dir_ in os.listdir(os.path.join(devices, device)):
+        device_dir = os.path.join(devices, device)
+        try:
+            dirs = os.listdir(device_dir)
+        except OSError as e:
+            if logger:
+                logger.debug(
+                    _('Skipping %s: %s') % (device_dir, e.strerror))
+            continue
+        for dir_ in dirs:
             if not dir_.startswith(DATADIR_BASE):
                 continue
             try:
@@ -307,8 +380,12 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                                      'to a valid policy (%s)') % (dir_, e))
                 continue
             datadir_path = os.path.join(devices, device, dir_)
-            partitions = listdir(datadir_path)
-            for partition in partitions:
+
+            partitions = get_auditor_status(datadir_path, logger, auditor_type)
+
+            for pos, partition in enumerate(partitions):
+                update_auditor_status(datadir_path, logger,
+                                      partitions[pos:], auditor_type)
                 part_path = os.path.join(datadir_path, partition)
                 try:
                     suffixes = listdir(part_path)
@@ -328,6 +405,51 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                         hsh_path = os.path.join(suff_path, hsh)
                         yield AuditLocation(hsh_path, device, partition,
                                             policy)
+
+            update_auditor_status(datadir_path, logger, [], auditor_type)
+
+
+def get_auditor_status(datadir_path, logger, auditor_type):
+    auditor_status = os.path.join(
+        datadir_path, "auditor_status_%s.json" % auditor_type)
+    status = {}
+    try:
+        with open(auditor_status) as statusfile:
+            status = statusfile.read()
+    except (OSError, IOError) as e:
+        if e.errno != errno.ENOENT and logger:
+            logger.warning(_('Cannot read %s (%s)') % (auditor_status, e))
+        return listdir(datadir_path)
+    try:
+        status = json.loads(status)
+    except ValueError as e:
+        logger.warning(_('Loading JSON from %s failed (%s)') % (
+                       auditor_status, e))
+        return listdir(datadir_path)
+    return status['partitions']
+
+
+def update_auditor_status(datadir_path, logger, partitions, auditor_type):
+    status = json.dumps({'partitions': partitions})
+    auditor_status = os.path.join(
+        datadir_path, "auditor_status_%s.json" % auditor_type)
+    try:
+        with open(auditor_status, "wb") as statusfile:
+            statusfile.write(status)
+    except (OSError, IOError) as e:
+        if logger:
+            logger.warning(_('Cannot write %s (%s)') % (auditor_status, e))
+
+
+def clear_auditor_status(devices, auditor_type="ALL"):
+    for device in os.listdir(devices):
+        for dir_ in os.listdir(os.path.join(devices, device)):
+            if not dir_.startswith("objects"):
+                continue
+            datadir_path = os.path.join(devices, device, dir_)
+            auditor_status = os.path.join(
+                datadir_path, "auditor_status_%s.json" % auditor_type)
+            remove_file(auditor_status)
 
 
 def strip_self(f):
@@ -395,6 +517,7 @@ class BaseDiskFileManager(object):
     diskfile_cls = None  # must be set by subclasses
 
     invalidate_hash = strip_self(invalidate_hash)
+    consolidate_hashes = strip_self(consolidate_hashes)
     quarantine_renamer = strip_self(quarantine_renamer)
 
     def __init__(self, conf, logger):
@@ -626,7 +749,10 @@ class BaseDiskFileManager(object):
         # dicts for the files having that extension. The file_info dicts are of
         # the form returned by parse_on_disk_filename, with the filename added.
         # Each list is sorted in reverse timestamp order.
-        #
+
+        # the results dict is used to collect results of file filtering
+        results = {}
+
         # The exts dict will be modified during subsequent processing as files
         # are removed to be discarded or ignored.
         exts = defaultdict(list)
@@ -637,15 +763,14 @@ class BaseDiskFileManager(object):
                 file_info['filename'] = afile
                 exts[file_info['ext']].append(file_info)
             except DiskFileError as e:
-                self.logger.warning('Unexpected file %s: %s' %
-                                    (os.path.join(datadir or '', afile), e))
+                file_path = os.path.join(datadir or '', afile)
+                self.logger.warning('Unexpected file %s: %s',
+                                    file_path, e)
+                results.setdefault('unexpected', []).append(file_path)
         for ext in exts:
             # For each extension sort files into reverse chronological order.
             exts[ext] = sorted(
                 exts[ext], key=lambda info: info['timestamp'], reverse=True)
-
-        # the results dict is used to collect results of file filtering
-        results = {}
 
         if exts.get('.ts'):
             # non-tombstones older than or equal to latest tombstone are
@@ -750,20 +875,6 @@ class BaseDiskFileManager(object):
             files.remove(file_info['filename'])
         results['files'] = files
         return results
-
-    def hash_cleanup_listdir(self, hsh_path, reclaim_age=ONE_WEEK):
-        """
-        List contents of a hash directory and clean up any old files.
-        For EC policy, delete files older than a .durable or .ts file.
-
-        :param hsh_path: object hash path
-        :param reclaim_age: age in seconds at which to remove tombstones
-        :returns: list of files remaining in the directory, reverse sorted
-        """
-        # maintain compatibility with 'legacy' hash_cleanup_listdir
-        # return value
-        return self.cleanup_ondisk_files(
-            hsh_path, reclaim_age=reclaim_age)['files']
 
     def _update_suffix_hashes(self, hashes, ondisk_info):
         """
@@ -889,12 +1000,22 @@ class BaseDiskFileManager(object):
             recalculate = []
 
         try:
-            with open(hashes_file, 'rb') as fp:
-                hashes = pickle.load(fp)
             mtime = getmtime(hashes_file)
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+
+        try:
+            hashes = self.consolidate_hashes(partition_path)
         except Exception:
             do_listdir = True
             force_rewrite = True
+        else:
+            if hashes is None:  # no hashes.pkl file; let's build it
+                do_listdir = True
+                force_rewrite = True
+                hashes = {}
+
         if do_listdir:
             for suff in os.listdir(partition_path):
                 if len(suff) == 3:
@@ -1021,14 +1142,17 @@ class BaseDiskFileManager(object):
                                  policy=policy, use_splice=self.use_splice,
                                  pipe_size=self.pipe_size, **kwargs)
 
-    def object_audit_location_generator(self, device_dirs=None):
+    def object_audit_location_generator(self, device_dirs=None,
+                                        auditor_type="ALL"):
         """
         Yield an AuditLocation for all objects stored under device_dirs.
 
         :param device_dirs: directory of target device
+        :param auditor_type: either ALL or ZBF
         """
         return object_audit_location_generator(self.devices, self.mount_check,
-                                               self.logger, device_dirs)
+                                               self.logger, device_dirs,
+                                               auditor_type)
 
     def get_diskfile_from_audit_location(self, audit_location):
         """
@@ -1065,8 +1189,8 @@ class BaseDiskFileManager(object):
             dev_path, get_data_dir(policy), str(partition), object_hash[-3:],
             object_hash)
         try:
-            filenames = self.hash_cleanup_listdir(object_path,
-                                                  self.reclaim_age)
+            filenames = self.cleanup_ondisk_files(object_path,
+                                                  self.reclaim_age)['files']
         except OSError as err:
             if err.errno == errno.ENOTDIR:
                 quar_path = self.quarantine_renamer(dev_path, object_path)
@@ -1322,7 +1446,7 @@ class BaseDiskFileWriter(object):
         self._put_succeeded = True
         if cleanup:
             try:
-                self.manager.hash_cleanup_listdir(self._datadir)
+                self.manager.cleanup_ondisk_files(self._datadir)['files']
             except OSError:
                 logging.exception(_('Problem cleaning up %s'), self._datadir)
 
@@ -2411,7 +2535,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                 exc = DiskFileNoSpace(str(err))
             else:
                 try:
-                    self.manager.hash_cleanup_listdir(self._datadir)
+                    self.manager.cleanup_ondisk_files(self._datadir)['files']
                 except OSError as os_err:
                     self.manager.logger.exception(
                         _('Problem cleaning up %s (%s)') %

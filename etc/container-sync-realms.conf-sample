@@ -40,7 +40,7 @@
 # The endpoint is what the container sync daemon will use when sending out
 # requests to that cluster. Keep in mind this endpoint must be reachable by all
 # container servers, since that is where the container sync daemon runs. Note
-# the the endpoint ends with /v1/ and that the container sync daemon will then
+# that the endpoint ends with /v1/ and that the container sync daemon will then
 # add the account/container/obj name after that.
 #
 # Distribute this container-sync-realms.conf file to all your proxy servers

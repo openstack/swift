@@ -37,8 +37,7 @@ There are many reasons why this might be desirable:
 .. note::
 
     Today, Swift supports two different policy types: Replication and Erasure
-    Code. Erasure Code policy is currently a beta release and should not be
-    used in a Production cluster. See :doc:`overview_erasure_code` for details.
+    Code. See :doc:`overview_erasure_code` for details.
 
     Also note that Diskfile refers to backend object storage plug-in
     architecture. See :doc:`development_ondisk_backends` for details.

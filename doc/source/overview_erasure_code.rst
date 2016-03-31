@@ -182,16 +182,12 @@ similar to that of replication with a few notable exceptions:
 Performance Considerations
 --------------------------
 
-Efforts are underway to characterize performance of various Erasure Code
-schemes.  One of the main goals of the beta release is to perform this
-characterization and encourage others to do so and provide meaningful feedback
-to the development community.  There are many factors that will affect
-performance of EC so it is vital that we have multiple characterization
-activities happening.
-
 In general, EC has different performance characteristics than replicated data.
 EC requires substantially more CPU to read and write data, and is more suited
 for larger objects that are not frequently accessed (eg backups).
+
+Operators are encouraged to characterize the performance of various EC schemes
+and share their observations with the developer community.
 
 ----------------------------
 Using an Erasure Code Policy

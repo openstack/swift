@@ -275,11 +275,14 @@ there you can change it to: authtoken keystoneauth
 .PD 0
 .RS 10
 .IP "paste.filter_factory = keystonemiddleware.auth_token:filter_factory"
-.IP "identity_uri = http://keystonehost:35357/"
-.IP "auth_uri = http://keystonehost:5000/"
-.IP "admin_tenant_name = service"
-.IP "admin_user = swift"
-.IP "admin_password = password"
+.IP "auth_uri = http://keystonehost:5000"
+.IP "auth_url = http://keystonehost:35357"
+.IP "auth_plugin = password"
+.IP "project_domain_id = default"
+.IP "user_domain_id = default"
+.IP "project_name = service"
+.IP "username = swift"
+.IP "password = password"
 .IP ""
 .IP "# delay_auth_decision defaults to False, but leaving it as false will"
 .IP "# prevent other auth systems, staticweb, tempurl, formpost, and ACLs from"
@@ -330,11 +333,6 @@ This allows middleware higher in the WSGI pipeline to override auth
 processing, useful for middleware such as tempurl and formpost. If you know
 you're not going to use such middleware and you want a bit of extra security,
 you can set this to false.
-.IP \fBis_admin\fR
-[DEPRECATED] If is_admin is true, a user whose username is the same as the project name
-and who has any role on the project will have access rights elevated to be
-the same as if the user had an operator role. Note that the condition
-compares names rather than UUIDs. This option is deprecated.
 .IP \fBservice_roles\fR
 If the service_roles parameter is present, an X-Service-Token must be
 present in the request that when validated, grants at least one role listed
@@ -973,8 +971,7 @@ is false.
 .IP \fBobject_post_as_copy\fR
 Set object_post_as_copy = false to turn on fast posts where only the metadata changes
 are stored as new and the original data file is kept in place. This makes for quicker
-posts; but since the container metadata isn't updated in this mode, features like
-container sync won't be able to sync posts. The default is True.
+posts. The default is True.
 .IP \fBaccount_autocreate\fR
 If set to 'true' authorized accounts that do not yet exist within the Swift cluster
 will be automatically created. The default is set to false.

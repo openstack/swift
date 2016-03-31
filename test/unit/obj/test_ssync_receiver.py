@@ -665,6 +665,117 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
 
+    @patch_policies(with_ec_default=True)
+    def test_MISSING_CHECK_missing_durable(self):
+        self.controller.logger = mock.MagicMock()
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+
+        # make rx disk file but don't commit it, so .durable is missing
+        ts1 = next(make_timestamp_iter()).internal
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        fp = open(os.path.join(object_dir, ts1 + '#2.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        metadata1 = {
+            'name': self.name1,
+            'X-Timestamp': ts1,
+            'Content-Length': '1'}
+        diskfile.write_metadata(fp, metadata1)
+
+        # make a request - expect no data to be wanted
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + ts1 + '\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
+    @patch_policies(with_ec_default=True)
+    @mock.patch('swift.obj.diskfile.ECDiskFileWriter.commit')
+    def test_MISSING_CHECK_missing_durable_but_commit_fails(self, mock_commit):
+        self.controller.logger = mock.MagicMock()
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+
+        # make rx disk file but don't commit it, so .durable is missing
+        ts1 = next(make_timestamp_iter()).internal
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        fp = open(os.path.join(object_dir, ts1 + '#2.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        metadata1 = {
+            'name': self.name1,
+            'X-Timestamp': ts1,
+            'Content-Length': '1'}
+        diskfile.write_metadata(fp, metadata1)
+
+        # make a request with commit disabled - expect data to be wanted
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + ts1 + '\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             self.hash1 + ' dm',
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
+        # make a request with commit raising error - expect data to be wanted
+        mock_commit.side_effect = Exception
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + ts1 + '\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             self.hash1 + ' dm',
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertTrue(self.controller.logger.exception.called)
+        self.assertIn(
+            'EXCEPTION in replication.Receiver while attempting commit of',
+            self.controller.logger.exception.call_args[0][0])
+
     def test_MISSING_CHECK_storage_policy(self):
         # update router post policy patch
         self.controller._diskfile_router = diskfile.DiskFileRouter(

@@ -206,6 +206,9 @@ class ReconMiddleware(object):
         """list unmounted (failed?) devices"""
         mountlist = []
         for entry in os.listdir(self.devices):
+            if not os.path.isdir(os.path.join(self.devices, entry)):
+                continue
+
             try:
                 mounted = check_mount(self.devices, entry)
             except OSError as err:
@@ -219,6 +222,9 @@ class ReconMiddleware(object):
         """get disk utilization statistics"""
         devices = []
         for entry in os.listdir(self.devices):
+            if not os.path.isdir(os.path.join(self.devices, entry)):
+                continue
+
             try:
                 mounted = check_mount(self.devices, entry)
             except OSError as err:

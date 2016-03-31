@@ -100,15 +100,23 @@ class FakeRing(object):
         self.nodes = [{'id': '1',
                        'ip': '10.10.10.1',
                        'port': 6002,
-                       'device': None},
+                       'device': 'sda1'},
                       {'id': '2',
                        'ip': '10.10.10.2',
                        'port': 6002,
-                       'device': None},
+                       'device': 'sda1'},
                       {'id': '3',
                        'ip': '10.10.10.3',
                        'port': 6002,
                        'device': None},
+                      {'id': '4',
+                       'ip': '10.10.10.1',
+                       'port': 6002,
+                       'device': 'sda2'},
+                      {'id': '5',
+                       'ip': '10.10.10.1',
+                       'port': 6002,
+                       'device': 'sda3'},
                       ]
 
     def get_nodes(self, *args, **kwargs):
@@ -126,9 +134,21 @@ acc_nodes = [{'device': 'sda1',
               'port': ''},
              {'device': 'sda1',
               'ip': '',
+              'port': ''},
+             {'device': 'sda1',
+              'ip': '',
+              'port': ''},
+             {'device': 'sda1',
+              'ip': '',
               'port': ''}]
 
 cont_nodes = [{'device': 'sda1',
+               'ip': '',
+               'port': ''},
+              {'device': 'sda1',
+               'ip': '',
+               'port': ''},
+              {'device': 'sda1',
                'ip': '',
                'port': ''},
               {'device': 'sda1',
@@ -184,11 +204,11 @@ class TestReaper(unittest.TestCase):
         if self.reap_obj_fail:
             raise Exception
 
-    def prepare_data_dir(self, ts=False):
+    def prepare_data_dir(self, ts=False, device='sda1'):
         devices_path = tempfile.mkdtemp()
         # will be deleted by teardown
         self.to_delete.append(devices_path)
-        path = os.path.join(devices_path, 'sda1', DATADIR)
+        path = os.path.join(devices_path, device, DATADIR)
         os.makedirs(path)
         path = os.path.join(path, '100',
                             'a86', 'a8c682d2472e1720f2d81ff8993aba6')
@@ -436,7 +456,7 @@ class TestReaper(unittest.TestCase):
         self.get_fail = False
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
-        self.max_delete_fail = 2
+        self.max_delete_fail = 4
         with patch('swift.account.reaper.direct_get_container',
                    self.fake_direct_get_container), \
                 patch('swift.account.reaper.direct_delete_container',
@@ -446,7 +466,7 @@ class TestReaper(unittest.TestCase):
                 patch('swift.account.reaper.AccountReaper.reap_object',
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 2)
+        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 4)
         self.assertEqual(r.stats_containers_possibly_remaining, 1)
 
     def test_reap_container_full_fail(self):
@@ -454,7 +474,7 @@ class TestReaper(unittest.TestCase):
         self.get_fail = False
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
-        self.max_delete_fail = 3
+        self.max_delete_fail = 5
         with patch('swift.account.reaper.direct_get_container',
                    self.fake_direct_get_container), \
                 patch('swift.account.reaper.direct_delete_container',
@@ -464,7 +484,7 @@ class TestReaper(unittest.TestCase):
                 patch('swift.account.reaper.AccountReaper.reap_object',
                       self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 3)
+        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 5)
         self.assertEqual(r.stats_containers_remaining, 1)
 
     @patch('swift.account.reaper.Ring',
@@ -518,7 +538,7 @@ class TestReaper(unittest.TestCase):
                                    container_shard=container_shard))
         self.assertEqual(self.called_amount, 4)
         info_lines = r.logger.get_lines_for_level('info')
-        self.assertEqual(len(info_lines), 6)
+        self.assertEqual(len(info_lines), 10)
         for start_line, stat_line in zip(*[iter(info_lines)] * 2):
             self.assertEqual(start_line, 'Beginning pass on account a')
             self.assertTrue(stat_line.find('1 containers deleted'))
@@ -604,6 +624,42 @@ class TestReaper(unittest.TestCase):
         # 10.10.10.2 is second node from ring
         self.assertEqual(container_shard_used[0], 1)
 
+    def test_reap_device_with_sharding_and_various_devices(self):
+        devices = self.prepare_data_dir(device='sda2')
+        conf = {'devices': devices}
+        r = self.init_reaper(conf)
+        container_shard_used = [-1]
+
+        def fake_reap_account(*args, **kwargs):
+            container_shard_used[0] = kwargs.get('container_shard')
+
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_account',
+                      fake_reap_account):
+            r.reap_device('sda2')
+
+        # 10.10.10.2 is second node from ring
+        self.assertEqual(container_shard_used[0], 3)
+
+        devices = self.prepare_data_dir(device='sda3')
+        conf = {'devices': devices}
+        r = self.init_reaper(conf)
+        container_shard_used = [-1]
+
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_account',
+                      fake_reap_account):
+            r.reap_device('sda3')
+
+        # 10.10.10.2 is second node from ring
+        self.assertEqual(container_shard_used[0], 4)
+
     def test_reap_account_with_sharding(self):
         devices = self.prepare_data_dir()
         self.called_amount = 0
@@ -632,19 +688,30 @@ class TestReaper(unittest.TestCase):
                     fake_list_containers_iter), \
                 patch('swift.account.reaper.AccountReaper.reap_container',
                       fake_reap_container):
-            fake_broker = FakeAccountBroker(['c', 'd', 'e'])
-            r.reap_account(fake_broker, 10, fake_ring.nodes, 0)
-            self.assertEqual(container_reaped[0], 1)
 
-            fake_broker = FakeAccountBroker(['c', 'd', 'e'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            r.reap_account(fake_broker, 10, fake_ring.nodes, 0)
+            self.assertEqual(container_reaped[0], 0)
+
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
             container_reaped[0] = 0
             r.reap_account(fake_broker, 10, fake_ring.nodes, 1)
-            self.assertEqual(container_reaped[0], 2)
+            self.assertEqual(container_reaped[0], 1)
 
             container_reaped[0] = 0
-            fake_broker = FakeAccountBroker(['c', 'd', 'e'])
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
             r.reap_account(fake_broker, 10, fake_ring.nodes, 2)
             self.assertEqual(container_reaped[0], 0)
+
+            container_reaped[0] = 0
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            r.reap_account(fake_broker, 10, fake_ring.nodes, 3)
+            self.assertEqual(container_reaped[0], 3)
+
+            container_reaped[0] = 0
+            fake_broker = FakeAccountBroker(['c', 'd', 'e', 'f', 'g'])
+            r.reap_account(fake_broker, 10, fake_ring.nodes, 4)
+            self.assertEqual(container_reaped[0], 1)
 
     def test_run_once(self):
         def prepare_data_dir():

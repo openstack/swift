@@ -77,7 +77,7 @@ def main():
     # SIGKILL daemon after kill_wait period
     parser.add_option('--kill-after-timeout', dest='kill_after_timeout',
                       action='store_true',
-                      help="Kill daemon and all childs after kill-wait "
+                      help="Kill daemon and all children after kill-wait "
                            "period.")
 
     options, args = parser.parse_args()

@@ -18,6 +18,7 @@ from __future__ import print_function
 from test.unit import temptree
 
 import ctypes
+import contextlib
 import errno
 import eventlet
 import eventlet.event
@@ -60,7 +61,8 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     MimeInvalid, ThreadPoolDead
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
-from swift.common.swob import Request, Response, HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import Request, Response
 from test.unit import FakeLogger
 
 threading = eventlet.patcher.original('threading')
@@ -3435,6 +3437,86 @@ class ResellerConfReader(unittest.TestCase):
         self.assertEqual('pre2_group', options['PRE2_'].get('require_group'))
 
 
+class TestUnlinkOlder(unittest.TestCase):
+
+    def setUp(self):
+        self.tempdir = mkdtemp()
+        self.mtime = {}
+
+    def tearDown(self):
+        rmtree(self.tempdir, ignore_errors=True)
+
+    def touch(self, fpath, mtime=None):
+        self.mtime[fpath] = mtime or time.time()
+        open(fpath, 'w')
+
+    @contextlib.contextmanager
+    def high_resolution_getmtime(self):
+        orig_getmtime = os.path.getmtime
+
+        def mock_getmtime(fpath):
+            mtime = self.mtime.get(fpath)
+            if mtime is None:
+                mtime = orig_getmtime(fpath)
+            return mtime
+
+        with mock.patch('os.path.getmtime', mock_getmtime):
+            yield
+
+    def test_unlink_older_than_path_not_exists(self):
+        path = os.path.join(self.tempdir, 'does-not-exist')
+        # just make sure it doesn't blow up
+        utils.unlink_older_than(path, time.time())
+
+    def test_unlink_older_than_file(self):
+        path = os.path.join(self.tempdir, 'some-file')
+        self.touch(path)
+        with self.assertRaises(OSError) as ctx:
+            utils.unlink_older_than(path, time.time())
+        self.assertEqual(ctx.exception.errno, errno.ENOTDIR)
+
+    def test_unlink_older_than_now(self):
+        self.touch(os.path.join(self.tempdir, 'test'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, time.time())
+        self.assertEqual([], os.listdir(self.tempdir))
+
+    def test_unlink_not_old_enough(self):
+        start = time.time()
+        self.touch(os.path.join(self.tempdir, 'test'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, start)
+        self.assertEqual(['test'], os.listdir(self.tempdir))
+
+    def test_unlink_mixed(self):
+        self.touch(os.path.join(self.tempdir, 'first'))
+        cutoff = time.time()
+        self.touch(os.path.join(self.tempdir, 'second'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, cutoff)
+        self.assertEqual(['second'], os.listdir(self.tempdir))
+
+    def test_unlink_paths(self):
+        paths = []
+        for item in ('first', 'second', 'third'):
+            path = os.path.join(self.tempdir, item)
+            self.touch(path)
+            paths.append(path)
+        # don't unlink everyone
+        with self.high_resolution_getmtime():
+            utils.unlink_paths_older_than(paths[:2], time.time())
+        self.assertEqual(['third'], os.listdir(self.tempdir))
+
+    def test_unlink_empty_paths(self):
+        # just make sure it doesn't blow up
+        utils.unlink_paths_older_than([], time.time())
+
+    def test_unlink_not_exists_paths(self):
+        path = os.path.join(self.tempdir, 'does-not-exist')
+        # just make sure it doesn't blow up
+        utils.unlink_paths_older_than([path], time.time())
+
+
 class TestSwiftInfo(unittest.TestCase):
 
     def tearDown(self):
@@ -5000,6 +5082,37 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(run_test, 0.1)
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
+
+    def test_waitfirst_only_returns_first(self):
+        def run_test(name):
+            eventlet.sleep(0)
+            completed.append(name)
+            return name
+
+        completed = []
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 'first')
+        pile.spawn(run_test, 'second')
+        pile.spawn(run_test, 'third')
+        self.assertEqual(pile.waitfirst(0.5), completed[0])
+        # 3 still completed, but only the first was returned.
+        self.assertEqual(3, len(completed))
+
+    def test_wait_with_firstn(self):
+        def run_test(name):
+            eventlet.sleep(0)
+            completed.append(name)
+            return name
+
+        for first_n in [None] + list(range(6)):
+            completed = []
+            pile = utils.GreenAsyncPile(10)
+            for i in range(10):
+                pile.spawn(run_test, i)
+            actual = pile._wait(1, first_n)
+            expected_n = first_n if first_n else 10
+            self.assertEqual(completed[:expected_n], actual)
+            self.assertEqual(10, len(completed))
 
     def test_pending(self):
         pile = utils.GreenAsyncPile(3)

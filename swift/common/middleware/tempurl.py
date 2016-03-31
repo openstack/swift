@@ -169,8 +169,9 @@ from six.moves.urllib.parse import parse_qs
 from six.moves.urllib.parse import urlencode
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
-from swift.common.swob import HeaderKeyDict, header_to_environ_key, \
-    HTTPUnauthorized, HTTPBadRequest
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
+    HTTPBadRequest
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote
 
@@ -399,7 +400,7 @@ class TempURL(object):
 
         def _start_response(status, headers, exc_info=None):
             headers = self._clean_outgoing_headers(headers)
-            if env['REQUEST_METHOD'] == 'GET' and status[0] == '2':
+            if env['REQUEST_METHOD'] in ('GET', 'HEAD') and status[0] == '2':
                 # figure out the right value for content-disposition
                 # 1) use the value from the query string
                 # 2) use the value from the object metadata

@@ -18,17 +18,22 @@ import os
 import sys
 import time
 import signal
+import re
 from random import shuffle
 from swift import gettext_ as _
 from contextlib import closing
 from eventlet import Timeout
 
-from swift.obj import diskfile
-from swift.common.utils import get_logger, ratelimit_sleep, dump_recon_cache, \
-    list_from_csv, listdir
+from swift.obj import diskfile, replicator
+from swift.common.utils import (
+    get_logger, ratelimit_sleep, dump_recon_cache, list_from_csv, listdir,
+    unlink_paths_older_than, readconf, config_auto_int_value)
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES
+
+# This matches rsync tempfiles, like ".<timestamp>.data.Xy095a"
+RE_RSYNC_TEMPFILE = re.compile(r'^\..*\.([a-zA-Z0-9_]){6}$')
 
 
 class AuditorWorker(object):
@@ -42,6 +47,27 @@ class AuditorWorker(object):
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
+        try:
+            # ideally unless ops overrides the rsync_tempfile_timeout in the
+            # auditor section we can base our behavior on whatever they
+            # configure for their replicator
+            replicator_config = readconf(self.conf['__file__'],
+                                         'object-replicator')
+        except (KeyError, SystemExit):
+            # if we can't parse the real config (generally a KeyError on
+            # __file__, or SystemExit on no object-replicator section) we use
+            # a very conservative default
+            default = 86400
+        else:
+            replicator_rsync_timeout = int(replicator_config.get(
+                'rsync_timeout', replicator.DEFAULT_RSYNC_TIMEOUT))
+            # Here we can do some light math for ops and use the *replicator's*
+            # rsync_timeout (plus 15 mins to avoid deleting local tempfiles
+            # before the remote replicator kills it's rsync)
+            default = replicator_rsync_timeout + 900
+        self.rsync_tempfile_timeout = config_auto_int_value(
+            self.conf.get('rsync_tempfile_timeout'), default)
+
         self.auditor_type = 'ALL'
         self.zero_byte_only_at_fps = zero_byte_only_at_fps
         if self.zero_byte_only_at_fps:
@@ -95,7 +121,9 @@ class AuditorWorker(object):
         # can find all diskfile locations regardless of policy -- so for now
         # just use Policy-0's manager.
         all_locs = (self.diskfile_router[POLICIES[0]]
-                    .object_audit_location_generator(device_dirs=device_dirs))
+                    .object_audit_location_generator(
+                        device_dirs=device_dirs,
+                        auditor_type=self.auditor_type))
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -156,6 +184,9 @@ class AuditorWorker(object):
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
 
+        # Unset remaining partitions to not skip them in the next run
+        diskfile.clear_auditor_status(self.devices, self.auditor_type)
+
     def record_stats(self, obj_size):
         """
         Based on config's object_size_stats will keep track of how many objects
@@ -195,34 +226,46 @@ class AuditorWorker(object):
             raise DiskFileQuarantined(msg)
 
         diskfile_mgr = self.diskfile_router[location.policy]
+        # this method doesn't normally raise errors, even if the audit
+        # location does not exist; if this raises an unexpected error it
+        # will get logged in failsafe
+        df = diskfile_mgr.get_diskfile_from_audit_location(location)
+        reader = None
         try:
-            df = diskfile_mgr.get_diskfile_from_audit_location(location)
             with df.open():
                 metadata = df.get_metadata()
                 obj_size = int(metadata['Content-Length'])
                 if self.stats_sizes:
                     self.record_stats(obj_size)
-                if self.zero_byte_only_at_fps and obj_size:
-                    self.passes += 1
-                    return
-                reader = df.reader(_quarantine_hook=raise_dfq)
-            with closing(reader):
-                for chunk in reader:
-                    chunk_len = len(chunk)
-                    self.bytes_running_time = ratelimit_sleep(
-                        self.bytes_running_time,
-                        self.max_bytes_per_second,
-                        incr_by=chunk_len)
-                    self.bytes_processed += chunk_len
-                    self.total_bytes_processed += chunk_len
+                if obj_size and not self.zero_byte_only_at_fps:
+                    reader = df.reader(_quarantine_hook=raise_dfq)
+            if reader:
+                with closing(reader):
+                    for chunk in reader:
+                        chunk_len = len(chunk)
+                        self.bytes_running_time = ratelimit_sleep(
+                            self.bytes_running_time,
+                            self.max_bytes_per_second,
+                            incr_by=chunk_len)
+                        self.bytes_processed += chunk_len
+                        self.total_bytes_processed += chunk_len
         except DiskFileNotExist:
-            return
+            pass
         except DiskFileQuarantined as err:
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and was'
                                 ' quarantined: %(err)s'),
                               {'obj': location, 'err': err})
         self.passes += 1
+        # _ondisk_info attr is initialized to None and filled in by open
+        ondisk_info_dict = df._ondisk_info or {}
+        if 'unexpected' in ondisk_info_dict:
+            is_rsync_tempfile = lambda fpath: RE_RSYNC_TEMPFILE.match(
+                os.path.basename(fpath))
+            rsync_tempfile_paths = filter(is_rsync_tempfile,
+                                          ondisk_info_dict['unexpected'])
+            mtime = time.time() - self.rsync_tempfile_timeout
+            unlink_paths_older_than(rsync_tempfile_paths, mtime)
 
 
 class ObjectAuditor(Daemon):
@@ -279,6 +322,7 @@ class ObjectAuditor(Daemon):
         """Parallel audit loop"""
         self.clear_recon_cache('ALL')
         self.clear_recon_cache('ZBF')
+        once = kwargs.get('mode') == 'once'
         kwargs['device_dirs'] = override_devices
         if parent:
             kwargs['zero_byte_fps'] = zbo_fps
@@ -305,13 +349,18 @@ class ObjectAuditor(Daemon):
                     if len(pids) == parallel_proc:
                         pid = os.wait()[0]
                         pids.remove(pid)
-                    # ZBF scanner must be restarted as soon as it finishes
-                    if self.conf_zero_byte_fps and pid == zbf_pid:
+
+                    if self.conf_zero_byte_fps and pid == zbf_pid and once:
+                        # If we're only running one pass and the ZBF scanner
+                        # finished, don't bother restarting it.
+                        zbf_pid = -100
+                    elif self.conf_zero_byte_fps and pid == zbf_pid:
+                        # When we're running forever, the ZBF scanner must
+                        # be restarted as soon as it finishes.
                         kwargs['device_dirs'] = override_devices
                         # sleep between ZBF scanner forks
                         self._sleep()
-                        zbf_pid = self.fork_child(zero_byte_fps=True,
-                                                  **kwargs)
+                        zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
                         pids.append(zbf_pid)
                     else:
                         kwargs['device_dirs'] = [device_list.pop()]
@@ -319,8 +368,9 @@ class ObjectAuditor(Daemon):
             while pids:
                 pid = os.wait()[0]
                 # ZBF scanner must be restarted as soon as it finishes
+                # unless we're in run-once mode
                 if self.conf_zero_byte_fps and pid == zbf_pid and \
-                   len(pids) > 1:
+                   len(pids) > 1 and not once:
                     kwargs['device_dirs'] = override_devices
                     # sleep between ZBF scanner forks
                     self._sleep()

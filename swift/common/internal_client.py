@@ -741,10 +741,24 @@ class SimpleClient(object):
     def base_request(self, method, container=None, name=None, prefix=None,
                      headers=None, proxy=None, contents=None,
                      full_listing=None, logger=None, additional_info=None,
-                     timeout=None):
+                     timeout=None, marker=None):
         # Common request method
         trans_start = time()
         url = self.url
+
+        if full_listing:
+            info, body_data = self.base_request(
+                method, container, name, prefix, headers, proxy,
+                timeout=timeout, marker=marker)
+            listing = body_data
+            while listing:
+                marker = listing[-1]['name']
+                info, listing = self.base_request(
+                    method, container, name, prefix, headers, proxy,
+                    timeout=timeout, marker=marker)
+                if listing:
+                    body_data.extend(listing)
+            return [info, body_data]
 
         if headers is None:
             headers = {}
@@ -762,6 +776,9 @@ class SimpleClient(object):
             if prefix:
                 url += '&prefix=%s' % prefix
 
+            if marker:
+                url += '&marker=%s' % quote(marker)
+
         req = urllib2.Request(url, headers=headers, data=contents)
         if proxy:
             proxy = urllib.parse.urlparse(proxy)
@@ -769,6 +786,7 @@ class SimpleClient(object):
         req.get_method = lambda: method
         conn = urllib2.urlopen(req, timeout=timeout)
         body = conn.read()
+        info = conn.info()
         try:
             body_data = json.loads(body)
         except ValueError:
@@ -792,13 +810,13 @@ class SimpleClient(object):
                     url,
                     conn.getcode(),
                     sent_content_length,
-                    conn.info()['content-length'],
+                    info['content-length'],
                     trans_start,
                     trans_stop,
                     trans_stop - trans_start,
                     additional_info
                 )))
-        return [None, body_data]
+        return [info, body_data]
 
     def retry_request(self, method, **kwargs):
         retries = kwargs.pop('retries', self.retries)
@@ -835,6 +853,12 @@ class SimpleClient(object):
         # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, name=name,
                                   contents=contents.read(), **kwargs)
+
+
+def head_object(url, **kwargs):
+    """For usage with container sync """
+    client = SimpleClient(url=url)
+    return client.retry_request('HEAD', **kwargs)
 
 
 def put_object(url, **kwargs):

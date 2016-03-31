@@ -149,9 +149,15 @@ A GET request with the query parameter::
 
     ?multipart-manifest=get
 
-Will return the actual manifest file itself. This is generated json and does
-not match the data sent from the original multipart-manifest=put. This call's
-main purpose is for debugging.
+will return a transformed version of the original manifest, containing
+additional fields and different key names.
+
+A GET request with the query parameters::
+
+    ?multipart-manifest=get&format=raw
+
+will return the contents of the original manifest as it was sent by the client.
+The main purpose for both calls is solely debugging.
 
 When the manifest object is uploaded you are more or less guaranteed that
 every segment in the manifest exists and matched the specifications.
@@ -573,6 +579,9 @@ class SloGetContext(WSGIContext):
 
         # Handle pass-through request for the manifest itself
         if req.params.get('multipart-manifest') == 'get':
+            if req.params.get('format') == 'raw':
+                resp_iter = self.convert_segment_listing(
+                    self._response_headers, resp_iter)
             new_headers = []
             for header, value in self._response_headers:
                 if header.lower() == 'content-type':
@@ -606,13 +615,51 @@ class SloGetContext(WSGIContext):
             req, resp_headers, resp_iter)
         return response(req.environ, start_response)
 
-    def get_or_head_response(self, req, resp_headers, resp_iter):
+    def convert_segment_listing(self, resp_headers, resp_iter):
+        """
+        Converts the manifest data to match with the format
+        that was put in through ?multipart-manifest=put
+
+        :param resp_headers: response headers
+        :param resp_iter: a response iterable
+        """
+        segments = self._get_manifest_read(resp_iter)
+
+        for seg_dict in segments:
+            seg_dict.pop('content_type', None)
+            seg_dict.pop('last_modified', None)
+            seg_dict.pop('sub_slo', None)
+            seg_dict['path'] = seg_dict.pop('name', None)
+            seg_dict['size_bytes'] = seg_dict.pop('bytes', None)
+            seg_dict['etag'] = seg_dict.pop('hash', None)
+
+        json_data = json.dumps(segments)  # convert to string
+        if six.PY3:
+            json_data = json_data.encode('utf-8')
+
+        new_headers = []
+        for header, value in resp_headers:
+            if header.lower() == 'content-length':
+                new_headers.append(('Content-Length',
+                                    len(json_data)))
+            else:
+                new_headers.append((header, value))
+        self._response_headers = new_headers
+
+        return [json_data]
+
+    def _get_manifest_read(self, resp_iter):
         with closing_if_possible(resp_iter):
             resp_body = ''.join(resp_iter)
         try:
             segments = json.loads(resp_body)
         except ValueError:
             segments = []
+
+        return segments
+
+    def get_or_head_response(self, req, resp_headers, resp_iter):
+        segments = self._get_manifest_read(resp_iter)
 
         etag = md5()
         content_length = 0

@@ -27,10 +27,24 @@ from six.moves.urllib.parse import quote
 from test.unit import FakeLogger
 from eventlet.green import urllib2
 from swift.common import exceptions, internal_client, swob
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
+
+
+class FakeConn(object):
+    def __init__(self, body=None):
+        if body is None:
+            body = []
+        self.body = body
+
+    def read(self):
+        return json.dumps(self.body)
+
+    def info(self):
+        return {}
 
 
 def not_sleep(seconds):
@@ -338,19 +352,36 @@ class TestInternalClient(unittest.TestCase):
         # verify that base_request passes timeout arg on to urlopen
         body = {"some": "content"}
 
-        class FakeConn(object):
-            def read(self):
-                return json.dumps(body)
-
         for timeout in (0.0, 42.0, None):
             mocked_func = 'swift.common.internal_client.urllib2.urlopen'
             with mock.patch(mocked_func) as mock_urlopen:
-                mock_urlopen.side_effect = [FakeConn()]
+                mock_urlopen.side_effect = [FakeConn(body)]
                 sc = internal_client.SimpleClient('http://0.0.0.0/')
                 _, resp_body = sc.base_request('GET', timeout=timeout)
                 mock_urlopen.assert_called_once_with(mock.ANY, timeout=timeout)
                 # sanity check
                 self.assertEqual(body, resp_body)
+
+    def test_base_full_listing(self):
+        body1 = [{'name': 'a'}, {'name': "b"}, {'name': "c"}]
+        body2 = [{'name': 'd'}]
+        body3 = []
+
+        mocked_func = 'swift.common.internal_client.urllib2.urlopen'
+        with mock.patch(mocked_func) as mock_urlopen:
+            mock_urlopen.side_effect = [
+                FakeConn(body1), FakeConn(body2), FakeConn(body3)]
+            sc = internal_client.SimpleClient('http://0.0.0.0/')
+            _, resp_body = sc.base_request('GET', full_listing=True)
+        self.assertEqual(body1 + body2, resp_body)
+        self.assertEqual(3, mock_urlopen.call_count)
+        actual_requests = map(
+            lambda call: call[0][0], mock_urlopen.call_args_list)
+        self.assertEqual('/?format=json', actual_requests[0].get_selector())
+        self.assertEqual(
+            '/?format=json&marker=c', actual_requests[1].get_selector())
+        self.assertEqual(
+            '/?format=json&marker=d', actual_requests[2].get_selector())
 
     def test_make_request_method_path_headers(self):
         class InternalClient(internal_client.InternalClient):
@@ -1027,7 +1058,7 @@ class TestInternalClient(unittest.TestCase):
             'user-agent': 'test',   # from InternalClient.make_request
         })
         self.assertEqual(app.calls_with_headers, [(
-            'GET', path_info, swob.HeaderKeyDict(req_headers))])
+            'GET', path_info, HeaderKeyDict(req_headers))])
 
     def test_iter_object_lines(self):
         class InternalClient(internal_client.InternalClient):
@@ -1180,76 +1211,84 @@ class TestGetAuth(unittest.TestCase):
                           'http://127.0.0.1', 'user', 'key', auth_version=2.0)
 
 
-mock_time_value = 1401224049.98
-
-
-def mock_time():
-    global mock_time_value
-    mock_time_value += 1
-    return mock_time_value
-
-
 class TestSimpleClient(unittest.TestCase):
+
+    def _test_get_head(self, request, urlopen, method):
+
+        mock_time_value = [1401224049.98]
+
+        def mock_time():
+            # global mock_time_value
+            mock_time_value[0] += 1
+            return mock_time_value[0]
+
+        with mock.patch('swift.common.internal_client.time', mock_time):
+            # basic request, only url as kwarg
+            request.return_value.get_type.return_value = "http"
+            urlopen.return_value.read.return_value = ''
+            urlopen.return_value.getcode.return_value = 200
+            urlopen.return_value.info.return_value = {'content-length': '345'}
+            sc = internal_client.SimpleClient(url='http://127.0.0.1')
+            logger = FakeLogger()
+            retval = sc.retry_request(
+                method, headers={'content-length': '123'}, logger=logger)
+            self.assertEqual(urlopen.call_count, 1)
+            request.assert_called_with('http://127.0.0.1?format=json',
+                                       headers={'content-length': '123'},
+                                       data=None)
+            self.assertEqual([{'content-length': '345'}, None], retval)
+            self.assertEqual(method, request.return_value.get_method())
+            self.assertEqual(logger.log_dict['debug'], [(
+                ('-> 2014-05-27T20:54:11 ' + method +
+                 ' http://127.0.0.1%3Fformat%3Djson 200 '
+                 '123 345 1401224050.98 1401224051.98 1.0 -',), {})])
+
+            # Check if JSON is decoded
+            urlopen.return_value.read.return_value = '{}'
+            retval = sc.retry_request(method)
+            self.assertEqual([{'content-length': '345'}, {}], retval)
+
+            # same as above, now with token
+            sc = internal_client.SimpleClient(url='http://127.0.0.1',
+                                              token='token')
+            retval = sc.retry_request(method)
+            request.assert_called_with('http://127.0.0.1?format=json',
+                                       headers={'X-Auth-Token': 'token'},
+                                       data=None)
+            self.assertEqual([{'content-length': '345'}, {}], retval)
+
+            # same as above, now with prefix
+            sc = internal_client.SimpleClient(url='http://127.0.0.1',
+                                              token='token')
+            retval = sc.retry_request(method, prefix="pre_")
+            request.assert_called_with(
+                'http://127.0.0.1?format=json&prefix=pre_',
+                headers={'X-Auth-Token': 'token'}, data=None)
+            self.assertEqual([{'content-length': '345'}, {}], retval)
+
+            # same as above, now with container name
+            retval = sc.retry_request(method, container='cont')
+            request.assert_called_with('http://127.0.0.1/cont?format=json',
+                                       headers={'X-Auth-Token': 'token'},
+                                       data=None)
+            self.assertEqual([{'content-length': '345'}, {}], retval)
+
+            # same as above, now with object name
+            retval = sc.retry_request(method, container='cont', name='obj')
+            request.assert_called_with('http://127.0.0.1/cont/obj',
+                                       headers={'X-Auth-Token': 'token'},
+                                       data=None)
+            self.assertEqual([{'content-length': '345'}, {}], retval)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     @mock.patch('eventlet.green.urllib2.Request')
-    @mock.patch('swift.common.internal_client.time', mock_time)
     def test_get(self, request, urlopen):
-        # basic GET request, only url as kwarg
-        request.return_value.get_type.return_value = "http"
-        urlopen.return_value.read.return_value = ''
-        urlopen.return_value.getcode.return_value = 200
-        urlopen.return_value.info.return_value = {'content-length': '345'}
-        sc = internal_client.SimpleClient(url='http://127.0.0.1')
-        logger = FakeLogger()
-        retval = sc.retry_request(
-            'GET', headers={'content-length': '123'}, logger=logger)
-        self.assertEqual(urlopen.call_count, 1)
-        request.assert_called_with('http://127.0.0.1?format=json',
-                                   headers={'content-length': '123'},
-                                   data=None)
-        self.assertEqual([None, None], retval)
-        self.assertEqual('GET', request.return_value.get_method())
-        self.assertEqual(logger.log_dict['debug'], [(
-            ('-> 2014-05-27T20:54:11 GET http://127.0.0.1%3Fformat%3Djson 200 '
-             '123 345 1401224050.98 1401224051.98 1.0 -',), {})])
+        self._test_get_head(request, urlopen, 'GET')
 
-        # Check if JSON is decoded
-        urlopen.return_value.read.return_value = '{}'
-        retval = sc.retry_request('GET')
-        self.assertEqual([None, {}], retval)
-
-        # same as above, now with token
-        sc = internal_client.SimpleClient(url='http://127.0.0.1',
-                                          token='token')
-        retval = sc.retry_request('GET')
-        request.assert_called_with('http://127.0.0.1?format=json',
-                                   headers={'X-Auth-Token': 'token'},
-                                   data=None)
-        self.assertEqual([None, {}], retval)
-
-        # same as above, now with prefix
-        sc = internal_client.SimpleClient(url='http://127.0.0.1',
-                                          token='token')
-        retval = sc.retry_request('GET', prefix="pre_")
-        request.assert_called_with('http://127.0.0.1?format=json&prefix=pre_',
-                                   headers={'X-Auth-Token': 'token'},
-                                   data=None)
-        self.assertEqual([None, {}], retval)
-
-        # same as above, now with container name
-        retval = sc.retry_request('GET', container='cont')
-        request.assert_called_with('http://127.0.0.1/cont?format=json',
-                                   headers={'X-Auth-Token': 'token'},
-                                   data=None)
-        self.assertEqual([None, {}], retval)
-
-        # same as above, now with object name
-        retval = sc.retry_request('GET', container='cont', name='obj')
-        request.assert_called_with('http://127.0.0.1/cont/obj',
-                                   headers={'X-Auth-Token': 'token'},
-                                   data=None)
-        self.assertEqual([None, {}], retval)
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch('eventlet.green.urllib2.Request')
+    def test_head(self, request, urlopen):
+        self._test_get_head(request, urlopen, 'HEAD')
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     @mock.patch('eventlet.green.urllib2.Request')
@@ -1271,6 +1310,7 @@ class TestSimpleClient(unittest.TestCase):
         request.return_value.get_type.return_value = "http"
         mock_resp = mock.MagicMock()
         mock_resp.read.return_value = ''
+        mock_resp.info.return_value = {}
         urlopen.side_effect = [urllib2.URLError(''), mock_resp]
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1,
                                           token='token')
@@ -1282,13 +1322,14 @@ class TestSimpleClient(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
         request.assert_called_with('http://127.0.0.1?format=json', data=None,
                                    headers={'X-Auth-Token': 'token'})
-        self.assertEqual([None, None], retval)
+        self.assertEqual([{}, None], retval)
         self.assertEqual(sc.attempts, 2)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     def test_get_with_retries_param(self, mock_urlopen):
         mock_response = mock.MagicMock()
         mock_response.read.return_value = ''
+        mock_response.info.return_value = {}
         mock_urlopen.side_effect = internal_client.httplib.BadStatusLine('')
         c = internal_client.SimpleClient(url='http://127.0.0.1', token='token')
         self.assertEqual(c.retries, 5)
@@ -1314,7 +1355,7 @@ class TestSimpleClient(unittest.TestCase):
             retval = c.retry_request('GET', retries=1)
         self.assertEqual(mock_sleep.call_count, 1)
         self.assertEqual(mock_urlopen.call_count, 2)
-        self.assertEqual([None, None], retval)
+        self.assertEqual([{}, None], retval)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     def test_request_with_retries_with_HTTPError(self, mock_urlopen):
@@ -1377,10 +1418,6 @@ class TestSimpleClient(unittest.TestCase):
         proxy_host = '127.0.0.1:80'
         proxy = '%s://%s' % (scheme, proxy_host)
         url = 'https://127.0.0.1:1/a'
-
-        class FakeConn(object):
-            def read(self):
-                return 'irrelevant'
 
         mocked = 'swift.common.internal_client.urllib2.urlopen'
 

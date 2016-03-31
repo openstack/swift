@@ -93,10 +93,12 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part = self.app.container_ring.get_part(
             self.account_name, self.container_name)
+        concurrency = self.app.container_ring.replica_count \
+            if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
-            req.swift_entity_path)
+            req.swift_entity_path, concurrency)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
