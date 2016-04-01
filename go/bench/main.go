@@ -17,132 +17,91 @@ package bench
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
 	"math/rand"
-	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/openstack/swift/go/client"
 	"github.com/openstack/swift/go/hummingbird"
 )
 
-var client = &http.Client{}
-
-var storageURL = ""
-var authToken = ""
-
-func Auth(endpoint string, user string, key string, allowInsecureAuthCert bool) (string, string) {
-	req, err := http.NewRequest("GET", endpoint, nil)
-	req.Header.Set("X-Auth-User", user)
-	req.Header.Set("X-Auth-Key", key)
-	authClient := &http.Client{}
-	if allowInsecureAuthCert {
-		tr := &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-		authClient = &http.Client{Transport: tr}
-	}
-	resp, err := authClient.Do(req)
-	if err != nil {
-		fmt.Println("ERROR MAKING AUTH REQUEST", err)
-		os.Exit(1)
-	}
-	resp.Body.Close()
-	return resp.Header.Get("X-Storage-Url"), resp.Header.Get("X-Auth-Token")
-}
-
-func PutContainers(storageURL string, authToken string, count int, salt string) {
-	for i := 0; i < count; i++ {
-		url := fmt.Sprintf("%s/%d-%s", storageURL, i, salt)
-		req, _ := http.NewRequest("PUT", url, nil)
-		req.Header.Set("X-Auth-Token", authToken)
-		resp, err := client.Do(req)
-		if err != nil || resp.StatusCode/100 != 2 {
-			fmt.Println("ERROR CREATING CONTAINERS", resp.StatusCode)
-			os.Exit(1)
-		}
-		resp.Body.Close()
-	}
-}
-
 type Object struct {
-	Url   string
-	Data  []byte
-	Id    int
-	State int
+	c         client.Client
+	state     int
+	container string
+	name      string
+	data      []byte
 }
 
 func (obj *Object) Put() bool {
-	req, _ := http.NewRequest("PUT", obj.Url, bytes.NewReader(obj.Data))
-	req.Header.Set("X-Auth-Token", authToken)
-	req.Header.Set("Content-Length", strconv.FormatInt(int64(len(obj.Data)), 10))
-	req.ContentLength = int64(len(obj.Data))
-	resp, err := client.Do(req)
-	if resp != nil {
-		resp.Body.Close()
-	}
-	return err == nil && resp.StatusCode/100 == 2
+	return obj.c.PutObject(obj.container, obj.name, nil, bytes.NewReader(obj.data)) == nil
 }
 
 func (obj *Object) Get() bool {
-	req, _ := http.NewRequest("GET", obj.Url, nil)
-	req.Header.Set("X-Auth-Token", authToken)
-	resp, err := client.Do(req)
-	if resp != nil {
-		io.Copy(ioutil.Discard, resp.Body)
+	if r, _, err := obj.c.GetObject(obj.container, obj.name, nil); err != nil {
+		return false
+	} else {
+		io.Copy(ioutil.Discard, r)
+		r.Close()
+		return true
 	}
-	return err == nil && resp.StatusCode/100 == 2
 }
 
 func (obj *Object) Delete() bool {
-	req, _ := http.NewRequest("DELETE", obj.Url, nil)
-	req.Header.Set("X-Auth-Token", authToken)
-	resp, err := client.Do(req)
-	if resp != nil {
-		resp.Body.Close()
-	}
-	return err == nil && resp.StatusCode/100 == 2
+	return obj.c.DeleteObject(obj.container, obj.name, nil) == nil
 }
 
 func DoJobs(name string, work []func() bool, concurrency int) {
 	wg := sync.WaitGroup{}
-	starterPistol := make(chan int)
-	jobId := int32(-1)
-	errors := 0
-	wg.Add(concurrency)
-	jobTimes := make([]float64, len(work))
+	cwg := sync.WaitGroup{}
+	errorCount := 0
+	jobTimes := make([]float64, 0, len(work))
+	times := make(chan float64)
+	errors := make(chan int)
+	jobqueue := make(chan func() bool)
+	cwg.Add(2)
+	go func() {
+		for n := range errors {
+			errorCount += n
+		}
+		cwg.Done()
+	}()
+	go func() {
+		for t := range times {
+			jobTimes = append(jobTimes, t)
+		}
+		sort.Float64s(jobTimes)
+		cwg.Done()
+	}()
 	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
 		go func() {
-			_, _ = <-starterPistol
-			for {
-				job := int(atomic.AddInt32(&jobId, 1))
-				if job >= len(work) {
-					wg.Done()
-					return
-				}
+			for job := range jobqueue {
 				startJob := time.Now()
-				result := work[job]()
-				jobTimes[job] = float64(time.Now().Sub(startJob)) / float64(time.Second)
-				if !result {
-					errors += 1
+				if !job() {
+					errors <- 1
 				}
+				times <- float64(time.Now().Sub(startJob)) / float64(time.Second)
 			}
+			wg.Done()
 		}()
 	}
 	start := time.Now()
-	close(starterPistol)
+	for _, job := range work {
+		jobqueue <- job
+	}
+	close(jobqueue)
 	wg.Wait()
 	totalTime := float64(time.Now().Sub(start)) / float64(time.Second)
-
-	sort.Float64s(jobTimes)
+	close(errors)
+	close(times)
+	cwg.Wait()
 	sum := 0.0
 	for _, val := range jobTimes {
 		sum += val
@@ -153,7 +112,7 @@ func DoJobs(name string, work []func() bool, concurrency int) {
 		diffsum += math.Pow(val-avg, 2.0)
 	}
 	fmt.Printf("%ss: %d @ %.2f/s\n", name, len(work), float64(len(work))/totalTime)
-	fmt.Println("  Failures:", errors)
+	fmt.Println("  Failures:", errorCount)
 	fmt.Printf("  Mean: %.5fs (%.1f%% RSD)\n", avg, math.Sqrt(diffsum/float64(len(work)))*100.0/avg)
 	fmt.Printf("  Median: %.5fs\n", jobTimes[int(float64(len(jobTimes))*0.5)])
 	fmt.Printf("  85%%: %.5fs\n", jobTimes[int(float64(len(jobTimes))*0.85)])
@@ -197,16 +156,34 @@ func RunBench(args []string) {
 	allowInsecureAuthCert := benchconf.GetBool("bench", "allow_insecure_auth_cert", false)
 	salt := fmt.Sprintf("%d", rand.Int63())
 
-	storageURL, authToken = Auth(authURL, authUser, authKey, allowInsecureAuthCert)
+	var cli client.Client
+	if allowInsecureAuthCert {
+		cli, err = client.NewInsecureClient("", authUser, "", authKey, "", authURL, false)
+	} else {
+		cli, err = client.NewClient("", authUser, "", authKey, "", authURL, false)
+	}
+	if err != nil {
+		fmt.Println("Error creating client:", err)
+		os.Exit(1)
+	}
 
-	PutContainers(storageURL, authToken, concurrency, salt)
+	for i := 0; i < concurrency; i++ {
+		if err := cli.PutContainer(fmt.Sprintf("%d-%s", i, salt), nil); err != nil {
+			fmt.Println("Error putting container:", err)
+			os.Exit(1)
+		}
+	}
 
 	data := make([]byte, objectSize)
-	objects := make([]Object, numObjects)
+	objects := make([]*Object, numObjects)
 	for i, _ := range objects {
-		objects[i].Url = fmt.Sprintf("%s/%d-%s/%d", storageURL, i%concurrency, salt, rand.Int63())
-		objects[i].Data = data
-		objects[i].Id = i
+		objects[i] = &Object{
+			state:     0,
+			container: fmt.Sprintf("%d-%s", i%concurrency, salt),
+			name:      fmt.Sprintf("%x", rand.Int63()),
+			data:      data,
+			c:         cli,
+		}
 	}
 
 	work := make([]func() bool, len(objects))
@@ -264,21 +241,36 @@ func RunThrash(args []string) {
 	numObjects := thrashconf.GetInt("thrash", "num_objects", 5000)
 	numGets := int(thrashconf.GetInt("thrash", "gets_per_object", 5))
 	allowInsecureAuthCert := thrashconf.GetBool("bench", "allow_insecure_auth_cert", false)
-
-	storageURL, authToken = Auth(authURL, authUser, authKey, allowInsecureAuthCert)
-
 	salt := fmt.Sprintf("%d", rand.Int63())
 
-	PutContainers(storageURL, authToken, concurrency, salt)
+	var cli client.Client
+	if allowInsecureAuthCert {
+		cli, err = client.NewInsecureClient("", authUser, "", authKey, "", authURL, false)
+	} else {
+		cli, err = client.NewClient("", authUser, "", authKey, "", authURL, false)
+	}
+	if err != nil {
+		fmt.Println("Error creating client:", err)
+		os.Exit(1)
+	}
+
+	for i := 0; i < concurrency; i++ {
+		if err := cli.PutContainer(fmt.Sprintf("%d-%s", i, salt), nil); err != nil {
+			fmt.Println("Error putting container:", err)
+			os.Exit(1)
+		}
+	}
 
 	data := make([]byte, objectSize)
 	objects := make([]*Object, numObjects)
 	for i, _ := range objects {
-		objects[i] = &Object{}
-		objects[i].Url = fmt.Sprintf("%s/%d-%s/%d", storageURL, i%concurrency, salt, rand.Int63())
-		objects[i].Data = data
-		objects[i].Id = i
-		objects[i].State = 1
+		objects[i] = &Object{
+			state:     0,
+			container: fmt.Sprintf("%d-%s", i%concurrency, salt),
+			name:      fmt.Sprintf("%x", rand.Int63()),
+			data:      data,
+			c:         cli,
+		}
 	}
 
 	workch := make(chan func() bool)
@@ -293,15 +285,20 @@ func RunThrash(args []string) {
 
 	for {
 		i := int(rand.Int63() % int64(len(objects)))
-		if objects[i].State == 1 {
+		if objects[i].state == 1 {
 			workch <- objects[i].Put
-		} else if objects[i].State < numGets+2 {
+		} else if objects[i].state < numGets+2 {
 			workch <- objects[i].Get
-		} else if objects[i].State >= numGets+2 {
+		} else if objects[i].state >= numGets+2 {
 			workch <- objects[i].Delete
-			objects[i] = &Object{Url: fmt.Sprintf("%s/%d-%s/%d", storageURL, i%concurrency, salt, rand.Int63()), Data: data, Id: i, State: 1}
+			objects[i] = &Object{
+				container: fmt.Sprintf("%d-%s", i%concurrency, salt),
+				name:      fmt.Sprintf("%x", rand.Int63()),
+				data:      data,
+				c:         cli,
+			}
 			continue
 		}
-		objects[i].State += 1
+		objects[i].state += 1
 	}
 }
