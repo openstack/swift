@@ -1539,6 +1539,9 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(100, None, None, '/pets/fish/', '/')
         self.assertEqual([row[0] for row in listing],
                          ['/pets/fish/a', '/pets/fish/b'])
+        listing = broker.list_objects_iter(100, None, None, None, '/')
+        self.assertEqual([row[0] for row in listing],
+                         ['/'])
 
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter

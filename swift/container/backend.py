@@ -776,7 +776,7 @@ class ContainerBroker(DatabaseBroker):
                                 marker = name[:end] + chr(ord(delimiter) + 1)
                             curs.close()
                             break
-                    elif end > 0:
+                    elif end >= 0:
                         if reverse:
                             end_marker = name[:end + 1]
                         else:
