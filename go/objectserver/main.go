@@ -275,6 +275,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 	if err := tempFile.Preallocate(request.ContentLength, server.fallocateReserve); err != nil {
 		hummingbird.GetLogger(request).LogDebug("Unable to allocate space: %v", err)
 		hummingbird.CustomErrorResponse(writer, 507, vars)
+		return
 	}
 	hash := md5.New()
 	totalSize, err := hummingbird.Copy(request.Body, tempFile, hash)
@@ -415,6 +416,7 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 	if err := tempFile.Preallocate(0, server.fallocateReserve); err != nil {
 		hummingbird.GetLogger(request).LogDebug("Unable to allocate space: %v", err)
 		hummingbird.CustomErrorResponse(writer, 507, vars)
+		return
 	}
 	metadata := map[string]string{
 		"X-Timestamp": requestTimestamp,
