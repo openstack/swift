@@ -22,20 +22,24 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/openstack/swift/go/client"
 	"github.com/openstack/swift/go/hummingbird"
 	"github.com/openstack/swift/go/middleware"
 
-	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/justinas/alice"
 )
 
 type ProxyServer struct {
-	objectRing    hummingbird.Ring
-	containerRing hummingbird.Ring
-	accountRing   hummingbird.Ring
-	client        *http.Client
-	logger        hummingbird.SysLogLike
-	mc            *memcache.Client
+	C      client.ProxyClient
+	logger hummingbird.SysLogLike
+	mc     hummingbird.MemcacheRing
+}
+
+func (server *ProxyServer) HealthcheckHandler(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Content-Length", "2")
+	writer.WriteHeader(http.StatusOK)
+	writer.Write([]byte("OK"))
+	return
 }
 
 func (server *ProxyServer) LogRequest(next http.Handler) http.Handler {
@@ -65,47 +69,53 @@ func (server *ProxyServer) LogRequest(next http.Handler) http.Handler {
 }
 
 func (server *ProxyServer) GetHandler() http.Handler {
-	commonHandlers := alice.New(middleware.ClearHandler, server.LogRequest, middleware.ValidateRequest)
 	router := hummingbird.NewRouter()
-	router.Get("/healthcheck", commonHandlers.ThenFunc(server.HealthcheckHandler))
-	router.Get("/auth/v1.0", commonHandlers.ThenFunc(server.AuthHandler))
-	router.Get("/v1/:account/:container/*obj", commonHandlers.ThenFunc(server.ObjectGetHeadHandler))
-	router.Head("/v1/:account/:container/*obj", commonHandlers.ThenFunc(server.ObjectGetHeadHandler))
-	router.Put("/v1/:account/:container/*obj", commonHandlers.ThenFunc(server.ObjectPutHandler))
-	router.Delete("/v1/:account/:container/*obj", commonHandlers.ThenFunc(server.ObjectDeleteHandler))
+	router.Get("/healthcheck", http.HandlerFunc(server.HealthcheckHandler))
 
-	router.Get("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
-	router.Head("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
-	router.Put("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerPutHandler))
-	router.Delete("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerDeleteHandler))
-	router.Post("/v1/:account/:container/", commonHandlers.ThenFunc(server.ContainerPutHandler))
+	router.Get("/v1/:account/:container/*obj", http.HandlerFunc(server.ObjectGetHandler))
+	router.Head("/v1/:account/:container/*obj", http.HandlerFunc(server.ObjectHeadHandler))
+	router.Put("/v1/:account/:container/*obj", http.HandlerFunc(server.ObjectPutHandler))
+	router.Delete("/v1/:account/:container/*obj", http.HandlerFunc(server.ObjectDeleteHandler))
 
-	router.Get("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
-	router.Head("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerGetHeadHandler))
-	router.Put("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerPutHandler))
-	router.Delete("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerDeleteHandler))
-	router.Post("/v1/:account/:container", commonHandlers.ThenFunc(server.ContainerPutHandler))
+	router.Get("/v1/:account/:container", http.HandlerFunc(server.ContainerGetHandler))
+	router.Get("/v1/:account/:container/", http.HandlerFunc(server.ContainerGetHandler))
+	router.Head("/v1/:account/:container", http.HandlerFunc(server.ContainerHeadHandler))
+	router.Head("/v1/:account/:container/", http.HandlerFunc(server.ContainerHeadHandler))
+	router.Put("/v1/:account/:container", http.HandlerFunc(server.ContainerPutHandler))
+	router.Put("/v1/:account/:container/", http.HandlerFunc(server.ContainerPutHandler))
+	router.Delete("/v1/:account/:container", http.HandlerFunc(server.ContainerDeleteHandler))
+	router.Delete("/v1/:account/:container/", http.HandlerFunc(server.ContainerDeleteHandler))
+	router.Post("/v1/:account/:container", http.HandlerFunc(server.ContainerPutHandler))
+	router.Post("/v1/:account/:container/", http.HandlerFunc(server.ContainerPutHandler))
 
-	router.Get("/v1/:account/", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
-	router.Head("/v1/:account/", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
-	router.Put("/v1/:account/", commonHandlers.ThenFunc(server.AccountPutHandler))
-	router.Delete("/v1/:account/", commonHandlers.ThenFunc(server.AccountDeleteHandler))
-	router.Post("/v1/:account/", commonHandlers.ThenFunc(server.AccountPutHandler))
+	router.Get("/v1/:account", http.HandlerFunc(server.AccountGetHandler))
+	router.Get("/v1/:account/", http.HandlerFunc(server.AccountGetHandler))
+	router.Head("/v1/:account", http.HandlerFunc(server.AccountHeadHandler))
+	router.Head("/v1/:account/", http.HandlerFunc(server.AccountHeadHandler))
+	router.Put("/v1/:account", http.HandlerFunc(server.AccountPutHandler))
+	router.Put("/v1/:account/", http.HandlerFunc(server.AccountPutHandler))
+	router.Delete("/v1/:account", http.HandlerFunc(server.AccountDeleteHandler))
+	router.Delete("/v1/:account/", http.HandlerFunc(server.AccountDeleteHandler))
+	router.Post("/v1/:account", http.HandlerFunc(server.AccountPutHandler))
+	router.Post("/v1/:account/", http.HandlerFunc(server.AccountPutHandler))
 
-	router.Get("/v1/:account", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
-	router.Head("/v1/:account", commonHandlers.ThenFunc(server.AccountGetHeadHandler))
-	router.Put("/v1/:account", commonHandlers.ThenFunc(server.AccountPutHandler))
-	router.Delete("/v1/:account", commonHandlers.ThenFunc(server.AccountDeleteHandler))
-	router.Post("/v1/:account", commonHandlers.ThenFunc(server.AccountPutHandler))
-
-	return router
+	return alice.New(
+		middleware.ClearHandler,
+		server.LogRequest,
+		middleware.ValidateRequest,
+		NewProxyContextMiddleware(server.mc, server.C),
+		NewTempAuth(server.mc),
+	).Then(router)
 }
 
 func GetServer(conf string, flags *flag.FlagSet) (string, int, hummingbird.Server, hummingbird.SysLogLike, error) {
+	var err error
 	server := &ProxyServer{}
-	server.client = GetClient()
-	server.mc = memcache.New("127.0.0.1:11211")
-	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
+	server.C, err = client.NewProxyDirectClient()
+	if err != nil {
+		return "", 0, nil, nil, err
+	}
+	server.mc, err = hummingbird.NewMemcacheRingFromIniFile(hummingbird.IniFile{})
 	if err != nil {
 		return "", 0, nil, nil, err
 	}
@@ -117,14 +127,6 @@ func GetServer(conf string, flags *flag.FlagSet) (string, int, hummingbird.Serve
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort := serverconf.GetInt("DEFAULT", "bind_port", 8080)
 	server.logger = hummingbird.SetupLogger(serverconf.GetDefault("DEFAULT", "log_facility", "LOG_LOCAL0"), "proxy-server", "")
-
-	//Getting all rings
-	server.objectRing, err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
-	server.containerRing, err = hummingbird.GetRing("container", hashPathPrefix, hashPathSuffix)
-	server.accountRing, err = hummingbird.GetRing("account", hashPathPrefix, hashPathSuffix)
-	if err != nil {
-		return "", 0, nil, nil, err
-	}
 
 	return bindIP, int(bindPort), server, server.logger, nil
 }

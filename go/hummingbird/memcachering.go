@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -43,6 +44,7 @@ type MemcacheRing interface {
 	Decr(key string, delta int, timeout int) (int64, error)
 	Delete(key string) error
 	Get(key string) (interface{}, error)
+	GetStructured(key string, val interface{}) error
 	GetMulti(serverKey string, keys []string) (map[string]interface{}, error)
 	Incr(key string, delta int, timeout int) (int64, error)
 	Set(key string, value interface{}, timeout int) error
@@ -84,6 +86,9 @@ func NewMemcacheRingFromIniFile(iniFile IniFile) (*memcacheRing, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	if len(ring.servers) == 0 {
+		ring.addServer("127.0.0.1:11211")
 	}
 	ring.sortServerKeys()
 	if int64(len(ring.servers)) < ring.tries {
@@ -134,6 +139,24 @@ func (ring *memcacheRing) Delete(key string) error {
 	fn := func(conn *connection) error {
 		_, _, err := conn.roundTripPacket(opDelete, hashKeyToBytes(key), nil, nil)
 		if err != nil && err != CacheMiss {
+			return err
+		}
+		return nil
+	}
+	return ring.loop(key, fn)
+}
+
+func (ring *memcacheRing) GetStructured(key string, val interface{}) error {
+	fn := func(conn *connection) error {
+		value, extras, err := conn.roundTripPacket(opGet, hashKeyToBytes(key), nil, nil)
+		if err != nil {
+			return err
+		}
+		flags := binary.BigEndian.Uint32(extras[0:4])
+		if flags&jsonFlag == 0 {
+			return errors.New("Not json data")
+		}
+		if err := json.Unmarshal(value, val); err != nil {
 			return err
 		}
 		return nil
