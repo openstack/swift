@@ -104,8 +104,10 @@ class AuditorWorker(object):
                 description = _(' - parallel, %s') % device_dir_str
             else:
                 description = _(' - %s') % device_dir_str
-        self.logger.info(_('Begin object audit "%s" mode (%s%s)') %
-                         (mode, self.auditor_type, description))
+        self.logger.info(_('Begin object audit "%(mode)s" mode (%(audi_type)s'
+                           '%(description)s)') %
+                         {'mode': mode, 'audi_type': self.auditor_type,
+                          'description': description})
         begin = reported = time.time()
         self.total_bytes_processed = 0
         self.total_files_processed = 0

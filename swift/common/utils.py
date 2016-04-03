@@ -672,8 +672,9 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warning(_("Unable to perform fsync() on directory %s: %s"),
-                        dirpath, os.strerror(err.errno))
+        logging.warning(_('Unable to perform fsync() on directory %(dir)s:'
+                          ' %(err)s'),
+                        {'dir': dirpath, 'err': os.strerror(err.errno)})
     finally:
         if dirfd:
             os.close(dirfd)
@@ -1243,10 +1244,13 @@ class LoggerFileObject(object):
                 self.logger.error(
                     _('%s: Connection reset by peer'), self.log_type)
             else:
-                self.logger.error(_('%s: %s'), self.log_type, value)
+                self.logger.error(_('%(type)s: %(value)s'),
+                                  {'type': self.log_type, 'value': value})
 
     def writelines(self, values):
-        self.logger.error(_('%s: %s'), self.log_type, '#012'.join(values))
+        self.logger.error(_('%(type)s: %(value)s'),
+                          {'type': self.log_type,
+                           'value': '#012'.join(values)})
 
     def close(self):
         pass
@@ -2214,8 +2218,8 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print(_("Unable to find %s config section in %s") %
-                  (section_name, conf_path))
+            print(_("Unable to find %(section)s config section in %(conf)s") %
+                  {'section': section_name, 'conf': conf_path})
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
