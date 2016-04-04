@@ -155,15 +155,74 @@ class VersionedWritesContext(WSGIContext):
         except ListingIterError:
             raise HTTPServerError(request=req)
 
-    def _listing_pages_iter(self, account_name, lcontainer, lprefix, env):
-        marker = ''
+    def _in_proxy_reverse_listing(self, account_name, lcontainer, lprefix,
+                                  env, failed_marker, failed_listing):
+        '''Get the complete prefix listing and reverse it on the proxy.
+
+        This is only necessary if we encounter a response from a
+        container-server that does not respect the ``reverse`` param
+        included by default in ``_listing_pages_iter``. This may happen
+        during rolling upgrades from pre-2.6.0 swift.
+
+        :param failed_marker: the marker that was used when we encountered
+                              the non-reversed listing
+        :param failed_listing: the non-reversed listing that was encountered.
+                               If ``failed_marker`` is blank, we can use this
+                               to save ourselves a request
+        :returns: an iterator over all objects starting with ``lprefix`` (up
+                  to but not including the failed marker) in reverse order
+        '''
+        complete_listing = []
+        if not failed_marker:
+            # We've never gotten a reversed listing. So save a request and
+            # use the failed listing.
+            complete_listing.extend(failed_listing)
+            marker = complete_listing[-1]['name'].encode('utf8')
+        else:
+            # We've gotten at least one reversed listing. Have to start at
+            # the beginning.
+            marker = ''
+
+        # First, take the *entire* prefix listing into memory
+        try:
+            for page in self._listing_pages_iter(
+                    account_name, lcontainer, lprefix,
+                    env, marker, end_marker=failed_marker, reverse=False):
+                complete_listing.extend(page)
+        except ListingIterNotFound:
+            pass
+
+        # Now that we've got everything, return the whole listing as one giant
+        # reversed page
+        return reversed(complete_listing)
+
+    def _listing_pages_iter(self, account_name, lcontainer, lprefix,
+                            env, marker='', end_marker='', reverse=True):
+        '''Get "pages" worth of objects that start with a prefix.
+
+        The optional keyword arguments ``marker``, ``end_marker``, and
+        ``reverse`` are used similar to how they are for containers. We're
+        either coming:
+
+           - directly from ``_listing_iter``, in which case none of the
+             optional args are specified, or
+
+           - from ``_in_proxy_reverse_listing``, in which case ``reverse``
+             is ``False`` and both ``marker`` and ``end_marker`` are specified
+             (although they may still be blank).
+        '''
         while True:
             lreq = make_pre_authed_request(
                 env, method='GET', swift_source='VW',
                 path='/v1/%s/%s' % (account_name, lcontainer))
             lreq.environ['QUERY_STRING'] = \
-                'format=json&prefix=%s&reverse=on&marker=%s' % (
+                'format=json&prefix=%s&marker=%s' % (
                     quote(lprefix), quote(marker))
+            if end_marker:
+                lreq.environ['QUERY_STRING'] += '&end_marker=%s' % (
+                    quote(end_marker))
+            if reverse:
+                lreq.environ['QUERY_STRING'] += '&reverse=on'
             lresp = lreq.get_response(self.app)
             if not is_success(lresp.status_int):
                 if lresp.status_int == HTTP_NOT_FOUND:
@@ -179,7 +238,20 @@ class VersionedWritesContext(WSGIContext):
             sublisting = json.loads(lresp.body)
             if not sublisting:
                 break
-            marker = sublisting[-1]['name'].encode('utf-8')
+
+            # When using the ``reverse`` param, check that the listing is
+            # actually reversed
+            first_item = sublisting[0]['name'].encode('utf-8')
+            last_item = sublisting[-1]['name'].encode('utf-8')
+            page_is_after_marker = marker and first_item > marker
+            if reverse and (first_item < last_item or page_is_after_marker):
+                # Apparently there's at least one pre-2.6.0 container server
+                yield self._in_proxy_reverse_listing(
+                    account_name, lcontainer, lprefix,
+                    env, marker, sublisting)
+                return
+
+            marker = last_item
             yield sublisting
 
     def handle_obj_versions_put(self, req, object_versions,
