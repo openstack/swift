@@ -2403,8 +2403,8 @@ class ECObjectController(BaseObjectController):
                 status_type = 'commit'
             self.app.exception_occurred(
                 conn.node, _('Object'),
-                _('Trying to get %s status of PUT to %s') % (
-                    status_type, req.path))
+                _('Trying to get %(status_type)s status of PUT to %(path)s') %
+                {'status_type': status_type, 'path': req.path})
         return (conn, resp)
 
     def _get_put_responses(self, req, putters, num_nodes, final_phase,

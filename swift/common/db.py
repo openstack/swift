@@ -350,8 +350,10 @@ class DatabaseBroker(object):
                 raise
             quar_path = "%s-%s" % (quar_path, uuid4().hex)
             renamer(self.db_dir, quar_path, fsync=False)
-        detail = _('Quarantined %s to %s due to %s database') % \
-                  (self.db_dir, quar_path, exc_hint)
+        detail = _('Quarantined %(db_dir)s to %(quar_path)s due to '
+                   '%(exc_hint)s database') % {'db_dir': self.db_dir,
+                                               'quar_path': quar_path,
+                                               'exc_hint': exc_hint}
         self.logger.error(detail)
         raise sqlite3.DatabaseError(detail)
 
