@@ -42,7 +42,7 @@ type AtomicFileWriter interface {
 	// Fd returns the file's underlying file descriptor.
 	Fd() uintptr
 	// Save atomically writes the file to its destination.
-	Save() error
+	Save(string) error
 	// Abandon removes any resources associated with this file.
 	Abandon() error
 	// Preallocate pre-allocates space on disk, given the expected file size and disk reserve size.
@@ -187,16 +187,16 @@ func InvalidateHash(hashDir string) error {
 		return nil
 	}
 	hashes[suffix] = nil
-	tempFile, err := NewAtomicFileWriter(tempDir, pklFile)
+	tempFile, err := NewAtomicFileWriter(tempDir, partitionDir)
 	if err != nil {
 		return err
 	}
 	defer tempFile.Abandon()
 	tempFile.Write(hummingbird.PickleDumps(hashes))
-	return tempFile.Save()
+	return tempFile.Save(pklFile)
 }
 
-func HashCleanupListDir(hashDir string, reclaimAge int64, logger hummingbird.LoggingContext) ([]string, *hummingbird.BackendError) {
+func HashCleanupListDir(hashDir string, reclaimAge int64) ([]string, *hummingbird.BackendError) {
 	fileList, err := hummingbird.ReadDirNames(hashDir)
 	returnList := []string{}
 	if err != nil {
@@ -249,7 +249,7 @@ func HashCleanupListDir(hashDir string, reclaimAge int64, logger hummingbird.Log
 	return returnList, nil
 }
 
-func RecalculateSuffixHash(suffixDir string, reclaimAge int64, logger hummingbird.LoggingContext) (string, *hummingbird.BackendError) {
+func RecalculateSuffixHash(suffixDir string, reclaimAge int64) (string, *hummingbird.BackendError) {
 	// the is hash_suffix in swift
 	h := md5.New()
 
@@ -262,7 +262,7 @@ func RecalculateSuffixHash(suffixDir string, reclaimAge int64, logger hummingbir
 	}
 	for _, fullHash := range hashList {
 		hashPath := suffixDir + "/" + fullHash
-		fileList, err := HashCleanupListDir(hashPath, reclaimAge, logger)
+		fileList, err := HashCleanupListDir(hashPath, reclaimAge)
 		if err != nil {
 			if err.Code == hummingbird.PathNotDirErrorCode {
 				if QuarantineHash(hashPath) == nil {
@@ -329,7 +329,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		if hash == "" {
 			modified = true
 			suffixDir := driveRoot + "/" + device + "/objects/" + partition + "/" + suffix
-			recalc_hash, err := RecalculateSuffixHash(suffixDir, reclaimAge, logger)
+			recalc_hash, err := RecalculateSuffixHash(suffixDir, reclaimAge)
 			if err == nil {
 				hashes[suffix] = recalc_hash
 			} else {
@@ -351,10 +351,10 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 			fileInfo, err := os.Stat(pklFile)
 			if lsForSuffixes || os.IsNotExist(err) || mtime == fileInfo.ModTime().Unix() {
 				tempDir := TempDirPath(driveRoot, device)
-				if tempFile, err := NewAtomicFileWriter(tempDir, pklFile); err == nil {
+				if tempFile, err := NewAtomicFileWriter(tempDir, partitionDir); err == nil {
 					defer tempFile.Abandon()
 					tempFile.Write(hummingbird.PickleDumps(hashes))
-					tempFile.Save()
+					tempFile.Save(pklFile)
 				}
 				return hashes, nil
 			}

@@ -211,12 +211,6 @@ func TestLooksTrue(t *testing.T) {
 	}
 }
 
-func TestValidTimestamp(t *testing.T) {
-	assert.True(t, ValidTimestamp("12345.12345"))
-	assert.False(t, ValidTimestamp("12345"))
-	assert.False(t, ValidTimestamp("your.face"))
-}
-
 func TestUrlencode(t *testing.T) {
 	assert.True(t, Urlencode("HELLO%2FTHERE") == "HELLO%252FTHERE")
 	assert.True(t, Urlencode("HELLOTHERE") == "HELLOTHERE")

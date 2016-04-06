@@ -26,7 +26,6 @@ import (
 // TempFile implements an atomic file write by writing to a temp directory and then renaming into place.
 type TempFile struct {
 	*os.File
-	dst   string
 	saved bool
 }
 
@@ -40,15 +39,15 @@ func (o *TempFile) Abandon() error {
 }
 
 // Save atomically writes the file to its destination.
-func (o *TempFile) Save() error {
+func (o *TempFile) Save(dst string) error {
 	defer o.File.Close()
 	if err := o.File.Sync(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(o.dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
-	if err := os.Rename(o.File.Name(), o.dst); err != nil {
+	if err := os.Rename(o.File.Name(), dst); err != nil {
 		return err
 	}
 	o.saved = true
@@ -61,7 +60,7 @@ func (o *TempFile) Preallocate(size int64, reserve int64) {
 }
 
 // NewAtomicFileWriter returns an AtomicFileWriter, which handles atomically writing files.
-func NewAtomicFileWriter(tempDir string, dst string) (AtomicFileWriter, error) {
+func NewAtomicFileWriter(tempDir string, dstDir string) (AtomicFileWriter, error) {
 	if err := os.MkdirAll(tempDir, 0770); err != nil {
 		return nil, err
 	}
@@ -69,5 +68,5 @@ func NewAtomicFileWriter(tempDir string, dst string) (AtomicFileWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TempFile{File: tempFile, dst: dst}, nil
+	return &TempFile{File: tempFile}, nil
 }
