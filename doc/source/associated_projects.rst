@@ -26,6 +26,7 @@ Application Bindings
     * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
     * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
     * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple OpenStack Swift storage client.
+    * `javaswift <http://javaswift.org/>`_ - Collection of Java tools for Swift
 
 Authentication
 --------------
