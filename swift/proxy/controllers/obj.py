@@ -1635,16 +1635,6 @@ class ECPutter(object):
         self.queue = None
         self.state = NO_DATA_SENT
 
-    def current_status(self):
-        """
-        Returns the current status of the response.
-
-        A response starts off with no current status, then may or may not have
-        a status of 100 for some time, and then ultimately has a final status
-        like 200, 404, et cetera.
-        """
-        return self.resp.status
-
     def await_response(self, timeout, informational=False):
         """
         Get 100-continue response indicating the end of 1st phase of a 2-phase
