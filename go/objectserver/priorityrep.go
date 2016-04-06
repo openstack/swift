@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,7 +131,6 @@ func getPartMoveJobs(oldRing, newRing hummingbird.Ring) []*PriorityRepJob {
 			if olddevs[i].Id != newdevs[i].Id {
 				// TODO: handle if a node just changes positions, which doesn't happen, but isn't against the contract.
 				jobs = append(jobs, &PriorityRepJob{
-					JobType:    "handoff",
 					Partition:  partition,
 					FromDevice: olddevs[i],
 					ToDevices:  []*hummingbird.Device{newdevs[i]},
@@ -142,8 +143,8 @@ func getPartMoveJobs(oldRing, newRing hummingbird.Ring) []*PriorityRepJob {
 
 // MoveParts takes two object .ring.gz files as []string{oldRing, newRing} and dispatches priority replication jobs to rebalance data in line with any ring changes.
 func MoveParts(args []string) {
-	if len(args) != 2 {
-		fmt.Println("USAGE: hummingbird moveparts [old ringfile] [new ringfile]")
+	if len(args) != 1 {
+		fmt.Println("USAGE: hummingbird moveparts [old ringfile]")
 		return
 	}
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
@@ -156,13 +157,13 @@ func MoveParts(args []string) {
 		fmt.Println("Unable to load old ring:", err)
 		return
 	}
-	newRing, err := hummingbird.LoadRing(args[1], hashPathPrefix, hashPathSuffix)
+	curRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
 	if err != nil {
-		fmt.Println("Unable to load new ring:", err)
+		fmt.Println("Unable to load current ring:", err)
 		return
 	}
 	client := &http.Client{Timeout: time.Hour}
-	jobs := getPartMoveJobs(oldRing, newRing)
+	jobs := getPartMoveJobs(oldRing, curRing)
 	fmt.Println("Job count:", len(jobs))
 	doPriRepJobs(jobs, 2, client)
 	fmt.Println("Done sending jobs.")
@@ -180,7 +181,6 @@ func getRestoreDeviceJobs(ring hummingbird.Ring, ip string, devName string) []*P
 			if dev.Device == devName && (dev.Ip == ip || dev.ReplicationIp == ip) {
 				src := devs[(i+1)%len(devs)]
 				jobs = append(jobs, &PriorityRepJob{
-					JobType:    "local",
 					Partition:  partition,
 					FromDevice: src,
 					ToDevices:  []*hummingbird.Device{dev},
@@ -211,5 +211,52 @@ func RestoreDevice(args []string) {
 	jobs := getRestoreDeviceJobs(objRing, args[0], args[1])
 	fmt.Println("Job count:", len(jobs))
 	doPriRepJobs(jobs, 2, client)
+	fmt.Println("Done sending jobs.")
+}
+
+func getRescuePartsJobs(objRing hummingbird.Ring, partitions []uint64) []*PriorityRepJob {
+	jobs := make([]*PriorityRepJob, 0)
+	allDevices := objRing.AllDevices()
+	for d := range allDevices {
+		for _, p := range partitions {
+			nodes, _ := objRing.GetJobNodes(p, allDevices[d].Id)
+			jobs = append(jobs, &PriorityRepJob{
+				Partition:  p,
+				FromDevice: &allDevices[d],
+				ToDevices:  nodes,
+			})
+		}
+	}
+	return jobs
+}
+
+func RescueParts(args []string) {
+	if len(args) != 1 {
+		fmt.Println("USAGE: hummingbird rescueparts partnum1,partnum2,...")
+		return
+	}
+	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
+	if err != nil {
+		fmt.Println("Unable to load hash path prefix and suffix:", err)
+		return
+	}
+	objRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
+	if err != nil {
+		fmt.Println("Unable to load ring:", err)
+		return
+	}
+	partsStr := strings.Split(args[0], ",")
+	partsInt := make([]uint64, len(partsStr))
+	for i, p := range partsStr {
+		partsInt[i], err = strconv.ParseUint(p, 10, 64)
+		if err != nil {
+			fmt.Println("Invalid Partition:", p)
+			return
+		}
+	}
+	client := &http.Client{Timeout: time.Hour}
+	jobs := getRescuePartsJobs(objRing, partsInt)
+	fmt.Println("Job count:", len(jobs))
+	doPriRepJobs(jobs, 1, client)
 	fmt.Println("Done sending jobs.")
 }

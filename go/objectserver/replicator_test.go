@@ -74,6 +74,10 @@ func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err 
 	return nil, nil
 }
 
+func (r *FakeRing) AllDevices() (devs []hummingbird.Device) {
+	return nil
+}
+
 func (r *FakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes {
 	return nil
 }
@@ -466,7 +470,6 @@ func TestPriorityRepHandler(t *testing.T) {
 	replicator.driveRoot = driveRoot
 	w := httptest.NewRecorder()
 	job := &PriorityRepJob{
-		JobType:    "handoff",
 		Partition:  1,
 		FromDevice: &hummingbird.Device{Id: 1, Device: "sda", Ip: "127.0.0.1", Port: 5000, ReplicationIp: "127.0.0.1", ReplicationPort: 5000},
 		ToDevices: []*hummingbird.Device{
@@ -480,7 +483,7 @@ func TestPriorityRepHandler(t *testing.T) {
 		require.EqualValues(t, 200, w.Code)
 	}()
 	pri := <-replicator.getPriRepChan(1)
-	require.Equal(t, "handoff", pri.JobType)
+	require.Equal(t, "1", strconv.FormatUint(pri.Partition, 10))
 }
 
 func TestPriorityRepHandler404(t *testing.T) {
@@ -491,7 +494,6 @@ func TestPriorityRepHandler404(t *testing.T) {
 	replicator.driveRoot = driveRoot
 	w := httptest.NewRecorder()
 	job := &PriorityRepJob{
-		JobType:    "handoff",
 		Partition:  0,
 		FromDevice: &hummingbird.Device{Id: 1, Device: "sda", Ip: "127.0.0.1", Port: 5000, ReplicationIp: "127.0.0.1", ReplicationPort: 5000},
 		ToDevices: []*hummingbird.Device{
