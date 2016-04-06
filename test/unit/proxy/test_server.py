@@ -5827,23 +5827,24 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        # get object
-        fd.write('GET /v1/a/ec-discon/test HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEqual(headers[:len(exp)], exp)
+        with mock.patch.object(_test_servers[0], 'client_timeout', new=5):
+            # get object
+            fd.write('GET /v1/a/ec-discon/test HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     '\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
 
-        # read most of the object, and disconnect
-        fd.read(10)
-        sock.fd._sock.close()
-        condition = \
-            lambda: _test_servers[0].logger.get_lines_for_level('warning')
-        self._sleep_enough(condition)
+            # read most of the object, and disconnect
+            fd.read(10)
+            sock.fd._sock.close()
+            condition = \
+                lambda: _test_servers[0].logger.get_lines_for_level('warning')
+            self._sleep_enough(condition)
 
         # check for disconnect message!
         expected = ['Client disconnected on read'] * 2
