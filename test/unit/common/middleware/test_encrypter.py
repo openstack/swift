@@ -23,7 +23,9 @@ from swift.common.middleware import encrypter
 from swift.common.swob import (
     Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk)
 from swift.common.utils import FileLikeIter
+from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.middleware.crypto import Crypto
+from test.unit import FakeLogger
 
 from test.unit.common.middleware.crypto_helpers import fetch_crypto_keys, \
     md5hex, fake_iv, encrypt
@@ -43,7 +45,7 @@ class TestEncrypter(unittest.TestCase):
         ciphertext_etag = md5hex(ciphertext)
 
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(plaintext)),
                 'x-object-meta-test': 'encrypt me',
@@ -111,7 +113,7 @@ class TestEncrypter(unittest.TestCase):
             'X-Backend-Container-Update-Override-Etag': 'other override'}
 
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys,
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'swift.callback.update_footers':
                    lambda footers: footers.update(other_footers)}
         hdrs = {'content-type': 'text/plain',
@@ -148,7 +150,7 @@ class TestEncrypter(unittest.TestCase):
     def test_POST_req(self):
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'POST',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'x-object-meta-test': 'encrypt me',
                 'x-object-sysmeta-test': 'do not encrypt me'}
         req = Request.blank(
@@ -179,7 +181,7 @@ class TestEncrypter(unittest.TestCase):
 
     def _test_if_match(self, method, match_header_name):
         def do_test(method, plain_etags, expected_plain_etags=None):
-            env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+            env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
             match_header_value = ', '.join(plain_etags)
             req = Request.blank(
                 '/v1/a/c/o', environ=env, method=method,
@@ -240,7 +242,7 @@ class TestEncrypter(unittest.TestCase):
     def _test_existing_etag_is_at_header(self, method, match_header_name):
         # if another middleware has already set X-Backend-Etag-Is-At then
         # encrypter should not override that value
-        env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank(
             '/v1/a/c/o', environ=env, method=method,
             headers={match_header_name: "an etag",
@@ -270,7 +272,7 @@ class TestEncrypter(unittest.TestCase):
     def test_PUT_backend_response_etag_is_replaced(self):
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
         req = Request.blank(
@@ -286,7 +288,7 @@ class TestEncrypter(unittest.TestCase):
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys,
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'wsgi.input': FileLikeIter(chunks)}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
@@ -305,7 +307,7 @@ class TestEncrypter(unittest.TestCase):
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys,
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'wsgi.input': FileLikeIter(chunks)}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body)),
@@ -325,7 +327,7 @@ class TestEncrypter(unittest.TestCase):
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys,
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'wsgi.input': FileLikeIter(chunks)}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body)),
@@ -347,7 +349,7 @@ class TestEncrypter(unittest.TestCase):
         app = FakeSwift()
         resp = req.get_response(encrypter.Encrypter(app, {}))
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('swift.crypto.fetch_crypto_keys not in env',
+        self.assertEqual('%s not in env' % CRYPTO_KEY_CALLBACK,
                          resp.body)
 
     def test_PUT_error_in_key_callback(self):
@@ -356,16 +358,20 @@ class TestEncrypter(unittest.TestCase):
 
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': raise_exc}
+               CRYPTO_KEY_CALLBACK: raise_exc}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
         req = Request.blank(
             '/v1/a/c/o', environ=env, body=body, headers=hdrs)
         app = FakeSwift()
-        resp = req.get_response(encrypter.Encrypter(app, {}))
+        app = encrypter.Encrypter(app, {})
+        app.logger = FakeLogger()
+        resp = req.get_response(app)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('swift.crypto.fetch_crypto_keys had exception:'
-                         ' Testing', resp.body)
+        self.assertEqual('%s had exception: Testing' % CRYPTO_KEY_CALLBACK,
+                         resp.body)
+        self.assertIn('%s: Testing' % CRYPTO_KEY_CALLBACK,
+                      app.logger.get_lines_for_level('error')[0])
 
     def test_PUT_encryption_override(self):
         # simulate another middleware wanting to set footers

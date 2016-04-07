@@ -19,6 +19,8 @@ from swift.common.wsgi import WSGIContext
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_object_transient_sysmeta_prefix
 
+CRYPTO_KEY_CALLBACK = 'swift.callback.fetch_crypto_keys'
+
 
 class CryptoWSGIContext(WSGIContext):
     """
@@ -32,23 +34,22 @@ class CryptoWSGIContext(WSGIContext):
     def get_keys(self, env):
         # Get the key(s) from the keymaster
         try:
-            fetch_crypto_keys = env['swift.crypto.fetch_crypto_keys']
+            fetch_crypto_keys = env[CRYPTO_KEY_CALLBACK]
         except KeyError:
             self.logger.exception(_(
-                'ERROR get_keys() swift.crypto.fetch_crypto_keys not in env'))
+                'ERROR get_keys() %s not in env') % CRYPTO_KEY_CALLBACK)
             raise HTTPInternalServerError(
-                'swift.crypto.fetch_crypto_keys not in env')
+                '%s not in env' % CRYPTO_KEY_CALLBACK)
 
         try:
             return fetch_crypto_keys()
-        except Exception as err:  # noqa
-            # TODO - change this case to use KeyMasterException when it exists
+        except Exception as err:
             self.logger.exception(_(
-                'ERROR get_keys(): from swift.crypto.fetch_crypto_keys: %s')
-                % err)
+                'ERROR get_keys(): from %(callback)s: %(err)s'),
+                {'callback': CRYPTO_KEY_CALLBACK, 'err': str(err)})
             raise HTTPInternalServerError(
-                "swift.crypto.fetch_crypto_keys had exception: %s"
-                % err.message)
+                "%(callback)s had exception: %(err)s" %
+                {'callback': CRYPTO_KEY_CALLBACK, 'err': err.message})
 
 
 def is_crypto_meta(header, server_type):

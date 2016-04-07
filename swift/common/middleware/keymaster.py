@@ -29,7 +29,7 @@ import hmac
 import os
 
 from swift.common.utils import get_logger, split_path
-from swift.common.crypto_utils import is_crypto_meta
+from swift.common.crypto_utils import is_crypto_meta, CRYPTO_KEY_CALLBACK
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.wsgi import WSGIContext
 from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
@@ -68,7 +68,7 @@ class KeyMasterContext(WSGIContext):
                     self.obj_path)
 
     def _handle_post_or_put(self, req, start_response):
-        req.environ['swift.crypto.fetch_crypto_keys'] = self.fetch_crypto_keys
+        req.environ[CRYPTO_KEY_CALLBACK] = self.fetch_crypto_keys
         resp = self._app_call(req.environ)
         start_response(self._response_status, self._response_headers,
                        self._response_exc_info)
@@ -155,10 +155,9 @@ class KeyMasterContext(WSGIContext):
                 self.error_if_need_keys(req)
 
         if not req.environ.get('swift.crypto.override'):
-            req.environ['swift.crypto.fetch_crypto_keys'] = \
-                self.fetch_crypto_keys
+            req.environ[CRYPTO_KEY_CALLBACK] = self.fetch_crypto_keys
         else:
-            req.environ.pop('swift.crypto.fetch_crypto_keys', None)
+            req.environ.pop(CRYPTO_KEY_CALLBACK, None)
 
     def fetch_crypto_keys(self):
         return self.keys

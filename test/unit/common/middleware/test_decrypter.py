@@ -20,10 +20,12 @@ import base64
 import json
 import urllib
 
+from test.unit import FakeLogger
 from test.unit.common.middleware.crypto_helpers import md5hex, \
     fetch_crypto_keys, fake_iv, encrypt, fake_get_crypto_meta
 from swift.common.middleware.crypto import Crypto
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
+from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.middleware import decrypter
 from swift.common.swob import Request, HTTPException, HTTPOk, \
     HTTPPreconditionFailed, HTTPNotFound
@@ -50,7 +52,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_get_req_success(self):
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -81,7 +83,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def _test_412_response(self, method):
         # simulate a 412 response to a conditional GET which has an Etag header
         data = 'the object content'
-        env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env, method=method)
         resp_body = 'I am sorry, you have failed to meet a precondition'
         key = fetch_crypto_keys()['object']
@@ -120,7 +122,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def _test_404_response(self, method):
         # simulate a 404 response, sanity check response headers
-        env = {'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env, method=method)
         resp_body = 'You still have not found what you are looking for'
         app = FakeSwift()
@@ -151,7 +153,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             return keys
 
         env = {'REQUEST_METHOD': method,
-               'swift.crypto.fetch_crypto_keys': bad_fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: bad_fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -183,7 +185,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def _test_bad_iv_for_user_metadata(self, method):
         # use bad iv for metadata headers
         env = {'REQUEST_METHOD': method,
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -217,7 +219,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_get_with_bad_iv_for_object_body(self):
         # use bad iv for object body
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -241,7 +243,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_basic_head_req(self):
         env = {'REQUEST_METHOD': 'HEAD',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -274,7 +276,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # meta (testing for future cases where content_type may be updated
         # as part of an unencrypted POST).
         env = {'REQUEST_METHOD': method,
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -304,7 +306,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # check that metadata is not decrypted if it does not have crypto meta;
         # testing for case of an unencrypted POST to an object.
         env = {'REQUEST_METHOD': method,
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -336,7 +338,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # testing case of an unencrypted object with encrypted metadata from
         # a later POST
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         app = FakeSwift()
@@ -364,7 +366,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_multiseg_get_obj(self):
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
@@ -388,7 +390,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_multiseg_get_range_obj(self):
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         req.headers['Content-Range'] = 'bytes 3-10/17'
         chunks = ['0123', '45678', '9abcdef']
@@ -454,7 +456,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
         # issue request
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         resp = req.get_response(decrypter.Decrypter(app, {}))
 
@@ -485,7 +487,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_etag_no_match_on_get(self):
         self.skipTest('Etag verification not yet implemented')
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -515,7 +517,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
         resp = req.get_response(decrypter.Decrypter(app, {}))
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('swift.crypto.fetch_crypto_keys not in env',
+        self.assertEqual('%s not in env' % CRYPTO_KEY_CALLBACK,
                          resp.body)
 
     def test_error_in_key_callback(self):
@@ -523,7 +525,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             raise Exception('Testing')
 
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': raise_exc}
+               CRYPTO_KEY_CALLBACK: raise_exc}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
@@ -534,15 +536,19 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        app = decrypter.Decrypter(app, {})
+        app.logger = FakeLogger()
+        resp = req.get_response(app)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('swift.crypto.fetch_crypto_keys had exception:'
-                         ' Testing', resp.body)
+        self.assertEqual('%s had exception: Testing' % CRYPTO_KEY_CALLBACK,
+                         resp.body)
+        self.assertIn('%s: Testing' % CRYPTO_KEY_CALLBACK,
+                      app.logger.get_lines_for_level('error')[0])
 
     def test_cipher_mismatch_for_body(self):
         # Cipher does not match
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
@@ -564,7 +570,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_cipher_mismatch_for_metadata(self):
         # Cipher does not match
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
@@ -589,7 +595,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_decryption_override(self):
         # This covers the case of an old un-encrypted object
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys,
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'swift.crypto.override': True}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
@@ -623,7 +629,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
             path = '%s/?format=%s' % (path, format)
             content_type = 'application/' + format
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         if override:
             env['swift.crypto.override'] = True
         req = Request.blank(path, environ=env)

@@ -19,6 +19,7 @@ import unittest
 from swift.common.middleware import keymaster
 from swift.common import swob
 from swift.common.swob import Request
+from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 
@@ -65,9 +66,9 @@ class TestKeymaster(unittest.TestCase):
             self.assertEqual(1, len(calls))
             self.assertTrue(calls[0][0].startswith(status))
             self.assertNotIn('swift.crypto.override', req.environ)
-            self.assertIn('swift.crypto.fetch_crypto_keys', req.environ,
-                          'fetch_crypto_keys not set in env')
-            keys = req.environ.get('swift.crypto.fetch_crypto_keys')()
+            self.assertIn(CRYPTO_KEY_CALLBACK, req.environ,
+                          '%s not set in env' % CRYPTO_KEY_CALLBACK)
+            keys = req.environ.get(CRYPTO_KEY_CALLBACK)()
             self.assertListEqual(sorted(expected_keys), sorted(keys.keys()),
                                  '%s %s got keys %r, but expected %r'
                                  % (method, path, keys.keys(), expected_keys))
@@ -93,8 +94,8 @@ class TestKeymaster(unittest.TestCase):
         app(req.environ, start_response)
         self.assertEqual(1, len(calls))
         self.assertEqual('200 OK', calls[0][0])
-        self.assertIn('swift.crypto.fetch_crypto_keys', req.environ)
-        expected_keys = req.environ.get('swift.crypto.fetch_crypto_keys')()
+        self.assertIn(CRYPTO_KEY_CALLBACK, req.environ)
+        expected_keys = req.environ.get(CRYPTO_KEY_CALLBACK)()
 
         # now change path but verify that keys match key_id, not path
         path = '/v1/a/got/relocated'
@@ -107,8 +108,8 @@ class TestKeymaster(unittest.TestCase):
             app(req.environ, start_response)
             self.assertEqual(1, len(calls))
             self.assertEqual('200 OK', calls[0][0])
-            self.assertIn('swift.crypto.fetch_crypto_keys', req.environ)
-            actual_keys = req.environ.get('swift.crypto.fetch_crypto_keys')()
+            self.assertIn(CRYPTO_KEY_CALLBACK, req.environ)
+            actual_keys = req.environ.get(CRYPTO_KEY_CALLBACK)()
             self.assertDictEqual(expected_keys, actual_keys)
 
     def test_object_with_no_key_id(self):
@@ -124,7 +125,7 @@ class TestKeymaster(unittest.TestCase):
             self.assertEqual(1, len(calls))
             self.assertEqual('200 OK', calls[0][0])
             self.assertIn('swift.crypto.override', req.environ)
-            self.assertNotIn('swift.crypto.fetch_crypto_keys', req.environ)
+            self.assertNotIn(CRYPTO_KEY_CALLBACK, req.environ)
 
     def test_object_with_no_key_id_but_crypto_meta(self):
         # object should have a key id if it has any

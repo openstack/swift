@@ -17,6 +17,7 @@ import unittest
 
 from swift.common.middleware import encrypter, decrypter
 from swift.common.swob import Request, HTTPCreated, HTTPAccepted
+from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 
 from test.unit.common.middleware.crypto_helpers import fetch_crypto_keys, \
     md5hex, encrypt
@@ -35,7 +36,7 @@ class TestEncrypterDecrypter(unittest.TestCase):
         # Setup pass the PUT request through the encrypter.
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body)),
                 'x-object-meta-test': 'encrypt me',
@@ -62,7 +63,7 @@ class TestEncrypterDecrypter(unittest.TestCase):
         self.assertEqual(exp_enc_body, encrypt_get_resp.body)
 
         decrypt_env = {'REQUEST_METHOD': 'GET',
-                       'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+                       CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         decrypt_req = Request.blank('/v1/a/c/o', environ=decrypt_env)
         decrypt_resp = decrypt_req.get_response(
             decrypter.Decrypter(app, {}))
@@ -78,7 +79,7 @@ class TestEncrypterDecrypter(unittest.TestCase):
 
         # do a POST update to verify updated metadata is encrypted
         env = {'REQUEST_METHOD': 'POST',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'x-object-meta-test': 'encrypt me is updated'}
         req = Request.blank('/v1/a/c/o', environ=env, headers=hdrs)
         app.register('POST', '/v1/a/c/o', HTTPAccepted, {})
@@ -98,7 +99,7 @@ class TestEncrypterDecrypter(unittest.TestCase):
 
         # do a GET to verify the updated metadata is decrypted
         env = {'REQUEST_METHOD': 'GET',
-               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         resp_dec = req.get_response(
             decrypter.Decrypter(app, {}))
