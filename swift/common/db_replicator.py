@@ -839,6 +839,7 @@ class ReplicatorRpc(object):
             objects = existing_broker.get_items_since(point, 1000)
             sleep()
         new_broker.newid(args[0])
+        new_broker.update_metadata(existing_broker.metadata)
         renamer(old_filename, db_file)
         return HTTPNoContent()
 
