@@ -330,13 +330,13 @@ class ObjectAuditor(Daemon):
             kwargs['zero_byte_fps'] = zbo_fps
             self.run_audit(**kwargs)
         else:
-            pids = []
+            pids = set()
             if self.conf_zero_byte_fps:
                 zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
-                pids.append(zbf_pid)
+                pids.add(zbf_pid)
             if self.concurrency == 1:
                 # Audit all devices in 1 process
-                pids.append(self.fork_child(**kwargs))
+                pids.add(self.fork_child(**kwargs))
             else:
                 # Divide devices amongst parallel processes set by
                 # self.concurrency.  Total number of parallel processes
@@ -350,7 +350,7 @@ class ObjectAuditor(Daemon):
                     pid = None
                     if len(pids) == parallel_proc:
                         pid = os.wait()[0]
-                        pids.remove(pid)
+                        pids.discard(pid)
 
                     if self.conf_zero_byte_fps and pid == zbf_pid and once:
                         # If we're only running one pass and the ZBF scanner
@@ -363,10 +363,10 @@ class ObjectAuditor(Daemon):
                         # sleep between ZBF scanner forks
                         self._sleep()
                         zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
-                        pids.append(zbf_pid)
+                        pids.add(zbf_pid)
                     else:
                         kwargs['device_dirs'] = [device_list.pop()]
-                        pids.append(self.fork_child(**kwargs))
+                        pids.add(self.fork_child(**kwargs))
             while pids:
                 pid = os.wait()[0]
                 # ZBF scanner must be restarted as soon as it finishes
@@ -377,8 +377,8 @@ class ObjectAuditor(Daemon):
                     # sleep between ZBF scanner forks
                     self._sleep()
                     zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
-                    pids.append(zbf_pid)
-                pids.remove(pid)
+                    pids.add(zbf_pid)
+                pids.discard(pid)
 
     def run_forever(self, *args, **kwargs):
         """Run the object audit until stopped."""
