@@ -5,18 +5,19 @@
 # Translators:
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Filatov Sergey <filatecs@gmail.com>, 2016. #zanata
 # Grigory Mokhin <mokhin@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
 "Project-Id-Version: swift 2.6.1.dev244\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 03:44+0000\n"
+"POT-Creation-Date: 2016-03-22 06:16+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-21 07:06+0000\n"
-"Last-Translator: Grigory Mokhin <mokhin@gmail.com>\n"
+"PO-Revision-Date: 2016-03-27 11:17+0000\n"
+"Last-Translator: Ilya Alekseyev <ilyaalekseyev@acm.org>\n"
 "Language: ru\n"
 "Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
 "%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n"
@@ -225,6 +226,14 @@ msgstr "Отсутствует доступ к файлу %s."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "Не удается загрузить данные профайла из %s."
+
+#, python-format
+msgid "Cannot read %s (%s)"
+msgstr "Невозможно прочитать %s (%s)"
+
+#, python-format
+msgid "Cannot write %s (%s)"
+msgstr "Невозможно записать %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -689,6 +698,10 @@ msgstr ""
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr "Принудительное завершение долго выполняющегося rsync: %s"
+
+#, python-format
+msgid "Loading JSON from %s failed (%s)"
+msgstr "Загрузка JSON из %s провалилась (%s)"
 
 msgid "Lockup detected.. killing live coros."
 msgstr "Обнаружена блокировка.. принудительное завершение работающих модулей."
