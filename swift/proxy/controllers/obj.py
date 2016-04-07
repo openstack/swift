@@ -709,7 +709,7 @@ class BaseObjectController(Controller):
             raise HTTPServiceUnavailable(request=req)
 
     def _get_footers(self, req):
-        footers = {}
+        footers = HeaderKeyDict()
         footer_callback = req.environ.get(
             'swift.callback.update_footers', lambda _footer: None)
         footer_callback(footers)

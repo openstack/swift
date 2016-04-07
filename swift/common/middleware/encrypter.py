@@ -80,22 +80,48 @@ class EncInputWrapper(object):
         self.crypto_ctxt = crypto.create_encryption_ctxt(keys['object'],
                                                          crypto_meta.get('iv'))
         self.keys = keys
+        # remove any Etag from headers, it won't be valid for ciphertext and
+        # we'll send the ciphertext Etag later in footer metadata
         self.client_etag = req.headers.pop('etag', None)
-        self.plaintext_etag = md5()
-        self.ciphertext_etag = md5()
+        self.plaintext_md5 = md5()
+        self.ciphertext_md5 = md5()
         self.footers_to_add = {}
         self.logger = logger
 
         req.headers['X-Object-Sysmeta-Crypto-Meta'] = \
             _dump_crypto_meta(crypto_meta)
+        self.install_footers_callback(req)
+
+    def install_footers_callback(self, req):
         # the proxy controller will call back for footer metadata after
         # body has been sent
-        req.environ['swift.callback.update_footers'] = self.footers_callback
+        inner_callback = req.environ.get('swift.callback.update_footers')
 
-    def footers_callback(self, footers):
-        for key in self.footers_to_add:
-            footers.update(
-                {key: self.footers_to_add[key]})
+        def footers_callback(footers):
+            # Encrypt the plaintext etag using the object key and persist as
+            # sysmeta along with the crypto parameters that were used.
+            val, crypto_meta = encrypt_header_val(
+                self.crypto, self.plaintext_md5.hexdigest(),
+                self.keys['object'])
+            footers['X-Object-Sysmeta-Crypto-Etag'] = val
+            footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = crypto_meta
+
+            # TODO: Encrypt the plaintext etag using the container key and use
+            # it to override the container update value, with the crypto
+            # parameters appended.
+            val = self.plaintext_md5.hexdigest()
+            footers['X-Backend-Container-Update-Override-Etag'] = val
+
+            if inner_callback:
+                # pass on footers dict to any other callback that was
+                # registered before this one. It may override any
+                # x-backend-container-update-overide- headers that were set.
+                inner_callback(footers)
+
+            # we override any previous notion of etag with the ciphertext etag
+            footers['Etag'] = self.ciphertext_md5.hexdigest()
+
+        req.environ['swift.callback.update_footers'] = footers_callback
 
     def read(self, *args, **kwargs):
         return self.readChunk(self.wsgi_input.read, *args, **kwargs)
@@ -107,40 +133,16 @@ class EncInputWrapper(object):
         chunk = read_method(*args, **kwargs)
 
         if chunk:
-            self.plaintext_etag.update(chunk)
+            self.plaintext_md5.update(chunk)
             # Encrypt one chunk at a time
             ciphertext = self.crypto_ctxt.update(chunk)
-            self.ciphertext_etag.update(ciphertext)
+            self.ciphertext_md5.update(ciphertext)
             return ciphertext
 
-        self.plaintext_etag = self.plaintext_etag.hexdigest()
-
-        # If client supplied etag, then validate while we have plaintext
+        # If client supplied etag, then validate against plaintext etag
         if self.client_etag:
-            if self.plaintext_etag != self.client_etag:
+            if self.plaintext_md5.hexdigest() != self.client_etag:
                 raise HTTPUnprocessableEntity(request=Request(self.env))
-
-            self.footers_to_add['Etag'] = self.ciphertext_etag.hexdigest()
-
-        # Encrypt the plaintext etag using the object key and persist as
-        # sysmeta along with the crypto parameters that were used.
-        val, crypto_meta = encrypt_header_val(
-            self.crypto, self.plaintext_etag, self.keys['object'])
-        self.footers_to_add['X-Object-Sysmeta-Crypto-Etag'] = val
-        self.footers_to_add['X-Object-Sysmeta-Crypto-Meta-Etag'] = crypto_meta
-
-        # TODO: Encrypt the plaintext etag using the container key and use it
-        # to override the container update value, with the crypto parameters
-        # appended.
-        # val, _ = encrypt_header_val(
-        #     self.crypto, self.plaintext_etag, self.keys['container'],
-        #     append_crypto_meta=True)
-        val = self.plaintext_etag
-        self.footers_to_add['X-Backend-Container-Update-Override-Etag'] = val
-
-        for key in self.footers_to_add:
-            self.logger.debug("encrypter added footer %s: %s" %
-                              (key, self.footers_to_add[key]))
 
         return chunk
 
@@ -207,13 +209,11 @@ class EncrypterObjContext(CryptoWSGIContext):
         # If an etag is in the response headers, then replace its value with
         # the plaintext version
         mod_resp_headers = self._response_headers
-        if enc_input_proxy.plaintext_etag:
-            mod_resp_headers = filter(lambda h: h[0].lower() != 'etag',
-                                      self._response_headers)
-            mod_resp_headers.append(('etag', enc_input_proxy.plaintext_etag))
-        else:
-            # TODO: can this ever be true? If not, remove the if clause
-            pass
+        mod_resp_headers = filter(lambda h: h[0].lower() != 'etag',
+                                  self._response_headers)
+        if len(mod_resp_headers) < len(self._response_headers):
+            mod_resp_headers.append(
+                ('etag', enc_input_proxy.plaintext_md5.hexdigest()))
 
         start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
