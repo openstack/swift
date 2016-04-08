@@ -5,14 +5,13 @@
 # Translators:
 # Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Filatov Sergey <filatecs@gmail.com>, 2016. #zanata
 # Grigory Mokhin <mokhin@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev244\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 06:16+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -83,14 +82,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s возвратил 503 для %(statuses)s"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d не запущен (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "Возможно, %s (%s) остановлен"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s уже запущен..."
 
@@ -105,14 +96,6 @@ msgstr "%s не смонтирован"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s ответил как размонтированный"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s выполняется (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -153,10 +136,6 @@ msgid "Account"
 msgstr "Учетная запись"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "Учетная запись %s не очищалась после %s"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "Проверка учетной записи в \"однократном\" режиме завершена: %.02fs"
 
@@ -169,10 +148,6 @@ msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "Попытка репликации %(count)d баз данных за %(time).5f секунд (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "Контроль %s не выполнен: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -199,10 +174,6 @@ msgstr "Начать однонитевую сплошную проверку о
 msgid "Begin container update sweep"
 msgstr "Начать сплошную проверку обновлений контейнера"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "Начать проверку объекта в режиме \"%s\" (%s%s)"
-
 msgid "Begin object update single threaded sweep"
 msgstr "Начать однонитевую сплошную проверку обновлений объекта"
 
@@ -226,14 +197,6 @@ msgstr "Отсутствует доступ к файлу %s."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "Не удается загрузить данные профайла из %s."
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "Невозможно прочитать %s (%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "Невозможно записать %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -616,14 +579,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "Исключение в цикле реконструкции верхнего уровня"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "Исключительная ситуация во время удаления контейнера %s %s"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "Исключительная ситуация во время удаления объекта %s %s %s"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Исключительная ситуация в %(ip)s:%(port)s/%(device)s"
 
@@ -699,10 +654,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "Принудительное завершение долго выполняющегося rsync: %s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "Загрузка JSON из %s провалилась (%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "Обнаружена блокировка.. принудительное завершение работающих модулей."
 
@@ -729,10 +680,6 @@ msgstr "Не найдено стратегии с индексом %s"
 #, python-format
 msgid "No realm key for %r"
 msgstr "Отсутствует ключ области для %r"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "Не устройстве %s (%s) закончилось место"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -870,14 +817,6 @@ msgid "Problem cleaning up %s"
 msgstr "Неполадка при очистке %s"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "Возникла проблема при очистке %s (%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "Возникла неполадка при записи файла сохраняемого состояния %s (%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Ошибка профилирования: %s"
 
@@ -893,10 +832,6 @@ msgid ""
 msgstr ""
 "%(object_path)s помещен в карантин в %(quar_path)s, так как не является "
 "каталогом"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "%s помещено в карантин %s из-за базы данных %s"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -966,10 +901,6 @@ msgstr "Запуск утилиты реконструкции объектов 
 
 msgid "Running object replicator in script mode."
 msgstr "Запуск утилиты репликации объектов в режиме сценариев."
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "Сигнал: %s, pid: %s, сигнал: %s"
 
 #, python-format
 msgid ""
@@ -1051,10 +982,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "Попытка GET-запроса %(full_path)s"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "Попытка получения состояния %s операции PUT в %s"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "Попытка получения конечного состояния PUT в %s"
 
@@ -1079,10 +1006,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "Необрабатываемая исключительная ситуация"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "Не удалось найти раздел конфигурации %s в %s"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "Не удалось загрузить клиент из конфигурации: %r (%s)"
 
@@ -1094,18 +1017,10 @@ msgstr "Не удалось найти %s в libc.  Оставлено как no
 msgid "Unable to locate config for %s"
 msgstr "Не удалось найти конфигурационный файл для %s"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "Не удается найти конфигурации с номером %s для %s"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "Не удалось найти fallocate, posix_fallocate в libc.  Оставлено как no-op."
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "Не удалось выполнить функцию fsync() для каталога %s: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1156,14 +1071,6 @@ msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "Предупреждение: не удалось изменить предельное значение для памяти. Запущен "
 "без прав доступа root?"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "Система ожидала %s секунд для %s завершения; освобождение"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr "Система ожидала %s секунд для %s завершения; Принудительное завершение"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""

@@ -11,9 +11,9 @@
 # 笹原 昌美 <ebb0de1@jp.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev244\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 06:16+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -82,14 +82,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s が %(statuses)s について 503 を返しています"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d が実行されていません (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) が停止された可能性があります"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s は既に開始されています..."
 
@@ -104,14 +96,6 @@ msgstr "%s がマウントされていません"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s はアンマウントとして応答しました"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s が実行中 (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -152,10 +136,6 @@ msgid "Account"
 msgstr "アカウント"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "アカウント %s は %s 以降リープされていません"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "アカウント監査 \"once\" モードが完了しました: %.02fs"
 
@@ -167,10 +147,6 @@ msgstr "アカウント監査の処理が完了しました: %.02fs"
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "%(time).5f 秒で %(count)d 個の DB の複製を試行しました (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "%s の監査が失敗しました: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -197,10 +173,6 @@ msgstr "コンテナー更新単一スレッド化スイープの開始"
 msgid "Begin container update sweep"
 msgstr "コンテナー更新スイープの開始"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "オブジェクト監査「%s」モードの開始 (%s%s)"
-
 msgid "Begin object update single threaded sweep"
 msgstr "オブジェクト更新単一スレッド化スイープの開始"
 
@@ -224,14 +196,6 @@ msgstr "ファイル %s にアクセスできません。"
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "プロファイルデータを %s からロードできません。"
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "%s を読み取ることができません (%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "%s を書き込むことができません (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -605,14 +569,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "最上位再構成ループで例外が発生しました"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "コンテナー %s %s の削除中に例外が発生しました"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "オブジェクト %s %s %s の削除中に例外が発生しました"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s で例外が発生しました"
 
@@ -688,10 +644,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "長期実行の再同期を強制終了中: %s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "%s からの JSON のロードが失敗しました (%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "ロックが検出されました.. ライブ coros を強制終了中"
 
@@ -718,10 +670,6 @@ msgstr "インデックス %s のポリシーはありません"
 #, python-format
 msgid "No realm key for %r"
 msgstr "%r のレルムキーがありません"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "%s 用のデバイス容量が残っていません (%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -860,14 +808,6 @@ msgid "Problem cleaning up %s"
 msgstr "%s のクリーンアップ中に問題が発生しました"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "%s のクリーンアップ中に問題が発生しました (%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "永続状態ファイル %s の書き込み中に問題が発生しました (%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "プロファイル作成エラー: %s"
 
@@ -881,10 +821,6 @@ msgid ""
 "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
 "ディレクトリーではないため、%(object_path)s は %(quar_path)s へ検疫されました"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "%s から %s が検疫されました (%s データベースが原因)"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -949,10 +885,6 @@ msgstr "スクリプトモードでオブジェクトリコンストラクター
 
 msgid "Running object replicator in script mode."
 msgstr "スクリプトモードでオブジェクトレプリケーターを実行中です。"
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "%s のシグナル通知、pid: %s シグナル: %s"
 
 #, python-format
 msgid ""
@@ -1033,10 +965,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "GET %(full_path)s を試行中"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "%s への PUT の状況 %s の取得を試行中"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "%s への PUT の最終状況の取得を試行中"
 
@@ -1061,10 +989,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "キャッチされていない例外"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "%s 構成セクションが %s に見つかりません"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "設定から内部クライアントをロードできません: %r (%s)"
 
@@ -1076,18 +1000,10 @@ msgstr "%s が libc に見つかりません。no-op として終了します。
 msgid "Unable to locate config for %s"
 msgstr "%s の設定が見つかりません"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "%s の設定番号 %s が見つかりません"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "fallocate、posix_fallocate が libc に見つかりません。no-op として終了します。"
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "ディレクトリー %s で fsync() を実行できません: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1132,14 +1048,6 @@ msgstr "警告: 最大処理限界を変更できません。非ルートとし�
 
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr "警告: メモリー制限を変更できません。非ルートとして実行しますか?"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "%s 秒間、%s の停止を待機しました。中止します"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr "%s 秒間、%s の停止を待機しました。強制終了します"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告: memcached クライアントなしで ratelimit を行うことはできません"

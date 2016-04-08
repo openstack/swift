@@ -8,9 +8,9 @@
 # Jennifer <cristxu@tw.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev268\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-24 22:25+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -78,14 +78,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s 針對 %(statuses)s 正在傳回 503"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d 未在執行中 (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) 似乎已停止"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s 已啟動..."
 
@@ -100,14 +92,6 @@ msgstr "未裝載 %s"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s 已回應為未裝載"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s 在執行中 (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s：%s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -148,10 +132,6 @@ msgid "Account"
 msgstr "帳戶"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "尚未回收帳戶 %s（自 %s 之後）"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "帳戶審核「一次性」模式已完成：%.02fs"
 
@@ -163,10 +143,6 @@ msgstr "帳戶審核通過已完成：%.02fs"
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "已嘗試在 %(time).5f 秒內抄寫 %(count)d 個資料庫 (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "%s 的審核失敗：%s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -193,10 +169,6 @@ msgstr "開始儲存器更新單一執行緒清理"
 msgid "Begin container update sweep"
 msgstr "開始儲存器更新清理"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "開始物件審核 \"%s\" 模式 (%s%s)"
-
 msgid "Begin object update single threaded sweep"
 msgstr "開始物件更新單一執行緒清理"
 
@@ -220,14 +192,6 @@ msgstr "無法存取檔案 %s。"
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "無法從 %s 中載入設定檔資料。"
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "無法讀取 %s (%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "無法寫入 %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -585,14 +549,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "最上層重新建構迴圈中發生異常狀況"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "刪除儲存器 %s %s 時發生異常狀況"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "刪除物件 %s %s %s 時發生異常狀況"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s  發生異常狀況"
 
@@ -663,10 +619,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "正在結束長時間執行的遠端同步：%s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "從 %s 載入 JSON 失敗 (%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "偵測到鎖定。正在結束即時 coro。"
 
@@ -693,10 +645,6 @@ msgstr "沒有具有索引 %s 的原則"
 #, python-format
 msgid "No realm key for %r"
 msgstr "沒有 %r 的範圍金鑰"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "裝置上沒有用於 %s 的剩餘空間 (%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -829,14 +777,6 @@ msgid "Problem cleaning up %s"
 msgstr "清除 %s 時發生問題"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "清除 %s 時發生問題  (%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "寫入可延續狀態檔 %s 時發生問題 (%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "側寫錯誤：%s"
 
@@ -848,10 +788,6 @@ msgstr "已將 %(hsh_path)s 隔離至 %(quar_path)s，原因是它不是目錄"
 msgid ""
 "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr "已將 %(object_path)s 隔離至 %(quar_path)s，原因是它不是目錄"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "已將 %s 隔離至 %s，原因是 %s 資料庫"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -915,10 +851,6 @@ msgstr "正在 Script 模式下執行物件重新建構器。"
 
 msgid "Running object replicator in script mode."
 msgstr "正在 Script 模式下執行物件抄寫器"
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "信號 %s  PID：%s  信號：%s"
 
 #, python-format
 msgid ""
@@ -997,10 +929,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "正在嘗試對 %(full_path)s 執行 GET 動作"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "正在嘗試使 PUT 的 %s 狀態為 %s"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "正在嘗試使 PUT 的最終狀態為 %s"
 
@@ -1025,10 +953,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕捉的異常狀況"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "找不到 %s 配置區段（在 %s 中）"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "無法從配置載入內部用戶端：%r (%s)"
 
@@ -1040,17 +964,9 @@ msgstr "在 libc 中找不到 %s。保留為 no-op。"
 msgid "Unable to locate config for %s"
 msgstr "找不到 %s 的配置"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "找不到配置號碼 %s（針對 %s）"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr "在 libc 中找不到 fallocate、posix_fallocate。保留為 no-op。"
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "無法在目錄 %s 上執行 fsync()：%s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1094,14 +1010,6 @@ msgstr "警告：無法修改處理程序數上限限制。以非 root 使用者
 
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr "警告：無法修改記憶體限制。以非 root 使用者身分執行？"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "已等待 %s 秒以讓 %s 當掉；正在放棄"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr "已等待 %s 秒以讓 %s 當掉"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：無法在沒有 memcached 用戶端的情況下限制速率"

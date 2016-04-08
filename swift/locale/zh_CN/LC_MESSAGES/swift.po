@@ -9,9 +9,9 @@
 # Linda <duleish@cn.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev254\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 19:48+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -78,14 +78,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s 返回 503 在 %(statuses)s"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d无法运行(%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s)显示已停止"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s已启动..."
 
@@ -100,14 +92,6 @@ msgstr "%s未挂载"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s 响应为未安装"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s运行(%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s：%s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -148,10 +132,6 @@ msgid "Account"
 msgstr "账号"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "账号%s自%s起未被reaped"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "账号审计\"once\"模式完成： %.02fs"
 
@@ -163,10 +143,6 @@ msgstr "账号审计完成：%.02fs"
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "%(time).5f seconds (%(rate).5f/s)尝试复制%(count)d dbs"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "审计失败%s: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -193,10 +169,6 @@ msgstr "开始容器更新单线程扫除"
 msgid "Begin container update sweep"
 msgstr "开始容器更新扫除"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "开始对象审计\\\"%s\\\" 模式 (%s%s)"
-
 msgid "Begin object update single threaded sweep"
 msgstr "开始对象更新单线程扫除"
 
@@ -220,14 +192,6 @@ msgstr "无法访问文件%s"
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "无法从%s下载分析数据"
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "无法读取 %s (%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "无法写入 %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -584,14 +548,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr " top-levelreconstruction 环中发生异常"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "执行删除容器时出现异常 %s %s"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "执行删除对象时发生异常%s %s %s"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s出现异常"
 
@@ -662,10 +618,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "终止long-running同步: %s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "从 %s 读取 JSON 失败 (%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "检测到lockup。终止正在执行的coros"
 
@@ -692,10 +644,6 @@ msgstr "没有具备索引 %s 的策略"
 #, python-format
 msgid "No realm key for %r"
 msgstr "%r权限key不存在"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "设备上没有可容纳 %s (%s) 的空间"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -827,14 +775,6 @@ msgid "Problem cleaning up %s"
 msgstr "问题清除%s"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "清除 %s (%s) 时发生了问题"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "编写可持续状态文件 %s (%s) 时发生了问题"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "分析代码时出现错误：%s"
 
@@ -846,10 +786,6 @@ msgstr "隔离%(hsh_path)s和%(quar_path)s因为非目录"
 msgid ""
 "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr "隔离%(object_path)s和%(quar_path)s因为非目录"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "隔离%s和%s 因为%s数据库"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -913,10 +849,6 @@ msgstr "正以脚本方式运行对象重构程序。"
 
 msgid "Running object replicator in script mode."
 msgstr "在加密模式下执行对象复制"
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "发出信号%s  pid: %s  信号: %s"
 
 #, python-format
 msgid ""
@@ -992,10 +924,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "正尝试获取 %(full_path)s"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "正尝试将 PUT 的 %s 状态发送至 %s"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "尝试执行获取最后的PUT状态%s"
 
@@ -1020,10 +948,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕获的异常"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "无法在%s中查找到%s设置部分"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "无法从配置装入内部客户机：%r (%s)"
 
@@ -1035,17 +959,9 @@ msgstr "无法查询到%s 保留为no-op"
 msgid "Unable to locate config for %s"
 msgstr "找不到 %s 的配置"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "找不到 %s 的配置编号 %s"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr "无法查询到fallocate， posix_fallocate。保存为no-op"
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "无法在目录 %s 上执行 fsync()：%s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1087,14 +1003,6 @@ msgstr "警告：无法修改最大运行极限，是否按非root运行？"
 
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr "警告：无法修改内存极限，是否按非root运行？"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "等待%s秒直到%s停止；放弃"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr "已消耗 %s 秒等待 %s 终止；正在终止"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：缺失缓存客户端 无法控制流量 "

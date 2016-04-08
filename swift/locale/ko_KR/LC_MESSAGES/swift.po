@@ -10,9 +10,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev244\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 06:16+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -81,14 +81,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s에서 %(statuses)s에 대해 503을 리턴함"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d이(가) 실행되지 않음(%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s(%s)이(가) 중지됨"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s이(가) 이미 시작되었음..."
 
@@ -103,14 +95,6 @@ msgstr "%s이(가) 마운트되지 않음"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s이(가) 마운트 해제된 것으로 응답"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s 실행 중(%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -151,10 +135,6 @@ msgid "Account"
 msgstr "계정"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "계정 %s을(를) %s 이후에 얻지 못함"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "계정 감사 \"한 번\"모드가 완료: %.02fs"
 
@@ -167,10 +147,6 @@ msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "%(time).5f초(%(rate).5f/s)에 %(count)d개의 데이터베이스를 복제하려고 함"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "검사 중 오류 %s: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -197,10 +173,6 @@ msgstr "컨테이너 업데이트 단일 스레드 스윕 시작"
 msgid "Begin container update sweep"
 msgstr "컨테이너 업데이트 스윕 시작"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "오브젝트 감사 \"%s\" 모드(%s%s) 시작"
-
 msgid "Begin object update single threaded sweep"
 msgstr "오브젝트 업데이트 단일 스레드 스윕 시작"
 
@@ -224,14 +196,6 @@ msgstr "파일 %s에 액세스할 수 없습니다."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "%s에서 프로파일 데이터를 로드할 수 없습니다."
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "%s을(를) 읽을 수 없음(%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "%s을(를) 쓸 수 없음(%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -600,14 +564,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "최상위 레벨 재구성 루프에서 예외 발생"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "컨테이너 %s %s 삭제 중 예외 발생"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "오브젝트 %s %s %s 삭제 중 예외 발생"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s 예외"
 
@@ -681,10 +637,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "장기 실행 중인 rsync 강제 종료: %s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "%s에서 JSON 로드 실패(%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "잠금 발견.. 활성 coros를 강제 종료합니다."
 
@@ -711,10 +663,6 @@ msgstr "인덱스가 %s인 정책이 없음"
 #, python-format
 msgid "No realm key for %r"
 msgstr "%r에 대한 영역 키가 없음"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "%s의 장치 왼쪽에 공백이 없음(%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -849,14 +797,6 @@ msgid "Problem cleaning up %s"
 msgstr "%s 정리 문제 발생"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "%s 정리 문제 발생(%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "지속적인 상태 파일 %s 쓰기 오류(%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "프로파일링 오류: %s"
 
@@ -868,10 +808,6 @@ msgstr "디렉토리가 아니어서 %(hsh_path)s을(를) %(quar_path)s에 격�
 msgid ""
 "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr "디렉토리가 아니어서 %(object_path)s을(를) %(quar_path)s에 격리함"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "%s을(를) %s에 격리. 원인: %s 데이터베이스"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -936,10 +872,6 @@ msgstr "오브젝트 재구성자를 스크립트 모드로 실행 중입니다.
 
 msgid "Running object replicator in script mode."
 msgstr "오브젝트 복제자를 스크립트 모드로 실행 중입니다."
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "신호 %s  pid: %s  신호: %s"
 
 #, python-format
 msgid ""
@@ -1017,10 +949,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "GET %(full_path)s 시도 중"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "PUT의 %s 상태를 %s(으)로 가져오는 중"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "PUT의 최종 상태를 %s(으)로 가져오는 중"
 
@@ -1045,10 +973,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "미발견 예외"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "%s 구성 섹션을 %s에서 찾을 수 없음"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "구성에서 내부 클라이언트를 로드할 수 없음: %r (%s)"
 
@@ -1060,18 +984,10 @@ msgstr "libc에서 %s을(를) 찾을 수 없습니다. no-op로 남겨 둡니다
 msgid "Unable to locate config for %s"
 msgstr "%s의 구성을 찾을 수 없음"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "구성 번호 %s을(를) 찾을 수 없음(대상: %s)"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "libc에서 fallocate, posix_fallocate를 찾을 수 없습니다. no-op로 남겨 둡니다."
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "%s 디렉토리에서 fsync()를 수행할 수 없음: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1121,14 +1037,6 @@ msgstr ""
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "경고: 메모리 한계를 수정할 수 없습니다. 비루트로 실행 중인지 확인하십시오."
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "%s초 동안 %s의 종료를 대기함, 포기하는 중"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr "%s초 동안 %s을(를) 대기, 강제 종료 중"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "경고: memcached 클라이언트 없이 전송률을 제한할 수 없음"
