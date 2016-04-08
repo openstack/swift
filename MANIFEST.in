@@ -1,5 +1,5 @@
 include AUTHORS LICENSE .functests .unittests .probetests test/__init__.py
-include CHANGELOG CONTRIBUTING.rst README.md
+include CHANGELOG CONTRIBUTING.rst README.rst
 include babel.cfg
 include test/sample.conf
 include tox.ini
