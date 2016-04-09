@@ -1289,10 +1289,10 @@ class BaseDiskFileManager(object):
 
         timestamps is a dict which may contain items mapping:
 
-            ts_data -> timestamp of data or tombstone file,
-            ts_meta -> timestamp of meta file, if one exists
-            ts_ctype -> timestamp of meta file containing most recent
-                        content-type value, if one exists
+        - ts_data -> timestamp of data or tombstone file,
+        - ts_meta -> timestamp of meta file, if one exists
+        - ts_ctype -> timestamp of meta file containing most recent
+                      content-type value, if one exists
 
         where timestamps are instances of
         :class:`~swift.common.utils.Timestamp`
