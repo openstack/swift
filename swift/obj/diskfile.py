@@ -367,7 +367,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
         except OSError as e:
             if logger:
                 logger.debug(
-                    _('Skipping %s: %s') % (device_dir, e.strerror))
+                    _('Skipping %(dir)s: %(err)s') % {'dir': device_dir,
+                                                      'err': e.strerror})
             continue
         for dir_ in dirs:
             if not dir_.startswith(DATADIR_BASE):
@@ -418,13 +419,15 @@ def get_auditor_status(datadir_path, logger, auditor_type):
             status = statusfile.read()
     except (OSError, IOError) as e:
         if e.errno != errno.ENOENT and logger:
-            logger.warning(_('Cannot read %s (%s)') % (auditor_status, e))
+            logger.warning(_('Cannot read %(auditor_status)s (%(err)s)') %
+                           {'auditor_status': auditor_status, 'err': e})
         return listdir(datadir_path)
     try:
         status = json.loads(status)
     except ValueError as e:
-        logger.warning(_('Loading JSON from %s failed (%s)') % (
-                       auditor_status, e))
+        logger.warning(_('Loading JSON from %(auditor_status)s failed'
+                         ' (%(err)s)') %
+                       {'auditor_status': auditor_status, 'err': e})
         return listdir(datadir_path)
     return status['partitions']
 
@@ -438,7 +441,8 @@ def update_auditor_status(datadir_path, logger, partitions, auditor_type):
             statusfile.write(status)
     except (OSError, IOError) as e:
         if logger:
-            logger.warning(_('Cannot write %s (%s)') % (auditor_status, e))
+            logger.warning(_('Cannot write %(auditor_status)s (%(err)s)') %
+                           {'auditor_status': auditor_status, 'err': e})
 
 
 def clear_auditor_status(devices, auditor_type="ALL"):
@@ -1285,10 +1289,10 @@ class BaseDiskFileManager(object):
 
         timestamps is a dict which may contain items mapping:
 
-            ts_data -> timestamp of data or tombstone file,
-            ts_meta -> timestamp of meta file, if one exists
-            ts_ctype -> timestamp of meta file containing most recent
-                        content-type value, if one exists
+        - ts_data -> timestamp of data or tombstone file,
+        - ts_meta -> timestamp of meta file, if one exists
+        - ts_ctype -> timestamp of meta file containing most recent
+                      content-type value, if one exists
 
         where timestamps are instances of
         :class:`~swift.common.utils.Timestamp`
@@ -2529,8 +2533,8 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                 if err.errno not in (errno.ENOSPC, errno.EDQUOT):
                     # re-raise to catch all handler
                     raise
-                msg = (_('No space left on device for %s (%s)') %
-                       (durable_file_path, err))
+                msg = (_('No space left on device for %(file)s (%(err)s)') %
+                       {'file': durable_file_path, 'err': err})
                 self.manager.logger.error(msg)
                 exc = DiskFileNoSpace(str(err))
             else:
@@ -2538,11 +2542,11 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     self.manager.cleanup_ondisk_files(self._datadir)['files']
                 except OSError as os_err:
                     self.manager.logger.exception(
-                        _('Problem cleaning up %s (%s)') %
-                        (self._datadir, os_err))
+                        _('Problem cleaning up %(datadir)s (%(err)s)') %
+                        {'datadir': self._datadir, 'err': os_err})
         except Exception as err:
-            msg = (_('Problem writing durable state file %s (%s)') %
-                   (durable_file_path, err))
+            msg = (_('Problem writing durable state file %(file)s (%(err)s)') %
+                   {'file': durable_file_path, 'err': err})
             self.manager.logger.exception(msg)
             exc = DiskFileError(msg)
         if exc:

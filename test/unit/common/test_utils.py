@@ -1264,6 +1264,48 @@ class TestUtils(unittest.TestCase):
             self.assertRaises(IOError, lfo.readline, 1024)
             lfo.tell()
 
+    def test_LoggerFileObject_recursion(self):
+        crashy_calls = [0]
+
+        class CrashyLogger(logging.Handler):
+            def emit(self, record):
+                crashy_calls[0] += 1
+                try:
+                    # Pretend to be trying to send to syslog, but syslogd is
+                    # dead. We need the raise here to set sys.exc_info.
+                    raise socket.error(errno.ENOTCONN, "This is an ex-syslog")
+                except socket.error:
+                    self.handleError(record)
+
+        logger = logging.getLogger()
+        logger.addHandler(CrashyLogger())
+
+        # Set up some real file descriptors for stdio. If you run
+        # nosetests with "-s", you already have real files there, but
+        # otherwise they're StringIO objects.
+        #
+        # In any case, since capture_stdio() closes sys.stdin and friends,
+        # we'd want to set up some sacrificial files so as to not goof up
+        # the testrunner.
+        new_stdin = open(os.devnull, 'r+b')
+        new_stdout = open(os.devnull, 'w+b')
+        new_stderr = open(os.devnull, 'w+b')
+
+        with contextlib.closing(new_stdin), contextlib.closing(new_stdout), \
+                contextlib.closing(new_stderr):
+            # logging.raiseExceptions is set to False in test/__init__.py, but
+            # is True in Swift daemons, and the error doesn't manifest without
+            # it.
+            with mock.patch('sys.stdin', new_stdin), \
+                    mock.patch('sys.stdout', new_stdout), \
+                    mock.patch('sys.stderr', new_stderr), \
+                    mock.patch.object(logging, 'raiseExceptions', True):
+                # Note: since stdio is hooked up to /dev/null in here, using
+                # pdb is basically impossible. Sorry about that.
+                utils.capture_stdio(logger)
+                logger.info("I like ham")
+                self.assertTrue(crashy_calls[0], 1)
+
     def test_parse_options(self):
         # Get a file that is definitely on disk
         with NamedTemporaryFile() as f:

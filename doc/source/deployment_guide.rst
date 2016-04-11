@@ -1276,9 +1276,9 @@ expiring_objects_account_name         expiring_objects
 
 [proxy-server]
 
-============================  ===============  =============================
+============================  ===============  =====================================
 Option                        Default          Description
-----------------------------  ---------------  -----------------------------
+----------------------------  ---------------  -------------------------------------
 use                                            Entry point for paste.deploy for
                                                the proxy server.  For most
                                                cases, this should be
@@ -1398,7 +1398,7 @@ concurrency_timeout           conn_timeout     This parameter controls how long
                                                firing of the threads. This number
                                                should be between 0 and node_timeout.
                                                The default is conn_timeout (0.5).
-============================  ===============  =============================
+============================  ===============  =====================================
 
 [tempauth]
 

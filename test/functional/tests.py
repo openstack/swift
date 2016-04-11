@@ -618,6 +618,20 @@ class TestContainer(Base):
                                     'reverse': 'yes'})
         self.assertEqual(results, ['baza', 'bar'])
 
+    def testLeadingDelimiter(self):
+        cont = self.env.account.container(Utils.create_name())
+        self.assertTrue(cont.create())
+
+        delimiter = '/'
+        files = ['test', delimiter.join(['', 'test', 'bar']),
+                 delimiter.join(['', 'test', 'bar', 'foo'])]
+        for f in files:
+            file_item = cont.file(f)
+            self.assertTrue(file_item.write_random())
+
+        results = cont.files(parms={'delimiter': delimiter})
+        self.assertEqual(results, [delimiter, 'test'])
+
     def testCreate(self):
         cont = self.env.account.container(Utils.create_name())
         self.assertTrue(cont.create())

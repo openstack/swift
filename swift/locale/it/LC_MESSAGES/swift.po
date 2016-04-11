@@ -6,17 +6,17 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
 # Alessandra <alessandra@translated.net>, 2016. #zanata
-# Remo Mattei <Remo@rm.ht>, 2016. #zanata
+# Remo Mattei <remo@rm.ht>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev254\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 19:48+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-22 05:31+0000\n"
-"Last-Translator: Remo Mattei <Remo@rm.ht>\n"
+"PO-Revision-Date: 2016-04-07 03:43+0000\n"
+"Last-Translator: Remo Mattei <remo@rm.ht>\n"
 "Language: it\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
@@ -80,14 +80,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s restituisce 503 per %(statuses)s"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d non in esecuzione (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) sembra essere stato arrestato"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s già avviato..."
 
@@ -102,14 +94,6 @@ msgstr "%s non è montato"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s ha risposto come smontato"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s in esecuzione (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -150,8 +134,8 @@ msgid "Account"
 msgstr "Conto"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "Account %s non utilizzato da %s"
+msgid "Account %(account)s has not been reaped since %(time)s"
+msgstr "Il conto %(account)s non è stato verificato dal %(time)s"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -167,10 +151,6 @@ msgid ""
 msgstr ""
 "È stato eseguito un tentativo di replicare %(count)d dbs in %(time).5f "
 "secondi (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "Verifica non riuscita per %s: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -197,10 +177,6 @@ msgstr "Avvio pulizia a singolo thread aggiornamento contenitore"
 msgid "Begin container update sweep"
 msgstr "Avvio pulizia aggiornamento contenitore"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "Avvio modalità \"%s\" verifica oggetto (%s%s)"
-
 msgid "Begin object update single threaded sweep"
 msgstr "Avvio pulizia a singolo thread aggiornamento oggetto"
 
@@ -226,14 +202,6 @@ msgstr "Impossibile accedere al file %s."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "Impossibile caricare i dati del profilo da %s."
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "Non e' possibile leggere %s (%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "Non e' possibile scriver %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -618,14 +586,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "Eccezione nel loop di ricostruzione di livello superiore"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "Eccezione durante l'eliminazione del contenitore %s %s"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "Eccezione durante l'eliminazione dell'oggetto %s %s %s"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Eccezione relativa a %(ip)s:%(port)s/%(device)s"
 
@@ -702,10 +662,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "Chiusura rsync ad elaborazione prolungata: %s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "Caricamento JSON dal %s fallito (%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "Blocco rilevato... chiusura dei coros attivi."
 
@@ -732,10 +688,6 @@ msgstr "Nessuna politica con indice %s"
 #, python-format
 msgid "No realm key for %r"
 msgstr "Nessuna chiave dell'area di autenticazione per %r"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "Nessuno spazio rimasto sul dispositivo per %s (%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -871,14 +823,6 @@ msgid "Problem cleaning up %s"
 msgstr "Problema durante la ripulitura di %s"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "Problema durante la ripulitura di %s (%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "Problema durante la scrittura del file obsoleto duraturo %s (%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Errore di creazione dei profili: %s"
 
@@ -894,10 +838,6 @@ msgid ""
 msgstr ""
 "%(object_path)s inserito in quarantena in %(quar_path)s perché non è una "
 "directory"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "%s inserito in quarantena in %s a causa del database %s"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -968,10 +908,6 @@ msgstr ""
 
 msgid "Running object replicator in script mode."
 msgstr "Esecuzione del programma di replica dell'oggetto in modalità script."
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "Segnale %s  pid: %s  segnale: %s"
 
 #, python-format
 msgid ""
@@ -1053,10 +989,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "Tentativo di eseguire GET %(full_path)s"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "Tentativo di acquisire  lo stato %s di PUT su %s"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "Tentativo di acquisire lo stato finale di PUT su %s"
 
@@ -1081,10 +1013,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "ECCEZIONE NON RILEVATA"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "Impossibile trovare la sezione di configurazione %s in %s"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "Impossibile caricare il client interno dalla configurazione: %r (%s)"
 
@@ -1096,19 +1024,11 @@ msgstr "Impossibile individuare %s in libc.  Lasciato come no-op."
 msgid "Unable to locate config for %s"
 msgstr "Impossibile individuare la configurazione per %s"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "Impossibile individuare il numero di configurazione %s per %s"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "Impossibile individuare fallocate, posix_fallocate in libc.  Lasciato come "
 "no-op."
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "Impossibile eseguire fsync() sulla directory %s: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1160,18 +1080,6 @@ msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "AVVERTENZA: Impossibile modificare il limite di memoria. Eseguire come non-"
 "root?"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr ""
-"Sono trascorsi %s secondi in attesa che %s venga interrotto; operazione "
-"terminata"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr ""
-"Sono trascorsi %s secondi in attesa che %s venga interrotto; operazione "
-"terminata"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Avvertenza: impossibile eseguire ratelimit senza un client memcached"

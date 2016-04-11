@@ -338,8 +338,8 @@ class BaseObjectController(Controller):
                 status_type = 'commit'
             self.app.exception_occurred(
                 conn.node, _('Object'),
-                _('Trying to get %s status of PUT to %s') % (
-                    status_type, req.path))
+                _('Trying to get %(status_type)s status of PUT to %(path)s') %
+                {'status_type': status_type, 'path': req.path})
         return (conn, resp)
 
     def _have_adequate_put_responses(self, statuses, num_nodes, min_responses):
@@ -1145,6 +1145,11 @@ class ECAppIter(object):
         self.stashed_iter = None
 
     def close(self):
+        # close down the stashed iter first so the ContextPool can
+        # cleanup the frag queue feeding coros that may be currently
+        # executing the internal_parts_iters.
+        if self.stashed_iter:
+            self.stashed_iter.close()
         for it in self.internal_parts_iters:
             close_if_possible(it)
 
@@ -1652,16 +1657,6 @@ class Putter(object):
         self.state = NO_DATA_SENT
         self.chunked = req.is_chunked
         self.logger = logger
-
-    def current_status(self):
-        """
-        Returns the current status of the response.
-
-        A response starts off with no current status, then may or may not have
-        a status of 100 for some time, and then ultimately has a final status
-        like 200, 404, et cetera.
-        """
-        return self.resp.status
 
     def await_response(self, timeout, informational=False):
         """

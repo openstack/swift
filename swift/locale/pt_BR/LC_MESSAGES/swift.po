@@ -12,9 +12,9 @@
 # Carlos Marques <marquesc@br.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev254\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 19:48+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -83,14 +83,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s retornando 503 para %(statuses)s"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d não está em execução (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) parece ter parado"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s já iniciado..."
 
@@ -105,14 +97,6 @@ msgstr "%s não está montado"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s respondeu como não montado"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s em execução (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -153,10 +137,6 @@ msgid "Account"
 msgstr "Conta"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "As contas %s não foram colhidas desde %s"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "Auditoria de conta em modo \"único\" finalizado: %.02fs"
 
@@ -169,10 +149,6 @@ msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "Tentativa de replicação do %(count)d dbs em%(time).5f segundos (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "Auditoria Falhou para %s: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -199,10 +175,6 @@ msgstr "Inicie a varredura de encadeamento único da atualização do contêiner
 msgid "Begin container update sweep"
 msgstr "Inicie a varredura de atualização do contêiner"
 
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "Inicie o modo \"%s\" da auditoria (%s%s)"
-
 msgid "Begin object update single threaded sweep"
 msgstr "Inicie a varredura de encadeamento único da atualização do objeto"
 
@@ -226,14 +198,6 @@ msgstr "Não é possível acessar o arquivo %s."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "Não é possível carregar dados do perfil a partir de %s."
-
-#, python-format
-msgid "Cannot read %s (%s)"
-msgstr "Não é possível ler %s (%s)"
-
-#, python-format
-msgid "Cannot write %s (%s)"
-msgstr "Não é possível gravar %s (%s)"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -605,14 +569,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "Exceção no loop de reconstrução de nível superior"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "Exceção ao excluir contêiner %s %s"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "Exceção ao excluir objeto %s %s %s"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "Exceção com %(ip)s:%(port)s/%(device)s"
 
@@ -687,10 +643,6 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "Eliminando a ressincronização de longa execução: %s"
 
-#, python-format
-msgid "Loading JSON from %s failed (%s)"
-msgstr "Falha ao carregar JSON a partir do %s (%s)"
-
 msgid "Lockup detected.. killing live coros."
 msgstr "Bloqueio detectado... eliminando núcleos em tempo real."
 
@@ -717,10 +669,6 @@ msgstr "Nenhuma política com índice %s"
 #, python-format
 msgid "No realm key for %r"
 msgstr "Nenhuma chave do domínio para %r"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "Nenhum espaço deixado no dispositivo para %s (%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -860,14 +808,6 @@ msgid "Problem cleaning up %s"
 msgstr "Problema ao limpar %s"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "Problema ao limpar %s (%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "Problema ao gravar arquivo de estado durável %s (%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Erro da Criação de Perfil: %s"
 
@@ -882,10 +822,6 @@ msgid ""
 msgstr ""
 "Em quarentena %(object_path)s para %(quar_path)s porque ele não é um "
 "diretório"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "Em quarentena %s para %s devido a %s do banco de dados"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -953,10 +889,6 @@ msgstr "Executando o reconstrutor do objeto no modo de script."
 
 msgid "Running object replicator in script mode."
 msgstr "Executando replicador do objeto no modo de script."
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "PID %s do sinal: %s sinal: %s"
 
 #, python-format
 msgid ""
@@ -1038,10 +970,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "Tentando GET %(full_path)s"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "Tentando obter o status %s do PUT para o %s"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "Tentando obter o status final do PUT para o %s"
 
@@ -1066,10 +994,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "EXCEÇÃO NÃO CAPTURADA"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "Não é possível localizar %s da seção de configuração em %s"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr ""
 "Não é possível carregar cliente interno a partir da configuração: %r (%s)"
@@ -1082,19 +1006,11 @@ msgstr "Não é possível localizar %s em libc. Saindo como um não operacional.
 msgid "Unable to locate config for %s"
 msgstr "Não é possível localizar configuração para %s"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "Não é possível localizar o número de configuração %s para %s"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "Não é possível localizar fallocate, posix_fallocate em libc. Saindo como um "
 "não operacional."
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "Não é possível executar fsync() no diretório %s: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1143,14 +1059,6 @@ msgstr ""
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "AVISO: Não é possível modificar o limite de memória. Executar como não raiz?"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "Esperou %s segundos para %s eliminar; desistindo"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; killing"
-msgstr "Esperou %s segundos para %s eliminar; eliminando"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Aviso: Não é possível um limite de taxa sem um cliente memcached"

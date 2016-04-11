@@ -185,7 +185,7 @@ The following table lists known issues:
      - object-replicator .... responded as unmounted
      - A storage server disk is unavailable
      - Repair and remount the file system (on the remote node)
-   * - /var/log/swift/*.log
+   * - /var/log/swift/\*.log
      - STDOUT: EXCEPTION IN
      - A unexpected error occurred
      - Read the Traceback details, if it matches known issues

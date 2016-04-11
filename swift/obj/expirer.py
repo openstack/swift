@@ -194,8 +194,9 @@ class ObjectExpirer(Daemon):
                         acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
                 except (Exception, Timeout) as err:
                     self.logger.exception(
-                        _('Exception while deleting container %s %s') %
-                        (container, str(err)))
+                        _('Exception while deleting container %(container)s '
+                          '%(err)s') % {'container': container,
+                                        'err': str(err)})
             self.logger.debug('Run end')
             self.report(final=True)
         except (Exception, Timeout):
@@ -266,8 +267,9 @@ class ObjectExpirer(Daemon):
         except (Exception, Timeout) as err:
             self.logger.increment('errors')
             self.logger.exception(
-                _('Exception while deleting object %s %s %s') %
-                (container, obj, str(err)))
+                _('Exception while deleting object %(container)s %(obj)s'
+                  ' %(err)s') % {'container': container,
+                                 'obj': obj, 'err': str(err)})
         self.logger.timing_since('timing', start_time)
         self.report()
 

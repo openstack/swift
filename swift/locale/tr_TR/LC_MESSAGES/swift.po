@@ -7,9 +7,9 @@
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev235\n"
+"Project-Id-Version: swift 2.7.1.dev28\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-18 23:11+0000\n"
+"POT-Creation-Date: 2016-04-07 22:18+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -78,14 +78,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s %(statuses)s için 503 döndürüyor"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d çalışmıyor (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) durmuş gibi görünüyor"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s zaten başlatıldı..."
 
@@ -100,14 +92,6 @@ msgstr "%s bağlı değil"
 #, python-format
 msgid "%s responded as unmounted"
 msgstr "%s bağlı değil olarak yanıt verdi"
-
-#, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s çalışıyor (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -148,10 +132,6 @@ msgid "Account"
 msgstr "Hesap"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "Hesap %s %s'den beri biçilmedi"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "Hesap denetimi \"bir kere\" kipi tamamlandı: %.02fs"
 
@@ -163,10 +143,6 @@ msgstr "Hesap denetimi geçişi tamamlandı: %.02fs"
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "%(count)d db %(time).5f saniyede çoğaltılmaya çalışıldı (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "Denetim %s için başarısız: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -192,10 +168,6 @@ msgstr "Kap güncelleme tek iş iplikli süpürmeye başla"
 
 msgid "Begin container update sweep"
 msgstr "Kap güncelleme süpürmesine başla"
-
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "Nesne denetimini \"%s\" kipinde başlat (%s%s)"
 
 msgid "Begin object update single threaded sweep"
 msgstr "Nesne güncelleme tek iş iplikli süpürmeye başla"
@@ -584,14 +556,6 @@ msgid "Exception in top-levelreconstruction loop"
 msgstr "Üst seviye yeniden oluşturma döngüsünde istisna"
 
 #, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "%s %s kabı silinirken istisna"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "%s %s %s nesnesi silinirken istisna"
-
-#, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s ile istisna"
 
@@ -684,10 +648,6 @@ msgstr "%s indisine sahip ilke yok"
 #, python-format
 msgid "No realm key for %r"
 msgstr "%r için realm anahtarı yok"
-
-#, python-format
-msgid "No space left on device for %s (%s)"
-msgstr "Aygıtta %s için boş alan kalmadı (%s)"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -810,14 +770,6 @@ msgid "Problem cleaning up %s"
 msgstr "%s temizliğinde problem"
 
 #, python-format
-msgid "Problem cleaning up %s (%s)"
-msgstr "%s temizlemede problem (%s)"
-
-#, python-format
-msgid "Problem writing durable state file %s (%s)"
-msgstr "Dayanıklı durum dosyas %s ile ilgili problem (%s)"
-
-#, python-format
 msgid "Profiling Error: %s"
 msgstr "Profilleme Hatası: %s"
 
@@ -830,10 +782,6 @@ msgid ""
 "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
 "Bir dizin olmadığından %(object_path)s %(quar_path)s e karantinaya alındı"
-
-#, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "%s %s'e karantinaya alındı %s veri tabanı sebebiyle"
 
 #, python-format
 msgid "Quarantining DB %s"
@@ -895,10 +843,6 @@ msgstr "Nesne yeniden oluşturma betik kipinde çalıştırılıyor."
 
 msgid "Running object replicator in script mode."
 msgstr "Nesne çoğaltıcı betik kipinde çalıştırılıyor."
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "Sinyal %s  pid: %s  sinyal: %s"
 
 #, python-format
 msgid ""
@@ -980,10 +924,6 @@ msgid "Trying to GET %(full_path)s"
 msgstr "%(full_path)s GET deneniyor"
 
 #, python-format
-msgid "Trying to get %s status of PUT to %s"
-msgstr "%s'e PUT'un %s durumu alınmaya çalışılıyor"
-
-#, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "%s'e PUT için son durum alınmaya çalışılıyor"
 
@@ -1008,10 +948,6 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "YAKALANMAYAN İSTİSNA"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "%s yapılandırma kısmı %s'de bulunamıyor"
-
-#, python-format
 msgid "Unable to load internal client from config: %r (%s)"
 msgstr "Yapılandırmadan dahili istemci yüklenemedi: %r (%s)"
 
@@ -1023,18 +959,10 @@ msgstr "%s libc'de bulunamadı.  No-op olarak çıkılıyor."
 msgid "Unable to locate config for %s"
 msgstr "%s için yapılandırma bulunamıyor"
 
-#, python-format
-msgid "Unable to locate config number %s for %s"
-msgstr "Yapılandırma sayısı %s %s için bulunamıyor"
-
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "fallocate, posix_fallocate libc'de bulunamadı.  No-op olarak çıkılıyor."
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "%s dizininde fsynıc() yapılamıyor: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1078,10 +1006,6 @@ msgstr "UYARI: Azami süreç limiti değiştirilemiyor.  Root değil misiniz?"
 
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr "UYARI: Hafıza sınırı değiştirilemiyor.  Root değil misiniz?"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "%s saniye %s'in ölmesi için beklendi; vaz geçiliyor"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "Uyarı: Memcached istemcisi olmadan oran sınırlama yapılamaz"

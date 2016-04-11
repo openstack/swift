@@ -672,8 +672,9 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warning(_("Unable to perform fsync() on directory %s: %s"),
-                        dirpath, os.strerror(err.errno))
+        logging.warning(_('Unable to perform fsync() on directory %(dir)s:'
+                          ' %(err)s'),
+                        {'dir': dirpath, 'err': os.strerror(err.errno)})
     finally:
         if dirfd:
             os.close(dirfd)
@@ -1232,21 +1233,59 @@ class NullLogger(object):
 
 class LoggerFileObject(object):
 
+    # Note: this is greenthread-local storage
+    _cls_thread_local = threading.local()
+
     def __init__(self, logger, log_type='STDOUT'):
         self.logger = logger
         self.log_type = log_type
 
     def write(self, value):
-        value = value.strip()
-        if value:
-            if 'Connection reset by peer' in value:
-                self.logger.error(
-                    _('%s: Connection reset by peer'), self.log_type)
-            else:
-                self.logger.error(_('%s: %s'), self.log_type, value)
+        # We can get into a nasty situation when logs are going to syslog
+        # and syslog dies.
+        #
+        # It's something like this:
+        #
+        # (A) someone logs something
+        #
+        # (B) there's an exception in sending to /dev/log since syslog is
+        #     not working
+        #
+        # (C) logging takes that exception and writes it to stderr (see
+        #     logging.Handler.handleError)
+        #
+        # (D) stderr was replaced with a LoggerFileObject at process start,
+        #     so the LoggerFileObject takes the provided string and tells
+        #     its logger to log it (to syslog, naturally).
+        #
+        # Then, steps B through D repeat until we run out of stack.
+        if getattr(self._cls_thread_local, 'already_called_write', False):
+            return
+
+        self._cls_thread_local.already_called_write = True
+        try:
+            value = value.strip()
+            if value:
+                if 'Connection reset by peer' in value:
+                    self.logger.error(
+                        _('%s: Connection reset by peer'), self.log_type)
+                else:
+                    self.logger.error(_('%(type)s: %(value)s'),
+                                      {'type': self.log_type, 'value': value})
+        finally:
+            self._cls_thread_local.already_called_write = False
 
     def writelines(self, values):
-        self.logger.error(_('%s: %s'), self.log_type, '#012'.join(values))
+        if getattr(self._cls_thread_local, 'already_called_writelines', False):
+            return
+
+        self._cls_thread_local.already_called_writelines = True
+        try:
+            self.logger.error(_('%(type)s: %(value)s'),
+                              {'type': self.log_type,
+                               'value': '#012'.join(values)})
+        finally:
+            self._cls_thread_local.already_called_writelines = False
 
     def close(self):
         pass
@@ -2214,8 +2253,8 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print(_("Unable to find %s config section in %s") %
-                  (section_name, conf_path))
+            print(_("Unable to find %(section)s config section in %(conf)s") %
+                  {'section': section_name, 'conf': conf_path})
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
