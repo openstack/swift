@@ -100,7 +100,7 @@ class Crypto(object):
 
     def _get_random_iv(self):
         # here for tests to mock
-        return os.urandom(16)
+        return os.urandom(self.get_required_iv_length())
 
     def create_iv(self, iv_base=None):
         if iv_base:
