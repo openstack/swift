@@ -189,10 +189,7 @@ class FakeSwift(object):
 
 
 class FakeAppThatExcepts(object):
+    MESSAGE = 'Testing application exception'
 
     def __call__(self, env, start_response):
-        raise HTTPException(self.get_error_msg())
-
-    @staticmethod
-    def get_error_msg():
-        return 'Testing application exception'
+        raise HTTPException(self.MESSAGE)

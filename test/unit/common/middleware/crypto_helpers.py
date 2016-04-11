@@ -39,9 +39,8 @@ def decrypt(key, iv, enc_val):
     return dec_val
 
 
-def fake_iv():
-    return "This is an IV123"
+FAKE_IV = "This is an IV123"
 
 
 def fake_get_crypto_meta():
-    return {'iv': fake_iv(), 'cipher': Crypto({}).get_cipher()}
+    return {'iv': FAKE_IV, 'cipher': Crypto({}).get_cipher()}

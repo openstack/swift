@@ -20,15 +20,16 @@ import base64
 import json
 import urllib
 
-from test.unit import FakeLogger
-from test.unit.common.middleware.crypto_helpers import md5hex, \
-    fetch_crypto_keys, fake_iv, encrypt, fake_get_crypto_meta
 from swift.common.middleware.crypto import Crypto
-from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.middleware import decrypter
 from swift.common.swob import Request, HTTPException, HTTPOk, \
     HTTPPreconditionFailed, HTTPNotFound
+
+from test.unit import FakeLogger
+from test.unit.common.middleware.crypto_helpers import md5hex, \
+    fetch_crypto_keys, FAKE_IV, encrypt, fake_get_crypto_meta
+from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 
 
 def get_crypto_meta_header(crypto_meta=None):
@@ -42,36 +43,40 @@ def get_crypto_meta_header(crypto_meta=None):
 
 def encrypt_and_append_meta(value, key, crypto_meta=None):
     return '%s; meta=%s' % (
-        base64.b64encode(encrypt(value, key, fake_iv())),
+        base64.b64encode(encrypt(value, key, FAKE_IV)),
         get_crypto_meta_header(crypto_meta))
 
 
 @mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
-            lambda *args: fake_iv())
+            lambda *args: FAKE_IV)
 class TestDecrypterObjectRequests(unittest.TestCase):
+    def setUp(self):
+        self.app = FakeSwift()
+        self.decrypter = decrypter.Decrypter(self.app, {})
+        self.decrypter.logger = FakeLogger()
 
-    def test_get_req_success(self):
+    def test_GET_success(self):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+                    base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                    base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual(body, resp.body)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
@@ -87,22 +92,21 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env, method=method)
         resp_body = 'I am sorry, you have failed to meet a precondition'
         key = fetch_crypto_keys()['object']
-        app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(resp_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(data), key, fake_iv())),
+                    base64.b64encode(encrypt(md5hex(data), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                    base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
-        app.register(method, '/v1/a/c/o', HTTPPreconditionFailed,
-                     body=resp_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(method, '/v1/a/c/o', HTTPPreconditionFailed,
+                          body=resp_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
 
         self.assertEqual('412 Precondition Failed', resp.status)
         # the response body should not be decrypted, it is already plaintext
@@ -125,12 +129,11 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env, method=method)
         resp_body = 'You still have not found what you are looking for'
-        app = FakeSwift()
         hdrs = {'content-type': 'text/plain',
                 'content-length': len(resp_body)}
-        app.register(method, '/v1/a/c/o', HTTPNotFound,
-                     body=resp_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(method, '/v1/a/c/o', HTTPNotFound,
+                          body=resp_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
 
         self.assertEqual('404 Not Found', resp.status)
         # the response body should not be decrypted, it is already plaintext
@@ -157,8 +160,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
@@ -166,18 +168,18 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                    base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header()}
-        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
-                     headers=hdrs)
-        return req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
+                          headers=hdrs)
+        return req.get_response(self.decrypter)
 
-    def test_head_with_bad_key(self):
+    def test_HEAD_with_bad_key(self):
         resp = self._test_bad_key('HEAD')
         self.assertEqual('500 Internal Error', resp.status)
 
-    def test_get_with_bad_key(self):
+    def test_GET_with_bad_key(self):
         resp = self._test_bad_key('GET')
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error decrypting header value', resp.body)
@@ -191,8 +193,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         key = fetch_crypto_keys()['object']
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['iv'] = 'bad_iv'
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
@@ -200,23 +201,23 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                    base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
-        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
-                     headers=hdrs)
-        return req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body,
+                          headers=hdrs)
+        return req.get_response(self.decrypter)
 
-    def test_head_with_bad_iv_for_user_metadata(self):
+    def test_HEAD_with_bad_iv_for_user_metadata(self):
         resp = self._test_bad_iv_for_user_metadata('HEAD')
         self.assertEqual('500 Internal Error', resp.status)
 
-    def test_get_with_bad_iv_for_user_metadata(self):
+    def test_GET_with_bad_iv_for_user_metadata(self):
         resp = self._test_bad_iv_for_user_metadata('GET')
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error decrypting header value', resp.body)
 
-    def test_get_with_bad_iv_for_object_body(self):
+    def test_GET_with_bad_iv_for_object_body(self):
         # use bad iv for object body
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
@@ -225,8 +226,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         key = fetch_crypto_keys()['object']
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['iv'] = 'bad_iv'
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
@@ -234,36 +234,36 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body,
-                     headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body,
+                          headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error creating decryption context for object body',
                          resp.body)
 
-    def test_basic_head_req(self):
+    def test_HEAD_success(self):
         env = {'REQUEST_METHOD': 'HEAD',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+                    base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                    base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
-        app.register('HEAD', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'HEAD', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
@@ -280,26 +280,26 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+                    base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
 
-    def test_head_req_content_type_not_encrypted(self):
+    def test_HEAD_content_type_not_encrypted(self):
         self._test_req_content_type_not_encrypted('HEAD')
 
-    def test_get_req_content_type_not_encrypted(self):
+    def test_GET_content_type_not_encrypted(self):
         self._test_req_content_type_not_encrypted('GET')
 
     def _test_req_metadata_not_encrypted(self, method):
@@ -310,50 +310,49 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+                    base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test': 'plaintext'}
-        app.register(method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            method, '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
         self.assertEqual('plaintext', resp.headers['x-object-meta-test'])
 
-    def test_head_req_metadata_not_encrypted(self):
+    def test_HEAD_metadata_not_encrypted(self):
         self._test_req_metadata_not_encrypted('HEAD')
 
-    def test_get_req_metadata_not_encrypted(self):
+    def test_GET_metadata_not_encrypted(self):
         self._test_req_metadata_not_encrypted('GET')
 
-    def test_get_req_unencrypted_data(self):
+    def test_GET_unencrypted_data(self):
         # testing case of an unencrypted object with encrypted metadata from
         # a later POST
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        app = FakeSwift()
         hdrs = {'Etag': md5hex(body),
                 'content-type': 'text/plain',
                 'content-length': len(body),
                 'x-object-meta-test':
                     base64.b64encode(encrypt('encrypt me',
                                              fetch_crypto_keys()['object'],
-                                             fake_iv())),
+                                             FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(),
                 'x-object-sysmeta-test': 'do not encrypt me'}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual(body, resp.body)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
@@ -364,31 +363,31 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual('do not encrypt me',
                          resp.headers['x-object-sysmeta-test'])
 
-    def test_multiseg_get_obj(self):
+    def test_GET_multiseg(self):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         key = fetch_crypto_keys()['object']
-        ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
+        ctxt = Crypto({}).create_encryption_ctxt(key, FAKE_IV)
         enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
-        app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': sum(map(len, enc_body)),
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+                    base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual(body, resp.body)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
 
-    def test_multiseg_get_range_obj(self):
+    def test_GET_multiseg_with_range(self):
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
@@ -396,21 +395,20 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         chunks = ['0123', '45678', '9abcdef']
         body = ''.join(chunks)
         key = fetch_crypto_keys()['object']
-        ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
+        ctxt = Crypto({}).create_encryption_ctxt(key, FAKE_IV)
         enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
         enc_body = [enc_body[0][3:], enc_body[1], enc_body[2][:2]]
-        app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': sum(map(len, enc_body)),
                 'content-range': req.headers['Content-Range'],
                 'X-Object-Sysmeta-Crypto-Etag':
-                    base64.b64encode(encrypt(md5hex(body), key,
-                                             fake_iv())),
+                    base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
                 'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('3456789a', resp.body)
         self.assertEqual('200 OK', resp.status)
         # TODO - how do we validate the range body if etag is for whole? Is
@@ -424,10 +422,10 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     # Do mocking here to have the mocked value have effect in the generator
     # function.
     @mock.patch.object(decrypter, 'DECRYPT_CHUNK_SIZE', 4)
-    def test_multipart_get_obj(self):
+    def test_GET_multipart(self):
         # build fake multipart response body
         key = fetch_crypto_keys()['object']
-        ctxt = Crypto({}).create_encryption_ctxt(key, fake_iv())
+        ctxt = Crypto({}).create_encryption_ctxt(key, FAKE_IV)
         plaintext = 'Cwm fjord veg balks nth pyx quiz'
         ciphertext = encrypt(plaintext, ctxt=ctxt)
         parts = ((0, 3, 'text/plain'),
@@ -443,22 +441,21 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         body += '--multipartboundary--'
 
         # register request with fake swift
-        app = FakeSwift()
         hdrs = {
             'Etag': 'hashOfCiphertext',
             'content-type': 'multipart/byteranges;boundary=multipartboundary',
             'content-length': len(body),
             'X-Object-Sysmeta-Crypto-Etag':
-                base64.b64encode(encrypt(md5hex(body), key, fake_iv())),
+                base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
             'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
             'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
+        self.app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
 
         # issue request
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        resp = req.get_response(self.decrypter)
 
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
@@ -484,43 +481,43 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         # we should have consumed the whole response body
         self.assertFalse(resp_lines)
 
-    def test_etag_no_match_on_get(self):
+    def test_GET_etag_no_match(self):
         self.skipTest('Etag verification not yet implemented')
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, key, FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex('not the body'),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
 
-    def test_missing_key_callback(self):
+    def test_GET_missing_key_callback(self):
         # Do not provide keys, and do not set override flag
         env = {'REQUEST_METHOD': 'GET'}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, fetch_crypto_keys()['object'], FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex('not the body'),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('%s not in env' % CRYPTO_KEY_CALLBACK,
                          resp.body)
 
-    def test_error_in_key_callback(self):
+    def test_GET_error_in_key_callback(self):
         def raise_exc():
             raise Exception('Testing')
 
@@ -528,31 +525,28 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: raise_exc}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, fetch_crypto_keys()['object'], FAKE_IV)
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        app = decrypter.Decrypter(app, {})
-        app.logger = FakeLogger()
-        resp = req.get_response(app)
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('%s had exception: Testing' % CRYPTO_KEY_CALLBACK,
                          resp.body)
         self.assertIn('%s: Testing' % CRYPTO_KEY_CALLBACK,
-                      app.logger.get_lines_for_level('error')[0])
+                      self.decrypter.logger.get_lines_for_level('error')[0])
 
-    def test_cipher_mismatch_for_body(self):
+    def test_GET_cipher_mismatch_for_body(self):
         # Cipher does not match
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        enc_body = encrypt(body, fetch_crypto_keys()['object'], fake_iv())
-        app = FakeSwift()
+        enc_body = encrypt(body, fetch_crypto_keys()['object'], FAKE_IV)
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
         hdrs = {'Etag': 'hashOfCiphertext',
@@ -561,52 +555,52 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error creating decryption context for object body',
                          resp.body)
 
-    def test_cipher_mismatch_for_metadata(self):
+    def test_GET_cipher_mismatch_for_metadata(self):
         # Cipher does not match
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
         key = fetch_crypto_keys()['object']
-        enc_body = encrypt(body, key, fake_iv())
+        enc_body = encrypt(body, key, FAKE_IV)
         bad_crypto_meta = fake_get_crypto_meta()
         bad_crypto_meta['cipher'] = 'unknown_cipher'
-        app = FakeSwift()
         hdrs = {'Etag': 'hashOfCiphertext',
                 'content-type': 'text/plain',
                 'content-length': len(enc_body),
                 'X-Object-Sysmeta-Crypto-Etag': md5hex(body),
                 'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header(),
                 'x-object-meta-test':
-                    base64.b64encode(encrypt('encrypt me', key, fake_iv())),
+                    base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
                 'x-object-transient-sysmeta-crypto-meta-test':
                     get_crypto_meta_header(crypto_meta=bad_crypto_meta)}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertEqual('Error decrypting header value', resp.body)
 
-    def test_decryption_override(self):
+    def test_GET_decryption_override(self):
         # This covers the case of an old un-encrypted object
         env = {'REQUEST_METHOD': 'GET',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
                'swift.crypto.override': True}
         req = Request.blank('/v1/a/c/o', environ=env)
         body = 'FAKE APP'
-        app = FakeSwift()
         hdrs = {'Etag': md5hex(body),
                 'content-type': 'text/plain',
                 'content-length': len(body),
                 'x-object-meta-test': 'do not encrypt me',
                 'x-object-sysmeta-test': 'do not encrypt me'}
-        app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
-        resp = req.get_response(decrypter.Decrypter(app, {}))
+        self.app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
+        resp = req.get_response(self.decrypter)
         self.assertEqual(body, resp.body)
         self.assertEqual('200 OK', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
@@ -618,7 +612,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
 
 @mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
-            lambda *args: fake_iv())
+            lambda *args: FAKE_IV)
 class TestDecrypterContainerRequests(unittest.TestCase):
     # TODO - update these tests to have etag to be encrypted and have
     # crypto-meta in response, and verify that the etag gets decrypted.
@@ -638,7 +632,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         app.register('GET', path, HTTPOk, body=resp_body, headers=hdrs)
         return req.get_response(decrypter.Decrypter(app, {}))
 
-    def test_cont_get_simple_req(self):
+    def test_GET_container_success(self):
         # no format requested, listing has names only
         fake_body = 'testfile1\ntestfile2\n'
 
@@ -651,7 +645,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertIn('testfile2', names)
         self.assertIn('', names)
 
-    def test_cont_get_json_req(self):
+    def test_GET_container_json(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
 
@@ -682,7 +676,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         obj_dict_2['content_type'] = content_type_2
         self.assertDictEqual(obj_dict_2, body_json[1])
 
-    def test_cont_get_json_req_with_crypto_override(self):
+    def test_GET_container_json_with_crypto_override(self):
         content_type_1 = 'image/jpeg'
         content_type_2 = 'text/plain; param=foo'
 
@@ -722,7 +716,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                              "Expected %s but got %s for key %s"
                              % (v, actual, k))
 
-    def test_cont_get_xml_req(self):
+    def test_GET_container_xml(self):
         content_type_1 = u'\uF10F\uD20D\uB30B\u9409'
         content_type_2 = 'text/plain; param=foo'
 
@@ -765,7 +759,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "content_type": content_type_2}
         self._assert_element_contains_dict(obj_dict_2, objs[1])
 
-    def test_cont_get_xml_req_with_crypto_override(self):
+    def test_GET_container_xml_with_crypto_override(self):
         content_type_1 = 'image/jpeg'
         content_type_2 = 'text/plain; param=foo'
 
@@ -819,13 +813,11 @@ class TestModuleMethods(unittest.TestCase):
 
 class TestDecrypter(unittest.TestCase):
     def test_app_exception(self):
-        app = decrypter.Decrypter(
-            FakeAppThatExcepts(), {})
+        app = decrypter.Decrypter(FakeAppThatExcepts(), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         with self.assertRaises(HTTPException) as catcher:
             req.get_response(app)
-        self.assertEqual(FakeAppThatExcepts.get_error_msg(),
-                         catcher.exception.body)
+        self.assertEqual(FakeAppThatExcepts.MESSAGE, catcher.exception.body)
 
 
 if __name__ == '__main__':

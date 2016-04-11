@@ -14,11 +14,11 @@
 # limitations under the License.
 
 import binascii
+from hashlib import md5
 import os
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from hashlib import md5
 
 from swift.common.utils import get_logger
 
@@ -27,9 +27,8 @@ class Crypto(object):
     """
     Used by middleware: Calls crypto alg
     """
-    def __init__(self, conf):
-        # TODO - remove conf if there will be no conf items
-        self.conf = conf
+    def __init__(self, conf=None):
+        conf = {} if conf is None else conf
         self.logger = get_logger(conf, log_route="crypto")
 
     def _check_key(self, key):
@@ -99,7 +98,7 @@ class Crypto(object):
             return base
 
     def _get_random_iv(self):
-        # here for tests to mock
+        # this method is separated out here so that tests can mock it
         return os.urandom(self.get_required_iv_length())
 
     def create_iv(self, iv_base=None):
