@@ -160,8 +160,8 @@ class EncrypterObjContext(CryptoWSGIContext):
     def encrypt_user_metadata(self, req, keys):
         """
         Encrypt user-metadata header values. For each user metadata header, add
-        a corresponding sysmeta header with the crypto metadata required to
-        decrypt later.
+        a corresponding x-object-transient-sysmeta-crypto- header with the
+        crypto metadata required to decrypt later.
         """
 
         # Check the user-metadata length before encrypting and encoding
@@ -180,10 +180,8 @@ class EncrypterObjContext(CryptoWSGIContext):
             if is_user_meta(self.server_type, name) and val:
                 req.headers[name], full_crypto_meta = encrypt_header_val(
                     self.crypto, val, keys[self.server_type])
-                # short_name is extracted in order to use it for
-                # naming the corresponding crypto-meta
-                # TODO we could get a sysmeta name clash if user meta has
-                # X-Object-Meta-Etag
+                # short_name is extracted in order to use it for naming the
+                # corresponding x-object-transient-sysmeta-crypto- header
                 short_name = strip_user_meta_prefix(self.server_type, name)
                 req.headers[prefix + short_name] = full_crypto_meta
                 self.logger.debug("encrypted user meta %s: %s"

@@ -51,6 +51,7 @@ class TestEncrypter(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(plaintext)),
+                'x-object-meta-etag': 'not to be confused with the Etag!',
                 'x-object-meta-test': 'encrypt me',
                 'x-object-sysmeta-test': 'do not encrypt me'}
         req = Request.blank(
@@ -106,6 +107,14 @@ class TestEncrypter(unittest.TestCase):
         actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Test']
         actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(
+            base64.b64encode(encrypt('not to be confused with the Etag!',
+                                     key, FAKE_IV)),
+            req_hdrs['X-Object-Meta-Etag'])
+        actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Etag']
+        actual = json.loads(urllib.unquote_plus(actual))
+        self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
         # sysmeta is not encrypted
