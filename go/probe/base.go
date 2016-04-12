@@ -67,6 +67,10 @@ func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err 
 	return nil, nil
 }
 
+func (r *FakeRing) AllDevices() (devs []hummingbird.Device) {
+	return nil
+}
+
 type fakeMoreNodes struct {
 	dev *hummingbird.Device
 }

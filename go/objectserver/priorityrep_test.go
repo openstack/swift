@@ -36,13 +36,28 @@ type priFakeRing struct {
 }
 
 func (p *priFakeRing) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
-	return nil, false
+	isaHandoff := false
+	if localDevice == 0 {
+		response = append(response, &hummingbird.Device{Id: 1, Device: "drive1", Ip: "127.0.0.1", Port: 1})
+		response = append(response, &hummingbird.Device{Id: 2, Device: "drive2", Ip: "127.0.0.1", Port: 1})
+		isaHandoff = true
+	} else {
+		response = append(response, &hummingbird.Device{Id: localDevice%2 + 1, Device: fmt.Sprintf("drive%d", localDevice%2+1), Ip: "127.0.0.1", Port: 1})
+	}
+	return response, isaHandoff
 }
 
 func (p *priFakeRing) GetPartition(account string, container string, object string) uint64 { return 0 }
 
 func (p *priFakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
 	return nil, nil
+}
+
+func (p *priFakeRing) AllDevices() (devs []hummingbird.Device) {
+	devs = append(devs, hummingbird.Device{Id: 0, Device: "drive0", Ip: "127.0.0.0", Port: 1})
+	devs = append(devs, hummingbird.Device{Id: 1, Device: "drive1", Ip: "127.0.0.1", Port: 1})
+	devs = append(devs, hummingbird.Device{Id: 2, Device: "drive2", Ip: "127.0.0.1", Port: 1})
+	return devs
 }
 
 func (p *priFakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes { return nil }
@@ -112,7 +127,6 @@ func TestPriRepJobs(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
-		require.Equal(t, "handoff", pri.JobType)
 		require.EqualValues(t, 0, pri.Partition)
 		require.EqualValues(t, "sda", pri.FromDevice.Device)
 		require.EqualValues(t, 1, len(pri.ToDevices))
@@ -125,7 +139,6 @@ func TestPriRepJobs(t *testing.T) {
 	port, _ := strconv.Atoi(ports)
 	jobs := []*PriorityRepJob{
 		&PriorityRepJob{
-			JobType:    "handoff",
 			Partition:  0,
 			FromDevice: &hummingbird.Device{Device: "sda", Ip: host, Port: port - 500, ReplicationIp: host, ReplicationPort: port - 500},
 			ToDevices: []*hummingbird.Device{
@@ -157,4 +170,31 @@ func TestDevLimiter(t *testing.T) {
 	require.False(t, limiter.start(job3))
 	limiter.finished(job1)
 	require.True(t, limiter.start(job3))
+}
+
+func TestGetRescuePartsJobs(t *testing.T) {
+	t.Parallel()
+	objRing := &priFakeRing{
+		mapping: map[uint64][]int{
+			0: {1, 2, 3},
+			1: {6, 7, 8},
+		},
+	}
+	jobs := getRescuePartsJobs(objRing, []uint64{1})
+	require.EqualValues(t, 3, len(jobs))
+
+	require.EqualValues(t, 0, jobs[0].FromDevice.Id)
+	require.EqualValues(t, 1, jobs[0].ToDevices[0].Id)
+	require.EqualValues(t, 2, jobs[0].ToDevices[1].Id)
+	require.EqualValues(t, 1, jobs[0].Partition)
+
+	require.EqualValues(t, 1, len(jobs[1].ToDevices))
+	require.EqualValues(t, 1, jobs[1].FromDevice.Id)
+	require.EqualValues(t, 2, jobs[1].ToDevices[0].Id)
+	require.EqualValues(t, 1, jobs[1].Partition)
+
+	require.EqualValues(t, 1, len(jobs[2].ToDevices))
+	require.EqualValues(t, 2, jobs[2].FromDevice.Id)
+	require.EqualValues(t, 1, jobs[2].ToDevices[0].Id)
+	require.EqualValues(t, 1, jobs[2].Partition)
 }

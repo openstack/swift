@@ -38,6 +38,7 @@ type Ring interface {
 	GetJobNodes(partition uint64, localDevice int) (response []*Device, handoff bool)
 	GetPartition(account string, container string, object string) uint64
 	LocalDevices(localPort int) (devs []*Device, err error)
+	AllDevices() (devs []Device)
 	GetMoreNodes(partition uint64) MoreNodes
 }
 
@@ -163,6 +164,11 @@ func (r *hashRing) LocalDevices(localPort int) (devs []*Device, err error) {
 		}
 	}
 	return devs, nil
+}
+
+func (r *hashRing) AllDevices() (devs []Device) {
+	d := r.getData()
+	return d.Devs
 }
 
 func (r *hashRing) GetMoreNodes(partition uint64) MoreNodes {

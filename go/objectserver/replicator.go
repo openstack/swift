@@ -62,7 +62,6 @@ func (n *NoMoreNodes) Next() *hummingbird.Device {
 }
 
 type PriorityRepJob struct {
-	JobType    string                `json:"job_type"`
 	Partition  uint64                `json:"partition"`
 	FromDevice *hummingbird.Device   `json:"from_device"`
 	ToDevices  []*hummingbird.Device `json:"to_devices"`
@@ -649,14 +648,24 @@ func (r *Replicator) processPriorityJobs(id int) {
 					partition: strconv.FormatUint(pri.Partition, 10),
 					objPath:   filepath.Join(r.driveRoot, pri.FromDevice.Device, "objects"),
 				}
+				_, handoff := r.Ring.GetJobNodes(pri.Partition, pri.FromDevice.Id)
 				partStart := time.Now()
 				defer func() {
 					<-r.concurrencySem
 					r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
 				}()
-				if pri.JobType == "handoff" {
+				toDevicesArr := make([]string, len(pri.ToDevices))
+				for i, s := range pri.ToDevices {
+					toDevicesArr[i] = fmt.Sprintf("%s:%d/%s", s.Ip, s.Port, s.Device)
+				}
+				jobType := "local"
+				if handoff {
+					jobType = "handoff"
+				}
+				r.LogInfo("PriorityReplicationJob. Partition: %d as %s from %s to %s", pri.Partition, jobType, pri.FromDevice.Device, strings.Join(toDevicesArr, ","))
+				if handoff {
 					r.replicateHandoff(j, pri.ToDevices)
-				} else if pri.JobType == "local" {
+				} else {
 					r.replicateLocal(j, pri.ToDevices, &NoMoreNodes{})
 				}
 			}()
@@ -684,7 +693,7 @@ func (r *Replicator) priorityRepHandler(w http.ResponseWriter, req *http.Request
 		w.WriteHeader(500)
 		return
 	}
-	if err := json.Unmarshal(data, &pri); err != nil || pri.JobType == "" {
+	if err := json.Unmarshal(data, &pri); err != nil {
 		w.WriteHeader(400)
 		return
 	}
