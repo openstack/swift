@@ -12,9 +12,12 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import base64
+import json
+import urllib
+
 from swift import gettext_ as _
+from swift.common.exceptions import EncryptionException
 from swift.common.swob import HTTPInternalServerError
 from swift.common.wsgi import WSGIContext
 from swift.common.request_helpers import strip_sys_meta_prefix, \
@@ -28,30 +31,120 @@ class CryptoWSGIContext(WSGIContext):
     """
     Base class for contexts used by crypto middlewares.
     """
-    def __init__(self, filter, logger):
-        super(CryptoWSGIContext, self).__init__(filter.app)
-        self.crypto = filter.crypto
+    def __init__(self, crypto_app, server_type, logger):
+        super(CryptoWSGIContext, self).__init__(crypto_app.app)
+        self.crypto = crypto_app.crypto
         self.logger = logger
+        self.server_type = server_type
 
-    def get_keys(self, env):
+    def get_keys(self, env, required=None):
         # Get the key(s) from the keymaster
+        required = required if required is not None else [self.server_type]
         try:
             fetch_crypto_keys = env[CRYPTO_KEY_CALLBACK]
         except KeyError:
             self.logger.exception(_(
                 'ERROR get_keys() %s not in env') % CRYPTO_KEY_CALLBACK)
             raise HTTPInternalServerError(
-                '%s not in env' % CRYPTO_KEY_CALLBACK)
+                "Unable to retrieve encryption keys.")
 
         try:
-            return fetch_crypto_keys()
-        except Exception as err:
+            keys = fetch_crypto_keys()
+        except Exception as err:  # noqa
             self.logger.exception(_(
                 'ERROR get_keys(): from %(callback)s: %(err)s'),
                 {'callback': CRYPTO_KEY_CALLBACK, 'err': str(err)})
             raise HTTPInternalServerError(
-                "%(callback)s had exception: %(err)s" %
-                {'callback': CRYPTO_KEY_CALLBACK, 'err': err.message})
+                "Unable to retrieve encryption keys.")
+
+        for name in required:
+            try:
+                key = keys[name]
+                self.crypto.check_key(key)
+                continue
+            except KeyError:
+                self.logger.exception(_("Missing key for %r") % name)
+            except TypeError:
+                self.logger.exception(_("Did not get a keys dict"))
+            except ValueError as e:
+                # don't include the key in any messages!
+                self.logger.exception(_("Bad key for %r: %s") % (name, str(e)))
+            raise HTTPInternalServerError(
+                "Unable to retrieve encryption keys.")
+
+        return keys
+
+
+def dump_crypto_meta(crypto_meta):
+    """
+    Set the crypto-meta associated to the obj body.
+
+    The IV value is random bytes and as a result needs to be encoded before
+    sending over the wire. Do this by wrapping the crypto meta in a json
+    object and encode the iv value. Base64 encoding returns a bytes object
+    in py3, to future proof the code, decode this data to produce a string,
+    which is what the json.dumps function expects.
+
+    :param crypto_meta: a dict containing crypto meta items
+    :returns: a string serialization of a crypto meta dict
+    """
+    return urllib.quote_plus(json.dumps({
+        name: (base64.b64encode(value).decode() if name == 'iv' else value)
+        for name, value in crypto_meta.items()}))
+
+
+def load_crypto_meta(value):
+    """
+    Build the crypto_meta from the json object.
+
+    Note that json.loads always produces unicode strings, to ensure the
+    resultant crypto_meta matches the original object cast all key and
+    value data (other then the iv) to a str. This will work in py3 as well
+    where all strings are unicode implying the cast is effectively a no-op.
+
+    :param value: a string serialization of a crypto meta dict
+    :returns: a dict containing crypto meta items
+    :raises EncryptionException: if an error occurs while parsing the
+                                 crypto meta
+    """
+    try:
+        value = urllib.unquote_plus(value)
+        crypto_meta = {str(name): (base64.b64decode(value)
+                                   if name == 'iv' else str(value))
+                       for name, value in json.loads(value).items()}
+        return crypto_meta
+    except (KeyError, ValueError, TypeError) as err:
+        msg = 'Bad crypto meta %s: %s' % (value, err)
+        raise EncryptionException(msg)
+
+
+def append_crypto_meta(value, crypto_meta):
+    """
+    Serialize and append crypto metadata to an encrypted value.
+
+    :param value: value to which serialized crypto meta will be appended.
+    :param crypto_meta: a dict of crypto meta
+    :return: a string of the form <value>; meta=<serialized crypto meta>
+    """
+    return '%s; meta=%s' % (value, dump_crypto_meta(crypto_meta))
+
+
+def extract_crypto_meta(value):
+    """
+    Extract and deserialize any crypto meta from the end of a value.
+
+    :param value: string that may have crypto meta at end
+    :return: a tuple of the form:
+            (<value without crypto meta>, <deserialized crypto meta> or None)
+    """
+    crypto_meta = None
+    parts = value.rsplit(';', 1)
+    if len(parts) == 2:
+        value, param = parts
+        if param.strip().startswith('meta='):
+            param = param.strip()[5:]
+            crypto_meta = load_crypto_meta(param)
+    return value, crypto_meta
 
 
 def is_crypto_meta(header, server_type):

@@ -17,6 +17,10 @@
 import unittest
 import os
 
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+from swift.common.exceptions import EncryptionException
 from swift.common.middleware.crypto import Crypto
 
 
@@ -25,21 +29,49 @@ class TestCrypto(unittest.TestCase):
     def setUp(self):
         self.crypto = Crypto({})
 
-    def test_basic_crypto(self):
-        value = 'encrypt me'
-        key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
-        iv = self.crypto.create_iv()
-        enc_ctxt = self.crypto.create_encryption_ctxt(key, iv)
-        enc_val = enc_ctxt.update(value)
-        self.assertTrue(enc_val != value)
-        self.assertEqual(len(value), len(enc_val))
-        self.assertEqual(iv, enc_ctxt.get_iv())
+    def test_create_encryption_context(self):
+        value = 'encrypt me' * 100  # more than one cipher block
+        key = os.urandom(32)
+        iv = os.urandom(16)
+        ctxt = self.crypto.create_encryption_ctxt(key, iv)
+        self.assertEqual(iv, ctxt.iv)
+        self.assertEqual(0, ctxt.offset)
+        expected = Cipher(
+            algorithms.AES(key), modes.CTR(iv),
+            backend=default_backend()).encryptor().update(value)
+        self.assertEqual(expected, ctxt.update(value))
 
-        dec_ctxt = self.crypto.create_decryption_ctxt(key, iv, 0)
-        dec_val = dec_ctxt.update(enc_val)
-        self.assertEqual(value, dec_val,
-                         'Expected value {%s} but got {%s}' % (value, dec_val))
-        self.assertEqual(iv, dec_ctxt.get_iv())
+        for bad_iv in ('a little too long', 'too short'):
+            self.assertRaises(
+                ValueError, self.crypto.create_encryption_ctxt, key, bad_iv)
+
+        for bad_key in ('objKey', 'a' * 31, 'a' * 33, 'a' * 16, 'a' * 24):
+            self.assertRaises(
+                ValueError, self.crypto.create_encryption_ctxt, bad_key, iv)
+
+    def test_create_decryption_context(self):
+        # TODO: add tests here for non-zero offset
+        value = 'decrypt me' * 100  # more than one cipher block
+        key = os.urandom(32)
+        iv = os.urandom(16)
+        ctxt = self.crypto.create_decryption_ctxt(key, iv, 0)
+        self.assertEqual(iv, ctxt.iv)
+        self.assertEqual(0, ctxt.offset)
+        expected = Cipher(
+            algorithms.AES(key), modes.CTR(iv),
+            backend=default_backend()).decryptor().update(value)
+        self.assertEqual(expected, ctxt.update(value))
+
+        for bad_iv in ('a little too long', 'too short'):
+            self.assertRaises(
+                ValueError, self.crypto.create_decryption_ctxt, key, bad_iv, 0)
+
+        for bad_key in ('objKey', 'a' * 31, 'a' * 33, 'a' * 16, 'a' * 24):
+            self.assertRaises(
+                ValueError, self.crypto.create_decryption_ctxt, bad_key, iv, 0)
+
+        self.assertRaises(
+            ValueError, self.crypto.create_decryption_ctxt, key, iv, -1)
 
     def test_enc_dec_small_chunks(self):
         self.enc_dec_chunks(['encrypt me', 'because I', 'am sensitive'])
@@ -75,33 +107,38 @@ class TestCrypto(unittest.TestCase):
                          'Expected value {%s} but got {%s}' %
                          ('456789abc', ''.join(dec_val)))
 
-    def test_invalid_key(self):
-        iv = self.crypto.create_iv()
+    def test_check_key(self):
         for key in ('objKey', 'a' * 31, 'a' * 33, 'a' * 16, 'a' * 24):
-            try:
-                self.crypto.create_encryption_ctxt(key, iv)
-                self.fail('Expected ValueError to be raised for key %s' % key)
-            except ValueError as err:
-                self.assertTrue(err.message.startswith('Invalid key'))
-            try:
-                self.crypto.create_decryption_ctxt(key, iv, 0)
-                self.fail('Expected ValueError to be raised for key %s' % key)
-            except ValueError as err:
-                self.assertTrue(err.message.startswith('Invalid key'))
+            with self.assertRaises(ValueError) as cm:
+                self.crypto.check_key(key)
+            self.assertEqual("Key must be length 32 bytes",
+                             cm.exception.message)
 
-    def test_invalid_iv(self):
-        key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
-        iv = 'badIv'
-        try:
-            self.crypto.create_encryption_ctxt(key, iv)
-            self.fail('Expected ValueError to be raised')
-        except ValueError as err:
-            self.assertTrue(err.message.startswith('Invalid nonce'))
-        try:
-            self.crypto.create_decryption_ctxt(key, iv, 0)
-            self.fail('Expected ValueError to be raised')
-        except ValueError as err:
-            self.assertTrue(err.message.startswith('Invalid nonce'))
+    def test_check_crypto_meta(self):
+        meta = {'cipher': 'AES_CTR_256'}
+        with self.assertRaises(EncryptionException) as cm:
+            self.crypto.check_crypto_meta(meta)
+        self.assertEqual("Bad crypto meta: Missing 'iv'",
+                         cm.exception.message)
+
+        for bad_iv in ('a little too long', 'too short'):
+            meta['iv'] = bad_iv
+            with self.assertRaises(EncryptionException) as cm:
+                self.crypto.check_crypto_meta(meta)
+            self.assertEqual("Bad crypto meta: IV must be length 16 bytes",
+                             cm.exception.message)
+
+        meta = {'iv': os.urandom(16)}
+        with self.assertRaises(EncryptionException) as cm:
+            self.crypto.check_crypto_meta(meta)
+        self.assertEqual("Bad crypto meta: Missing 'cipher'",
+                         cm.exception.message)
+
+        meta['cipher'] = 'Mystery cipher'
+        with self.assertRaises(EncryptionException) as cm:
+            self.crypto.check_crypto_meta(meta)
+        self.assertEqual("Bad crypto meta: Cipher must be AES_CTR_256",
+                         cm.exception.message)
 
     def test_create_iv(self):
         self.assertEqual(16, len(self.crypto.create_iv()))
@@ -129,6 +166,21 @@ class TestCrypto(unittest.TestCase):
 
         same = self.crypto.create_iv(iv_base=base)
         self.assertEqual(base, same)
+
+    def test_get_crypto_meta(self):
+        meta = self.crypto.create_crypto_meta()
+        self.assertIsInstance(meta, dict)
+        # this is deliberately brittle so that if new items are added then the
+        # test will need to be updated
+        self.assertEqual(2, len(meta))
+        self.assertIn('iv', meta)
+        self.assertEqual(16, len(meta['iv']))
+        self.assertIn('cipher', meta)
+        self.assertEqual('AES_CTR_256', meta['cipher'])
+        self.crypto.check_crypto_meta(meta)  # sanity check
+        meta2 = self.crypto.create_crypto_meta()
+        self.assertNotEqual(meta['iv'], meta2['iv'])  # crude sanity check
+
 
 if __name__ == '__main__':
     unittest.main()

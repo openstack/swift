@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import base64
+import json
 import unittest
+import urllib
 
 from swift.common.middleware import encrypter, decrypter
 from swift.common.swob import Request, HTTPCreated, HTTPAccepted
@@ -55,12 +57,13 @@ class TestEncrypterDecrypter(unittest.TestCase):
                                         environ={'REQUEST_METHOD': 'GET'})
         encrypt_get_resp = encrypt_get_req.get_response(app)
 
-        crypto_meta = decrypter._load_crypto_meta(
-            encrypt_get_resp.headers['X-Object-Sysmeta-Crypto-Meta'])
+        crypto_meta = json.loads(urllib.unquote_plus(
+            encrypt_get_resp.headers['X-Object-Sysmeta-Crypto-Meta']))
+        crypto_meta['iv'] = base64.b64decode(crypto_meta['iv'])
         exp_enc_body = encrypt(
             body, fetch_crypto_keys()['object'], crypto_meta['iv'])
-        self.assertNotEqual(body, encrypt_get_resp.body)  # sanity check
         self.assertEqual(exp_enc_body, encrypt_get_resp.body)
+        self.assertNotEqual(body, encrypt_get_resp.body)  # sanity check
 
         decrypt_env = {'REQUEST_METHOD': 'GET',
                        CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
@@ -88,9 +91,10 @@ class TestEncrypterDecrypter(unittest.TestCase):
         # verify the metadata header was indeed encrypted by doing a GET
         # direct to the app
         encrypt_get_resp = encrypt_get_req.get_response(app)
-        crypto_meta = decrypter._load_crypto_meta(
+        crypto_meta = json.loads(urllib.unquote_plus(
             encrypt_get_resp.headers[
-                'X-Object-Transient-Sysmeta-Crypto-Meta-Test'])
+                'X-Object-Transient-Sysmeta-Crypto-Meta-Test']))
+        crypto_meta['iv'] = base64.b64decode(crypto_meta['iv'])
         exp_header_value = base64.b64encode(encrypt(
             'encrypt me is updated', fetch_crypto_keys()['object'],
             crypto_meta['iv']))
