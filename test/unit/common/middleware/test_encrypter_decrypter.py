@@ -12,14 +12,14 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import base64
 import unittest
-from swift.common.middleware.crypto import Crypto
 
 from swift.common.middleware import encrypter, decrypter
-from swift.common.swob import Request, HTTPCreated
+from swift.common.swob import Request, HTTPCreated, HTTPAccepted
 
 from test.unit.common.middleware.crypto_helpers import fetch_crypto_keys, \
-    md5hex
+    md5hex, encrypt
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -54,9 +54,11 @@ class TestEncrypterDecrypter(unittest.TestCase):
                                         environ={'REQUEST_METHOD': 'GET'})
         encrypt_get_resp = encrypt_get_req.get_response(app)
 
-        exp_enc_body = self.encrypt_value(
-            body, fetch_crypto_keys()['object'],
+        crypto_meta = decrypter._load_crypto_meta(
             encrypt_get_resp.headers['X-Object-Sysmeta-Crypto-Meta'])
+        exp_enc_body = encrypt(
+            body, fetch_crypto_keys()['object'], crypto_meta['iv'])
+        self.assertNotEqual(body, encrypt_get_resp.body)  # sanity check
         self.assertEqual(exp_enc_body, encrypt_get_resp.body)
 
         decrypt_env = {'REQUEST_METHOD': 'GET',
@@ -74,11 +76,35 @@ class TestEncrypterDecrypter(unittest.TestCase):
         self.assertEqual('do not encrypt me',
                          decrypt_resp.headers['x-object-sysmeta-test'])
 
-    def encrypt_value(self, value, key, crypto_meta_json):
-        crypto_meta = decrypter._load_crypto_meta(crypto_meta_json)
-        enc_ctxt = Crypto({}).create_encryption_ctxt(
-            key, crypto_meta.get('iv'))
-        return enc_ctxt.update(value)
+        # do a POST update to verify updated metadata is encrypted
+        env = {'REQUEST_METHOD': 'POST',
+               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        hdrs = {'x-object-meta-test': 'encrypt me is updated'}
+        req = Request.blank('/v1/a/c/o', environ=env, headers=hdrs)
+        app.register('POST', '/v1/a/c/o', HTTPAccepted, {})
+        req.get_response(encrypter.Encrypter(app, {}))
+
+        # verify the metadata header was indeed encrypted by doing a GET
+        # direct to the app
+        encrypt_get_resp = encrypt_get_req.get_response(app)
+        crypto_meta = decrypter._load_crypto_meta(
+            encrypt_get_resp.headers[
+                'X-Object-Transient-Sysmeta-Crypto-Meta-Test'])
+        exp_header_value = base64.b64encode(encrypt(
+            'encrypt me is updated', fetch_crypto_keys()['object'],
+            crypto_meta['iv']))
+        self.assertEqual(exp_header_value,
+                         encrypt_get_resp.headers['x-object-meta-test'])
+
+        # do a GET to verify the updated metadata is decrypted
+        env = {'REQUEST_METHOD': 'GET',
+               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env)
+        resp_dec = req.get_response(
+            decrypter.Decrypter(app, {}))
+        self.assertEqual('encrypt me is updated',
+                         resp_dec.headers['x-object-meta-test'])
+
 
 if __name__ == '__main__':
     unittest.main()
