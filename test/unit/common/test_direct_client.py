@@ -19,6 +19,7 @@ import os
 from contextlib import contextmanager
 from hashlib import md5
 import time
+import pickle
 
 import mock
 import six
@@ -97,7 +98,8 @@ def mocked_http_conn(*args, **kwargs):
 class TestDirectClient(unittest.TestCase):
 
     def setUp(self):
-        self.node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        self.node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda',
+                     'replication_ip': '1.2.3.5', 'replication_port': '7000'}
         self.part = '0'
 
         self.account = u'\u062a account'
@@ -616,6 +618,18 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(err.http_status, 503)
         self.assertTrue('DELETE' in str(err))
+
+    def test_direct_get_suffix_hashes(self):
+        data = {'a83': 'c130a2c17ed45102aada0f4eee69494ff'}
+        body = pickle.dumps(data)
+        with mocked_http_conn(200, {}, body) as conn:
+            resp = direct_client.direct_get_suffix_hashes(self.node,
+                                                          self.part, ['a83'])
+            self.assertEqual(conn.method, 'REPLICATE')
+            self.assertEqual(conn.path, '/sda/0/a83')
+            self.assertEqual(conn.host, '1.2.3.5')
+            self.assertEqual(conn.port, '7000')
+            self.assertEqual(data, resp)
 
     def test_direct_put_object_with_content_length(self):
         contents = six.StringIO('123456')

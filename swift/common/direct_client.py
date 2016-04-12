@@ -482,8 +482,9 @@ def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
 
     path = '/%s' % '-'.join(suffixes)
     with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'REPLICATE', path, headers=gen_headers(headers))
+        conn = http_connect(node['replication_ip'], node['replication_port'],
+                            node['device'], part, 'REPLICATE', path,
+                            headers=gen_headers(headers))
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if not is_success(resp.status):
