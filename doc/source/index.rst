@@ -52,6 +52,7 @@ Overview and Concepts
     ratelimit
     overview_large_objects
     overview_object_versioning
+    overview_global_cluster
     overview_container_sync
     overview_expiring_objects
     cors
