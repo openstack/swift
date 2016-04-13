@@ -621,6 +621,26 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual(400, catcher.exception.status_int)
         self.assertIn("Unsatisfiable Range", catcher.exception.body)
 
+    def test_handle_multipart_put_success_conditional(self):
+        test_json_data = json.dumps([{'path': u'/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'If-None-Match': '*'},
+            body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(('201 Created', ''), (status, body))
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/cont/object'),
+            ('PUT', '/v1/AUTH_test/c/man?multipart-manifest=put'),
+        ], self.app.calls)
+        # HEAD shouldn't be conditional
+        self.assertNotIn('If-None-Match', self.app.headers[0])
+        # But the PUT should be
+        self.assertIn('If-None-Match', self.app.headers[1])
+        self.assertEqual('*', self.app.headers[1]['If-None-Match'])
+
     def test_handle_single_ranges(self):
         good_data = json.dumps(
             [{'path': '/checktest/a_1', 'etag': None,

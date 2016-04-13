@@ -119,10 +119,10 @@ class FakeSwift(object):
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
-        # range requests ought to work, hence conditional_response=True
+        # range requests ought to work, which require conditional_response=True
         req = swob.Request(env)
         resp = resp_class(req=req, headers=headers, body=body,
-                          conditional_response=True)
+                          conditional_response=req.method in ('GET', 'HEAD'))
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
         return LeakTrackingIter(wsgi_iter, self, path)
