@@ -229,6 +229,7 @@ class ObjectReplicator(Daemon):
             '--timeout=%s' % self.rsync_io_timeout,
             '--contimeout=%s' % self.rsync_io_timeout,
             '--bwlimit=%s' % self.rsync_bwlimit,
+            '--exclude=.*.%s' % ''.join('[0-9a-zA-Z]' for i in range(6))
         ]
         if self.rsync_compress and \
                 job['region'] != node['region']:

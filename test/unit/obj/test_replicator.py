@@ -910,6 +910,49 @@ class TestObjectReplicator(unittest.TestCase):
         jobs = self.replicator.collect_jobs()
         self.assertEqual(len(jobs), 0)
 
+    def test_replicator_skips_rsync_temp_files(self):
+        # the empty pre-setup dirs aren't that useful to us
+        device_path = os.path.join(self.devices, 'sda')
+        rmtree(device_path, ignore_errors=1)
+        os.mkdir(device_path)
+        # create a real data file to trigger rsync
+        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
+                                      policy=POLICIES.legacy)
+        ts = next(self.ts)
+        with df.create() as w:
+            w.write('asdf')
+            w.put({'X-Timestamp': ts.internal})
+            w.commit(ts)
+        # pre-flight and post sync request for both other primaries
+        expected_replicate_requests = 4
+        process_arg_checker = [
+            # (return_code, stdout, <each in capture rsync args>)
+            (0, '', []),
+            (0, '', []),
+        ]
+        stub_body = pickle.dumps({})
+        with _mock_process(process_arg_checker) as rsync_log, \
+            mock.patch('swift.obj.replicator.whataremyips',
+                       side_effect=_ips), \
+                mocked_http_conn(*[200] * expected_replicate_requests,
+                                 body=stub_body) as conn_log:
+            self.replicator.replicate()
+        self.assertEqual(['REPLICATE'] * expected_replicate_requests,
+                         [r['method'] for r in conn_log.requests])
+        # expect one rsync to each other primary node
+        self.assertEqual(2, len(rsync_log))
+        expected = '--exclude=.*.[0-9a-zA-Z][0-9a-zA-Z][0-9a-zA-Z]' \
+            '[0-9a-zA-Z][0-9a-zA-Z][0-9a-zA-Z]'
+        for subprocess_info in rsync_log:
+            rsync_args = subprocess_info['rsync_args']
+            for arg in rsync_args:
+                if arg.startswith('--exclude'):
+                    self.assertEqual(arg, expected)
+                    break
+            else:
+                self.fail('Did not find --exclude argument in %r' %
+                          rsync_args)
+
     def test_replicator_removes_zbf(self):
         # After running xfs_repair, a partition directory could become a
         # zero-byte file. If this happens, the replicator should clean it
