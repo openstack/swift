@@ -422,7 +422,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     # Do mocking here to have the mocked value have effect in the generator
     # function.
     @mock.patch.object(decrypter, 'DECRYPT_CHUNK_SIZE', 4)
-    def test_GET_multipart(self):
+    def test_GET_multipart_ciphertext(self):
         # build fake multipart response body
         key = fetch_crypto_keys()['object']
         ctxt = Crypto({}).create_encryption_ctxt(key, FAKE_IV)
@@ -446,7 +446,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
             'content-type': 'multipart/byteranges;boundary=multipartboundary',
             'content-length': len(body),
             'X-Object-Sysmeta-Crypto-Etag':
-                base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
+                base64.b64encode(encrypt(md5hex(plaintext), key, FAKE_IV)),
             'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
             'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
         self.app.register('GET', '/v1/a/c/o', HTTPPartialContent, body=body,
@@ -459,7 +459,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         resp = req.get_response(self.decrypter)
 
         self.assertEqual('206 Partial Content', resp.status)
-        self.assertEqual(md5hex(body), resp.headers['Etag'])
+        self.assertEqual(md5hex(plaintext), resp.headers['Etag'])
         self.assertEqual(len(body), int(resp.headers['Content-Length']))
         self.assertEqual('multipart/byteranges;boundary=multipartboundary',
                          resp.headers['Content-Type'])
@@ -481,6 +481,39 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
         # we should have consumed the whole response body
         self.assertFalse(resp_lines)
+
+    def test_GET_multipart_content_type(self):
+        # *just* having multipart content type shouldn't trigger the mime doc
+        # code path
+        key = fetch_crypto_keys()['object']
+        ctxt = Crypto({}).create_encryption_ctxt(key, FAKE_IV)
+        plaintext = 'Cwm fjord veg balks nth pyx quiz'
+        ciphertext = encrypt(plaintext, ctxt=ctxt)
+
+        # register request with fake swift
+        hdrs = {
+            'Etag': md5hex(ciphertext),
+            'content-type': 'multipart/byteranges;boundary=multipartboundary',
+            'content-length': len(ciphertext),
+            'X-Object-Sysmeta-Crypto-Etag':
+                base64.b64encode(encrypt(md5hex(plaintext), key, FAKE_IV)),
+            'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
+            'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
+        self.app.register('GET', '/v1/a/c/o', HTTPOk, body=ciphertext,
+                          headers=hdrs)
+
+        # issue request
+        env = {'REQUEST_METHOD': 'GET',
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env)
+        resp = req.get_response(self.decrypter)
+
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(md5hex(plaintext), resp.headers['Etag'])
+        self.assertEqual(len(plaintext), int(resp.headers['Content-Length']))
+        self.assertEqual('multipart/byteranges;boundary=multipartboundary',
+                         resp.headers['Content-Type'])
+        self.assertEqual(plaintext, resp.body)
 
     def test_GET_etag_no_match(self):
         self.skipTest('Etag verification not yet implemented')
