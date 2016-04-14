@@ -136,7 +136,7 @@ class TestEncrypter(unittest.TestCase):
         ciphertext = encrypt(plaintext, key, FAKE_IV)
         ciphertext_etag = md5hex(ciphertext)
         other_footers = {
-            'Etag': 'other etag',
+            'Etag': plaintext_etag,
             'X-Object-Sysmeta-Other': 'other sysmeta',
             'X-Object-Sysmeta-Container-Update-Override-Etag':
                 'other override'}
@@ -146,7 +146,8 @@ class TestEncrypter(unittest.TestCase):
                'swift.callback.update_footers':
                    lambda footers: footers.update(other_footers)}
         hdrs = {'content-type': 'text/plain',
-                'content-length': str(len(plaintext))}
+                'content-length': str(len(plaintext)),
+                'Etag': 'correct etag is in footers'}
         req = Request.blank(
             '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
@@ -175,6 +176,105 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
+    def test_PUT_with_bad_etag_in_other_footers(self):
+        # verify that etag supplied in footers from other middleware overrides
+        # header etag when validating inbound plaintext etags
+        plaintext = 'FAKE APP'
+        plaintext_etag = md5hex(plaintext)
+        other_footers = {
+            'Etag': 'bad etag',
+            'X-Object-Sysmeta-Other': 'other sysmeta',
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+                'other override'}
+
+        env = {'REQUEST_METHOD': 'PUT',
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
+               'swift.callback.update_footers':
+                   lambda footers: footers.update(other_footers)}
+        hdrs = {'content-type': 'text/plain',
+                'content-length': str(len(plaintext)),
+                'Etag': plaintext_etag}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
+        self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
+        resp = req.get_response(self.encrypter)
+        self.assertEqual('422 Unprocessable Entity', resp.status)
+        self.assertNotIn('Etag', resp.headers)
+
+    def test_PUT_with_bad_etag_in_headers_and_other_footers(self):
+        # verify that etag supplied in headers from other middleware is used if
+        # none is supplied in footers when validating inbound plaintext etags
+        plaintext = 'FAKE APP'
+        other_footers = {
+            'X-Object-Sysmeta-Other': 'other sysmeta',
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+                'other override'}
+
+        env = {'REQUEST_METHOD': 'PUT',
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
+               'swift.callback.update_footers':
+                   lambda footers: footers.update(other_footers)}
+        hdrs = {'content-type': 'text/plain',
+                'content-length': str(len(plaintext)),
+                'Etag': 'bad etag'}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
+        self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
+        resp = req.get_response(self.encrypter)
+        self.assertEqual('422 Unprocessable Entity', resp.status)
+        self.assertNotIn('Etag', resp.headers)
+
+    def test_PUT_nothing_read(self):
+        # simulate an artificial scenario of a downstream filter/app not
+        # actually reading the input stream from encrypter.
+        class NonReadingApp(object):
+            def __call__(self, env, start_response):
+                # note: no read from wsgi.input
+                req = Request(env)
+                env['swift.callback.update_footers'](req.headers)
+                call_headers.append(req.headers)
+                resp = HTTPCreated(req=req, headers={'Etag': 'response etag'})
+                return resp(env, start_response)
+
+        env = {'REQUEST_METHOD': 'PUT',
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        hdrs = {'content-type': 'text/plain',
+                'content-length': 0,
+                'etag': 'etag from client'}
+        req = Request.blank('/v1/a/c/o', environ=env, body='', headers=hdrs)
+
+        call_headers = []
+        resp = req.get_response(encrypter.Encrypter(NonReadingApp(), {}))
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual('response etag', resp.headers['Etag'])
+        self.assertEqual(1, len(call_headers))
+        self.assertEqual('etag from client', call_headers[0]['etag'])
+        # verify no encryption footers
+        for k in call_headers[0]:
+            self.assertFalse(k.lower().startswith('x-object-sysmeta-crypto-'))
+
+        # check that an upstream footer callback gets called
+        other_footers = {
+            'Etag': 'other etag',
+            'X-Object-Sysmeta-Other': 'other sysmeta',
+            'X-Backend-Container-Update-Override-Etag': 'other override'}
+        env.update({'swift.callback.update_footers':
+                    lambda footers: footers.update(other_footers)})
+        req = Request.blank('/v1/a/c/o', environ=env, body='', headers=hdrs)
+
+        call_headers = []
+        resp = req.get_response(encrypter.Encrypter(NonReadingApp(), {}))
+
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual('response etag', resp.headers['Etag'])
+        self.assertEqual(1, len(call_headers))
+        # verify that other middleware's footers made it to app
+        for k, v in other_footers.items():
+            self.assertEqual(v, call_headers[0][k])
+        # verify no encryption footers
+        for k in call_headers[0]:
+            self.assertFalse(k.lower().startswith('x-object-sysmeta-crypto-'))
+
     def test_POST_req(self):
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'POST',
@@ -187,6 +287,7 @@ class TestEncrypter(unittest.TestCase):
         self.app.register('POST', '/v1/a/c/o', HTTPAccepted, {})
         resp = req.get_response(self.encrypter)
         self.assertEqual('202 Accepted', resp.status)
+        self.assertNotIn('Etag', resp.headers)
 
         # verify metadata items
         self.assertEqual(1, len(self.app.calls), self.app.calls)
