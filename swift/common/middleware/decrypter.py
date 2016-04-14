@@ -280,7 +280,8 @@ class DecrypterObjContext(BaseDecrypterContext):
             # don't decrypt body of non-2xx responses
             return app_resp
 
-        if content_type == 'multipart/byteranges':
+        if self._get_status_int() == 206 and\
+                content_type == 'multipart/byteranges':
             boundary = dict(content_type_attrs)["boundary"]
             return self.multipart_resp(app_resp, boundary, keys)
 

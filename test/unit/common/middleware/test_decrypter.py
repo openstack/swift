@@ -24,7 +24,7 @@ from swift.common.middleware.crypto import Crypto
 from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.middleware import decrypter
 from swift.common.swob import Request, HTTPException, HTTPOk, \
-    HTTPPreconditionFailed, HTTPNotFound
+    HTTPPreconditionFailed, HTTPNotFound, HTTPPartialContent
 
 from test.unit import FakeLogger
 from test.unit.common.middleware.crypto_helpers import md5hex, \
@@ -449,7 +449,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 base64.b64encode(encrypt(md5hex(body), key, FAKE_IV)),
             'X-Object-Sysmeta-Crypto-Meta-Etag': get_crypto_meta_header(),
             'X-Object-Sysmeta-Crypto-Meta': get_crypto_meta_header()}
-        self.app.register('GET', '/v1/a/c/o', HTTPOk, body=body, headers=hdrs)
+        self.app.register('GET', '/v1/a/c/o', HTTPPartialContent, body=body,
+                          headers=hdrs)
 
         # issue request
         env = {'REQUEST_METHOD': 'GET',
@@ -457,7 +458,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ=env)
         resp = req.get_response(self.decrypter)
 
-        self.assertEqual('200 OK', resp.status)
+        self.assertEqual('206 Partial Content', resp.status)
         self.assertEqual(md5hex(body), resp.headers['Etag'])
         self.assertEqual(len(body), int(resp.headers['Content-Length']))
         self.assertEqual('multipart/byteranges;boundary=multipartboundary',
