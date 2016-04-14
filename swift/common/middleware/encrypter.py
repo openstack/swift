@@ -115,12 +115,12 @@ class EncInputWrapper(object):
             val, _ = encrypt_header_val(
                 self.crypto, self.plaintext_md5.hexdigest(),
                 self.keys['container'], append_crypto_meta=True)
-            footers['X-Backend-Container-Update-Override-Etag'] = val
+            footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = val
 
             if inner_callback:
                 # pass on footers dict to any other callback that was
-                # registered before this one. It may override any
-                # x-backend-container-update-overide- headers that were set.
+                # registered before this one. It may override any footers that
+                # were set.
                 inner_callback(footers)
 
             # we override any previous notion of etag with the ciphertext etag

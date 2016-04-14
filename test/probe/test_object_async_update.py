@@ -104,36 +104,53 @@ class TestUpdateOverrides(ReplProbeTest):
         super(TestUpdateOverrides, self).tearDown()
         shutil.rmtree(self.tempdir)
 
-    def test(self):
-        headers = {
-            'Content-Type': 'text/plain',
-            'X-Backend-Container-Update-Override-Etag': 'override-etag',
-            'X-Backend-Container-Update-Override-Content-Type': 'override-type'
-        }
-        client.put_container(self.url, self.token, 'c1',
+    def _test_update_override_headers(self, override_headers):
+        # verify that update override headers are sent in container updates
+        container_name = 'c-%s' % uuid4()
+        obj_name = 'o-%s' % uuid4()
+        client.put_container(self.url, self.token, container_name,
                              headers={'X-Storage-Policy':
                                       self.policy.name})
 
+        override_headers['Content-Type'] = 'text/plain'
         self.int_client.upload_object(StringIO(u'stuff'), self.account,
-                                      'c1', 'o1', headers)
+                                      container_name, obj_name,
+                                      override_headers)
 
         # Run the object-updaters to be sure updates are done
         Manager(['object-updater']).once()
 
-        meta = self.int_client.get_object_metadata(self.account, 'c1', 'o1')
+        meta = self.int_client.get_object_metadata(
+            self.account, container_name, obj_name)
 
         self.assertEqual('text/plain', meta['content-type'])
         self.assertEqual('c13d88cb4cb02003daedb8a84e5d272a', meta['etag'])
 
-        obj_iter = self.int_client.iter_objects(self.account, 'c1')
+        obj_iter = self.int_client.iter_objects(self.account, container_name)
         for obj in obj_iter:
-            if obj['name'] == 'o1':
+            if obj['name'] == obj_name:
                 self.assertEqual('override-etag', obj['hash'])
                 self.assertEqual('override-type', obj['content_type'])
                 break
         else:
-            self.fail('Failed to find object o1 in listing')
+            self.fail('Failed to find object %s in listing for %s' %
+                      (obj_name, container_name))
 
+    def test_update_overrides(self):
+        headers = {
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'override-etag',
+            'X-Object-Sysmeta-Container-Update-Override-Content-Type':
+                'override-type'
+        }
+        self._test_update_override_headers(headers)
+
+    def test_update_overrides_backwards_compatibility(self):
+        # older proxies used these headers to override container update values
+        headers = {
+            'X-Backend-Container-Update-Override-Etag': 'override-etag',
+            'X-Backend-Container-Update-Override-Content-Type': 'override-type'
+        }
+        self._test_update_override_headers(headers)
 
 if __name__ == '__main__':
     main()

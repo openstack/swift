@@ -108,7 +108,7 @@ def make_footers_callback(body):
         '{"cipher": "AES_CTR_256", "iv": "sD+PSw/DfqYwpsVGSo0GEw=="}'
     etag = md5(body).hexdigest()
     footers_to_add = {
-        'X-Backend-Container-Update-Override-Etag': cont_etag,
+        'X-Object-Sysmeta-Container-Update-Override-Etag': cont_etag,
         'X-Object-Sysmeta-Crypto-Etag': crypto_etag,
         'X-Object-Sysmeta-Crypto-Meta-Etag': etag_crypto_meta,
         'X-I-Feel-Lucky': 'Not blocked',
@@ -1836,9 +1836,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             self.assertTrue(footer_metadata)
             expected = {
                 'X-Object-Sysmeta-EC-Content-Length': str(size),
-                'X-Backend-Container-Update-Override-Size': str(size),
+                'X-Object-Sysmeta-Container-Update-Override-Size': str(size),
                 'X-Object-Sysmeta-EC-Etag': etag,
-                'X-Backend-Container-Update-Override-Etag': etag,
+                'X-Object-Sysmeta-Container-Update-Override-Etag': etag,
                 'X-Object-Sysmeta-EC-Segment-Size': str(segment_size),
             }
             footers_callback(expected)

@@ -446,11 +446,24 @@ class ObjectController(BaseStorageServer):
             raise HTTPBadRequest("invalid JSON for footer doc")
 
     def _check_container_override(self, update_headers, metadata):
-        for key, val in metadata.items():
-            override_prefix = 'x-backend-container-update-override-'
-            if key.lower().startswith(override_prefix):
-                override = key.lower().replace(override_prefix, 'x-')
-                update_headers[override] = val
+        """
+        Applies any overrides to the container update headers. Overrides may
+        be in the x-object-sysmeta-container-update- namespace or the
+        x-backend-container-update-override- namespace. The latter is for
+        backwards compatibility with older proxy servers that used
+        x-backend-container-update-override-etag to specify the container
+        update Etag value to use when handling an EC policy object PUT.
+
+        :param update_headers: a dict of headers used in the container update
+        :param metadata: a dict that may container override items
+        """
+        override_prefixes = ['x-object-sysmeta-container-update-override-',
+                             'x-backend-container-update-override-']
+        for override_prefix in override_prefixes:
+            for key, val in metadata.items():
+                if key.lower().startswith(override_prefix):
+                    override = key.lower().replace(override_prefix, 'x-')
+                    update_headers[override] = val
 
     def _preserve_slo_manifest(self, update_metadata, orig_metadata):
         if 'X-Static-Large-Object' in orig_metadata:
@@ -544,17 +557,8 @@ class ObjectController(BaseStorageServer):
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
 
-        update_etag = orig_metadata['ETag']
-        if 'X-Object-Sysmeta-Ec-Etag' in orig_metadata:
-            # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
-            # X-Backend-Container-Update-Override-Etag value sent with the
-            # original PUT. We have to send Etag (and size etc) with a POST
-            # container update because the original PUT container update may
-            # have failed or be in async_pending.
-            update_etag = orig_metadata['X-Object-Sysmeta-Ec-Etag']
-
-        if (content_type_headers['Content-Type-Timestamp']
-                != disk_file.data_timestamp):
+        if (content_type_headers['Content-Type-Timestamp'] !=
+                disk_file.data_timestamp):
             # Current content-type is not from the datafile, but the datafile
             # content-type may have a swift_bytes param that was appended by
             # SLO and we must continue to send that with the container update.
@@ -568,17 +572,30 @@ class ObjectController(BaseStorageServer):
                 content_type_headers['Content-Type'] += (';swift_bytes=%s'
                                                          % swift_bytes)
 
+        update_headers = HeaderKeyDict({
+            'x-size': orig_metadata['Content-Length'],
+            'x-content-type': content_type_headers['Content-Type'],
+            'x-timestamp': disk_file.data_timestamp.internal,
+            'x-content-type-timestamp':
+            content_type_headers['Content-Type-Timestamp'],
+            'x-meta-timestamp': metadata['X-Timestamp'],
+            'x-etag': orig_metadata['ETag']})
+
+        if 'X-Object-Sysmeta-Ec-Etag' in orig_metadata:
+            # Special case for backwards compatibility.
+            # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
+            # X-Backend-Container-Update-Override-Etag value sent with the
+            # original PUT. We have to send Etag (and size etc) with a POST
+            # container update because the original PUT container update may
+            # have failed or be in async_pending.
+            update_headers['X-Etag'] = orig_metadata[
+                'X-Object-Sysmeta-Ec-Etag']
+
+        self._check_container_override(update_headers, orig_metadata)
+
         # object POST updates are PUT to the container server
         self.container_update(
-            'PUT', account, container, obj, request,
-            HeaderKeyDict({
-                'x-size': orig_metadata['Content-Length'],
-                'x-content-type': content_type_headers['Content-Type'],
-                'x-timestamp': disk_file.data_timestamp.internal,
-                'x-content-type-timestamp':
-                content_type_headers['Content-Type-Timestamp'],
-                'x-meta-timestamp': metadata['X-Timestamp'],
-                'x-etag': update_etag}),
+            'PUT', account, container, obj, request, update_headers,
             device, policy)
         return HTTPAccepted(request=request)
 

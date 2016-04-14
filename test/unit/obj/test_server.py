@@ -513,14 +513,14 @@ class TestObjectController(unittest.TestCase):
             'Content-Length': '4',
             'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
-            headers['X-Backend-Container-Update-Override-Etag'] = update_etag
+            headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
+                update_etag
             headers['X-Object-Sysmeta-Ec-Etag'] = update_etag
             headers['X-Object-Sysmeta-Ec-Frag-Index'] = 2
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers=headers)
-        req.body = 'test'
+                            headers=headers, body='test')
 
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
@@ -704,6 +704,100 @@ class TestObjectController(unittest.TestCase):
     def test_POST_container_updates_with_EC_policy(self):
         self._test_POST_container_updates(
             POLICIES[1], update_etag='override_etag')
+
+    def test_POST_container_updates_backwards_compatibility(self):
+        # Older proxies send X-Backend-Container-Update-Override-Etag with an
+        # EC PUT.
+        # Newer proxies send X-Object-Sysmeta-Container-Update-Override-Etag.
+        # Both send X-Object-Sysmeta-Ec-Etag.
+        # Test backwards compatibility i.e. that both old and new proxy PUTs
+        # result in the correct etag being sent with container updates for the
+        # PUT and for a subsequent POST.
+        policy = POLICIES[1]
+        ts_iter = make_timestamp_iter()
+
+        def do_test(headers):
+            def mock_container_update(ctlr, op, account, container, obj, req,
+                                      headers_out, objdevice, policy):
+                calls_made.append((headers_out, policy))
+            calls_made = []
+            ts_put = next(ts_iter)
+
+            # make PUT with given headers and verify correct etag is sent in
+            # container update
+            headers['X-Timestamp'] = ts_put.internal
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'PUT'},
+                                headers=headers, body='test')
+
+            with mock.patch(
+                    'swift.obj.server.ObjectController.container_update',
+                    mock_container_update):
+                resp = req.get_response(self.object_controller)
+
+            self.assertEqual(resp.status_int, 201)
+            self.assertEqual(1, len(calls_made))
+            expected_headers = HeaderKeyDict({
+                'x-size': '4',
+                'x-content-type':
+                    'application/octet-stream;swift_bytes=123456789',
+                'x-timestamp': ts_put.internal,
+                'x-etag': 'expected'})
+            self.assertDictEqual(expected_headers, calls_made[0][0])
+            self.assertEqual(policy, calls_made[0][1])
+
+            # make a POST and verify container update has the same etag
+            calls_made = []
+            ts_post = next(ts_iter)
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Timestamp': ts_post.internal,
+                         'X-Backend-Storage-Policy-Index': int(policy)})
+
+            with mock.patch(
+                    'swift.obj.server.ObjectController.container_update',
+                    mock_container_update):
+                resp = req.get_response(self.object_controller)
+
+            self.assertEqual(resp.status_int, 202)
+            self.assertEqual(1, len(calls_made))
+            expected_headers = HeaderKeyDict({
+                'x-size': '4',
+                'x-content-type':
+                    'application/octet-stream;swift_bytes=123456789',
+                'x-timestamp': ts_put.internal,
+                'x-content-type-timestamp': ts_put.internal,
+                'x-meta-timestamp': ts_post.internal,
+                'x-etag': 'expected'})
+            self.assertDictEqual(expected_headers, calls_made[0][0])
+            self.assertEqual(policy, calls_made[0][1])
+
+        base_headers = {
+            'Content-Type': 'application/octet-stream;swift_bytes=123456789',
+            'Content-Length': '4',
+            'X-Backend-Storage-Policy-Index': int(policy),
+            'X-Object-Sysmeta-Ec-Frag-Index': 2}
+
+        # PUT - old style headers are sufficient
+        headers = dict(base_headers)
+        headers['X-Backend-Container-Update-Override-Etag'] = 'expected'
+        headers['X-Object-Sysmeta-Ec-Etag'] = 'expected'
+        do_test(headers)
+
+        # PUT - old style headers not required (note that
+        # 'X-Object-Sysmeta-Ec-Etag' is required for other purposes - here we
+        # are testing that it is not required for populating the POST container
+        # update with the correct etag).
+        headers = dict(base_headers)
+        headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = 'expected'
+        do_test(headers)
+
+        # PUT - X-Object-Sysmeta-Container-Update-Override-Etag trumps
+        # 'X-Object-Sysmeta-Ec-Etag' for container update
+        headers = dict(base_headers)
+        headers['X-Object-Sysmeta-Ec-Etag'] = 'ec etag'
+        headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = 'expected'
+        do_test(headers)
 
     def _test_PUT_then_POST_async_pendings(self, policy, update_etag=None):
         # Test that PUT and POST requests result in distinct async pending
@@ -4336,7 +4430,7 @@ class TestObjectController(unittest.TestCase):
             'x-trans-id': '123',
             'referer': 'PUT http://localhost/sda1/0/a/c/o'}))
 
-    def test_container_update_overrides(self):
+    def test_PUT_container_update_overrides_for_backwards_compatibility(self):
         container_updates = []
 
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
@@ -4349,6 +4443,7 @@ class TestObjectController(unittest.TestCase):
             'X-Container-Partition': 'cpartition',
             'X-Container-Device': 'cdevice',
             'Content-Type': 'text/plain',
+            # older proxies use the following headers
             'X-Backend-Container-Update-Override-Etag': 'override_etag',
             'X-Backend-Container-Update-Override-Content-Type': 'override_val',
             'X-Backend-Container-Update-Override-Foo': 'bar',
@@ -4375,6 +4470,49 @@ class TestObjectController(unittest.TestCase):
             'x-timestamp': utils.Timestamp(1).internal,
             'X-Backend-Storage-Policy-Index': '0',  # default when not given
             'x-trans-id': '123',
+            'referer': 'PUT http://localhost/sda1/0/a/c/o',
+            'x-foo': 'bar'}))
+
+    def test_PUT_container_update_overrides(self):
+        container_updates = []
+
+        def capture_updates(ip, port, method, path, headers, *args, **kwargs):
+            container_updates.append((ip, port, method, path, headers))
+
+        headers = {
+            'X-Timestamp': 1,
+            'X-Trans-Id': '456',
+            'X-Container-Host': 'chost:cport',
+            'X-Container-Partition': 'cpartition',
+            'X-Container-Device': 'cdevice',
+            'Content-Type': 'text/plain',
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'override_etag',
+            'X-Object-Sysmeta-Container-Update-Override-Content-Type':
+                'override_val',
+            'X-Object-Sysmeta-Container-Update-Override-Foo': 'bar',
+            'X-Object-Sysmeta-Ignored': 'ignored',
+        }
+        req = Request.blank('/sda1/0/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body='')
+        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(len(container_updates), 1)
+        ip, port, method, path, headers = container_updates[0]
+        self.assertEqual(ip, 'chost')
+        self.assertEqual(port, 'cport')
+        self.assertEqual(method, 'PUT')
+        self.assertEqual(path, '/cdevice/cpartition/a/c/o')
+        self.assertEqual(headers, HeaderKeyDict({
+            'user-agent': 'object-server %s' % os.getpid(),
+            'x-size': '0',
+            'x-etag': 'override_etag',
+            'x-content-type': 'override_val',
+            'x-timestamp': utils.Timestamp(1).internal,
+            'X-Backend-Storage-Policy-Index': '0',  # default when not given
+            'x-trans-id': '456',
             'referer': 'PUT http://localhost/sda1/0/a/c/o',
             'x-foo': 'bar'}))
 

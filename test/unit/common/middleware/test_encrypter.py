@@ -83,9 +83,10 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
         # verify encrypted etag for container update
-        self.assertIn('X-Backend-Container-Update-Override-Etag', req_hdrs)
+        self.assertIn(
+            'X-Object-Sysmeta-Container-Update-Override-Etag', req_hdrs)
         parts = req_hdrs[
-            'X-Backend-Container-Update-Override-Etag'].rsplit(';', 1)
+            'X-Object-Sysmeta-Container-Update-Override-Etag'].rsplit(';', 1)
         self.assertEqual(2, len(parts))
         cont_key = fetch_crypto_keys()['container']
         actual = base64.b64decode(parts[0])
@@ -137,7 +138,8 @@ class TestEncrypter(unittest.TestCase):
         other_footers = {
             'Etag': 'other etag',
             'X-Object-Sysmeta-Other': 'other sysmeta',
-            'X-Backend-Container-Update-Override-Etag': 'other override'}
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+                'other override'}
 
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
@@ -393,11 +395,13 @@ class TestEncrypter(unittest.TestCase):
                       self.encrypter.logger.get_lines_for_level('error')[0])
 
     def test_PUT_encryption_override(self):
+        # set crypto override to disable encryption.
         # simulate another middleware wanting to set footers
         other_footers = {
             'Etag': 'other etag',
             'X-Object-Sysmeta-Other': 'other sysmeta',
-            'X-Backend-Container-Update-Override-Etag': 'other override'}
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+                'other override'}
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
                'swift.crypto.override': True,
