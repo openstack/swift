@@ -676,18 +676,21 @@ class ResumingGetter(object):
             if begin is None:
                 # this is a -50 range req (last 50 bytes of file)
                 end -= num_bytes
+                if end == 0:
+                    # we sent out exactly the first range's worth of bytes, so
+                    # we're done with it
+                    raise RangeAlreadyComplete()
             else:
                 begin += num_bytes
+                if end is not None and begin == end + 1:
+                    # we sent out exactly the first range's worth of bytes, so
+                    # we're done with it
+                    raise RangeAlreadyComplete()
 
-            if end is not None and begin == end + 1:
-                # we sent out exactly the first range's worth of bytes, so
-                # we're done with it
-                raise RangeAlreadyComplete()
-            elif end and begin > end:
+            if end is not None and (begin > end or end < 0):
                 raise HTTPRequestedRangeNotSatisfiable()
-            else:
-                req_range.ranges = [(begin, end)] + req_range.ranges[1:]
 
+            req_range.ranges = [(begin, end)] + req_range.ranges[1:]
             self.backend_headers['Range'] = str(req_range)
         else:
             self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
