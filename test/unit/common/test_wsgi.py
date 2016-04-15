@@ -384,23 +384,24 @@ class TestWSGI(unittest.TestCase):
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
             with mock.patch('swift.proxy.server.Application.'
-                            'modify_wsgi_pipeline'):
-                with mock.patch('swift.common.wsgi.wsgi') as _wsgi:
-                    with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
-                        with mock.patch('swift.common.wsgi.inspect'):
-                            conf = wsgi.appconfig(conf_file)
-                            logger = logging.getLogger('test')
-                            sock = listen_zero()
-                            wsgi.run_server(conf, logger, sock)
+                            'modify_wsgi_pipeline'), \
+                    mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
+                    mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
+                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
+                    mock.patch('swift.common.wsgi.inspect'):
+                conf = wsgi.appconfig(conf_file)
+                logger = logging.getLogger('test')
+                sock = listen_zero()
+                wsgi.run_server(conf, logger, sock)
         self.assertEqual('HTTP/1.0',
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
-        _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
-        _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True,
-                                                          select=True,
-                                                          thread=True)
-        _eventlet.debug.hub_exceptions.assert_called_with(False)
+        _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
+        _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
@@ -470,29 +471,28 @@ class TestWSGI(unittest.TestCase):
                 f.write('[DEFAULT]\nswift_dir = %s' % conf_root)
             _fake_rings(conf_root)
             with mock.patch('swift.proxy.server.Application.'
-                            'modify_wsgi_pipeline'):
-                with mock.patch('swift.common.wsgi.wsgi') as _wsgi:
-                    with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
-                        with mock.patch.dict('os.environ', {'TZ': ''}):
-                            with mock.patch('swift.common.wsgi.inspect'):
-                                with mock.patch('time.tzset') as mock_tzset:
-                                    conf = wsgi.appconfig(conf_dir)
-                                    logger = logging.getLogger('test')
-                                    sock = listen_zero()
-                                    wsgi.run_server(conf, logger, sock)
-                                    self.assertEqual(os.environ['TZ'], 'UTC+0')
-                                    self.assertEqual(mock_tzset.mock_calls,
-                                                     [mock.call()])
+                            'modify_wsgi_pipeline'), \
+                    mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
+                    mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt, \
+                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
+                    mock.patch.dict('os.environ', {'TZ': ''}), \
+                    mock.patch('swift.common.wsgi.inspect'), \
+                    mock.patch('time.tzset'):
+                conf = wsgi.appconfig(conf_dir)
+                logger = logging.getLogger('test')
+                sock = listen_zero()
+                wsgi.run_server(conf, logger, sock)
+                self.assertTrue(os.environ['TZ'] is not '')
 
         self.assertEqual('HTTP/1.0',
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
-        _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
-        _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True,
-                                                          select=True,
-                                                          thread=True)
-        _eventlet.debug.hub_exceptions.assert_called_with(False)
+        _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
+        _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
@@ -527,25 +527,26 @@ class TestWSGI(unittest.TestCase):
                 f.write(contents.replace('TEMPDIR', t))
             _fake_rings(t)
             with mock.patch('swift.proxy.server.Application.'
-                            'modify_wsgi_pipeline'):
-                with mock.patch('swift.common.wsgi.wsgi') as _wsgi:
-                    mock_server = _wsgi.server
-                    _wsgi.server = lambda *args, **kwargs: mock_server(
-                        *args, **kwargs)
-                    with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
-                        conf = wsgi.appconfig(conf_file)
-                        logger = logging.getLogger('test')
-                        sock = listen_zero()
-                        wsgi.run_server(conf, logger, sock)
+                            'modify_wsgi_pipeline'), \
+                    mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
+                    mock.patch('swift.common.utils.eventlet') as _utils_evt, \
+                    mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
+                mock_server = _wsgi.server
+                _wsgi.server = lambda *args, **kwargs: mock_server(
+                    *args, **kwargs)
+                conf = wsgi.appconfig(conf_file)
+                logger = logging.getLogger('test')
+                sock = listen_zero()
+                wsgi.run_server(conf, logger, sock)
         self.assertEqual('HTTP/1.0',
                          _wsgi.HttpProtocol.default_request_version)
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
-        _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
-        _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True,
-                                                          select=True,
-                                                          thread=True)
-        _eventlet.debug.hub_exceptions.assert_called_with(True)
+        _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
+        _utils_evt.patcher.monkey_patch.assert_called_with(all=False,
+                                                           socket=True,
+                                                           select=True,
+                                                           thread=True)
+        _wsgi_evt.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
         server_sock, server_app, server_logger = args

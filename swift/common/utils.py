@@ -52,6 +52,7 @@ import datetime
 import eventlet
 import eventlet.debug
 import eventlet.greenthread
+import eventlet.patcher
 import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
@@ -468,6 +469,18 @@ def config_read_prefixed_options(conf, prefix_name, defaults):
             else:
                 params[option_name] = value.strip()
     return params
+
+
+def eventlet_monkey_patch():
+    """
+    Install the appropriate Eventlet monkey patches.
+    """
+    # NOTE(sileht):
+    #     monkey-patching thread is required by python-keystoneclient;
+    #     monkey-patching select is required by oslo.messaging pika driver
+    #         if thread is monkey-patched.
+    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
+                                  thread=True)
 
 
 def noop_libc_function(*args):
