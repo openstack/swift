@@ -399,7 +399,7 @@ class SloGetContext(WSGIContext):
             req.environ, path='/'.join(['', version, acc, con, obj]),
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
-            agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
+            agent='%(orig)s SLO MultipartGET', swift_source='SLO')
         sub_resp = sub_req.get_response(self.slo.app)
 
         if not is_success(sub_resp.status_int):
@@ -603,7 +603,7 @@ class SloGetContext(WSGIContext):
             get_req = make_subrequest(
                 req.environ, method='GET',
                 headers={'x-auth-token': req.headers.get('x-auth-token')},
-                agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
+                agent='%(orig)s SLO MultipartGET', swift_source='SLO')
             resp_iter = self._app_call(get_req.environ)
 
         # Any Content-Range from a manifest is almost certainly wrong for the
@@ -857,20 +857,14 @@ class StaticLargeObject(object):
                 obj_name = obj_name.encode('utf-8')
             obj_path = '/'.join(['', vrs, account, obj_name.lstrip('/')])
 
-            new_env = req.environ.copy()
-            new_env['PATH_INFO'] = obj_path
-            new_env['REQUEST_METHOD'] = 'HEAD'
-            new_env['swift.source'] = 'SLO'
-            del(new_env['wsgi.input'])
-            del(new_env['QUERY_STRING'])
-            new_env['CONTENT_LENGTH'] = 0
-            new_env['HTTP_USER_AGENT'] = \
-                '%s MultipartPUT' % req.environ.get('HTTP_USER_AGENT')
-
             if obj_path != last_obj_path:
                 last_obj_path = obj_path
-                head_seg_resp = \
-                    Request.blank(obj_path, new_env).get_response(self)
+                sub_req = make_subrequest(
+                    req.environ, path=obj_path + '?',  # kill the query string
+                    method='HEAD',
+                    headers={'x-auth-token': req.headers.get('x-auth-token')},
+                    agent='%(orig)s SLO MultipartPUT', swift_source='SLO')
+                head_seg_resp = sub_req.get_response(self)
 
             if head_seg_resp.is_success:
                 segment_length = head_seg_resp.content_length

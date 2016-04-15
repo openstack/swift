@@ -3307,6 +3307,27 @@ class TestSlo(Base):
         manifest.read(hdrs={'If-Match': etag})
         self.assert_status(200)
 
+    def test_slo_if_none_match_put(self):
+        file_item = self.env.container.file("manifest-if-none-match")
+        manifest = json.dumps([{
+            'size_bytes': 1024 * 1024,
+            'etag': None,
+            'path': '/%s/%s' % (self.env.container.name, 'seg_a')}])
+
+        self.assertRaises(ResponseError, file_item.write, manifest,
+                          parms={'multipart-manifest': 'put'},
+                          hdrs={'If-None-Match': '"not-star"'})
+        self.assert_status(400)
+
+        file_item.write(manifest, parms={'multipart-manifest': 'put'},
+                        hdrs={'If-None-Match': '*'})
+        self.assert_status(201)
+
+        self.assertRaises(ResponseError, file_item.write, manifest,
+                          parms={'multipart-manifest': 'put'},
+                          hdrs={'If-None-Match': '*'})
+        self.assert_status(412)
+
     def test_slo_if_none_match_get(self):
         manifest = self.env.container.file("manifest-abcde")
         etag = manifest.info()['etag']
