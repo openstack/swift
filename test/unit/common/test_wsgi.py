@@ -380,6 +380,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True,
+                                                          select=True,
                                                           thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
@@ -468,6 +469,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True,
+                                                          select=True,
                                                           thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
@@ -520,6 +522,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True,
+                                                          select=True,
                                                           thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)

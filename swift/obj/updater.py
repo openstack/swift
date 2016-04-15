@@ -94,7 +94,8 @@ class ObjectUpdater(Daemon):
                     pids.append(pid)
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                    patcher.monkey_patch(all=False, socket=True, thread=True)
+                    patcher.monkey_patch(all=False, socket=True, select=True,
+                                         thread=True)
                     self.successes = 0
                     self.failures = 0
                     forkbegin = time.time()
