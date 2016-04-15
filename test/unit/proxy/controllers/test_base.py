@@ -720,6 +720,32 @@ class TestFuncs(unittest.TestCase):
         handler.fast_forward(20)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=-80')
 
+    def test_range_fast_forward_after_data_timeout(self):
+        req = Request.blank('/')
+
+        # We get a 200 and learn that it's a 1000-byte object, but receive 0
+        # bytes of data, so then we get a new node, fast_forward(0), and
+        # send out a new request. That new request must be for all 1000
+        # bytes.
+        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler.learn_size_from_content_range(0, 999, 1000)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-999')
+
+        # Same story as above, but a 1-byte object so we can have our byte
+        # indices be 0.
+        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler.learn_size_from_content_range(0, 0, 1)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-0')
+
+        # last 100 bytes
+        handler = GetOrHeadHandler(None, req, None, None, None, None,
+                                   {'Range': 'bytes=-100'})
+        handler.learn_size_from_content_range(900, 999, 1000)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=900-999')
+
     def test_transfer_headers_with_sysmeta(self):
         base = Controller(self.app)
         good_hdrs = {'x-base-sysmeta-foo': 'ok',
