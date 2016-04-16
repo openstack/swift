@@ -231,12 +231,13 @@ class TestRange(unittest.TestCase):
 
     def test_range_invalid_syntax(self):
 
-        def _check_invalid_range(range_value):
+        def _assert_invalid_range(range_value):
             try:
                 swift.common.swob.Range(range_value)
-                return False
+                self.fail("Expected %r to be invalid, but wasn't" %
+                          (range_value,))
             except ValueError:
-                return True
+                pass
 
         """
         All the following cases should result ValueError exception
@@ -248,15 +249,16 @@ class TestRange(unittest.TestCase):
         6. any combination of the above
         """
 
-        self.assertTrue(_check_invalid_range('nonbytes=foobar,10-2'))
-        self.assertTrue(_check_invalid_range('bytes=5-3'))
-        self.assertTrue(_check_invalid_range('bytes=-'))
-        self.assertTrue(_check_invalid_range('bytes=45'))
-        self.assertTrue(_check_invalid_range('bytes=foo-bar,3-5'))
-        self.assertTrue(_check_invalid_range('bytes=4-10,45'))
-        self.assertTrue(_check_invalid_range('bytes=foobar,3-5'))
-        self.assertTrue(_check_invalid_range('bytes=nonumber-5'))
-        self.assertTrue(_check_invalid_range('bytes=nonumber'))
+        _assert_invalid_range('nonbytes=foobar,10-2')
+        _assert_invalid_range('bytes=5-3')
+        _assert_invalid_range('bytes=-')
+        _assert_invalid_range('bytes=45')
+        _assert_invalid_range('bytes=foo-bar,3-5')
+        _assert_invalid_range('bytes=4-10,45')
+        _assert_invalid_range('bytes=foobar,3-5')
+        _assert_invalid_range('bytes=nonumber-5')
+        _assert_invalid_range('bytes=nonumber')
+        _assert_invalid_range('bytes=--1')
 
 
 class TestMatch(unittest.TestCase):
