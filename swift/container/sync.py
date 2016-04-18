@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
 import errno
 import os
 import uuid
@@ -198,6 +199,14 @@ class ContainerSync(Daemon):
         self.container_skips = 0
         #: Number of containers that had a failure of some type.
         self.container_failures = 0
+
+        #: Per container stats. These are collected per container.
+        #: puts - the number of puts that were done for the container
+        #: deletes - the number of deletes that were fot the container
+        #: bytes - the total number of bytes transferred per the container
+        self.container_stats = collections.defaultdict(int)
+        self.container_stats.clear()
+
         #: Time of last stats report.
         self.reported = time()
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -239,6 +248,7 @@ class ContainerSync(Daemon):
         while True:
             begin = time()
             for path in self.sync_store.synced_containers_generator():
+                self.container_stats.clear()
                 self.container_sync(path)
                 if time() - self.reported >= 3600:  # once an hour
                     self.report()
@@ -281,6 +291,30 @@ class ContainerSync(Daemon):
         self.container_puts = 0
         self.container_skips = 0
         self.container_failures = 0
+
+    def container_report(self, start, end, sync_point1, sync_point2, info,
+                         max_row):
+        self.logger.info(_('Container sync report: %(container)s, '
+                           'time window start: %(start)s, '
+                           'time window end: %(end)s, '
+                           'puts: %(puts)s, '
+                           'posts: %(posts)s, '
+                           'deletes: %(deletes)s, '
+                           'bytes: %(bytes)s, '
+                           'sync_point1: %(point1)s, '
+                           'sync_point2: %(point2)s, '
+                           'total_rows: %(total)s'),
+                         {'container': '%s/%s' % (info['account'],
+                                                  info['container']),
+                          'start': start,
+                          'end': end,
+                          'puts': self.container_stats['puts'],
+                          'posts': 0,
+                          'deletes': self.container_stats['deletes'],
+                          'bytes': self.container_stats['bytes'],
+                          'point1': sync_point1,
+                          'point2': sync_point2,
+                          'total': max_row})
 
     def container_sync(self, path):
         """
@@ -339,51 +373,68 @@ class ContainerSync(Daemon):
                     self.container_failures += 1
                     self.logger.increment('failures')
                     return
-                stop_at = time() + self.container_time
+                start_at = time()
+                stop_at = start_at + self.container_time
                 next_sync_point = None
-                while time() < stop_at and sync_point2 < sync_point1:
-                    rows = broker.get_items_since(sync_point2, 1)
-                    if not rows:
-                        break
-                    row = rows[0]
-                    if row['ROWID'] > sync_point1:
-                        break
-                    # This node will only initially sync out one third of the
-                    # objects (if 3 replicas, 1/4 if 4, etc.) and will skip
-                    # problematic rows as needed in case of faults.
-                    # This section will attempt to sync previously skipped
-                    # rows in case the previous attempts by any of the nodes
-                    # didn't succeed.
-                    if not self.container_sync_row(
-                            row, sync_to, user_key, broker, info, realm,
-                            realm_key):
-                        if not next_sync_point:
-                            next_sync_point = sync_point2
-                    sync_point2 = row['ROWID']
-                    broker.set_x_container_sync_points(None, sync_point2)
-                if next_sync_point:
-                    broker.set_x_container_sync_points(None, next_sync_point)
-                while time() < stop_at:
-                    rows = broker.get_items_since(sync_point1, 1)
-                    if not rows:
-                        break
-                    row = rows[0]
-                    key = hash_path(info['account'], info['container'],
-                                    row['name'], raw_digest=True)
-                    # This node will only initially sync out one third of the
-                    # objects (if 3 replicas, 1/4 if 4, etc.). It'll come back
-                    # around to the section above and attempt to sync
-                    # previously skipped rows in case the other nodes didn't
-                    # succeed or in case it failed to do so the first time.
-                    if unpack_from('>I', key)[0] % \
-                            len(nodes) == ordinal:
-                        self.container_sync_row(
-                            row, sync_to, user_key, broker, info, realm,
-                            realm_key)
-                    sync_point1 = row['ROWID']
-                    broker.set_x_container_sync_points(sync_point1, None)
-                self.container_syncs += 1
-                self.logger.increment('syncs')
+                sync_stage_time = start_at
+                try:
+                    while time() < stop_at and sync_point2 < sync_point1:
+                        rows = broker.get_items_since(sync_point2, 1)
+                        if not rows:
+                            break
+                        row = rows[0]
+                        if row['ROWID'] > sync_point1:
+                            break
+                        # This node will only initially sync out one third
+                        # of the objects (if 3 replicas, 1/4 if 4, etc.)
+                        # and will skip problematic rows as needed in case of
+                        # faults.
+                        # This section will attempt to sync previously skipped
+                        # rows in case the previous attempts by any of the
+                        # nodes didn't succeed.
+                        if not self.container_sync_row(
+                                row, sync_to, user_key, broker, info, realm,
+                                realm_key):
+                            if not next_sync_point:
+                                next_sync_point = sync_point2
+                        sync_point2 = row['ROWID']
+                        broker.set_x_container_sync_points(None, sync_point2)
+                    if next_sync_point:
+                        broker.set_x_container_sync_points(None,
+                                                           next_sync_point)
+                    else:
+                        next_sync_point = sync_point2
+                    sync_stage_time = time()
+                    while sync_stage_time < stop_at:
+                        rows = broker.get_items_since(sync_point1, 1)
+                        if not rows:
+                            break
+                        row = rows[0]
+                        key = hash_path(info['account'], info['container'],
+                                        row['name'], raw_digest=True)
+                        # This node will only initially sync out one third of
+                        # the objects (if 3 replicas, 1/4 if 4, etc.).
+                        # It'll come back around to the section above
+                        # and attempt to sync previously skipped rows in case
+                        # the other nodes didn't succeed or in case it failed
+                        # to do so the first time.
+                        if unpack_from('>I', key)[0] % \
+                                len(nodes) == ordinal:
+                            self.container_sync_row(
+                                row, sync_to, user_key, broker, info, realm,
+                                realm_key)
+                        sync_point1 = row['ROWID']
+                        broker.set_x_container_sync_points(sync_point1, None)
+                        sync_stage_time = time()
+                    self.container_syncs += 1
+                    self.logger.increment('syncs')
+                except Exception as ex:
+                    raise ex
+                finally:
+                    self.container_report(start_at, sync_stage_time,
+                                          sync_point1,
+                                          next_sync_point,
+                                          info, broker.get_max_row())
         except (Exception, Timeout):
             self.container_failures += 1
             self.logger.increment('failures')
@@ -506,6 +557,7 @@ class ContainerSync(Daemon):
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
                 self.container_deletes += 1
+                self.container_stats['deletes'] += 1
                 self.logger.increment('deletes')
                 self.logger.timing_since('deletes.timing', start_time)
             else:
@@ -556,6 +608,8 @@ class ContainerSync(Daemon):
                            proxy=self.select_http_proxy(), logger=self.logger,
                            timeout=self.conn_timeout)
                 self.container_puts += 1
+                self.container_stats['puts'] += 1
+                self.container_stats['bytes'] += row['size']
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
         except ClientException as err:
