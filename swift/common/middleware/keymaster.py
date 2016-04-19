@@ -28,28 +28,38 @@ import hashlib
 import hmac
 import os
 
-from swift.common.utils import get_logger, split_path
-from swift.common.crypto_utils import is_crypto_meta, CRYPTO_KEY_CALLBACK
+from swift.common.utils import get_logger, split_path, config_true_value
+from swift.common.crypto_utils import is_crypto_meta, CRYPTO_KEY_CALLBACK,\
+    parse_header_keys
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.wsgi import WSGIContext
 from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
 
 
 class KeyMasterContext(WSGIContext):
-    def __init__(self, keymaster, account, container, obj):
+    def __init__(self, keymaster, keys, account, container, obj):
+        """
+        :param keymaster: a Keymaster instance
+        :param keys: a dict of keys to be used in this context (may be empty)
+        :param account: account name
+        :param container: container name
+        :param obj: object name
+        """
         super(KeyMasterContext, self).__init__(keymaster.app)
         self.keymaster = keymaster
         self.logger = keymaster.logger
         self.account = account
         self.container = container
         self.obj = obj
+        self.keys = keys
         self._init_keys()
 
     def _init_keys(self):
         """
-        Setup default container and object keys based on the request path.
+        Setup default container and object keys based on the request path. Any
+        keys not already specified when this context was initialised are
+        created here.
         """
-        self.keys = {}
         self.account_path = os.path.join(os.sep, self.account)
         self.container_path = self.obj_path = None
         self.server_type = 'account'
@@ -58,14 +68,14 @@ class KeyMasterContext(WSGIContext):
             self.server_type = 'container'
             self.container_path = os.path.join(self.account_path,
                                                self.container)
-            self.keys['container'] = self.keymaster.create_key(
-                self.container_path)
+            self.keys.setdefault(
+                'container', self.keymaster.create_key(self.container_path))
 
             if self.obj:
                 self.server_type = 'object'
                 self.obj_path = os.path.join(self.container_path, self.obj)
-                self.keys['object'] = self.keymaster.create_key(
-                    self.obj_path)
+                self.keys.setdefault(
+                    'object', self.keymaster.create_key(self.obj_path))
 
     def _handle_post_or_put(self, req, start_response):
         req.environ[CRYPTO_KEY_CALLBACK] = self.fetch_crypto_keys
@@ -121,7 +131,8 @@ class KeyMasterContext(WSGIContext):
         self.logger.debug("No keys necessary for path %s" % req.path)
 
     def provide_keys_get_or_head(self, req, rederive):
-        if rederive and self.obj_path:
+        if (not parse_header_keys(req) and rederive and
+                self.obj_path):
             # TODO: re-examine need for this special handling once COPY has
             # been moved to middleware.
             # For object GET or HEAD we look for a key_id that may have been
@@ -182,9 +193,24 @@ class KeyMaster(object):
         except ValueError:
             return self.app(env, start_response)
 
+        if (req.method in ('PUT', 'POST') and
+                config_true_value(req.headers.get('X-Crypto-Override'))):
+            req.environ['swift.crypto.override'] = True
+            return self.app(env, start_response)
+
         if hasattr(KeyMasterContext, req.method):
             # handle only those request methods that may require keys
-            km_context = KeyMasterContext(self, *parts[1:])
+            try:
+                header_keys = parse_header_keys(req)
+            except HTTPException as err_resp:
+                # TODO: this prevents the decrypter attempting (and failing) to
+                # get keys for the error response when in fact there are no
+                # keys, and actually nothing to decrypt. It would be better if
+                # the decrypter just never attempted to get keys unless there
+                # was crypo meta indicating something needs decrypting.
+                req.environ['swift.crypto.override'] = True
+                return err_resp(env, start_response)
+            km_context = KeyMasterContext(self, header_keys, *parts[1:])
             try:
                 return getattr(km_context, req.method)(req, start_response)
             except HTTPException as err_resp:
