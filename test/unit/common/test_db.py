@@ -1147,6 +1147,18 @@ class TestDatabaseBroker(unittest.TestCase):
         except HTTPException:
             self.fail('Unexpected HTTPException')
 
+    def test_metadata_raises_exception_on_non_utf8(self):
+        def try_validate(metadata):
+            try:
+                DatabaseBroker.validate_metadata(metadata)
+            except HTTPException as e:
+                self.assertEqual(str(e), '400 Bad Request')
+            else:
+                self.fail('HTTPException not raised')
+        ts = normalize_timestamp(1)
+        try_validate({'X-Account-Meta-Foo': (b'\xff', ts)})
+        try_validate({b'X-Container-Meta-\xff': ('bar', ts)})
+
     def test_metadata_raises_exception_over_max_count(self):
         metadata = {}
         for c in range(MAX_META_COUNT + 1):

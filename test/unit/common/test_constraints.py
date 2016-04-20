@@ -22,7 +22,7 @@ from six.moves import range
 from test import safe_repr
 from test.unit import MockTrue
 
-from swift.common.swob import HTTPBadRequest, Request, HTTPException
+from swift.common.swob import Request, HTTPException
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
     HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED, HTTP_NOT_IMPLEMENTED
 from swift.common import constraints, utils
@@ -49,8 +49,20 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_empty_name(self):
         headers = {'X-Object-Meta-': 'Value'}
-        self.assertTrue(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), HTTPBadRequest)
+        self.assertEqual(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
+
+    def test_check_metadata_non_utf8(self):
+        headers = {'X-Account-Meta-Foo': b'\xff'}
+        self.assertEqual(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'account').status_int, HTTP_BAD_REQUEST)
+        headers = {b'X-Container-Meta-\xff': 'foo'}
+        self.assertEqual(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'container').status_int, HTTP_BAD_REQUEST)
+        # Object's OK; its metadata isn't serialized as JSON
+        headers = {'X-Object-Meta-Foo': b'\xff'}
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
     def test_check_metadata_name_length(self):
         name = 'a' * constraints.MAX_META_NAME_LENGTH
