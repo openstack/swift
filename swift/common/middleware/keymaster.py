@@ -194,10 +194,6 @@ class KeyMaster(object):
         return self.app(env, start_response)
 
     def create_key(self, key_id):
-        key_id = 'fixed'
-        # TODO: setting key_id to 'fixed' is a temporary workaround for
-        # problems caused by the lack of copy middleware. Once that is merged,
-        # we can remove the above line.
         return hmac.new(self.root_secret, key_id,
                         digestmod=hashlib.sha256).digest()
 

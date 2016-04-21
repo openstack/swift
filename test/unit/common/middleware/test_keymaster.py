@@ -77,6 +77,36 @@ class TestKeymaster(unittest.TestCase):
                 self.assertDictEqual(put_keys, keys)
             else:
                 put_keys = keys
+        return put_keys
+
+    def test_key_uniqueness(self):
+        # a rudimentary check that different keys are made for different paths
+        ref_path_parts = ('a1', 'c1', 'o1')
+        path = '/' + '/'.join(ref_path_parts)
+        ref_keys = self.verify_keys_for_path(
+            '/v1' + path, expected_keys=('object', 'container'),
+            key_id=base64.b64encode(path))
+
+        # for same path and for each differing path check that keys are unique
+        # when path to object or container is unique and vice-versa
+        for path_parts in [(a, c, o) for a in ('a1', 'a2')
+                           for c in ('c1', 'c2')
+                           for o in ('o1', 'o2')]:
+            path = '/' + '/'.join(path_parts)
+            keys = self.verify_keys_for_path(
+                '/v1' + path, expected_keys=('object', 'container'),
+                key_id=base64.b64encode(path))
+            # object keys should only be equal when complete paths are equal
+            self.assertEqual(path_parts == ref_path_parts,
+                             keys['object'] == ref_keys['object'],
+                             'Path %s keys:\n%s\npath %s keys\n%s' %
+                             (ref_path_parts, ref_keys, path_parts, keys))
+            # container keys should only be equal when paths to container are
+            # equal
+            self.assertEqual(path_parts[:2] == ref_path_parts[:2],
+                             keys['container'] == ref_keys['container'],
+                             'Path %s keys:\n%s\npath %s keys\n%s' %
+                             (ref_path_parts, ref_keys, path_parts, keys))
 
     def test_object_with_different_key_id(self):
         # object was put using different path; stored key_id should be used
