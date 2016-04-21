@@ -49,6 +49,7 @@ class FakeSwift(object):
         self._unclosed_req_paths = defaultdict(int)
         self.req_method_paths = []
         self.swift_sources = []
+        self.txn_ids = []
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
@@ -83,6 +84,7 @@ class FakeSwift(object):
 
         req_headers = swob.Request(env).headers
         self.swift_sources.append(env.get('swift.source'))
+        self.txn_ids.append(env.get('swift.trans_id'))
 
         try:
             resp_class, raw_headers, body = self._find_response(method, path)
