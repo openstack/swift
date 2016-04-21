@@ -137,9 +137,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             status, headers, body = self.call_vw(req)
             self.assertEqual(status, "412 Precondition Failed")
 
-        # GET/HEAD performs as normal
+        # GET performs as normal
         self.app.register('GET', '/v1/a/c', swob.HTTPOk, {}, 'passed')
-        self.app.register('HEAD', '/v1/a/c', swob.HTTPOk, {}, 'passed')
 
         for method in ('GET', 'HEAD'):
             req = Request.blank('/v1/a/c',
@@ -162,7 +161,31 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual('POST', method)
         self.assertEqual('/v1/a/c', path)
         self.assertTrue('x-container-sysmeta-versions-location' in req_headers)
+        self.assertEqual('',
+                         req_headers['x-container-sysmeta-versions-location'])
         self.assertTrue('x-versions-location' in req_headers)
+        self.assertEqual('', req_headers['x-versions-location'])
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
+    def test_empty_versions_location(self):
+        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Versions-Location': ''},
+                            environ={'REQUEST_METHOD': 'POST'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '200 OK')
+
+        # check for sysmeta header
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[0]
+        self.assertEqual('POST', method)
+        self.assertEqual('/v1/a/c', path)
+        self.assertTrue('x-container-sysmeta-versions-location' in req_headers)
+        self.assertEqual('',
+                         req_headers['x-container-sysmeta-versions-location'])
+        self.assertTrue('x-versions-location' in req_headers)
+        self.assertEqual('', req_headers['x-versions-location'])
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -240,51 +263,27 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'HEAD', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+            'GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
 
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100'})
+                     'CONTENT_LENGTH': '100',
+                     'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-
-    def test_PUT_versioning_with_nonzero_default_policy(self):
-        self.app.register(
-            'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
-        self.app.register(
-            'HEAD', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
-
-        cache = FakeCache({'versions': 'ver_cont', 'storage_policy': '2'})
-        req = Request.blank(
-            '/v1/a/c/o',
-            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-
-        # check for 'X-Backend-Storage-Policy-Index' in HEAD request
-        calls = self.app.calls_with_headers
-        method, path, req_headers = calls[0]
-        self.assertEqual('HEAD', method)
-        self.assertEqual('/v1/a/c/o', path)
-        self.assertTrue('X-Backend-Storage-Policy-Index' in req_headers)
-        self.assertEqual('2',
-                         req_headers.get('X-Backend-Storage-Policy-Index'))
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(2, self.app.call_count)
+        self.assertEqual(['VW', None], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
 
     def test_put_object_no_versioning_with_container_config_true(self):
-        # set False to versions_write obsously and expect no COPY occurred
+        # set False to versions_write and expect no GET occurred
         self.vw.conf = {'allow_versioned_writes': 'false'}
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
-        self.app.register(
-            'HEAD', '/v1/a/c/o', swob.HTTPOk,
-            {'last-modified': 'Wed, 19 Nov 2014 18:19:02 GMT'}, 'passed')
         cache = FakeCache({'versions': 'ver_cont'})
         req = Request.blank(
             '/v1/a/c/o',
@@ -295,11 +294,46 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
         called_method = [method for (method, path, hdrs) in self.app._calls]
-        self.assertTrue('COPY' not in called_method)
+        self.assertTrue('GET' not in called_method)
+
+    def test_put_request_is_dlo_manifest_with_container_config_true(self):
+        # set x-object-manifest on request and expect no versioning occurred
+        # only the PUT for the original client request
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        cache = FakeCache({'versions': 'ver_cont'})
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'})
+        req.headers['X-Object-Manifest'] = 'req/manifest'
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(1, self.app.call_count)
+
+    def test_put_version_is_dlo_manifest_with_container_config_true(self):
+        # set x-object-manifest on response and expect no versioning occurred
+        # only initial GET on source object ok followed by PUT
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Object-Manifest': 'resp/manifest'}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        cache = FakeCache({'versions': 'ver_cont'})
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(2, self.app.call_count)
 
     def test_delete_object_no_versioning_with_container_config_true(self):
         # set False to versions_write obviously and expect no GET versioning
-        # container and COPY called (just delete object as normal)
+        # container and PUT called (just delete object as normal)
         self.vw.conf = {'allow_versioned_writes': 'false'}
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, 'passed')
@@ -313,8 +347,9 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertRequestEqual(req, self.authorized[0])
         called_method = \
             [method for (method, path, rheaders) in self.app._calls]
-        self.assertTrue('COPY' not in called_method)
+        self.assertTrue('PUT' not in called_method)
         self.assertTrue('GET' not in called_method)
+        self.assertEqual(1, self.app.call_count)
 
     def test_copy_object_no_versioning_with_container_config_true(self):
         # set False to versions_write obviously and expect no extra
@@ -337,31 +372,90 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
 
     def test_new_version_success(self):
         self.app.register(
-            'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
         self.app.register(
-            'HEAD', '/v1/a/c/o', swob.HTTPOk,
-            {'last-modified': 'Wed, 19 Nov 2014 18:19:02 GMT'}, 'passed')
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
         self.app.register(
-            'COPY', '/v1/a/c/o', swob.HTTPCreated, {}, None)
+            'PUT', '/v1/a/ver_cont/001o/0000000001.00000', swob.HTTPCreated,
+            {}, None)
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100',
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(['VW', 'VW', None], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
+
+    def test_new_version_get_errors(self):
+        # GET on source fails, expect client error response,
+        # no PUT should happen
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPBadRequest, {}, None)
+        cache = FakeCache({'versions': 'ver_cont'})
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertEqual(1, self.app.call_count)
+
+        # GET on source fails, expect server error response
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPBadGateway, {}, None)
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertEqual(2, self.app.call_count)
+
+    def test_new_version_put_errors(self):
+        # PUT of version fails, expect client error response
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/ver_cont/001o/0000000001.00000',
+            swob.HTTPUnauthorized, {}, None)
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertEqual(2, self.app.call_count)
+
+        # PUT of version fails, expect server error response
+        self.app.register(
+            'PUT', '/v1/a/ver_cont/001o/0000000001.00000', swob.HTTPBadGateway,
+            {}, None)
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '503 Service Unavailable')
+        self.assertEqual(4, self.app.call_count)
 
     @local_tz
     def test_new_version_sysmeta_precedence(self):
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'HEAD', '/v1/a/c/o', swob.HTTPOk,
+            'GET', '/v1/a/c/o', swob.HTTPOk,
             {'last-modified': 'Thu, 1 Jan 1970 00:00:00 GMT'}, 'passed')
         self.app.register(
-            'COPY', '/v1/a/c/o', swob.HTTPCreated, {}, None)
+            'PUT', '/v1/a/ver_cont/001o/0000000000.00000', swob.HTTPOk,
+            {}, None)
 
         # fill cache with two different values for versions location
         # new middleware should use sysmeta first
@@ -379,16 +473,14 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         # check that sysmeta header was used
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[1]
-        self.assertEqual('COPY', method)
-        self.assertEqual('/v1/a/c/o', path)
-        self.assertEqual('ver_cont/001o/0000000000.00000',
-                         req_headers['Destination'])
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/ver_cont/001o/0000000000.00000', path)
 
     def test_copy_first_version(self):
         self.app.register(
             'COPY', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'HEAD', '/v1/a/tgt_cont/tgt_obj', swob.HTTPNotFound, {}, None)
+            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPNotFound, {}, None)
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
         req = Request.blank(
             '/v1/a/src_cont/src_obj',
@@ -399,15 +491,17 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(2, self.app.call_count)
 
     def test_copy_new_version(self):
         self.app.register(
             'COPY', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'HEAD', '/v1/a/tgt_cont/tgt_obj', swob.HTTPOk,
-            {'last-modified': 'Wed, 19 Nov 2014 18:19:02 GMT'}, 'passed')
+            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
         self.app.register(
-            'COPY', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated, {}, None)
+            'PUT', '/v1/a/ver_cont/007tgt_obj/0000000001.00000', swob.HTTPOk,
+            {}, None)
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
         req = Request.blank(
             '/v1/a/src_cont/src_obj',
@@ -418,15 +512,17 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(3, self.app.call_count)
 
     def test_copy_new_version_different_account(self):
         self.app.register(
             'COPY', '/v1/src_a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
         self.app.register(
-            'HEAD', '/v1/tgt_a/tgt_cont/tgt_obj', swob.HTTPOk,
-            {'last-modified': 'Wed, 19 Nov 2014 18:19:02 GMT'}, 'passed')
+            'GET', '/v1/tgt_a/tgt_cont/tgt_obj', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
         self.app.register(
-            'COPY', '/v1/tgt_a/tgt_cont/tgt_obj', swob.HTTPCreated, {}, None)
+            'PUT', '/v1/tgt_a/ver_cont/007tgt_obj/0000000001.00000',
+            swob.HTTPOk, {}, None)
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
         req = Request.blank(
             '/v1/src_a/src_cont/src_obj',
@@ -438,6 +534,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(3, self.app.call_count)
 
     def test_copy_new_version_bogus_account(self):
         cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
@@ -462,11 +559,14 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '0'})
+                     'CONTENT_LENGTH': '0', 'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(2, self.app.call_count)
+        self.assertEqual(['VW', None], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
 
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
@@ -475,8 +575,6 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         ])
 
     def test_delete_latest_version_success(self):
-        self.app.register(
-            'DELETE', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
             'GET',
             '/v1/a/ver_cont?format=json&prefix=001o/&marker=&reverse=on',
@@ -492,8 +590,10 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             '"name": "001o/1", '
             '"content_type": "text/plain"}]')
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPCreated,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/2', swob.HTTPCreated,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/2', swob.HTTPOk,
             {}, None)
@@ -503,11 +603,14 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             '/v1/a/c/o',
             headers={'X-If-Delete-At': 1},
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '0'})
+                     'CONTENT_LENGTH': '0', 'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(4, self.app.call_count)
+        self.assertEqual(['VW', 'VW', 'VW', 'VW'], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
 
         # check that X-If-Delete-At was removed from DELETE request
         req_headers = self.app.headers[-1]
@@ -516,7 +619,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('COPY', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])
 
@@ -535,8 +639,10 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             '"name": "001o/1", '
             '"content_type": "text/plain"}]')
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/1', swob.HTTPCreated,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/1', swob.HTTPOk,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/1', swob.HTTPOk,
             {}, None)
@@ -554,7 +660,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('COPY', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
 
@@ -576,11 +683,13 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
 
         # expired object
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/2', swob.HTTPNotFound,
             {}, None)
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/1', swob.HTTPCreated,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/1', swob.HTTPCreated,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPOk, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/1', swob.HTTPOk,
             {}, None)
@@ -594,19 +703,19 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(5, self.app.call_count)
 
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('COPY', '/v1/a/ver_cont/001o/2'),
-            ('COPY', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
 
     def test_denied_DELETE_of_versioned_object(self):
         authorize_call = []
-        self.app.register(
-            'DELETE', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register(
             'GET',
             '/v1/a/ver_cont?format=json&prefix=001o/&marker=&reverse=on',
@@ -621,11 +730,9 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             '"bytes": 3, '
             '"name": "001o/1", '
             '"content_type": "text/plain"}]')
-        self.app.register(
-            'DELETE', '/v1/a/c/o', swob.HTTPForbidden,
-            {}, None)
 
         def fake_authorize(req):
+            # the container GET is pre-auth'd so here we deny the object DELETE
             authorize_call.append(req)
             return swob.HTTPForbidden()
 
@@ -669,8 +776,10 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             '&marker=001o/2',
             swob.HTTPNotFound, {}, None)
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPCreated,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/2', swob.HTTPCreated,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/2', swob.HTTPOk,
             {}, None)
@@ -680,11 +789,15 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             '/v1/a/c/o',
             headers={'X-If-Delete-At': 1},
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '0'})
+                     'CONTENT_LENGTH': '0', 'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(5, self.app.call_count)
+        self.assertEqual(['VW', 'VW', 'VW', 'VW', 'VW'],
+                         self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
 
         # check that X-If-Delete-At was removed from DELETE request
         req_headers = self.app.headers[-1]
@@ -694,7 +807,8 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=001o/2'),
-            ('COPY', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])
 
@@ -720,11 +834,13 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
 
         # expired object
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/2', swob.HTTPNotFound,
             {}, None)
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/1', swob.HTTPCreated,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/1', swob.HTTPCreated,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPOk, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/1', swob.HTTPOk,
             {}, None)
@@ -738,13 +854,15 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(6, self.app.call_count)
 
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=001o/2'),
-            ('COPY', '/v1/a/ver_cont/001o/2'),
-            ('COPY', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
 
@@ -810,13 +928,13 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             swob.HTTPOk, {}, json.dumps(list(reversed(old_versions[2:]))))
         # but all objects are already gone
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/4', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/4', swob.HTTPNotFound,
             {}, None)
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/3', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/3', swob.HTTPNotFound,
             {}, None)
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/2', swob.HTTPNotFound,
             {}, None)
 
         # second container server can't reverse
@@ -839,8 +957,10 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             'marker=001o/1&end_marker=001o/2',
             swob.HTTPOk, {}, '[]')
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/1', swob.HTTPOk,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/1', swob.HTTPOk,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/1', swob.HTTPNoContent,
             {}, None)
@@ -855,14 +975,15 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('COPY', '/v1/a/ver_cont/001o/4'),
-            ('COPY', '/v1/a/ver_cont/001o/3'),
-            ('COPY', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/4'),
+            ('GET', '/v1/a/ver_cont/001o/3'),
+            ('GET', '/v1/a/ver_cont/001o/2'),
             ('GET', prefix_listing_prefix + 'marker=001o/2&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=&end_marker=001o/2'),
             ('GET', prefix_listing_prefix + 'marker=001o/0&end_marker=001o/2'),
             ('GET', prefix_listing_prefix + 'marker=001o/1&end_marker=001o/2'),
-            ('COPY', '/v1/a/ver_cont/001o/1'),
+            ('GET', '/v1/a/ver_cont/001o/1'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/1'),
         ])
 
@@ -882,10 +1003,10 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             swob.HTTPOk, {}, json.dumps(list(reversed(old_versions[-2:]))))
         # but both objects are already gone
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/4', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/4', swob.HTTPNotFound,
             {}, None)
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/3', swob.HTTPNotFound,
+            'GET', '/v1/a/ver_cont/001o/3', swob.HTTPNotFound,
             {}, None)
 
         # second container server can't reverse
@@ -908,8 +1029,10 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             'marker=001o/2&end_marker=001o/3',
             swob.HTTPOk, {}, '[]')
         self.app.register(
-            'COPY', '/v1/a/ver_cont/001o/2', swob.HTTPOk,
-            {}, None)
+            'GET', '/v1/a/ver_cont/001o/2', swob.HTTPOk,
+            {'content-length': '3'}, None)
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, None)
         self.app.register(
             'DELETE', '/v1/a/ver_cont/001o/2', swob.HTTPNoContent,
             {}, None)
@@ -924,12 +1047,13 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
         prefix_listing_prefix = '/v1/a/ver_cont?format=json&prefix=001o/&'
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
-            ('COPY', '/v1/a/ver_cont/001o/4'),
-            ('COPY', '/v1/a/ver_cont/001o/3'),
+            ('GET', '/v1/a/ver_cont/001o/4'),
+            ('GET', '/v1/a/ver_cont/001o/3'),
             ('GET', prefix_listing_prefix + 'marker=001o/3&reverse=on'),
             ('GET', prefix_listing_prefix + 'marker=&end_marker=001o/3'),
             ('GET', prefix_listing_prefix + 'marker=001o/1&end_marker=001o/3'),
             ('GET', prefix_listing_prefix + 'marker=001o/2&end_marker=001o/3'),
-            ('COPY', '/v1/a/ver_cont/001o/2'),
+            ('GET', '/v1/a/ver_cont/001o/2'),
+            ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])

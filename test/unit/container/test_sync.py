@@ -58,6 +58,9 @@ class FakeContainerBroker(object):
         self.sync_point1 = -1
         self.sync_point2 = -1
 
+    def get_max_row(self):
+        return 1
+
     def get_info(self):
         return self.info
 
@@ -736,6 +739,67 @@ class TestContainerSync(unittest.TestCase):
             sync.hash_path = orig_hash_path
             sync.delete_object = orig_delete_object
 
+    def test_container_report(self):
+        container_stats = {'puts': 0,
+                           'deletes': 0,
+                           'bytes': 0}
+
+        def fake_container_sync_row(self, row, sync_to,
+                                    user_key, broker, info, realm, realm_key):
+            if 'deleted' in row:
+                container_stats['deletes'] += 1
+                return True
+
+            container_stats['puts'] += 1
+            container_stats['bytes'] += row['size']
+            return True
+
+        def fake_hash_path(account, container, obj, raw_digest=False):
+            # Ensures that no rows match for second loop, ordinal is 0 and
+            # all hashes are 1
+            return '\x01' * 16
+
+        fcb = FakeContainerBroker(
+            'path',
+            info={'account': 'a', 'container': 'c',
+                  'storage_policy_index': 0,
+                  'x_container_sync_point1': 5,
+                  'x_container_sync_point2': -1},
+            metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
+                      'x-container-sync-key': ('key', 1)},
+            items_since=[{'ROWID': 1, 'name': 'o1', 'size': 0,
+                          'deleted': True},
+                         {'ROWID': 2, 'name': 'o2', 'size': 1010},
+                         {'ROWID': 3, 'name': 'o3', 'size': 0,
+                          'deleted': True},
+                         {'ROWID': 4, 'name': 'o4', 'size': 90},
+                         {'ROWID': 5, 'name': 'o5', 'size': 0}])
+
+        with mock.patch('swift.container.sync.InternalClient'), \
+                mock.patch('swift.container.sync.hash_path',
+                           fake_hash_path), \
+                mock.patch('swift.container.sync.ContainerBroker',
+                           lambda p: fcb):
+            cring = FakeRing()
+            cs = sync.ContainerSync({}, container_ring=cring,
+                                    logger=self.logger)
+            cs.container_stats = container_stats
+            cs._myips = ['10.0.0.0']    # Match
+            cs._myport = 1000           # Match
+            cs.allowed_sync_hosts = ['127.0.0.1']
+            funcType = type(sync.ContainerSync.container_sync_row)
+            cs.container_sync_row = funcType(fake_container_sync_row,
+                                             cs, sync.ContainerSync)
+            cs.container_sync('isa.db')
+            # Succeeds because no rows match
+            log_line = cs.logger.get_lines_for_level('info')[0]
+            lines = log_line.split(',')
+            self.assertTrue('sync_point2: 5', lines.pop().strip())
+            self.assertTrue('sync_point1: 5', lines.pop().strip())
+            self.assertTrue('bytes: 1100', lines.pop().strip())
+            self.assertTrue('deletes: 2', lines.pop().strip())
+            self.assertTrue('puts: 3', lines.pop().strip())
+
     def test_container_sync_row_delete(self):
         self._test_container_sync_row_delete(None, None)
 
@@ -783,7 +847,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertTrue(cs.container_sync_row(
                 {'deleted': True,
                  'name': 'object',
-                 'created_at': created_at}, 'http://sync/to/path',
+                 'created_at': created_at,
+                 'size': '1000'}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -925,7 +990,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': created_at}, 'http://sync/to/path',
+                 'created_at': created_at,
+                 'size': 50}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -953,7 +1019,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': timestamp.internal}, 'http://sync/to/path',
+                 'created_at': timestamp.internal,
+                 'size': 60}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -966,7 +1033,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': '1.1'}, 'http://sync/to/path',
+                 'created_at': '1.1',
+                 'size': 60}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -987,7 +1055,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': timestamp.internal}, 'http://sync/to/path',
+                 'created_at': timestamp.internal,
+                 'size': 70}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -1011,7 +1080,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': timestamp.internal}, 'http://sync/to/path',
+                 'created_at': timestamp.internal,
+                 'size': 80}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -1038,7 +1108,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': timestamp.internal}, 'http://sync/to/path',
+                 'created_at': timestamp.internal,
+                 'size': 90}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -1055,7 +1126,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': timestamp.internal}, 'http://sync/to/path',
+                 'created_at': timestamp.internal,
+                 'size': 50}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -1072,7 +1144,8 @@ class TestContainerSync(unittest.TestCase):
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': timestamp.internal}, 'http://sync/to/path',
+                 'created_at': timestamp.internal,
+                 'size': 50}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
@@ -1093,7 +1166,8 @@ class TestContainerSync(unittest.TestCase):
             test_row = {'deleted': False,
                         'name': 'object',
                         'created_at': timestamp.internal,
-                        'etag': '1111'}
+                        'etag': '1111',
+                        'size': 10}
             test_info = {'account': 'a',
                          'container': 'c',
                          'storage_policy_index': 0}

@@ -486,7 +486,9 @@ class Range(object):
                 # when end contains non numeric value, this also causes
                 # ValueError
                 end = int(end)
-                if start is not None and end < start:
+                if end < 0:
+                    raise ValueError('Invalid Range header: %s' % headerval)
+                elif start is not None and end < start:
                     raise ValueError('Invalid Range header: %s' % headerval)
             else:
                 end = None

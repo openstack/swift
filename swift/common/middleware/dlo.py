@@ -344,12 +344,11 @@ class GetContext(WSGIContext):
                 close_if_possible(resp_iter)
                 response = self.get_or_head_response(req, value)
                 return response(req.environ, start_response)
-        else:
-            # Not a dynamic large object manifest; just pass it through.
-            start_response(self._response_status,
-                           self._response_headers,
-                           self._response_exc_info)
-            return resp_iter
+        # Not a dynamic large object manifest; just pass it through.
+        start_response(self._response_status,
+                       self._response_headers,
+                       self._response_exc_info)
+        return resp_iter
 
 
 class DynamicLargeObject(object):

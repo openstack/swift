@@ -632,6 +632,36 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(non_default_policy.idx))
 
+    def test_PUT_non_utf8_metadata(self):
+        # Set metadata header
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': Timestamp(1).internal,
+                     'X-Container-Meta-Test': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        # Set sysmeta header
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': Timestamp(1).internal,
+                     'X-Container-Sysmeta-Test': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        # Set ACL
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': Timestamp(1).internal,
+                     'X-Container-Read': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        # Send other
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': Timestamp(1).internal,
+                     'X-Will-Not-Be-Saved': b'\xff'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 202)
+
     def test_PUT_GET_metadata(self):
         # Set metadata header
         req = Request.blank(

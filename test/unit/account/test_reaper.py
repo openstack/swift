@@ -23,6 +23,7 @@ import unittest
 from logging import DEBUG
 from mock import patch, call, DEFAULT
 import six
+import eventlet
 
 from swift.account import reaper
 from swift.account.backend import DATADIR
@@ -182,6 +183,8 @@ class TestReaper(unittest.TestCase):
         if self.amount_fail < self.max_fail:
             self.amount_fail += 1
             raise self.myexp
+        if self.reap_obj_timeout:
+            raise eventlet.Timeout()
 
     def fake_direct_delete_container(self, *args, **kwargs):
         if self.amount_delete_fail < self.max_delete_fail:
@@ -191,6 +194,8 @@ class TestReaper(unittest.TestCase):
     def fake_direct_get_container(self, *args, **kwargs):
         if self.get_fail:
             raise self.myexp
+        if self.timeout:
+            raise eventlet.Timeout()
         objects = [{'name': 'o1'},
                    {'name': 'o2'},
                    {'name': six.text_type('o3')},
@@ -339,6 +344,7 @@ class TestReaper(unittest.TestCase):
         r = self.init_reaper({}, fakelogger=True)
         self.amount_fail = 0
         self.max_fail = 1
+        self.reap_obj_timeout = False
         policy = random.choice(list(POLICIES))
         with patch('swift.account.reaper.direct_delete_object',
                    self.fake_direct_delete_object):
@@ -366,6 +372,18 @@ class TestReaper(unittest.TestCase):
                          policy.object_ring.replicas - 2)
         self.assertEqual(r.stats_objects_remaining, 1)
         self.assertEqual(r.stats_objects_possibly_remaining, 1)
+
+    def test_reap_object_timeout(self):
+        r = self.init_reaper({}, fakelogger=True)
+        self.amount_fail = 1
+        self.max_fail = 0
+        self.reap_obj_timeout = True
+        with patch('swift.account.reaper.direct_delete_object',
+                   self.fake_direct_delete_object):
+            r.reap_object('a', 'c', 'partition', cont_nodes, 'o', 1)
+        self.assertEqual(r.stats_objects_remaining, 4)
+        self.assertTrue(r.logger.get_lines_for_level(
+            'error')[-1].startswith('Timeout Exception'))
 
     def test_reap_object_non_exist_policy_index(self):
         r = self.init_reaper({}, fakelogger=True)
@@ -454,6 +472,7 @@ class TestReaper(unittest.TestCase):
     def test_reap_container_partial_fail(self):
         r = self.init_reaper({}, fakelogger=True)
         self.get_fail = False
+        self.timeout = False
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
         self.max_delete_fail = 4
@@ -472,6 +491,7 @@ class TestReaper(unittest.TestCase):
     def test_reap_container_full_fail(self):
         r = self.init_reaper({}, fakelogger=True)
         self.get_fail = False
+        self.timeout = False
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
         self.max_delete_fail = 5
@@ -486,6 +506,25 @@ class TestReaper(unittest.TestCase):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 5)
         self.assertEqual(r.stats_containers_remaining, 1)
+
+    def test_reap_container_get_object_timeout(self):
+        r = self.init_reaper({}, fakelogger=True)
+        self.get_fail = False
+        self.timeout = True
+        self.reap_obj_fail = False
+        self.amount_delete_fail = 0
+        self.max_delete_fail = 0
+        with patch('swift.account.reaper.direct_get_container',
+                   self.fake_direct_get_container), \
+                patch('swift.account.reaper.direct_delete_container',
+                      self.fake_direct_delete_container), \
+                patch('swift.account.reaper.AccountReaper.get_container_ring',
+                      self.fake_container_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_object',
+                      self.fake_reap_object):
+            r.reap_container('a', 'partition', acc_nodes, 'c')
+        self.assertTrue(r.logger.get_lines_for_level(
+            'error')[-1].startswith('Timeout Exception'))
 
     @patch('swift.account.reaper.Ring',
            lambda *args, **kwargs: unit.FakeRing())
@@ -520,6 +559,8 @@ class TestReaper(unittest.TestCase):
         self.r.stats_objects_remaining = 1
         self.r.stats_containers_possibly_remaining = 1
         self.r.stats_objects_possibly_remaining = 1
+        self.r.stats_return_codes[2] = \
+            self.r.stats_return_codes.get(2, 0) + 1
 
     def test_reap_account(self):
         containers = ('c1', 'c2', 'c3', '')
@@ -547,6 +588,16 @@ class TestReaper(unittest.TestCase):
             self.assertTrue(stat_line.find('1 objects remaining'))
             self.assertTrue(stat_line.find('1 containers possibly remaining'))
             self.assertTrue(stat_line.find('1 objects possibly remaining'))
+            self.assertTrue(stat_line.find('return codes: 2 2xxs'))
+
+    @patch('swift.account.reaper.Ring',
+           lambda *args, **kwargs: unit.FakeRing())
+    def test_basic_reap_account(self):
+        self.r = reaper.AccountReaper({})
+        self.r.account_ring = None
+        self.r.get_account_ring()
+        self.assertEqual(self.r.account_ring.replica_count, 3)
+        self.assertEqual(len(self.r.account_ring.devs), 3)
 
     def test_reap_account_no_container(self):
         broker = FakeAccountBroker(tuple())
@@ -740,6 +791,13 @@ class TestReaper(unittest.TestCase):
                     'swift.account.reaper.AccountReaper.reap_device') as foo:
                 r.run_once()
         self.assertFalse(foo.called)
+
+        with patch('swift.account.reaper.AccountReaper.reap_device') as foo:
+            r.logger = unit.debug_logger('test-reaper')
+            r.devices = 'thisdeviceisbad'
+            r.run_once()
+        self.assertTrue(r.logger.get_lines_for_level(
+            'error')[-1].startswith('Exception in top-level account reaper'))
 
     def test_run_forever(self):
         def fake_sleep(val):

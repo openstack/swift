@@ -51,6 +51,7 @@ class FakeSwift(object):
         self._unclosed_req_paths = defaultdict(int)
         self.req_method_paths = []
         self.swift_sources = []
+        self.txn_ids = []
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
@@ -85,6 +86,7 @@ class FakeSwift(object):
 
         req_headers = swob.Request(env).headers
         self.swift_sources.append(env.get('swift.source'))
+        self.txn_ids.append(env.get('swift.trans_id'))
 
         try:
             resp_class, raw_headers, body = self._find_response(method, path)
@@ -144,11 +146,13 @@ class FakeSwift(object):
 
         # range requests ought to work, hence conditional_response=True
         if isinstance(body, list):
-            resp = resp_class(req=req, headers=headers, app_iter=body,
-                              conditional_response=True)
+            resp = resp_class(
+                req=req, headers=headers, app_iter=body,
+                conditional_response=req.method in ('GET', 'HEAD'))
         else:
-            resp = resp_class(req=req, headers=headers, body=body,
-                              conditional_response=True)
+            resp = resp_class(
+                req=req, headers=headers, body=body,
+                conditional_response=req.method in ('GET', 'HEAD'))
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
         return LeakTrackingIter(wsgi_iter, self, path)
