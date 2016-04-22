@@ -2611,7 +2611,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             except OSError as err:
                 exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(err.errno, errno.ENOSPC)
             # Want 1024 reserved, have 512 * 2 free, so fails
             utils.FALLOCATE_RESERVE = 1024
             StatVFS.f_frsize = 512
@@ -2621,7 +2623,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             except OSError as err:
                 exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(err.errno, errno.ENOSPC)
             # Want 2048 reserved, have 1024 * 1 free, so fails
             utils.FALLOCATE_RESERVE = 2048
             StatVFS.f_frsize = 1024
@@ -2631,7 +2635,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             except OSError as err:
                 exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 2048')
+            self.assertEqual(err.errno, errno.ENOSPC)
             # Want 2048 reserved, have 512 * 2 free, so fails
             utils.FALLOCATE_RESERVE = 2048
             StatVFS.f_frsize = 512
@@ -2641,7 +2647,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             except OSError as err:
                 exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 2048')
+            self.assertEqual(err.errno, errno.ENOSPC)
             # Want 1023 reserved, have 1024 * 1 free, but file size is 1, so
             # fails
             utils.FALLOCATE_RESERVE = 1023
@@ -2652,7 +2660,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(1))
             except OSError as err:
                 exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1023 <= 1023')
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 1023 <= 1023')
+            self.assertEqual(err.errno, errno.ENOSPC)
             # Want 1022 reserved, have 1024 * 1 free, and file size is 1, so
             # succeeds
             utils.FALLOCATE_RESERVE = 1022
@@ -2675,7 +2685,9 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             except OSError as err:
                 exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(str(exc),
+                             '[Errno 28] FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(err.errno, errno.ENOSPC)
         finally:
             utils.FALLOCATE_RESERVE = orig_FALLOCATE_RESERVE
             utils.os.fstatvfs = orig_fstatvfs
