@@ -205,6 +205,107 @@ class TestKeymaster(unittest.TestCase):
             self.assertEqual(1, len(calls))
             self.assertEqual('200 OK', calls[0][0])
 
+    def test_object_with_byok(self):
+        # assert keys are client sent keys in byok support
+        # on PUT and GET
+        path = '/v1/a/c/o'
+        obj_key = 'This is an object key 1234567890'
+        cont_key = 'This is a container key 12345678'
+        obj_key_enc = base64.b64encode(obj_key)
+        cont_key_enc = base64.b64encode(cont_key)
+        expected_keys = {'object': obj_key, 'container': cont_key}
+        for method in ('PUT', 'GET', 'POST', 'HEAD'):
+            self.swift.register(method, path, swob.HTTPOk, '')
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
+            req = Request.blank(path, environ={'REQUEST_METHOD': method},
+                                headers={'X-Crypto-Object-Key': obj_key_enc,
+                                'X-Crypto-Container-Key': cont_key_enc}
+                                )
+            start_response, calls = capture_start_response()
+            app(req.environ, start_response)
+            self.assertEqual(1, len(calls))
+            self.assertEqual('200 OK', calls[0][0])
+            self.assertIn(CRYPTO_KEY_CALLBACK, req.environ)
+            actual_keys = req.environ.get(CRYPTO_KEY_CALLBACK)()
+            self.assertEqual(expected_keys, actual_keys)
+
+    def test_object_with_bad_byok_keys(self):
+        path = '/v1/a/c/o'
+
+        def do_test(method, key_headers):
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
+            req = Request.blank(path, environ={'REQUEST_METHOD': method},
+                                headers=key_headers)
+            start_response, calls = capture_start_response()
+            app(req.environ, start_response)
+            self.assertEqual(1, len(calls), 'Unexpected calls for %r: %r' %
+                             (method, calls[0]))
+            self.assertEqual('400 Bad Request', calls[0][0],
+                             'Expected 400 Bad Request for %r but got %r' %
+                             (method, calls[0][0]))
+            self.assertIn('swift.crypto.override', req.environ)
+
+        for method in ('PUT', 'POST', 'GET', 'HEAD'):
+            # container key missing
+            do_test(method, {'X-Crypto-Object-Key':
+                    base64.b64encode('Bring your own key requires both')})
+            # object key missing
+            do_test(method, {'X-Crypto-Container-Key':
+                    base64.b64encode('Bring your own key requires both')})
+            # keys wrong length
+            do_test(method,
+                    {'X-Crypto-Container-Key':
+                        base64.b64encode('This key is not long enough :-('),
+                     'X-Crypto-Object-Key':
+                        base64.b64encode('Bring your own key requires both')})
+            do_test(method,
+                    {'X-Crypto-Container-Key':
+                        base64.b64encode('This key is longer than permitted'),
+                     'X-Crypto-Object-Key':
+                        base64.b64encode('Bring your own key requires both')})
+            # bad format
+            do_test(method,
+                    {'X-Crypto-Container-Key':
+                        'This key is not base64 encoded',
+                     'X-Crypto-Object-Key':
+                        base64.b64encode('Bring your own key requires both')})
+            do_test(method,
+                    {'X-Crypto-Container-Key':
+                        base64.b64encode('Bring your own key requires both'),
+                     'X-Crypto-Object-Key':
+                        'This key is not base64 encoded'})
+
+    def test_object_with_override_header(self):
+        path = '/v1/a/c/o'
+        for method in ('PUT', 'POST'):
+            self.swift.register(method, path, swob.HTTPOk, '')
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
+            req = Request.blank(path, environ={'REQUEST_METHOD': method},
+                                headers={'X-Crypto-Override': 'True'})
+            start_response, calls = capture_start_response()
+            app(req.environ, start_response)
+            self.assertEqual(1, len(calls))
+            self.assertEqual('200 OK', calls[0][0])
+            self.assertNotIn(CRYPTO_KEY_CALLBACK, req.environ)
+
+        for method in ('GET', 'HEAD'):
+            # X-Crypto-Override should be ignored
+            self.swift.register(method, path, swob.HTTPOk,
+                                headers={'X-Object-Sysmeta-Crypto-Id':
+                                         base64.b64encode('/a/c/o')})
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
+            req = Request.blank(path, environ={'REQUEST_METHOD': method},
+                                headers={'X-Crypto-Override': 'True'})
+            start_response, calls = capture_start_response()
+            app(req.environ, start_response)
+            self.assertEqual(1, len(calls))
+            self.assertEqual('200 OK', calls[0][0])
+            self.assertIn(CRYPTO_KEY_CALLBACK, req.environ)
+
     def test_filter(self):
         factory = keymaster.filter_factory(
             {'encryption_root_secret': 'secret'})
