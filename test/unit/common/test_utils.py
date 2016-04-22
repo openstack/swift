@@ -1667,12 +1667,12 @@ class TestUtils(unittest.TestCase):
             log_msg = strip_value(sio)
             self.assertTrue('txn' in log_msg)
             self.assertTrue('12345' in log_msg)
-            # test no txn on info message
+            # test txn in info message
             self.assertEqual(logger.txn_id, '12345')
             logger.info('test')
             log_msg = strip_value(sio)
-            self.assertTrue('txn' not in log_msg)
-            self.assertTrue('12345' not in log_msg)
+            self.assertTrue('txn' in log_msg)
+            self.assertTrue('12345' in log_msg)
             # test txn already in message
             self.assertEqual(logger.txn_id, '12345')
             logger.warning('test 12345 test')

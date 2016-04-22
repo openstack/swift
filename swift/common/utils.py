@@ -1625,7 +1625,6 @@ class SwiftLogFormatter(logging.Formatter):
             msg = msg + record.exc_text
 
         if (hasattr(record, 'txn_id') and record.txn_id and
-                record.levelno != logging.INFO and
                 record.txn_id not in msg):
             msg = "%s (txn: %s)" % (msg, record.txn_id)
         if (hasattr(record, 'client_ip') and record.client_ip and
