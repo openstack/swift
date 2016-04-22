@@ -632,7 +632,7 @@ class DatabaseBroker(object):
             with lock_parent_directory(self.pending_file,
                                        self.pending_timeout):
                 self._commit_puts()
-        except LockTimeout:
+        except (LockTimeout, sqlite3.OperationalError):
             if not self.stale_reads_ok:
                 raise
 
