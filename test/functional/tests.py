@@ -3423,6 +3423,9 @@ class TestObjectVersioningEnv(object):
         cls.container = cls.account.container(prefix + "-objs")
         if not cls.container.create(
                 hdrs={'X-Versions-Location': cls.versions_container.name}):
+            if cls.conn.response.status == 412:
+                cls.versioning_enabled = False
+                return
             raise ResponseError(cls.conn.response)
 
         container_info = cls.container.info()
@@ -3475,13 +3478,11 @@ class TestCrossPolicyObjectVersioningEnv(object):
             cls.multiple_policies_enabled = True
         else:
             cls.multiple_policies_enabled = False
-            cls.versioning_enabled = False
+            cls.versioning_enabled = True
+            # We don't actually know the state of versioning, but without
+            # multiple policies the tests should be skipped anyway. Claiming
+            # versioning support lets us report the right reason for skipping.
             return
-
-        if cls.versioning_enabled is None:
-            cls.versioning_enabled = 'versioned_writes' in cluster_info
-            if not cls.versioning_enabled:
-                return
 
         policy = cls.policies.select()
         version_policy = cls.policies.exclude(name=policy['name']).select()
@@ -3510,6 +3511,9 @@ class TestCrossPolicyObjectVersioningEnv(object):
         if not cls.container.create(
                 hdrs={'X-Versions-Location': cls.versions_container.name,
                       'X-Storage-Policy': version_policy['name']}):
+            if cls.conn.response.status == 412:
+                cls.versioning_enabled = False
+                return
             raise ResponseError(cls.conn.response)
 
         container_info = cls.container.info()
@@ -3534,6 +3538,11 @@ class TestCrossPolicyObjectVersioningEnv(object):
         cls.conn3 = Connection(config3)
         cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
         cls.account3 = cls.conn3.get_account()
+
+    @classmethod
+    def tearDown(cls):
+        cls.account.delete_containers()
+        cls.account2.delete_containers()
 
 
 class TestObjectVersioning(Base):
