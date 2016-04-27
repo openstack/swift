@@ -23,7 +23,7 @@ import mock
 
 from swift.common import swob
 from swift.common.middleware import container_sync
-from swift.proxy.controllers.base import _get_cache_key
+from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.info import InfoController
 
 from test.unit import FakeLogger
@@ -206,7 +206,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         req = swob.Request.blank(
             '/v1/a/c', headers={'x-container-sync-auth': 'US nonce sig'})
         infocache = req.environ.setdefault('swift.infocache', {})
-        infocache[_get_cache_key('a', 'c')[1]] = {'sync_key': 'abc'}
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '401 Unauthorized')
         self.assertEqual(
@@ -226,7 +226,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             'x-container-sync-auth': 'US nonce ' + sig,
             'x-backend-inbound-x-timestamp': ts})
         infocache = req.environ.setdefault('swift.infocache', {})
-        infocache[_get_cache_key('a', 'c')[1]] = {'sync_key': 'abc'}
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '200 OK')
         self.assertEqual(resp.body, 'Response to Authorized Request')
@@ -241,7 +241,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         req = swob.Request.blank(
             '/v1/a/c', headers={'x-container-sync-auth': 'US nonce ' + sig})
         infocache = req.environ.setdefault('swift.infocache', {})
-        infocache[_get_cache_key('a', 'c')[1]] = {'sync_key': 'abc'}
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '200 OK')
         self.assertEqual(resp.body, 'Response to Authorized Request')

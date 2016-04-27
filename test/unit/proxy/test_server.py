@@ -73,9 +73,8 @@ from swift.common.ring import RingData
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
 from swift.proxy.controllers import base as proxy_base
-from swift.proxy.controllers.base import get_container_memcache_key, \
-    get_account_memcache_key, cors_validation, get_account_info, \
-    get_container_info
+from swift.proxy.controllers.base import get_cache_key, cors_validation, \
+    get_account_info, get_container_info
 import swift.proxy.controllers
 import swift.proxy.controllers.obj
 from swift.common.header_key_dict import HeaderKeyDict
@@ -482,14 +481,14 @@ class TestController(unittest.TestCase):
                 self.controller.account_info(self.account)
             self.assertEqual(count, 123)
         with save_globals():
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             account_info = {'status': 200, 'container_count': 1234}
             self.memcache.set(cache_key, account_info)
             partition, nodes, count = \
                 self.controller.account_info(self.account)
             self.assertEqual(count, 1234)
         with save_globals():
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             account_info = {'status': 200, 'container_count': '1234'}
             self.memcache.set(cache_key, account_info)
             partition, nodes, count = \
@@ -517,7 +516,7 @@ class TestController(unittest.TestCase):
 
             # Test the internal representation in memcache
             # 'container_count' changed from int to str
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             container_info = {'status': 200,
                               'account_really_exists': True,
                               'container_count': '12345',
@@ -545,7 +544,7 @@ class TestController(unittest.TestCase):
 
             # Test the internal representation in memcache
             # 'container_count' changed from 0 to None
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             account_info = {'status': 404,
                             'container_count': None,  # internally keep None
                             'total_object_count': None,
@@ -622,8 +621,7 @@ class TestController(unittest.TestCase):
                 self.account, self.container, self.request)
             self.check_container_info_return(ret)
 
-            cache_key = get_container_memcache_key(self.account,
-                                                   self.container)
+            cache_key = get_cache_key(self.account, self.container)
             cache_value = self.memcache.get(cache_key)
             self.assertTrue(isinstance(cache_value, dict))
             self.assertEqual(200, cache_value.get('status'))
@@ -645,8 +643,7 @@ class TestController(unittest.TestCase):
                 self.account, self.container, self.request)
             self.check_container_info_return(ret, True)
 
-            cache_key = get_container_memcache_key(self.account,
-                                                   self.container)
+            cache_key = get_cache_key(self.account, self.container)
             cache_value = self.memcache.get(cache_key)
             self.assertTrue(isinstance(cache_value, dict))
             self.assertEqual(404, cache_value.get('status'))
@@ -661,8 +658,7 @@ class TestController(unittest.TestCase):
                 self.account, self.container, self.request)
             self.check_container_info_return(ret, True)
 
-            cache_key = get_container_memcache_key(self.account,
-                                                   self.container)
+            cache_key = get_cache_key(self.account, self.container)
             cache_value = self.memcache.get(cache_key)
             self.assertTrue(isinstance(cache_value, dict))
             self.assertEqual(404, cache_value.get('status'))
@@ -6351,18 +6347,18 @@ class TestContainerController(unittest.TestCase):
                     self.assertIn('x-works', res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
                 if c_expected:
-                    self.assertIn('swift.container/a/c', infocache)
+                    self.assertIn('container/a/c', infocache)
                     self.assertEqual(
-                        infocache['swift.container/a/c']['status'],
+                        infocache['container/a/c']['status'],
                         c_expected)
                 else:
-                    self.assertNotIn('swift.container/a/c', infocache)
+                    self.assertNotIn('container/a/c', infocache)
                 if a_expected:
-                    self.assertIn('swift.account/a', infocache)
-                    self.assertEqual(infocache['swift.account/a']['status'],
+                    self.assertIn('account/a', infocache)
+                    self.assertEqual(infocache['account/a']['status'],
                                      a_expected)
                 else:
-                    self.assertNotIn('swift.account/a', res.environ)
+                    self.assertNotIn('account/a', res.environ)
 
                 set_http_connect(*statuses, **kwargs)
                 self.app.memcache.store = {}
@@ -6376,18 +6372,18 @@ class TestContainerController(unittest.TestCase):
                     self.assertTrue('x-works' in res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
                 if c_expected:
-                    self.assertIn('swift.container/a/c', infocache)
+                    self.assertIn('container/a/c', infocache)
                     self.assertEqual(
-                        infocache['swift.container/a/c']['status'],
+                        infocache['container/a/c']['status'],
                         c_expected)
                 else:
-                    self.assertNotIn('swift.container/a/c', infocache)
+                    self.assertNotIn('container/a/c', infocache)
                 if a_expected:
-                    self.assertIn('swift.account/a', infocache)
-                    self.assertEqual(infocache['swift.account/a']['status'],
+                    self.assertIn('account/a', infocache)
+                    self.assertEqual(infocache['account/a']['status'],
                                      a_expected)
                 else:
-                    self.assertNotIn('swift.account/a', infocache)
+                    self.assertNotIn('account/a', infocache)
             # In all the following tests cache 200 for account
             # return and cache vary for container
             # return 200 and cache 200 for account and container
@@ -7000,7 +6996,7 @@ class TestContainerController(unittest.TestCase):
             res = controller.GET(req)
             self.assertEqual(res.status_int, 204)
             ic = res.environ['swift.infocache']
-            self.assertEqual(ic['swift.container/a/c']['status'], 204)
+            self.assertEqual(ic['container/a/c']['status'], 204)
             self.assertEqual(res.content_length, 0)
             self.assertTrue('transfer-encoding' not in res.headers)
 
@@ -7018,7 +7014,7 @@ class TestContainerController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.GET(req)
         self.assertEqual(
-            res.environ['swift.infocache']['swift.container/a/c']['status'],
+            res.environ['swift.infocache']['container/a/c']['status'],
             201)
         self.assertTrue(called[0])
 
@@ -7488,7 +7484,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(res.status_int, expected)
             infocache = res.environ.get('swift.infocache', {})
             if env_expected:
-                self.assertEqual(infocache['swift.account/a']['status'],
+                self.assertEqual(infocache['account/a']['status'],
                                  env_expected)
             set_http_connect(*statuses)
             req = Request.blank('/v1/a/', {})
@@ -7497,7 +7493,7 @@ class TestAccountController(unittest.TestCase):
             infocache = res.environ.get('swift.infocache', {})
             self.assertEqual(res.status_int, expected)
             if env_expected:
-                self.assertEqual(infocache['swift.account/a']['status'],
+                self.assertEqual(infocache['account/a']['status'],
                                  env_expected)
 
     def test_OPTIONS(self):

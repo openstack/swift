@@ -21,7 +21,7 @@ from contextlib import contextmanager
 
 from test.unit import FakeLogger
 from swift.common.middleware import ratelimit
-from swift.proxy.controllers.base import get_container_memcache_key, \
+from swift.proxy.controllers.base import get_cache_key, \
     headers_to_container_info
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request
@@ -185,7 +185,7 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'account_ratelimit': current_rate,
                      'container_ratelimit_3': 200}
         fake_memcache = FakeMemcache()
-        fake_memcache.store[get_container_memcache_key('a', 'c')] = \
+        fake_memcache.store[get_cache_key('a', 'c')] = \
             {'object_count': '5'}
         the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
@@ -229,7 +229,7 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'account_ratelimit': current_rate,
                      'container_ratelimit_3': 200}
         fake_memcache = FakeMemcache()
-        fake_memcache.store[get_container_memcache_key('a', 'c')] = \
+        fake_memcache.store[get_cache_key('a', 'c')] = \
             {'container_size': 5}
         the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
@@ -431,7 +431,7 @@ class TestRateLimit(unittest.TestCase):
         req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].set(
-            get_container_memcache_key('a', 'c'),
+            get_cache_key('a', 'c'),
             {'object_count': 1})
 
         time_override = [0, 0, 0, 0, None]
@@ -465,7 +465,7 @@ class TestRateLimit(unittest.TestCase):
         req.method = 'GET'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].set(
-            get_container_memcache_key('a', 'c'),
+            get_cache_key('a', 'c'),
             {'object_count': 1})
 
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',

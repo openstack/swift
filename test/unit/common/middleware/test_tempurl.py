@@ -97,7 +97,7 @@ class TestTempURL(unittest.TestCase):
                 meta[meta_name] = key
 
         ic = environ.setdefault('swift.infocache', {})
-        ic['swift.account/' + account] = {
+        ic['account/' + account] = {
             'status': 204,
             'container_count': '0',
             'total_object_count': '0',
@@ -109,7 +109,7 @@ class TestTempURL(unittest.TestCase):
             meta_name = 'Temp-URL-key' + (("-%d" % (i + 1) if i else ""))
             meta[meta_name] = key
 
-        container_cache_key = 'swift.container/' + account + '/c'
+        container_cache_key = 'container/' + account + '/c'
         ic.setdefault(container_cache_key, {'meta': meta})
 
     def test_passthrough(self):
@@ -169,7 +169,7 @@ class TestTempURL(unittest.TestCase):
             meta_name = 'Temp-URL-key' + (("-%d" % (idx + 1) if idx else ""))
             if key:
                 meta[meta_name] = key
-        ic['swift.container/a/c'] = {'meta': meta}
+        ic['container/a/c'] = {'meta': meta}
 
         method = 'GET'
         expires = int(time() + 86400)

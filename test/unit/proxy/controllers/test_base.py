@@ -19,8 +19,7 @@ import unittest
 from mock import patch
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
-    get_container_memcache_key, get_account_info, get_account_memcache_key, \
-    get_object_env_key, get_info, get_object_info, \
+    get_cache_key, get_account_info, get_info, get_object_info, \
     Controller, GetOrHeadHandler, bytes_to_skip
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS
 from swift.common import exceptions
@@ -210,7 +209,6 @@ class TestFuncs(unittest.TestCase):
         # cached
         app.responses.stats['account'] = 0
         app.responses.stats['container'] = 0
-        del(env['swift.infocache']['swift.account/a'])
         info_c = get_info(app, env, 'a', 'c')
         # Check that you got proper info
         self.assertEqual(info_a['status'], 200)
@@ -274,11 +272,10 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['versions'], "\xe1\xbd\x8a\x39")
 
     def test_get_container_info_env(self):
-        cache_key = get_container_memcache_key("account", "cont")
-        env_key = 'swift.%s' % cache_key
+        cache_key = get_cache_key("account", "cont")
         req = Request.blank(
             "/v1/account/cont",
-            environ={'swift.infocache': {env_key: {'bytes': 3867}},
+            environ={'swift.infocache': {cache_key: {'bytes': 3867}},
                      'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
@@ -344,11 +341,10 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['total_object_count'], 10)
 
     def test_get_account_info_env(self):
-        cache_key = get_account_memcache_key("account")
-        env_key = 'swift.%s' % cache_key
+        cache_key = get_cache_key("account")
         req = Request.blank(
             "/v1/account",
-            environ={'swift.infocache': {env_key: {'bytes': 3867}},
+            environ={'swift.infocache': {cache_key: {'bytes': 3867}},
                      'swift.cache': FakeCache({})})
         resp = get_account_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
@@ -358,10 +354,10 @@ class TestFuncs(unittest.TestCase):
                   'length': 3333,
                   'type': 'application/json',
                   'meta': {}}
-        env_key = get_object_env_key("account", "cont", "obj")
+        cache_key = get_cache_key("account", "cont", "obj")
         req = Request.blank(
             "/v1/account/cont/obj",
-            environ={'swift.infocache': {env_key: cached},
+            environ={'swift.infocache': {cache_key: cached},
                      'swift.cache': FakeCache({})})
         resp = get_object_info(req.environ, 'xxx')
         self.assertEqual(resp['length'], 3333)
