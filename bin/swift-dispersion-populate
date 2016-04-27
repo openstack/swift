@@ -134,6 +134,7 @@ Usage: %%prog [options] [conf_file]
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
     endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
+    region_name = str(conf.get('region_name', ''))
     user_domain_name = str(conf.get('user_domain_name', ''))
     project_domain_name = str(conf.get('project_domain_name', ''))
     project_name = str(conf.get('project_name', ''))
@@ -157,6 +158,8 @@ Usage: %%prog [options] [conf_file]
         os_options['project_domain_name'] = project_domain_name
     if project_name:
         os_options['project_name'] = project_name
+    if region_name:
+        os_options['region_name'] = region_name
 
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],
