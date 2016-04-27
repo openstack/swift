@@ -5,19 +5,16 @@
 # Translators:
 # Mario Cho <hephaex@gmail.com>, 2014
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
-# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
-# SeYeon Lee <sy_lee@kr.ibm.com>, 2016. #zanata
+# Sungjin Kang <gang.sungjin@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev2\n"
+"Project-Id-Version: swift 2.7.1.dev5\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-28 17:07+0000\n"
+"POT-Creation-Date: 2016-04-11 18:33+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-29 02:16+0000\n"
+"PO-Revision-Date: 2016-04-19 03:34+0000\n"
 "Last-Translator: SeYeon Lee <sy_lee@kr.ibm.com>\n"
 "Language: ko-KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -153,15 +150,15 @@ msgstr "계정"
 
 #, python-format
 msgid "Account %s has not been reaped since %s"
-msgstr "계정 %s을(를) %s 이후에 얻지 못함"
+msgstr "Account %s을(를) %s 이후에 얻지 못함"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
-msgstr "계정 감사 \"한 번\"모드가 완료: %.02fs"
+msgstr "Account 감사 \"once\"모드가 완료: %.02fs"
 
 #, python-format
 msgid "Account audit pass completed: %.02fs"
-msgstr "정상으로 판정난 계정: %.02fs"
+msgstr "정상으로 판정난 account: %.02fs"
 
 #, python-format
 msgid ""
@@ -178,19 +175,19 @@ msgid "Bad rsync return code: %(ret)d <- %(args)s"
 msgstr "잘못된 rsync 리턴 코드: %(ret)d <- %(args)s"
 
 msgid "Begin account audit \"once\" mode"
-msgstr "계정 감사 \"한 번\"모드로 시작"
+msgstr "Account 감사 \"once\"모드로 시작"
 
 msgid "Begin account audit pass."
-msgstr "계정 검사 시작."
+msgstr "Account 검사 시작."
 
 msgid "Begin container audit \"once\" mode"
-msgstr "컨테이너 감사 \"일 회\" 모드 시작"
+msgstr "컨테이너 감사 \"once\" 모드 시작"
 
 msgid "Begin container audit pass."
 msgstr "컨테이너 감사 전달이 시작됩니다."
 
 msgid "Begin container sync \"once\" mode"
-msgstr "컨테이너 동기화 \"일 회\" 모드 시작"
+msgstr "컨테이너 동기화 \"once\" 모드 시작"
 
 msgid "Begin container update single threaded sweep"
 msgstr "컨테이너 업데이트 단일 스레드 스윕 시작"
@@ -210,7 +207,7 @@ msgstr "오브젝트 업데이트 스윕 시작"
 
 #, python-format
 msgid "Beginning pass on account %s"
-msgstr "계정 패스 시작 %s"
+msgstr "Account 패스 시작 %s"
 
 msgid "Beginning replication run"
 msgstr "복제 실행 시작"
@@ -272,7 +269,7 @@ msgstr "컨테이너"
 
 #, python-format
 msgid "Container audit \"once\" mode completed: %.02fs"
-msgstr "컨테이너 감사 \"일 회\" 모드 완료: %.02fs"
+msgstr "컨테이너 감사 \"once\" 모드 완료: %.02fs"
 
 #, python-format
 msgid "Container audit pass completed: %.02fs"
@@ -280,7 +277,7 @@ msgstr "컨테이너 감사 전달 완료: %.02fs"
 
 #, python-format
 msgid "Container sync \"once\" mode completed: %.02fs"
-msgstr "컨테이너 동기화 \"일 회\" 모드 완료: %.02fs"
+msgstr "컨테이너 동기화 \"once\" 모드 완료: %.02fs"
 
 #, python-format
 msgid ""
@@ -384,7 +381,7 @@ msgstr ""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
-msgstr "오류는 %s의 계정 정보를 얻을 수 없습니다"
+msgstr "오류는 %s의 account 정보를 얻을 수 없습니다"
 
 #, python-format
 msgid "ERROR Could not get container info %s"
@@ -523,7 +520,7 @@ msgstr "오류: 감사를 실행할 수 없음: %s"
 
 #, python-format
 msgid "Error %(action)s to memcached: %(server)s"
-msgstr "memcached에 대한 %(action)s 오류: %(server)s"
+msgstr "Memcached에 대한 %(action)s 오류: %(server)s"
 
 #, python-format
 msgid "Error encoding to UTF-8: %s"
@@ -592,7 +589,7 @@ msgid "Exception dumping recon cache"
 msgstr "조정 캐시 덤프 중 예외 발생"
 
 msgid "Exception in top-level account reaper loop"
-msgstr "최상위 계정 루프의 예외 "
+msgstr "최상위 account 루프의 예외 "
 
 msgid "Exception in top-level replication loop"
 msgstr "최상위 레벨 복제 루프에서 예외 발생"
@@ -623,7 +620,8 @@ msgstr "계정 콘테이너의 예외 %s"
 #, python-format
 msgid ""
 "Exception with objects for container %(container)s for account %(account)s"
-msgstr "계정 %(account)s의 컨테이너 %(container)s에 대한 오브젝트에 예외 발생"
+msgstr ""
+"Account %(account)s의 컨테이너 %(container)s에 대한 오브젝트에 예외 발생"
 
 #, python-format
 msgid "Expect: 100-continue on %s"
@@ -901,7 +899,7 @@ msgstr "잘못된 pid %(pid)d의 pid 파일 %(pid_file)s 제거"
 
 #, python-format
 msgid "Removing pid file %s with invalid pid"
-msgstr "pid가 올바르지 않은 pid 파일 %s 제거"
+msgstr "PID가 올바르지 않은 pid 파일 %s 제거"
 
 #, python-format
 msgid "Removing stale pid file %s"
@@ -926,7 +924,7 @@ msgid "Ring change detected. Aborting current reconstruction pass."
 msgstr "링 변경이 발견되었습니다. 현재 재구성 전달을 중단합니다."
 
 msgid "Ring change detected. Aborting current replication pass."
-msgstr "링 변경이 발견되었습니다. 현재 복제 전달을 중단합니다."
+msgstr "Ring 변경이 발견되었습니다. 현재 복제 전달을 중단합니다."
 
 #, python-format
 msgid "Running %s once"
@@ -954,7 +952,8 @@ msgstr ""
 msgid ""
 "Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
 "audit"
-msgstr "검사 경과 시간 %(time)s: 계정 검사A: %(passed)s 정상 ,%(failed)s 실패"
+msgstr ""
+"검사 경과 시간 %(time)s: Account 검사A: %(passed)s 정상 ,%(failed)s 실패"
 
 #, python-format
 msgid ""
@@ -1003,7 +1002,7 @@ msgstr ""
 
 #, python-format
 msgid "Timeout %(action)s to memcached: %(server)s"
-msgstr "memcached에 대한 %(action)s 제한시간 초과: %(server)s"
+msgstr "Memcached에 대한 %(action)s 제한시간 초과: %(server)s"
 
 #, python-format
 msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
@@ -1055,7 +1054,7 @@ msgstr "구성에서 내부 클라이언트를 로드할 수 없음: %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
-msgstr "libc에서 %s을(를) 찾을 수 없습니다. no-op로 남겨 둡니다."
+msgstr "Libc에서 %s을(를) 찾을 수 없습니다. no-op로 남겨 둡니다."
 
 #, python-format
 msgid "Unable to locate config for %s"
@@ -1068,7 +1067,7 @@ msgstr "구성 번호 %s을(를) 찾을 수 없음(대상: %s)"
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
-"libc에서 fallocate, posix_fallocate를 찾을 수 없습니다. no-op로 남겨 둡니다."
+"Libc에서 fallocate, posix_fallocate를 찾을 수 없습니다. no-op로 남겨 둡니다."
 
 #, python-format
 msgid "Unable to perform fsync() on directory %s: %s"

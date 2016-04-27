@@ -7,18 +7,16 @@
 # Lucas Ribeiro <lucasribeiro1990@gmail.com>, 2014
 # thiagol <thiago@redhat.com>, 2015
 # Volmar Oliveira Junior <volmar.oliveira.jr@gmail.com>, 2014
-# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Carlos Marques <marquesc@br.ibm.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev254\n"
+"Project-Id-Version: swift 2.7.1.dev5\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 19:48+0000\n"
+"POT-Creation-Date: 2016-04-11 18:33+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-22 02:07+0000\n"
+"PO-Revision-Date: 2016-04-26 10:29+0000\n"
 "Last-Translator: Carlos Marques <marquesc@br.ibm.com>\n"
 "Language: pt-BR\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
@@ -45,7 +43,7 @@ msgstr " - paralelo, %s"
 msgid ""
 "%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
 msgstr ""
-"%(checked)d sufixos verificados – %(hashed).2f%% de hash, %(synced).2f%% "
+"%(checked)d sufixos verificados – %(hashed).2f%% em hash, %(synced).2f%% "
 "sincronizados"
 
 #, python-format
@@ -88,7 +86,7 @@ msgstr "%s #%d não está em execução (%s)"
 
 #, python-format
 msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) parece ter parado"
+msgstr "%s (%s) parece ter sido interrompido"
 
 #, python-format
 msgid "%s already started..."
@@ -120,19 +118,19 @@ msgstr "%s: Reconfiguração da conexão por peer"
 
 #, python-format
 msgid ", %s containers deleted"
-msgstr ", %s containers apagados"
+msgstr ", %s containers excluídos"
 
 #, python-format
 msgid ", %s containers possibly remaining"
-msgstr ", %s containers possivelmente restando"
+msgstr ", %s contêineres possivelmente restando"
 
 #, python-format
 msgid ", %s containers remaining"
-msgstr ", %s containers restando"
+msgstr ", %s contêineres restando"
 
 #, python-format
 msgid ", %s objects deleted"
-msgstr ", %s objetos apagados"
+msgstr ", %s objetos excluídos"
 
 #, python-format
 msgid ", %s objects possibly remaining"
@@ -144,7 +142,7 @@ msgstr ", %s objetos restando"
 
 #, python-format
 msgid ", elapsed: %.02fs"
-msgstr ", passados: %.02fs"
+msgstr ", decorrido: %.02fs"
 
 msgid ", return codes: "
 msgstr ", códigos de retorno:"
@@ -154,7 +152,7 @@ msgstr "Conta"
 
 #, python-format
 msgid "Account %s has not been reaped since %s"
-msgstr "As contas %s não foram colhidas desde %s"
+msgstr "A conta %s não foi colhida desde %s"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
@@ -172,7 +170,7 @@ msgstr ""
 
 #, python-format
 msgid "Audit Failed for %s: %s"
-msgstr "Auditoria Falhou para %s: %s"
+msgstr "A Auditoria Falhou para %s: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -185,36 +183,36 @@ msgid "Begin account audit pass."
 msgstr "Iniciando passo de auditoria de conta."
 
 msgid "Begin container audit \"once\" mode"
-msgstr "Inicie o modo \"único\" da auditoria do contêiner"
+msgstr "Iniciar o modo \"único\" da auditoria do contêiner"
 
 msgid "Begin container audit pass."
-msgstr "Inicie a aprovação da auditoria do contêiner."
+msgstr "Iniciar a aprovação da auditoria do contêiner."
 
 msgid "Begin container sync \"once\" mode"
-msgstr "Inicie o modo \"único\" de sincronização do contêiner"
+msgstr "Iniciar o modo \"único\" de sincronização do contêiner"
 
 msgid "Begin container update single threaded sweep"
-msgstr "Inicie a varredura de encadeamento único da atualização do contêiner"
+msgstr "Iniciar a varredura de encadeamento único da atualização do contêiner"
 
 msgid "Begin container update sweep"
-msgstr "Inicie a varredura de atualização do contêiner"
+msgstr "Iniciar a varredura de atualização do contêiner"
 
 #, python-format
 msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "Inicie o modo \"%s\" da auditoria (%s%s)"
+msgstr "Iniciar o modo \"%s\" da auditoria de objeto (%s%s)"
 
 msgid "Begin object update single threaded sweep"
-msgstr "Inicie a varredura de encadeamento único da atualização do objeto"
+msgstr "Iniciar a varredura de encadeamento único da atualização do objeto"
 
 msgid "Begin object update sweep"
-msgstr "Inicie a varredura da atualização do objeto"
+msgstr "Iniciar a varredura da atualização do objeto"
 
 #, python-format
 msgid "Beginning pass on account %s"
-msgstr "Iniciando a estapa nas contas %s"
+msgstr "Iniciando o passo na conta %s"
 
 msgid "Beginning replication run"
-msgstr "Começando execução de replicação"
+msgstr "Iniciando execução de replicação"
 
 msgid "Broker error trying to rollback locked connection"
 msgstr "Erro do Broker ao tentar retroceder a conexão bloqueada"
@@ -252,7 +250,7 @@ msgstr "Cliente desconectado sem ter enviado o último chunk"
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
 msgstr ""
-"Caminho do cliente %(client)s não corresponde ao caminho armazenado nos "
+"O caminho do cliente %(client)s não corresponde ao caminho armazenado nos "
 "metadados do objeto %(meta)s"
 
 msgid ""
@@ -289,8 +287,8 @@ msgid ""
 "%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
 msgstr ""
 "Varredura de encadeamento único da atualização do contêiner concluída: "
-"%(elapsed).02fs, %(success)s com êxito, %(fail)s com falha, %(no_change)s "
-"sem alterações"
+"%(elapsed).02fs, %(success)s com sucesso, %(fail)s com falha, %(no_change)s "
+"sem mudanças"
 
 #, python-format
 msgid "Container update sweep completed: %.02fs"
@@ -302,8 +300,8 @@ msgid ""
 "successes, %(fail)s failures, %(no_change)s with no changes"
 msgstr ""
 "Varredura da atualização do contêiner de %(path)s concluída: "
-"%(elapsed).02fs, %(success)s com êxito, %(fail)s com falha, %(no_change)s "
-"sem alterações"
+"%(elapsed).02fs, %(success)s com sucesso, %(fail)s com falha, %(no_change)s "
+"sem mudanças"
 
 #, python-format
 msgid "Could not bind to %s:%s after trying for %s seconds"
@@ -319,7 +317,7 @@ msgstr "Erro ao fazer download de dados: %s"
 
 #, python-format
 msgid "Devices pass completed: %.02fs"
-msgstr "Dispositivos finalizados: %.02fs"
+msgstr "Passo de dispositivos finalizados: %.02fs"
 
 #, python-format
 msgid "Directory %r does not map to a valid policy (%s)"
@@ -398,17 +396,17 @@ msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
 msgstr "ERROR DiskFile %(data_file)s falha ao fechar: %(exc)s : %(stack)s"
 
 msgid "ERROR Exception causing client disconnect"
-msgstr "ERRO Exceção causando clientes a desconectar"
+msgstr "ERRO Exceção ao causar desconexão do cliente"
 
 #, python-format
 msgid "ERROR Exception transferring data to object servers %s"
 msgstr "ERRO Exceção ao transferir dados para os servidores de objeto %s"
 
 msgid "ERROR Failed to get my own IPs?"
-msgstr "ERRO Falha ao pegar meu próprio IPs?"
+msgstr "ERRO Falha ao obter meus próprios IPs?"
 
 msgid "ERROR Insufficient Storage"
-msgstr "ERRO Capacidade insuficiente"
+msgstr "ERRO Armazenamento Insuficiente"
 
 #, python-format
 msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
@@ -416,7 +414,7 @@ msgstr "ERRO O objeto %(obj)s falhou ao auditar e ficou em quarentena: %(err)s"
 
 #, python-format
 msgid "ERROR Pickle problem, quarantining %s"
-msgstr "ERRO Problema de seleção, em quarentena %s"
+msgstr "ERRO Problema de seleção, colocando em quarentena %s"
 
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
@@ -462,11 +460,11 @@ msgid "ERROR async pending file with unexpected name %s"
 msgstr "ERRO arquivo pendente assíncrono com nome inesperado %s"
 
 msgid "ERROR auditing"
-msgstr "Erro auditando"
+msgstr "Erro na auditoria"
 
 #, python-format
 msgid "ERROR auditing: %s"
-msgstr "ERRO auditoria: %s"
+msgstr "ERRO ao auditar: %s"
 
 #, python-format
 msgid ""
@@ -478,26 +476,26 @@ msgstr ""
 
 #, python-format
 msgid "ERROR reading HTTP response from %s"
-msgstr "ERRO lendo resposta HTTP de %s"
+msgstr "ERRO ao ler a resposta HTTP de %s"
 
 #, python-format
 msgid "ERROR reading db %s"
-msgstr "ERRO lendo db %s"
+msgstr "ERRO ao ler o BD  %s"
 
 #, python-format
 msgid "ERROR rsync failed with %(code)s: %(args)s"
-msgstr "ERRO rsync falhou com %(code)s: %(args)s"
+msgstr "ERRO A ressincronização falhou com %(code)s: %(args)s"
 
 #, python-format
 msgid "ERROR syncing %(file)s with node %(node)s"
-msgstr "ERRO sincronizando %(file)s com nodo %(node)s"
+msgstr "ERRO ao sincronizar %(file)s com o nó %(node)s"
 
 msgid "ERROR trying to replicate"
-msgstr "ERRO tentando replicar"
+msgstr "ERRO ao tentar replicar"
 
 #, python-format
 msgid "ERROR while trying to clean up %s"
-msgstr "ERRO enquanto tentaava limpar %s"
+msgstr "ERRO ao tentar limpar %s"
 
 #, python-format
 msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
@@ -532,7 +530,7 @@ msgstr "Erro %(action)s para memcached: %(server)s"
 
 #, python-format
 msgid "Error encoding to UTF-8: %s"
-msgstr "Erro encodificando para UTF-8: %s"
+msgstr "Erro ao codificar para UTF-8: %s"
 
 msgid "Error hashing suffix"
 msgstr "Erro ao efetuar hash do sufixo"
@@ -559,7 +557,7 @@ msgid "Error reading recon cache file"
 msgstr "Erro ao ler o arquivo de cache de reconhecimento"
 
 msgid "Error reading ringfile"
-msgstr "Erro na leitura do ringfile"
+msgstr "Erro ao ler ringfile"
 
 msgid "Error reading swift.conf"
 msgstr "Erro ao ler swift.conf"
@@ -593,7 +591,7 @@ msgid "Error: unable to locate %s"
 msgstr "Erro: não é possível localizar %s"
 
 msgid "Exception dumping recon cache"
-msgstr "Exceção dump de cache de reconhecimento"
+msgstr "Exceção de dump de cache de reconhecimento"
 
 msgid "Exception in top-level account reaper loop"
 msgstr "Exceção no loop do removedor da conta de nível superior"
@@ -606,7 +604,7 @@ msgstr "Exceção no loop de reconstrução de nível superior"
 
 #, python-format
 msgid "Exception while deleting container %s %s"
-msgstr "Exceção ao excluir contêiner %s %s"
+msgstr "Exceção ao excluir o contêiner %s %s"
 
 #, python-format
 msgid "Exception while deleting object %s %s %s"
@@ -636,10 +634,10 @@ msgstr "Expectativa: 100-continuar em %s"
 
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
-msgstr "Cadeia CNAME a seguir para %(given_domain)s para%(found_domain)s"
+msgstr "Cadeia CNAME a seguir para %(given_domain)s para %(found_domain)s"
 
 msgid "Found configs:"
-msgstr "Localizados arquivos de configuração:"
+msgstr "Configurações localizadas:"
 
 msgid ""
 "Handoffs first mode still has handoffs remaining.  Aborting current "
@@ -649,11 +647,11 @@ msgstr ""
 "da replicação atual."
 
 msgid "Host unreachable"
-msgstr "Destino inalcançável"
+msgstr "Destino inacessível"
 
 #, python-format
 msgid "Incomplete pass on account %s"
-msgstr "Estapa incompleta nas contas %s"
+msgstr "Passo incompleto na conta %s"
 
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
@@ -700,7 +698,7 @@ msgstr "%(given_domain)s mapeado para %(found_domain)s"
 
 #, python-format
 msgid "No %s running"
-msgstr "Nenhum %s rodando"
+msgstr "Nenhum %s em execução"
 
 #, python-format
 msgid "No cluster endpoint for %r %r"
@@ -728,8 +726,7 @@ msgstr "Erro de nó limitado %(ip)s:%(port)s (%(device)s)"
 
 #, python-format
 msgid "Not enough object servers ack'ed (got %d)"
-msgstr ""
-"Insuficiente número de servidores de objeto confirmaram (%d confirmados)"
+msgstr "Servidores de objeto insuficientes  confirmados (obtidos %d)"
 
 #, python-format
 msgid ""
@@ -745,19 +742,18 @@ msgstr "Nada foi reconstruído durante %s segundos."
 
 #, python-format
 msgid "Nothing replicated for %s seconds."
-msgstr "Nada foi replicado para %s segundos."
+msgstr "Nada foi replicado durante %s segundos."
 
 msgid "Object"
 msgstr "Objeto"
 
 msgid "Object PUT"
-msgstr "PUT de objeto"
+msgstr "Objeto PUT "
 
 #, python-format
 msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
 msgstr ""
-"Objeto PUT retornando 202 para a versão 409: %(req_timestamp)s < = "
-"%(timestamps)r"
+"Objeto PUT retornando 202 para 409: %(req_timestamp)s < = %(timestamps)r"
 
 #, python-format
 msgid "Object PUT returning 412, %(statuses)r"
@@ -801,11 +797,11 @@ msgstr "Reconstrução do objeto concluída. (%.02f minutos)"
 
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
-msgstr "Replicação completa do objeto (única). (%.02f minutos)"
+msgstr "Replicação do objeto concluída (única). (%.02f minutos)"
 
 #, python-format
 msgid "Object replication complete. (%.02f minutes)"
-msgstr "Replicação completa do objeto. (%.02f minutos)"
+msgstr "Replicação do objeto concluída. (%.02f minutos)"
 
 #, python-format
 msgid "Object servers returned %s mismatched etags"
@@ -817,7 +813,7 @@ msgid ""
 "successes, %(fail)s failures"
 msgstr ""
 "Varredura de encadeamento único da atualização do objeto concluída: "
-"%(elapsed).02fs, %(success)s com êxito, %(fail)s com falha"
+"%(elapsed).02fs, %(success)s com sucesso, %(fail)s com falha"
 
 #, python-format
 msgid "Object update sweep completed: %.02fs"
@@ -829,7 +825,7 @@ msgid ""
 "successes, %(fail)s failures"
 msgstr ""
 "Varredura da atualização do objeto de %(device)s concluída: %(elapsed).02fs, "
-"%(success)s com êxito, %(fail)s com falha"
+"%(success)s com sucesso, %(fail)s com falha"
 
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
@@ -850,7 +846,7 @@ msgstr "Aprovação concluída em %ds; %d objetos expirados"
 
 #, python-format
 msgid "Pass so far %ds; %d objects expired"
-msgstr "Aprovados até aqui %ds; %d objetos expirados"
+msgstr "Aprovados até o momento %ds; %d objetos expirados"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "Caminho necessário em X-Container-Sync-To"
@@ -880,16 +876,16 @@ msgstr ""
 msgid ""
 "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
-"Em quarentena %(object_path)s para %(quar_path)s porque ele não é um "
-"diretório"
+"%(object_path)s colocado em quarentena para %(quar_path)s porque ele não é "
+"um diretório"
 
 #, python-format
 msgid "Quarantined %s to %s due to %s database"
-msgstr "Em quarentena %s para %s devido a %s do banco de dados"
+msgstr "Em quarentena %s para %s devido ao banco de dados %s "
 
 #, python-format
 msgid "Quarantining DB %s"
-msgstr "Quarentenando BD %s"
+msgstr "Colocando o BD %s em quarentena"
 
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
@@ -926,7 +922,7 @@ msgstr "Execução de replicação TERMINADA"
 
 #, python-format
 msgid "Returning 497 because of blacklisting: %s"
-msgstr "Retornando 497 por causa da listagem negra: %s"
+msgstr "Retornando 497 por causa da listad e bloqueio: %s"
 
 #, python-format
 msgid ""
@@ -938,11 +934,11 @@ msgstr ""
 
 msgid "Ring change detected. Aborting current reconstruction pass."
 msgstr ""
-"Mudança no anel detectada. Interrompendo a aprovação da recosntrução atual."
+"Mudança no anel detectada. Interrompendo a aprovação da reconstrução atual."
 
 msgid "Ring change detected. Aborting current replication pass."
 msgstr ""
-"Alteração do anel detectada. Interrompendo a aprovação da replicação atual."
+"Mudança no anel detectada. Interrompendo a aprovação da replicação atual."
 
 #, python-format
 msgid "Running %s once"
@@ -963,32 +959,32 @@ msgid ""
 "Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
 "skipped, %(fail)s failed"
 msgstr ""
-"Desde %(time)s: %(sync)s sincronizados [%(delete)s exclui, %(put)s coloca], "
-"%(skip)s ignorados, %(fail)s com falha"
+"Desde %(time)s: %(sync)s sincronizados [%(delete)s exclusões, %(put)s "
+"colocações], %(skip)s ignorados, %(fail)s com falha"
 
 #, python-format
 msgid ""
 "Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
 "audit"
 msgstr ""
-"Desde %(time)s: Auditoria de contas: %(passed)s auditorias passaram,"
-"%(failed)s auditorias falharam"
+"Desde %(time)s: Auditoria de contas: %(passed)s auditorias aprovadas,"
+"%(failed)s auditorias com falha"
 
 #, python-format
 msgid ""
 "Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
 "audit"
 msgstr ""
-"Desde %(time)s: As auditorias do contêiner: %(pass)s de auditoria aprovada, "
-"%(fail)s com falha auditoria"
+"Desde %(time)s: Auditorias do contêiner: %(pass)s auditoria aprovada, "
+"%(fail)s auditoria com falha"
 
 #, python-format
 msgid "Skipping %(device)s as it is not mounted"
-msgstr "Pulando %(device)s porque não está montado"
+msgstr "Ignorando %(device)s porque não está montado"
 
 #, python-format
 msgid "Skipping %s as it is not mounted"
-msgstr "Pulando %s porque não está montado"
+msgstr "Ignorando %s porque não está montado"
 
 #, python-format
 msgid "Starting %s"
@@ -1018,7 +1014,7 @@ msgid ""
 "The total %(key)s for the container (%(total)s) does not match the sum of "
 "%(key)s across policies (%(sum)s)"
 msgstr ""
-"O total %(key)s para o container (%(total)s) não confere com a soma %(key)s "
+"O total %(key)s para o contêiner (%(total)s) não confere com a soma %(key)s "
 "pelas politicas (%(sum)s)"
 
 #, python-format
@@ -1060,14 +1056,14 @@ msgstr "Tentando sincronizar sufixos com %s"
 
 #, python-format
 msgid "Trying to write to %s"
-msgstr "Tentando escrever para %s"
+msgstr "Tentando gravar em %s"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "EXCEÇÃO NÃO CAPTURADA"
 
 #, python-format
 msgid "Unable to find %s config section in %s"
-msgstr "Não é possível localizar %s da seção de configuração em %s"
+msgstr "Não é possível localizar a seção de configuração %s em %s"
 
 #, python-format
 msgid "Unable to load internal client from config: %r (%s)"
@@ -1109,7 +1105,7 @@ msgid "Unexpected response: %s"
 msgstr "Resposta inesperada: %s"
 
 msgid "Unhandled exception"
-msgstr "Exceção não-tratada"
+msgstr "Exceção não manipulada"
 
 #, python-format
 msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
@@ -1127,7 +1123,7 @@ msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external SSL "
 "termination for a production deployment."
 msgstr ""
-"AVISO: SSL deve ser ativada somente para fins de teste. Use rescisão SSL "
+"AVISO: O SSL deve ser ativado somente para fins de teste. Use rescisão SSL "
 "externa para uma implementação de produção."
 
 msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
@@ -1153,11 +1149,12 @@ msgid "Waited %s seconds for %s to die; killing"
 msgstr "Esperou %s segundos para %s eliminar; eliminando"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
-msgstr "Aviso: Não é possível um limite de taxa sem um cliente memcached"
+msgstr ""
+"Aviso: Não é possível estabelecer um limite de taxa sem um cliente memcached"
 
 #, python-format
 msgid "method %s is not allowed."
-msgstr "o método %s não é permitido."
+msgstr "O método %s não é permitido."
 
 msgid "no log file found"
 msgstr "Nenhum arquivo de log encontrado"
@@ -1167,7 +1164,7 @@ msgstr "odfpy não está instalado."
 
 #, python-format
 msgid "plotting results failed due to %s"
-msgstr "plotar resultados falhou devido a %s"
+msgstr "A plotagem de resultados falhou devido a %s"
 
 msgid "python-matplotlib not installed."
 msgstr "python-matplotlib não instalado."
