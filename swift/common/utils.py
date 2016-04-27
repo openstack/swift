@@ -2937,6 +2937,10 @@ def public(func):
     return func
 
 
+def majority_size(n):
+    return (n // 2) + 1
+
+
 def quorum_size(n):
     """
     quorum size as it applies to services that use 'replication' for data
@@ -2946,7 +2950,7 @@ def quorum_size(n):
     Number of successful backend requests needed for the proxy to consider
     the client request successful.
     """
-    return (n // 2) + 1
+    return (n + 1) // 2
 
 
 def rsync_ip(ip):
