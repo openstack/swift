@@ -55,9 +55,10 @@ from swift.common.constraints import check_mount, check_dir
 from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
-    fsync_dir, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
+    fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file, \
-    get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps
+    get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
+    tpool_reraise
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -536,7 +537,6 @@ class BaseDiskFileManager(object):
             conf.get('replication_one_per_device', 'true'))
         self.replication_lock_timeout = int(conf.get(
             'replication_lock_timeout', 15))
-        self.threadpools = defaultdict(lambda: ThreadPool(nthreads=0))
 
         self.use_splice = False
         self.pipe_size = None
@@ -1115,8 +1115,7 @@ class BaseDiskFileManager(object):
         device_path = self.construct_dev_path(device)
         async_dir = os.path.join(device_path, get_async_dir(policy))
         ohash = hash_path(account, container, obj)
-        self.threadpools[device].run_in_thread(
-            write_pickle,
+        write_pickle(
             data,
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
                          Timestamp(timestamp).internal),
@@ -1139,7 +1138,7 @@ class BaseDiskFileManager(object):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        return self.diskfile_cls(self, dev_path, self.threadpools[device],
+        return self.diskfile_cls(self, dev_path,
                                  partition, account, container, obj,
                                  policy=policy, use_splice=self.use_splice,
                                  pipe_size=self.pipe_size, **kwargs)
@@ -1215,7 +1214,7 @@ class BaseDiskFileManager(object):
                 metadata.get('name', ''), 3, 3, True)
         except ValueError:
             raise DiskFileNotExist()
-        return self.diskfile_cls(self, dev_path, self.threadpools[device],
+        return self.diskfile_cls(self, dev_path,
                                  partition, account, container, obj,
                                  policy=policy, **kwargs)
 
@@ -1235,7 +1234,7 @@ class BaseDiskFileManager(object):
                                       partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
-        _junk, hashes = self.threadpools[device].force_run_in_thread(
+        _junk, hashes = tpool_reraise(
             self._get_hashes, partition_path, recalculate=suffixes)
         return hashes
 
@@ -1368,19 +1367,16 @@ class BaseDiskFileWriter(object):
     :param fd: open file descriptor of temporary file to receive data
     :param tmppath: full path name of the opened file descriptor
     :param bytes_per_sync: number bytes written between sync calls
-    :param threadpool: internal thread pool to use for disk operations
     :param diskfile: the diskfile creating this DiskFileWriter instance
     """
 
-    def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, threadpool,
-                 diskfile):
+    def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, diskfile):
         # Parameter tracking
         self._name = name
         self._datadir = datadir
         self._fd = fd
         self._tmppath = tmppath
         self._bytes_per_sync = bytes_per_sync
-        self._threadpool = threadpool
         self._diskfile = diskfile
 
         # Internal attributes
@@ -1409,18 +1405,15 @@ class BaseDiskFileWriter(object):
         :returns: the total number of bytes written to an object
         """
 
-        def _write_entire_chunk(chunk):
-            while chunk:
-                written = os.write(self._fd, chunk)
-                self._upload_size += written
-                chunk = chunk[written:]
-
-        self._threadpool.run_in_thread(_write_entire_chunk, chunk)
+        while chunk:
+            written = os.write(self._fd, chunk)
+            self._upload_size += written
+            chunk = chunk[written:]
 
         # For large files sync every 512MB (by default) written
         diff = self._upload_size - self._last_sync
         if diff >= self._bytes_per_sync:
-            self._threadpool.force_run_in_thread(fdatasync, self._fd)
+            tpool_reraise(fdatasync, self._fd)
             drop_buffer_cache(self._fd, self._last_sync, diff)
             self._last_sync = self._upload_size
 
@@ -1477,8 +1470,7 @@ class BaseDiskFileWriter(object):
         metadata['name'] = self._name
         target_path = join(self._datadir, filename)
 
-        self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path, cleanup)
+        tpool_reraise(self._finalize_put, metadata, target_path, cleanup)
 
     def put(self, metadata):
         """
@@ -1521,7 +1513,6 @@ class BaseDiskFileReader(object):
     :param data_file: on-disk data file name for the object
     :param obj_size: verified on-disk size of the object
     :param etag: expected metadata etag value for entire file
-    :param threadpool: thread pool to use for read operations
     :param disk_chunk_size: size of reads from disk in bytes
     :param keep_cache_size: maximum object size that will be kept in cache
     :param device_path: on-disk device path, used when quarantining an obj
@@ -1532,7 +1523,7 @@ class BaseDiskFileReader(object):
     :param diskfile: the diskfile creating this DiskFileReader instance
     :param keep_cache: should resulting reads be kept in the buffer cache
     """
-    def __init__(self, fp, data_file, obj_size, etag, threadpool,
+    def __init__(self, fp, data_file, obj_size, etag,
                  disk_chunk_size, keep_cache_size, device_path, logger,
                  quarantine_hook, use_splice, pipe_size, diskfile,
                  keep_cache=False):
@@ -1541,7 +1532,6 @@ class BaseDiskFileReader(object):
         self._data_file = data_file
         self._obj_size = obj_size
         self._etag = etag
-        self._threadpool = threadpool
         self._diskfile = diskfile
         self._disk_chunk_size = disk_chunk_size
         self._device_path = device_path
@@ -1580,8 +1570,7 @@ class BaseDiskFileReader(object):
                 self._started_at_0 = True
                 self._iter_etag = hashlib.md5()
             while True:
-                chunk = self._threadpool.run_in_thread(
-                    self._fp.read, self._disk_chunk_size)
+                chunk = self._fp.read(self._disk_chunk_size)
                 if chunk:
                     if self._iter_etag:
                         self._iter_etag.update(chunk)
@@ -1634,8 +1623,8 @@ class BaseDiskFileReader(object):
         try:
             while True:
                 # Read data from disk to pipe
-                (bytes_in_pipe, _1, _2) = self._threadpool.run_in_thread(
-                    splice, rfd, None, client_wpipe, None, pipe_size, 0)
+                (bytes_in_pipe, _1, _2) = splice(
+                    rfd, None, client_wpipe, None, pipe_size, 0)
                 if bytes_in_pipe == 0:
                     self._read_to_eof = True
                     self._drop_cache(rfd, dropped_cache,
@@ -1758,9 +1747,8 @@ class BaseDiskFileReader(object):
             drop_buffer_cache(fd, offset, length)
 
     def _quarantine(self, msg):
-        self._quarantined_dir = self._threadpool.run_in_thread(
-            self.manager.quarantine_renamer, self._device_path,
-            self._data_file)
+        self._quarantined_dir = self.manager.quarantine_renamer(
+            self._device_path, self._data_file)
         self._logger.warning("Quarantined object %s: %s" % (
             self._data_file, msg))
         self._logger.increment('quarantines')
@@ -1824,7 +1812,6 @@ class BaseDiskFile(object):
 
     :param mgr: associated DiskFileManager instance
     :param device_path: path to the target device or drive
-    :param threadpool: thread pool to use for blocking operations
     :param partition: partition on the device in which the object lives
     :param account: account name for the object
     :param container: container name for the object
@@ -1837,12 +1824,11 @@ class BaseDiskFile(object):
     reader_cls = None  # must be set by subclasses
     writer_cls = None  # must be set by subclasses
 
-    def __init__(self, mgr, device_path, threadpool, partition,
+    def __init__(self, mgr, device_path, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None, **kwargs):
         self._manager = mgr
         self._device_path = device_path
-        self._threadpool = threadpool or ThreadPool(nthreads=0)
         self._logger = mgr.logger
         self._disk_chunk_size = mgr.disk_chunk_size
         self._bytes_per_sync = mgr.bytes_per_sync
@@ -2043,8 +2029,8 @@ class BaseDiskFile(object):
         :param msg: reason for quarantining to be included in the exception
         :returns: DiskFileQuarantined exception object
         """
-        self._quarantined_dir = self._threadpool.run_in_thread(
-            self.manager.quarantine_renamer, self._device_path, data_file)
+        self._quarantined_dir = self.manager.quarantine_renamer(
+            self._device_path, data_file)
         self._logger.warning("Quarantined object %s: %s" % (
             data_file, msg))
         self._logger.increment('quarantines')
@@ -2333,7 +2319,7 @@ class BaseDiskFile(object):
         """
         dr = self.reader_cls(
             self._fp, self._data_file, int(self._metadata['Content-Length']),
-            self._metadata['ETag'], self._threadpool, self._disk_chunk_size,
+            self._metadata['ETag'], self._disk_chunk_size,
             self._manager.keep_cache_size, self._device_path, self._logger,
             use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
             pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache)
@@ -2378,7 +2364,6 @@ class BaseDiskFile(object):
                     raise
             dfw = self.writer_cls(self._name, self._datadir, fd, tmppath,
                                   bytes_per_sync=self._bytes_per_sync,
-                                  threadpool=self._threadpool,
                                   diskfile=self)
             yield dfw
         finally:
@@ -2561,8 +2546,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         """
         durable_file_path = os.path.join(
             self._datadir, timestamp.internal + '.durable')
-        self._threadpool.force_run_in_thread(
-            self._finalize_durable, durable_file_path)
+        tpool_reraise(self._finalize_durable, durable_file_path)
 
     def put(self, metadata):
         """
