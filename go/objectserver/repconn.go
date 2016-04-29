@@ -25,6 +25,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"time"
+
+	"github.com/openstack/swift/go/hummingbird"
 )
 
 var RepUnmountedError = fmt.Errorf("Device unmounted")
@@ -138,12 +140,13 @@ func (r *RepConn) Close() {
 	r.c.Close()
 }
 
-func NewRepConn(ip string, port int, device string, partition string) (*RepConn, error) {
-	url := fmt.Sprintf("http://%s:%d/%s/%s", ip, port, device, partition)
+func NewRepConn(dev *hummingbird.Device, partition string) (*RepConn, error) {
+	url := fmt.Sprintf("http://%s:%d/%s/%s", dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
 	req, err := http.NewRequest("REPCONN", url, nil)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("X-Trans-Id", fmt.Sprintf("%s-%d", hummingbird.UUID(), dev.Id))
 	conn, err := repDialer("tcp", req.URL.Host)
 	if err != nil {
 		return nil, err
