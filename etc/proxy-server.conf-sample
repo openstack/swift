@@ -618,19 +618,23 @@ use = egg:swift#bulk
 # max_failed_extractions = 1000
 # max_deletes_per_request = 10000
 # max_failed_deletes = 1000
-
+#
 # In order to keep a connection active during a potentially long bulk request,
 # Swift may return whitespace prepended to the actual response body. This
 # whitespace will be yielded no more than every yield_frequency seconds.
 # yield_frequency = 10
-
+#
 # Note: The following parameter is used during a bulk delete of objects and
 # their container. This would frequently fail because it is very likely
 # that all replicated objects have not been deleted by the time the middleware got a
 # successful response. It can be configured the number of retries. And the
 # number of seconds to wait between each retry will be 1.5**retry
-
 # delete_container_retry_count = 0
+#
+# To speed up the bulk delete process, multiple deletes may be executed in
+# parallel. Avoid setting this too high, as it gives clients a force multiplier
+# which may be used in DoS attacks. The suggested range is between 2 and 10.
+# delete_concurrency = 2
 
 # Note: Put after auth and staticweb in the pipeline.
 [filter:slo]
@@ -651,6 +655,12 @@ use = egg:swift#slo
 #
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
+#
+# When deleting with ?multipart-manifest=delete, multiple deletes may be
+# executed in parallel. Avoid setting this too high, as it gives clients a
+# force multiplier which may be used in DoS attacks. The suggested range is
+# between 2 and 10.
+# delete_concurrency = 2
 
 # Note: Put after auth and staticweb in the pipeline.
 # If you don't put it in the pipeline, it will be inserted for you.
