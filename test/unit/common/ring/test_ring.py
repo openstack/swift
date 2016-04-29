@@ -147,20 +147,20 @@ class TestRing(TestRingBase):
             array.array('H', [0, 1, 0, 1]),
             array.array('H', [3, 4, 3, 4])]
         self.intended_devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1.0,
-                               'ip': '10.1.1.1', 'port': 6000,
+                               'ip': '10.1.1.1', 'port': 6200,
                                'replication_ip': '10.1.0.1',
                                'replication_port': 6066},
                               {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
-                               'ip': '10.1.1.1', 'port': 6000,
+                               'ip': '10.1.1.1', 'port': 6200,
                                'replication_ip': '10.1.0.2',
                                'replication_port': 6066},
                               None,
                               {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
-                               'ip': '10.1.2.1', 'port': 6000,
+                               'ip': '10.1.2.1', 'port': 6200,
                                'replication_ip': '10.2.0.1',
                                'replication_port': 6066},
                               {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
-                               'ip': '10.1.2.2', 'port': 6000,
+                               'ip': '10.1.2.2', 'port': 6200,
                                'replication_ip': '10.2.0.1',
                                'replication_port': 6066}]
         self.intended_part_shift = 30
@@ -243,7 +243,7 @@ class TestRing(TestRingBase):
         self.assertEqual(len(self.ring.devs), 7)
         self.intended_devs.append(
             {'id': 6, 'region': 0, 'zone': 5, 'weight': 1.0,
-             'ip': '10.6.6.6', 'port': 6000})
+             'ip': '10.6.6.6', 'port': 6200})
         ring.RingData(
             self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
@@ -259,7 +259,7 @@ class TestRing(TestRingBase):
         self.assertEqual(len(self.ring.devs), 8)
         self.intended_devs.append(
             {'id': 5, 'region': 0, 'zone': 4, 'weight': 1.0,
-             'ip': '10.5.5.5', 'port': 6000})
+             'ip': '10.5.5.5', 'port': 6200})
         ring.RingData(
             self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
@@ -270,34 +270,34 @@ class TestRing(TestRingBase):
     def test_reload_without_replication(self):
         replication_less_devs = [{'id': 0, 'region': 0, 'zone': 0,
                                   'weight': 1.0, 'ip': '10.1.1.1',
-                                  'port': 6000},
+                                  'port': 6200},
                                  {'id': 1, 'region': 0, 'zone': 0,
                                   'weight': 1.0, 'ip': '10.1.1.1',
-                                  'port': 6000},
+                                  'port': 6200},
                                  None,
                                  {'id': 3, 'region': 0, 'zone': 2,
                                   'weight': 1.0, 'ip': '10.1.2.1',
-                                  'port': 6000},
+                                  'port': 6200},
                                  {'id': 4, 'region': 0, 'zone': 2,
                                   'weight': 1.0, 'ip': '10.1.2.2',
-                                  'port': 6000}]
+                                  'port': 6200}]
         intended_devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
+                          'ip': '10.1.1.1', 'port': 6200,
                           'replication_ip': '10.1.1.1',
-                          'replication_port': 6000},
+                          'replication_port': 6200},
                          {'id': 1, 'region': 0, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
+                          'ip': '10.1.1.1', 'port': 6200,
                           'replication_ip': '10.1.1.1',
-                          'replication_port': 6000},
+                          'replication_port': 6200},
                          None,
                          {'id': 3, 'region': 0, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.1', 'port': 6000,
+                          'ip': '10.1.2.1', 'port': 6200,
                           'replication_ip': '10.1.2.1',
-                          'replication_port': 6000},
+                          'replication_port': 6200},
                          {'id': 4, 'region': 0, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.2', 'port': 6000,
+                          'ip': '10.1.2.2', 'port': 6200,
                           'replication_ip': '10.1.2.2',
-                          'replication_port': 6000}]
+                          'replication_port': 6200}]
         testgz = os.path.join(self.testdir, 'without_replication.ring.gz')
         ring.RingData(
             self.intended_replica2part2dev_id,
@@ -311,34 +311,34 @@ class TestRing(TestRingBase):
     def test_reload_old_style_pickled_ring(self):
         devs = [{'id': 0, 'zone': 0,
                  'weight': 1.0, 'ip': '10.1.1.1',
-                 'port': 6000},
+                 'port': 6200},
                 {'id': 1, 'zone': 0,
                  'weight': 1.0, 'ip': '10.1.1.1',
-                 'port': 6000},
+                 'port': 6200},
                 None,
                 {'id': 3, 'zone': 2,
                  'weight': 1.0, 'ip': '10.1.2.1',
-                 'port': 6000},
+                 'port': 6200},
                 {'id': 4, 'zone': 2,
                  'weight': 1.0, 'ip': '10.1.2.2',
-                 'port': 6000}]
+                 'port': 6200}]
         intended_devs = [{'id': 0, 'region': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
+                          'ip': '10.1.1.1', 'port': 6200,
                           'replication_ip': '10.1.1.1',
-                          'replication_port': 6000},
+                          'replication_port': 6200},
                          {'id': 1, 'region': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
+                          'ip': '10.1.1.1', 'port': 6200,
                           'replication_ip': '10.1.1.1',
-                          'replication_port': 6000},
+                          'replication_port': 6200},
                          None,
                          {'id': 3, 'region': 1, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.1', 'port': 6000,
+                          'ip': '10.1.2.1', 'port': 6200,
                           'replication_ip': '10.1.2.1',
-                          'replication_port': 6000},
+                          'replication_port': 6200},
                          {'id': 4, 'region': 1, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.2', 'port': 6000,
+                          'ip': '10.1.2.2', 'port': 6200,
                           'replication_ip': '10.1.2.2',
-                          'replication_port': 6000}]
+                          'replication_port': 6200}]
 
         # simulate an old-style pickled ring
         testgz = os.path.join(self.testdir,
@@ -823,22 +823,22 @@ class TestRing(TestRingBase):
         rb = ring.RingBuilder(8, 3, 1)
         devs = [
             ring_utils.parse_add_value(v) for v in [
-                'r1z1-127.0.0.1:6000/d1',
-                'r1z1-127.0.0.1:6001/d2',
-                'r1z1-127.0.0.1:6002/d3',
-                'r1z1-127.0.0.1:6003/d4',
-                'r1z2-127.0.0.2:6000/d1',
-                'r1z2-127.0.0.2:6001/d2',
-                'r1z2-127.0.0.2:6002/d3',
-                'r1z2-127.0.0.2:6003/d4',
-                'r2z1-127.0.1.1:6000/d1',
-                'r2z1-127.0.1.1:6001/d2',
-                'r2z1-127.0.1.1:6002/d3',
-                'r2z1-127.0.1.1:6003/d4',
-                'r2z2-127.0.1.2:6000/d1',
-                'r2z2-127.0.1.2:6001/d2',
-                'r2z2-127.0.1.2:6002/d3',
-                'r2z2-127.0.1.2:6003/d4',
+                'r1z1-127.0.0.1:6200/d1',
+                'r1z1-127.0.0.1:6201/d2',
+                'r1z1-127.0.0.1:6202/d3',
+                'r1z1-127.0.0.1:6203/d4',
+                'r1z2-127.0.0.2:6200/d1',
+                'r1z2-127.0.0.2:6201/d2',
+                'r1z2-127.0.0.2:6202/d3',
+                'r1z2-127.0.0.2:6203/d4',
+                'r2z1-127.0.1.1:6200/d1',
+                'r2z1-127.0.1.1:6201/d2',
+                'r2z1-127.0.1.1:6202/d3',
+                'r2z1-127.0.1.1:6203/d4',
+                'r2z2-127.0.1.2:6200/d1',
+                'r2z2-127.0.1.2:6201/d2',
+                'r2z2-127.0.1.2:6202/d3',
+                'r2z2-127.0.1.2:6203/d4',
             ]
         ]
         for dev in devs:

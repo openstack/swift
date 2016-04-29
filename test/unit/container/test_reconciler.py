@@ -587,7 +587,7 @@ class TestReconcilerUtils(unittest.TestCase):
             socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
             ClientException(
                 'Container Server blew up',
-                '10.0.0.12', 6001, 'sdj', 404, 'Not Found'
+                '10.0.0.12', 6201, 'sdj', 404, 'Not Found'
             ),
         ]
         mock_direct_delete = mock.MagicMock()

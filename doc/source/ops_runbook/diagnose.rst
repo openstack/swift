@@ -862,8 +862,8 @@ making progress. Another useful way to check this is with the
    ===============================================================================
    [2013-07-17 12:56:19] Checking on replication
    [replication_time] low: 2, high: 80, avg: 28.8, total: 11037, Failed: 0.0%, no_result: 0, reported: 383
-   Oldest completion was 2013-06-12 22:46:50 (12 days ago) by 192.168.245.3:6000.
-   Most recent completion was 2013-07-17 12:56:19 (5 seconds ago) by 192.168.245.5:6000.
+   Oldest completion was 2013-06-12 22:46:50 (12 days ago) by 192.168.245.3:6200.
+   Most recent completion was 2013-07-17 12:56:19 (5 seconds ago) by 192.168.245.5:6200.
    ===============================================================================
 
 The ``Oldest completion`` line in this example indicates that the

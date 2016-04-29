@@ -51,16 +51,16 @@ where the container resides by using the container ring.
 .IP "Partition 221082"
 .IP "Hash d7e6ba68cfdce0f0e4ca7890e46cacce"
 
-.IP "Server:Port Device      172.24.24.29:6002 sdd"
-.IP "Server:Port Device      172.24.24.27:6002 sdr"
-.IP "Server:Port Device      172.24.24.32:6002 sde"
-.IP "Server:Port Device      172.24.24.26:6002 sdv    [Handoff]"
+.IP "Server:Port Device      172.24.24.29:6202 sdd"
+.IP "Server:Port Device      172.24.24.27:6202 sdr"
+.IP "Server:Port Device      172.24.24.32:6202 sde"
+.IP "Server:Port Device      172.24.24.26:6202 sdv    [Handoff]"
 
 
-.IP "curl -I -XHEAD http://172.24.24.29:6002/sdd/221082/MyAccount-12ac01446be2"
-.IP "curl -I -XHEAD http://172.24.24.27:6002/sdr/221082/MyAccount-12ac01446be2"
-.IP "curl -I -XHEAD http://172.24.24.32:6002/sde/221082/MyAccount-12ac01446be2"
-.IP "curl -I -XHEAD http://172.24.24.26:6002/sdv/221082/MyAccount-12ac01446be2 # [Handoff]"
+.IP "curl -I -XHEAD http://172.24.24.29:6202/sdd/221082/MyAccount-12ac01446be2"
+.IP "curl -I -XHEAD http://172.24.24.27:6202/sdr/221082/MyAccount-12ac01446be2"
+.IP "curl -I -XHEAD http://172.24.24.32:6202/sde/221082/MyAccount-12ac01446be2"
+.IP "curl -I -XHEAD http://172.24.24.26:6202/sdv/221082/MyAccount-12ac01446be2 # [Handoff]"
 
 .IP "ssh 172.24.24.29 ls -lah /srv/node/sdd/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/ "
 .IP "ssh 172.24.24.27 ls -lah /srv/node/sdr/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/"

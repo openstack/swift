@@ -72,8 +72,8 @@ class FakeRing(object):
 class FakeRingWithSingleNode(object):
     class Ring(object):
         devs = [dict(
-            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.1', replication_port=6000
+            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.1', replication_port=6200
         )]
 
         def __init__(self, path, reload_time=15, ring_name=None):
@@ -92,23 +92,23 @@ class FakeRingWithSingleNode(object):
 class FakeRingWithNodes(object):
     class Ring(object):
         devs = [dict(
-            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.1', replication_port=6000, region=1
+            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.1', replication_port=6200, region=1
         ), dict(
-            id=2, weight=10.0, zone=2, ip='1.1.1.2', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.2', replication_port=6000, region=2
+            id=2, weight=10.0, zone=2, ip='1.1.1.2', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.2', replication_port=6200, region=2
         ), dict(
-            id=3, weight=10.0, zone=3, ip='1.1.1.3', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.3', replication_port=6000, region=1
+            id=3, weight=10.0, zone=3, ip='1.1.1.3', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.3', replication_port=6200, region=1
         ), dict(
-            id=4, weight=10.0, zone=4, ip='1.1.1.4', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.4', replication_port=6000, region=2
+            id=4, weight=10.0, zone=4, ip='1.1.1.4', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.4', replication_port=6200, region=2
         ), dict(
-            id=5, weight=10.0, zone=5, ip='1.1.1.5', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.5', replication_port=6000, region=1
+            id=5, weight=10.0, zone=5, ip='1.1.1.5', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.5', replication_port=6200, region=1
         ), dict(
-            id=6, weight=10.0, zone=6, ip='1.1.1.6', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.6', replication_port=6000, region=2
+            id=6, weight=10.0, zone=6, ip='1.1.1.6', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.6', replication_port=6200, region=2
         )]
 
         def __init__(self, path, reload_time=15, ring_name=None):
@@ -486,7 +486,7 @@ class TestDBReplicator(unittest.TestCase):
         base = 'swift.common.db_replicator.'
         with patch(base + 'whataremyips', return_value=['1.1.1.1']), \
                 patch(base + 'ring', FakeRingWithNodes()):
-            replicator = TestReplicator({'bind_port': 6000,
+            replicator = TestReplicator({'bind_port': 6200,
                                          'recon_cache_path': self.recon_cache},
                                         logger=logger)
             replicator.run_once()
@@ -507,10 +507,11 @@ class TestDBReplicator(unittest.TestCase):
         db_replicator.ring = FakeRingWithSingleNode()
         # If a bind_ip is specified, it's plumbed into whataremyips() and
         # returned by itself.
-        conf = {'mount_check': 'true', 'bind_ip': '1.1.1.1', 'bind_port': 6000}
+        conf = {'mount_check': 'true', 'bind_ip': '1.1.1.1',
+                'bind_port': 6200}
         replicator = TestReplicator(conf, logger=unit.FakeLogger())
         self.assertEqual(replicator.mount_check, True)
-        self.assertEqual(replicator.port, 6000)
+        self.assertEqual(replicator.port, 6200)
 
         def mock_ismount(path):
             self.assertEqual(path,
@@ -528,10 +529,10 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_run_once_node_is_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
-        conf = {'mount_check': 'true', 'bind_port': 6000}
+        conf = {'mount_check': 'true', 'bind_port': 6200}
         replicator = TestReplicator(conf, logger=unit.FakeLogger())
         self.assertEqual(replicator.mount_check, True)
-        self.assertEqual(replicator.port, 6000)
+        self.assertEqual(replicator.port, 6200)
 
         def mock_unlink_older_than(path, mtime):
             self.assertEqual(path,

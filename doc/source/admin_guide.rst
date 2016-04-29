@@ -110,15 +110,15 @@ You can create scripts to create the account and container rings and rebalance. 
     cd /etc/swift
     rm -f account.builder account.ring.gz backups/account.builder backups/account.ring.gz
     swift-ring-builder account.builder create 18 3 1
-    swift-ring-builder account.builder add r1z1-<account-server-1>:6002/sdb1 1
-    swift-ring-builder account.builder add r1z2-<account-server-2>:6002/sdb1 1
+    swift-ring-builder account.builder add r1z1-<account-server-1>:6202/sdb1 1
+    swift-ring-builder account.builder add r1z2-<account-server-2>:6202/sdb1 1
     swift-ring-builder account.builder rebalance
 
    You need to replace the values of <account-server-1>,
    <account-server-2>, etc. with the IP addresses of the account
    servers used in your setup. You can have as many account servers as
    you need. All account servers are assumed to be listening on port
-   6002, and have a storage device called "sdb1" (this is a directory
+   6202, and have a storage device called "sdb1" (this is a directory
    name created under /drives when we setup the account server). The
    "z1", "z2", etc. designate zones, and you can choose whether you
    put devices in the same or different zones. The "r1" designates
@@ -539,7 +539,7 @@ JSON-formatted response::
     {"async_pending": 0}
 
 
-Note that the default port for the object server is 6000, except on a
+Note that the default port for the object server is 6200, except on a
 Swift All-In-One installation, which uses 6010, 6020, 6030, and 6040.
 
 The following metrics and telemetry are currently exposed:

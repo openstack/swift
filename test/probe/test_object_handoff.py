@@ -134,13 +134,13 @@ class TestObjectHandoff(ReplProbeTest):
                 port_num = node['replication_port']
             except KeyError:
                 port_num = node['port']
-            node_id = (port_num - 6000) / 10
+            node_id = (port_num - 6200) / 10
             Manager(['object-replicator']).once(number=node_id)
         try:
             another_port_num = another_onode['replication_port']
         except KeyError:
             another_port_num = another_onode['port']
-        another_num = (another_port_num - 6000) / 10
+        another_num = (another_port_num - 6200) / 10
         Manager(['object-replicator']).once(number=another_num)
 
         # Assert the first container/obj primary server now has container/obj
@@ -230,9 +230,9 @@ class TestObjectHandoff(ReplProbeTest):
                 port_num = node['replication_port']
             except KeyError:
                 port_num = node['port']
-            node_id = (port_num - 6000) / 10
+            node_id = (port_num - 6200) / 10
             Manager(['object-replicator']).once(number=node_id)
-        another_node_id = (another_port_num - 6000) / 10
+        another_node_id = (another_port_num - 6200) / 10
         Manager(['object-replicator']).once(number=another_node_id)
 
         # Assert primary node no longer has container/obj

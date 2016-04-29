@@ -73,17 +73,17 @@ class TestListEndpoints(unittest.TestCase):
             array.array('H', [1, 0, 1, 0]),
             array.array('H', [4, 3, 4, 3])]
         intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
+                          'ip': '10.1.1.1', 'port': 6200,
                           'device': 'sda1'},
                          {'id': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
+                          'ip': '10.1.1.1', 'port': 6200,
                           'device': 'sdb1'},
                          None,
                          {'id': 3, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.1', 'port': 6000,
+                          'ip': '10.1.2.1', 'port': 6200,
                           'device': 'sdc1'},
                          {'id': 4, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.2', 'port': 6000,
+                          'ip': '10.1.2.2', 'port': 6200,
                           'device': 'sdd1'}]
         intended_part_shift = 30
         ring.RingData(intended_replica2part2dev_id_a,
@@ -241,16 +241,16 @@ class TestListEndpoints(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.content_type, 'application/json')
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/1/a/c/o1",
-            "http://10.1.2.2:6000/sdd1/1/a/c/o1"
+            "http://10.1.1.1:6200/sdb1/1/a/c/o1",
+            "http://10.1.2.2:6200/sdd1/1/a/c/o1"
         ])
 
         # test policies with no version endpoint name
         expected = [[
-                    "http://10.1.1.1:6000/sdb1/1/a/c/o1",
-                    "http://10.1.2.2:6000/sdd1/1/a/c/o1"], [
-                    "http://10.1.1.1:6000/sda1/1/a/c/o1",
-                    "http://10.1.2.1:6000/sdc1/1/a/c/o1"
+                    "http://10.1.1.1:6200/sdb1/1/a/c/o1",
+                    "http://10.1.2.2:6200/sdd1/1/a/c/o1"], [
+                    "http://10.1.1.1:6200/sda1/1/a/c/o1",
+                    "http://10.1.2.1:6200/sdc1/1/a/c/o1"
                     ]]
         PATCHGI = 'swift.common.middleware.list_endpoints.get_container_info'
         for pol in POLICIES:
@@ -267,25 +267,25 @@ class TestListEndpoints(unittest.TestCase):
             self.list_endpoints)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/3/a/c/o1/",
-            "http://10.1.2.2:6000/sdd1/3/a/c/o1/"
+            "http://10.1.1.1:6200/sdb1/3/a/c/o1/",
+            "http://10.1.2.2:6200/sdd1/3/a/c/o1/"
         ])
 
         resp = Request.blank('/endpoints/a/c2').get_response(
             self.list_endpoints)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sda1/2/a/c2",
-            "http://10.1.2.1:6000/sdc1/2/a/c2"
+            "http://10.1.1.1:6200/sda1/2/a/c2",
+            "http://10.1.2.1:6200/sdc1/2/a/c2"
         ])
 
         resp = Request.blank('/endpoints/a1').get_response(
             self.list_endpoints)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.2.1:6000/sdc1/0/a1",
-            "http://10.1.1.1:6000/sda1/0/a1",
-            "http://10.1.1.1:6000/sdb1/0/a1"
+            "http://10.1.2.1:6200/sdc1/0/a1",
+            "http://10.1.1.1:6200/sda1/0/a1",
+            "http://10.1.1.1:6200/sdb1/0/a1"
         ])
 
         resp = Request.blank('/endpoints/').get_response(
@@ -296,24 +296,24 @@ class TestListEndpoints(unittest.TestCase):
             self.list_endpoints)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/3/a/c%202",
-            "http://10.1.2.2:6000/sdd1/3/a/c%202"
+            "http://10.1.1.1:6200/sdb1/3/a/c%202",
+            "http://10.1.2.2:6200/sdd1/3/a/c%202"
         ])
 
         resp = Request.blank('/endpoints/a/c%202').get_response(
             self.list_endpoints)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/3/a/c%202",
-            "http://10.1.2.2:6000/sdd1/3/a/c%202"
+            "http://10.1.1.1:6200/sdb1/3/a/c%202",
+            "http://10.1.2.2:6200/sdd1/3/a/c%202"
         ])
 
         resp = Request.blank('/endpoints/ac%20count/con%20tainer/ob%20ject') \
             .get_response(self.list_endpoints)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/3/ac%20count/con%20tainer/ob%20ject",
-            "http://10.1.2.2:6000/sdd1/3/ac%20count/con%20tainer/ob%20ject"
+            "http://10.1.1.1:6200/sdb1/3/ac%20count/con%20tainer/ob%20ject",
+            "http://10.1.2.2:6200/sdd1/3/ac%20count/con%20tainer/ob%20ject"
         ])
 
         resp = Request.blank('/endpoints/a/c/o1', {'REQUEST_METHOD': 'POST'}) \
@@ -359,16 +359,16 @@ class TestListEndpoints(unittest.TestCase):
     def test_v1_response(self):
         req = Request.blank('/endpoints/v1/a/c/o1')
         resp = req.get_response(self.list_endpoints)
-        expected = ["http://10.1.1.1:6000/sdb1/1/a/c/o1",
-                    "http://10.1.2.2:6000/sdd1/1/a/c/o1"]
+        expected = ["http://10.1.1.1:6200/sdb1/1/a/c/o1",
+                    "http://10.1.2.2:6200/sdd1/1/a/c/o1"]
         self.assertEqual(resp.body, json.dumps(expected))
 
     def test_v2_obj_response(self):
         req = Request.blank('/endpoints/v2/a/c/o1')
         resp = req.get_response(self.list_endpoints)
         expected = {
-            'endpoints': ["http://10.1.1.1:6000/sdb1/1/a/c/o1",
-                          "http://10.1.2.2:6000/sdd1/1/a/c/o1"],
+            'endpoints': ["http://10.1.1.1:6200/sdb1/1/a/c/o1",
+                          "http://10.1.2.2:6200/sdd1/1/a/c/o1"],
             'headers': {'X-Backend-Storage-Policy-Index': "0"},
         }
         self.assertEqual(resp.body, json.dumps(expected))
@@ -394,9 +394,9 @@ class TestListEndpoints(unittest.TestCase):
         req = Request.blank('/endpoints/v2/a')
         resp = req.get_response(self.list_endpoints)
         expected = {
-            'endpoints': ["http://10.1.2.1:6000/sdc1/0/a",
-                          "http://10.1.1.1:6000/sda1/0/a",
-                          "http://10.1.1.1:6000/sdb1/0/a"],
+            'endpoints': ["http://10.1.2.1:6200/sdc1/0/a",
+                          "http://10.1.1.1:6200/sda1/0/a",
+                          "http://10.1.1.1:6200/sdb1/0/a"],
             'headers': {},
         }
         # container
@@ -404,9 +404,9 @@ class TestListEndpoints(unittest.TestCase):
         req = Request.blank('/endpoints/v2/a/c')
         resp = req.get_response(self.list_endpoints)
         expected = {
-            'endpoints': ["http://10.1.2.2:6000/sdd1/0/a/c",
-                          "http://10.1.1.1:6000/sda1/0/a/c",
-                          "http://10.1.2.1:6000/sdc1/0/a/c"],
+            'endpoints': ["http://10.1.2.2:6200/sdd1/0/a/c",
+                          "http://10.1.1.1:6200/sda1/0/a/c",
+                          "http://10.1.2.1:6200/sdc1/0/a/c"],
             'headers': {},
         }
         self.assertEqual(resp.body, json.dumps(expected))
@@ -414,9 +414,9 @@ class TestListEndpoints(unittest.TestCase):
     def test_version_account_response(self):
         req = Request.blank('/endpoints/a')
         resp = req.get_response(self.list_endpoints)
-        expected = ["http://10.1.2.1:6000/sdc1/0/a",
-                    "http://10.1.1.1:6000/sda1/0/a",
-                    "http://10.1.1.1:6000/sdb1/0/a"]
+        expected = ["http://10.1.2.1:6200/sdc1/0/a",
+                    "http://10.1.1.1:6200/sda1/0/a",
+                    "http://10.1.1.1:6200/sdb1/0/a"]
         self.assertEqual(resp.body, json.dumps(expected))
         req = Request.blank('/endpoints/v1.0/a')
         resp = req.get_response(self.list_endpoints)
@@ -425,9 +425,9 @@ class TestListEndpoints(unittest.TestCase):
         req = Request.blank('/endpoints/v2/a')
         resp = req.get_response(self.list_endpoints)
         expected = {
-            'endpoints': ["http://10.1.2.1:6000/sdc1/0/a",
-                          "http://10.1.1.1:6000/sda1/0/a",
-                          "http://10.1.1.1:6000/sdb1/0/a"],
+            'endpoints': ["http://10.1.2.1:6200/sdc1/0/a",
+                          "http://10.1.1.1:6200/sda1/0/a",
+                          "http://10.1.1.1:6200/sdb1/0/a"],
             'headers': {},
         }
         self.assertEqual(resp.body, json.dumps(expected))

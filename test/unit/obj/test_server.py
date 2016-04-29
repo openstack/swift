@@ -3818,7 +3818,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Device': 'sdb1',
                      'X-Delete-At': 9999999999,
                      'X-Delete-At-Container': '9999999960',
-                     'X-Delete-At-Host': "10.1.1.1:6001,10.2.2.2:6002",
+                     'X-Delete-At-Host': "10.1.1.1:6201,10.2.2.2:6202",
                      'X-Delete-At-Partition': '6237',
                      'X-Delete-At-Device': 'sdp,sdq'})
 
@@ -3853,7 +3853,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             http_connect_args[1],
             {'ipaddr': '10.1.1.1',
-             'port': '6001',
+             'port': '6201',
              'path': '/exp/9999999960/9999999999-a/c/o',
              'device': 'sdp',
              'partition': '6237',
@@ -3872,7 +3872,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             http_connect_args[2],
             {'ipaddr': '10.2.2.2',
-             'port': '6002',
+             'port': '6202',
              'path': '/exp/9999999960/9999999999-a/c/o',
              'device': 'sdq',
              'partition': '6237',
@@ -4000,13 +4000,13 @@ class TestObjectController(unittest.TestCase):
         headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
-            'X-Container-Host': '10.0.0.1:6001',
+            'X-Container-Host': '10.0.0.1:6201',
             'X-Container-Device': 'sda1',
             'X-Container-Partition': 'p',
             'X-Delete-At': delete_at_timestamp,
             'X-Delete-At-Container': delete_at_container,
             'X-Delete-At-Partition': 'p',
-            'X-Delete-At-Host': '10.0.0.2:6002',
+            'X-Delete-At-Host': '10.0.0.2:6202',
             'X-Delete-At-Device': 'sda1',
             'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
@@ -4024,7 +4024,7 @@ class TestObjectController(unittest.TestCase):
         # delete_at_update
         ip, port, method, path, headers = delete_at_update
         self.assertEqual(ip, '10.0.0.2')
-        self.assertEqual(port, '6002')
+        self.assertEqual(port, '6202')
         self.assertEqual(method, 'PUT')
         self.assertEqual(path, '/sda1/p/.expiring_objects/%s/%s-a/c/o' %
                          (delete_at_container, delete_at_timestamp))
@@ -4038,7 +4038,7 @@ class TestObjectController(unittest.TestCase):
         # container_update
         ip, port, method, path, headers = container_update
         self.assertEqual(ip, '10.0.0.1')
-        self.assertEqual(port, '6001')
+        self.assertEqual(port, '6201')
         self.assertEqual(method, 'PUT')
         self.assertEqual(path, '/sda1/p/a/c/o')
         expected = {

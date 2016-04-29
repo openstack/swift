@@ -91,20 +91,20 @@ def _create_test_ring(path, policy):
         [2, 3, 0, 1, 6, 4, 5]]
     intended_devs = [
         {'id': 0, 'device': 'sda1', 'zone': 0, 'ip': '127.0.0.0',
-         'port': 6000},
+         'port': 6200},
         {'id': 1, 'device': 'sda1', 'zone': 1, 'ip': '127.0.0.1',
-         'port': 6000},
+         'port': 6200},
         {'id': 2, 'device': 'sda1', 'zone': 2, 'ip': '127.0.0.2',
-         'port': 6000},
+         'port': 6200},
         {'id': 3, 'device': 'sda1', 'zone': 4, 'ip': '127.0.0.3',
-         'port': 6000},
+         'port': 6200},
         {'id': 4, 'device': 'sda1', 'zone': 5, 'ip': '127.0.0.4',
-         'port': 6000},
+         'port': 6200},
         {'id': 5, 'device': 'sda1', 'zone': 6,
-         'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+         'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6200},
         {'id': 6, 'device': 'sda1', 'zone': 7,
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
-         'port': 6000}]
+         'port': 6200}]
     intended_part_shift = 30
     intended_reload_time = 15
     with closing(GzipFile(testgz, 'wb')) as f:

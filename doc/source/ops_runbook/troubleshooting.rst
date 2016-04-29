@@ -89,25 +89,25 @@ user's account data is stored:
    Partition 198875
    Hash 1846d99185f8a0edaf65cfbf37439696
 
-   Server:Port Device <redacted>.31:6002 disk6
-   Server:Port Device <redacted>.204.70:6002 disk6
-   Server:Port Device <redacted>.72.16:6002 disk9
-   Server:Port Device <redacted>.204.64:6002 disk11 [Handoff]
-   Server:Port Device <redacted>.26:6002 disk11 [Handoff]
-   Server:Port Device <redacted>.72.27:6002 disk11 [Handoff]
+   Server:Port Device <redacted>.31:6202 disk6
+   Server:Port Device <redacted>.204.70:6202 disk6
+   Server:Port Device <redacted>.72.16:6202 disk9
+   Server:Port Device <redacted>.204.64:6202 disk11 [Handoff]
+   Server:Port Device <redacted>.26:6202 disk11 [Handoff]
+   Server:Port Device <redacted>.72.27:6202 disk11 [Handoff]
 
-   curl -I -XHEAD "`http://<redacted>.31:6002/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.138.31:6002/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
-   curl -I -XHEAD "`http://<redacted>.204.70:6002/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.204.70:6002/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
-   curl -I -XHEAD "`http://<redacted>.72.16:6002/disk9/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.72.16:6002/disk9/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
-   curl -I -XHEAD "`http://<redacted>.204.64:6002/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.204.64:6002/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
-   curl -I -XHEAD "`http://<redacted>.26:6002/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.136.26:6002/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
-   curl -I -XHEAD "`http://<redacted>.72.27:6002/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.72.27:6002/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
+   curl -I -XHEAD "`http://<redacted>.31:6202/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.138.31:6202/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
+   curl -I -XHEAD "`http://<redacted>.204.70:6202/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.204.70:6202/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
+   curl -I -XHEAD "`http://<redacted>.72.16:6202/disk9/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.72.16:6202/disk9/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
+   curl -I -XHEAD "`http://<redacted>.204.64:6202/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.204.64:6202/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
+   curl -I -XHEAD "`http://<redacted>.26:6202/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.136.26:6202/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
+   curl -I -XHEAD "`http://<redacted>.72.27:6202/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.72.27:6202/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
 
    ssh <redacted>.31 "ls -lah /srv/node/disk6/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
    ssh <redacted>.204.70 "ls -lah /srv/node/disk6/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"

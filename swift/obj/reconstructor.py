@@ -127,7 +127,7 @@ class ObjectReconstructor(Daemon):
         self.bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
         self.port = None if self.servers_per_port else \
-            int(conf.get('bind_port', 6000))
+            int(conf.get('bind_port', 6200))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))

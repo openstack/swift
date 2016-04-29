@@ -215,7 +215,7 @@ class ContainerSync(Daemon):
                                                      ring_name='container')
         bind_ip = conf.get('bind_ip', '0.0.0.0')
         self._myips = whataremyips(bind_ip)
-        self._myport = int(conf.get('bind_port', 6001))
+        self._myport = int(conf.get('bind_port', 6201))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.conn_timeout = float(conf.get('conn_timeout', 5))

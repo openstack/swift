@@ -256,9 +256,9 @@ def write_fake_ring(path, *devs):
     Pretty much just a two node, two replica, 2 part power ring...
     """
     dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-            'port': 6000}
+            'port': 6200}
     dev2 = {'id': 0, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
-            'port': 6000}
+            'port': 6200}
 
     dev1_updates, dev2_updates = devs or ({}, {})
 
@@ -278,7 +278,7 @@ class FabricatedRing(Ring):
     your tests needs.
     """
 
-    def __init__(self, replicas=6, devices=8, nodes=4, port=6000,
+    def __init__(self, replicas=6, devices=8, nodes=4, port=6200,
                  part_power=4):
         self.devices = devices
         self.nodes = nodes
