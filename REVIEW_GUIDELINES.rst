@@ -65,7 +65,7 @@ Consider edge cases very seriously
 
 Scale is an *amazingly* abusive partner. If you contribute changes to
 Swift your code is running - in production - at scale - and your bugs
-can not hide. I wish on all of us that our bugs may be exceptionally
+cannot hide. I wish on all of us that our bugs may be exceptionally
 rare - meaning they only happen in extremely unlikely edge cases. For
 example, bad things that happen only 1 out of every 10K times an op is
 performed will be discovered in minutes. Bad things that happen only
@@ -124,7 +124,7 @@ comment that says:
 
 If the author (or another reviewer) agrees - it's possible the change will get
 updated to include that improvement before it is merged; or it may happen in a
-follow up.
+follow-up change.
 
 However, remember that style is non-material - it is useful to provide (via
 diff) suggestions to improve maintainability as part of your review - but if
@@ -148,7 +148,7 @@ would be used - you may have to ask for more details before you can
 successfully review it.
 
 Commit messages need to have a high consistent quality. While many
-things under source control can be fixed and improved in a follow up
+things under source control can be fixed and improved in a follow-up
 change - commit messages are forever. Luckily it's easy to fix minor
 mistakes using the in-line edit feature in Gerrit!  If you can avoid
 ever having to *ask* someone to change a commit message you will find
@@ -179,7 +179,7 @@ If it does not - you should write some!
 ... and offer them to the patch author as a diff indicating to them that
 "something" like these tests I'm providing as an example will *need* to be
 included in this change before it is suitable to merge. Bonus points if you
-include suggestions for the author as to how they might improve or expanded on
+include suggestions for the author as to how they might improve or expand upon
 the tests stubs you provide.
 
 Be *very* careful about asking an author to add a test for a "small change"
@@ -206,7 +206,7 @@ change for the change log.
 
 Always point out typos or grammar mistakes when you see them in
 review, but also consider that if you were able to recognize the
-intent of the statement - documentation with tpyos may be easier to
+intent of the statement - documentation with typos may be easier to
 iterate and improve on than nothing.
 
 If a change does not have adequate documentation it may not be suitable to
@@ -218,17 +218,17 @@ Every change could have better documentation.
 Like with tests, a patch isn't done until it has docs. Any patch that
 adds a new feature, changes behavior, updates configs, or in any other
 way is different than previous behavior requires docs. manpages,
-sample configs, docstrings, descriptive prose in the source tree
+sample configs, docstrings, descriptive prose in the source tree, etc.
 
 Reviewers Write Code
 --------------------
 
-Reviews have been shown to to provide many benefits - one of which is shared
+Reviews have been shown to provide many benefits - one of which is shared
 ownership. After providing a positive review you should understand how the
 change works. Doing this will probably require you to "play with" the change.
 
 You might functionally test the change in various scenarios. You may need to
-write a new unittest to validate the change will degrade gracefully under
+write a new unit test to validate the change will degrade gracefully under
 failure. You might have to write a script to exercise the change under some
 superficial load. You might have to break the change and validate the new
 tests fail and provide useful errors. You might have to step through some
@@ -249,7 +249,7 @@ e.g.
 
     it blew up like this:
 
-    ``unittest failure``
+    ``unit test failure``
 
 
 It's not uncommon that a review takes more time than writing a change -
@@ -276,7 +276,7 @@ as part of your review.
 
 Do not say "Does this blow up if it gets called when xyz" - rather try
 and find a test that specifically covers that condition and mention it
-in the comment so others can find it more quickly. Of if you can find
+in the comment so others can find it more quickly. Or if you can find
 no such test, add one to demonstrate the failure, and include a diff
 in a comment. Hopefully you can say "I *thought* this would blow up,
 so I wrote this test, but it seems fine."
@@ -308,7 +308,7 @@ high praise - you should be sure.
 
 A negative score means that to the best of your abilities you have not
 been able to your satisfaction, to justify the value of a change
-against the cost of it's deficiencies and risks. It is a surprisingly
+against the cost of its deficiencies and risks. It is a surprisingly
 difficult chore to be confident about the value of unproven code or a
 not well understood use-case in an uncertain world, and unfortunately
 all too easy with a **thorough** review to uncover our defects, and be
@@ -324,19 +324,19 @@ file a bug.
 Every commit must be deployable to production.
 
 Beyond that - almost any change might be merge-able depending on
-it's merits!  Here's some tips you might be able to use to find more
+its merits!  Here are some tips you might be able to use to find more
 changes that should merge!
 
 #. Fixing bugs is HUGELY valuable - the *only* thing which has a
    higher cost than the value of fixing a bug - is adding a new
-   bug - if it's broken and this change makes it fixed (with out
+   bug - if it's broken and this change makes it fixed (without
    breaking anything else) you have a winner!
 
 #. Features are INCREDIBLY difficult to justify their value against
    the cost of increased complexity, lowered maintainability, risk
    of regression, or new defects. Try to focus on what is
    *impossible* without the feature - when you make the impossible
-   possible things are better. Make things better.
+   possible, things are better. Make things better.
 
 #. Purely test/doc changes, complex refactoring, or mechanical
    cleanups are quite nuanced because there's less concrete
@@ -369,9 +369,9 @@ A note on Swift Core Maintainers
 ================================
 
 Swift Core maintainers may provide positive reviews scores that *look*
-different from your reviews - a "+2" instead of a "+1"
+different from your reviews - a "+2" instead of a "+1".
 
-But it's *exactly the same* as your "+1"
+But it's *exactly the same* as your "+1".
 
 It means the change has been thoroughly and positively reviewed. The
 only reason it's different is to help identify changes which have
