@@ -59,6 +59,7 @@ Overview and Concepts
     overview_erasure_code
     overview_backing_store
     ring_background
+    overview_encryption
     associated_projects
 
 Developer Documentation
