@@ -82,7 +82,6 @@ func linkat(fd uintptr, dst string) error {
 type TempFile struct {
 	*os.File
 	tempDir   string
-	dst       string
 	saved     bool
 	otempfile bool
 }
@@ -99,13 +98,13 @@ func (o *TempFile) Abandon() error {
 }
 
 // Save atomically writes the file to its destination.
-func (o *TempFile) Save() error {
+func (o *TempFile) Save(dst string) error {
 	defer o.File.Close()
 	if err := o.File.Sync(); err != nil {
 		return err
 	}
 	if o.otempfile {
-		if err := linkat(o.File.Fd(), o.dst); err != nil {
+		if err := linkat(o.File.Fd(), dst); err != nil {
 			if err := os.MkdirAll(o.tempDir, 0770); err != nil {
 				return err
 			}
@@ -113,16 +112,16 @@ func (o *TempFile) Save() error {
 			if err := linkat(o.File.Fd(), tmpLocation); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Dir(o.dst), 0770); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dst), 0770); err != nil {
 				return err
 			}
-			return os.Rename(tmpLocation, o.dst)
+			return os.Rename(tmpLocation, dst)
 		}
 	} else {
-		if err := os.MkdirAll(filepath.Dir(o.dst), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return err
 		}
-		if err := os.Rename(o.File.Name(), o.dst); err != nil {
+		if err := os.Rename(o.File.Name(), dst); err != nil {
 			return err
 		}
 	}
@@ -148,14 +147,14 @@ func (o *TempFile) Preallocate(size int64, reserve int64) error {
 }
 
 // NewAtomicFileWriter returns an AtomicFileWriter, which handles atomically writing files.
-func NewAtomicFileWriter(tempDir string, dst string) (AtomicFileWriter, error) {
+func NewAtomicFileWriter(tempDir string, dstDir string) (AtomicFileWriter, error) {
 	if useOTempfile {
-		if err := os.MkdirAll(filepath.Dir(dst), 0770); err != nil {
+		if err := os.MkdirAll(dstDir, 0770); err != nil {
 			return nil, err
 		}
-		tempFile, err := os.OpenFile(filepath.Dir(dst), O_TMPFILE|os.O_RDWR, 0660)
+		tempFile, err := os.OpenFile(dstDir, O_TMPFILE|os.O_RDWR, 0660)
 		if err == nil {
-			return &TempFile{tempDir: tempDir, File: tempFile, dst: dst, saved: false, otempfile: true}, nil
+			return &TempFile{File: tempFile, tempDir: tempDir, saved: false, otempfile: true}, nil
 		}
 	}
 	if err := os.MkdirAll(tempDir, 0770); err != nil {
@@ -165,5 +164,5 @@ func NewAtomicFileWriter(tempDir string, dst string) (AtomicFileWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TempFile{tempDir: tempDir, File: tempFile, dst: dst, saved: false, otempfile: false}, nil
+	return &TempFile{File: tempFile, tempDir: tempDir, saved: false, otempfile: false}, nil
 }

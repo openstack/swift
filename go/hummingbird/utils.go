@@ -438,13 +438,6 @@ func StandardizeTimestamp(timestamp string) (string, error) {
 	return timestamp, nil
 }
 
-func ValidTimestamp(timestamp string) bool {
-	if _, err := strconv.ParseFloat(timestamp, 64); err != nil {
-		return false
-	}
-	return strings.Contains(timestamp, ".")
-}
-
 func IsNotDir(err error) bool {
 	if se, ok := err.(*os.SyscallError); ok {
 		return se.Err == syscall.ENOTDIR

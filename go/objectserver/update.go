@@ -99,11 +99,11 @@ func (server *ObjectServer) saveAsync(method, account, container, obj, localDevi
 		"headers":   headerToMap(headers),
 	}
 	if os.MkdirAll(filepath.Dir(asyncFile), 0755) == nil {
-		writer, err := NewAtomicFileWriter(tempDir, asyncFile)
+		writer, err := NewAtomicFileWriter(tempDir, filepath.Dir(asyncFile))
 		if err == nil {
 			defer writer.Abandon()
 			writer.Write(hummingbird.PickleDumps(data))
-			writer.Save()
+			writer.Save(asyncFile)
 		}
 	}
 }
