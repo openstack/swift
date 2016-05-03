@@ -267,10 +267,10 @@ class TestObjectReplicator(unittest.TestCase):
                                                         logger=self.logger)
         replicator.run_once()
         expected = [
-            "Can't find itself 1.1.1.1 with port 6200 "
-            "in ring file, not replicating",
-            "Can't find itself 1.1.1.1 with port 6200 "
-            "in ring file, not replicating",
+            "Can't find itself in policy with index 0 with ips 1.1.1.1 and"
+            " with port 6200 in ring file, not replicating",
+            "Can't find itself in policy with index 1 with ips 1.1.1.1 and"
+            " with port 6200 in ring file, not replicating",
         ]
         self.assertEqual(expected, self.logger.get_lines_for_level('error'))
 

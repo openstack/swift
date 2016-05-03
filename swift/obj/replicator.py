@@ -642,9 +642,10 @@ class ObjectReplicator(Daemon):
                              if failure_dev])
                     continue
         if not found_local:
-            self.logger.error("Can't find itself %s with port %s in ring "
-                              "file, not replicating",
-                              ", ".join(ips), self.port)
+            self.logger.error("Can't find itself in policy with index %d with"
+                              " ips %s and with port %s in ring file, not"
+                              " replicating",
+                              int(policy), ", ".join(ips), self.port)
         return jobs
 
     def collect_jobs(self, override_devices=None, override_partitions=None,
