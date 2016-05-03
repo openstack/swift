@@ -355,7 +355,7 @@ func (f *SwiftObjectFactory) RegisterHandlers(addRoute func(method, path string,
 }
 
 // SwiftEngineConstructor creates a SwiftObjectFactory given the object server configs.
-func SwiftEngineConstructor(config hummingbird.IniFile, flags *flag.FlagSet) (ObjectEngine, error) {
+func SwiftEngineConstructor(config hummingbird.Config, flags *flag.FlagSet) (ObjectEngine, error) {
 	driveRoot := config.GetDefault("app:object-server", "devices", "/srv/node")
 	reserve := config.GetInt("app:object-server", "fallocate_reserve", 0)
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()

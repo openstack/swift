@@ -28,6 +28,7 @@ import (
 	"github.com/openstack/swift/go/hummingbird"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditHashPasses(t *testing.T) {
@@ -192,25 +193,23 @@ func (s *auditLogSaver) Debug(line string) error {
 }
 
 func makeAuditor(settings ...string) *Auditor {
-	conf, _ := ioutil.TempFile("", "")
-	conf.WriteString("[object-auditor]\n")
+	configString := "[object-auditor]\n"
 	for i := 0; i < len(settings); i += 2 {
-		fmt.Fprintf(conf, "%s=%s\n", settings[i], settings[i+1])
+		configString += fmt.Sprintf("%s=%s\n", settings[i], settings[i+1])
 	}
-	defer conf.Close()
-	defer os.RemoveAll(conf.Name())
-	auditorDaemon, _ := NewAuditor(conf.Name(), &flag.FlagSet{})
+	conf, _ := hummingbird.StringConfig(configString)
+	auditorDaemon, _ := NewAuditor(conf, &flag.FlagSet{})
 	auditorDaemon.(*AuditorDaemon).logger = &auditLogSaver{}
 	return &Auditor{AuditorDaemon: auditorDaemon.(*AuditorDaemon), filesPerSecond: 1}
 }
 
 func TestFailsWithoutSection(t *testing.T) {
-	conf, _ := ioutil.TempFile("", "")
-	defer conf.Close()
-	defer os.RemoveAll(conf.Name())
-	auditorDaemon, err := NewAuditor(conf.Name(), &flag.FlagSet{})
+	conf, err := hummingbird.StringConfig("")
+	require.Nil(t, err)
+	auditorDaemon, err := NewAuditor(conf, &flag.FlagSet{})
+	require.NotNil(t, err)
 	assert.Nil(t, auditorDaemon)
-	assert.True(t, strings.HasPrefix(err.Error(), "Unable to find auditor config"))
+	assert.True(t, strings.HasPrefix(err.Error(), "Unable to find object-auditor"))
 }
 
 func TestAuditSuffixNotDir(t *testing.T) {

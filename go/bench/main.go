@@ -139,7 +139,7 @@ func RunBench(args []string) {
 		os.Exit(1)
 	}
 
-	benchconf, err := hummingbird.LoadIniFile(args[0])
+	benchconf, err := hummingbird.LoadConfig(args[0])
 	if err != nil {
 		fmt.Println("Error parsing ini file:", err)
 		os.Exit(1)
@@ -227,7 +227,7 @@ func RunThrash(args []string) {
 		os.Exit(1)
 	}
 
-	thrashconf, err := hummingbird.LoadIniFile(args[0])
+	thrashconf, err := hummingbird.LoadConfig(args[0])
 	if err != nil {
 		fmt.Println("Error parsing ini file:", err)
 		os.Exit(1)

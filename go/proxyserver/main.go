@@ -16,7 +16,6 @@
 package proxyserver
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -68,7 +67,7 @@ func (server *ProxyServer) LogRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(fn)
 }
 
-func (server *ProxyServer) GetHandler() http.Handler {
+func (server *ProxyServer) GetHandler(config hummingbird.Config) http.Handler {
 	router := hummingbird.NewRouter()
 	router.Get("/healthcheck", http.HandlerFunc(server.HealthcheckHandler))
 
@@ -108,20 +107,16 @@ func (server *ProxyServer) GetHandler() http.Handler {
 	).Then(router)
 }
 
-func GetServer(conf string, flags *flag.FlagSet) (string, int, hummingbird.Server, hummingbird.SysLogLike, error) {
+func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (string, int, hummingbird.Server, hummingbird.SysLogLike, error) {
 	var err error
 	server := &ProxyServer{}
 	server.C, err = client.NewProxyDirectClient()
 	if err != nil {
 		return "", 0, nil, nil, err
 	}
-	server.mc, err = hummingbird.NewMemcacheRingFromIniFile(hummingbird.IniFile{})
+	server.mc, err = hummingbird.NewMemcacheRingFromConfig(serverconf)
 	if err != nil {
 		return "", 0, nil, nil, err
-	}
-	serverconf, err := hummingbird.LoadIniFile(conf)
-	if err != nil {
-		return "", 0, nil, nil, errors.New(fmt.Sprintf("Unable to load %s", conf))
 	}
 
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")

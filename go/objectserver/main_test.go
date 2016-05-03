@@ -63,21 +63,16 @@ func makeObjectServer(settings ...string) (*TestServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	conf, err := ioutil.TempFile(driveRoot, "")
+	configString := fmt.Sprintf("[app:object-server]\ndevices=%s\nmount_check=false\n", driveRoot)
+	for i := 0; i < len(settings); i += 2 {
+		configString += fmt.Sprintf("%s=%s\n", settings[i], settings[i+1])
+	}
+	conf, err := hummingbird.StringConfig(configString)
 	if err != nil {
 		return nil, err
 	}
-	conf.WriteString("[app:object-server]\n")
-	fmt.Fprintf(conf, "devices=%s\n", driveRoot)
-	fmt.Fprintf(conf, "mount_check=false\n")
-	for i := 0; i < len(settings); i += 2 {
-		fmt.Fprintf(conf, "%s=%s\n", settings[i], settings[i+1])
-	}
-	if err := conf.Close(); err != nil {
-		return nil, err
-	}
-	_, _, server, _, _ := GetServer(conf.Name(), &flag.FlagSet{})
-	ts := httptest.NewServer(server.GetHandler())
+	_, _, server, _, _ := GetServer(conf, &flag.FlagSet{})
+	ts := httptest.NewServer(server.GetHandler(conf))
 	u, err := url.Parse(ts.URL)
 	if err != nil {
 		return nil, err
@@ -313,7 +308,7 @@ func TestDisconnectOnPut(t *testing.T) {
 
 	resp := &fakeResponse{}
 
-	ts.objServer.GetHandler().ServeHTTP(resp, req)
+	ts.Server.Config.Handler.ServeHTTP(resp, req)
 	assert.Equal(t, resp.status, 499)
 }
 
