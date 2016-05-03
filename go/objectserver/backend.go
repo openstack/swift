@@ -16,6 +16,7 @@
 package objectserver
 
 import (
+	"bufio"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
@@ -155,45 +156,23 @@ func QuarantineHash(hashDir string) error {
 	return nil
 }
 
+// InvalidateHash invalidates the hashdir's suffix hash, indicating it needs to be recalculated.
 func InvalidateHash(hashDir string) error {
-	// TODO: this mess
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
-	deviceDir := filepath.Dir(filepath.Dir(partitionDir))
-	device := filepath.Base(deviceDir)
-	driveRoot := filepath.Dir(deviceDir)
-	tempDir := TempDirPath(driveRoot, device)
 
-	partitionLock, err := hummingbird.LockPath(partitionDir, 10)
+	if partitionLock, err := hummingbird.LockPath(partitionDir, 10); err != nil {
+		return err
+	} else {
+		defer partitionLock.Close()
+	}
+	fp, err := os.OpenFile(filepath.Join(partitionDir, "hashes.invalid"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
 	if err != nil {
 		return err
 	}
-	defer partitionLock.Close()
-	pklFile := filepath.Join(partitionDir, "hashes.pkl")
-	data, err := ioutil.ReadFile(pklFile)
-	if err != nil {
-		return err
-	}
-	v, err := hummingbird.PickleLoads(data)
-	if err != nil {
-		return err
-	}
-	suffix := filepath.Base(suffDir)
-	hashes, ok := v.(map[interface{}]interface{})
-	if !ok {
-		return fmt.Errorf("hashes.pkl file does not contain map: %v", v)
-	}
-	if current, ok := hashes[suffix]; ok && (current == nil || current == "") {
-		return nil
-	}
-	hashes[suffix] = nil
-	tempFile, err := NewAtomicFileWriter(tempDir, partitionDir)
-	if err != nil {
-		return err
-	}
-	defer tempFile.Abandon()
-	tempFile.Write(hummingbird.PickleDumps(hashes))
-	return tempFile.Save(pklFile)
+	defer fp.Close()
+	_, err = fmt.Fprintf(fp, "%s\n", filepath.Base(suffDir))
+	return err
 }
 
 func HashCleanupListDir(hashDir string, reclaimAge int64) ([]string, *hummingbird.BackendError) {
@@ -286,21 +265,18 @@ func RecalculateSuffixHash(suffixDir string, reclaimAge int64) (string, *humming
 func GetHashes(driveRoot string, device string, partition string, recalculate []string, reclaimAge int64, logger hummingbird.LoggingContext) (map[string]string, *hummingbird.BackendError) {
 	partitionDir := filepath.Join(driveRoot, device, "objects", partition)
 	pklFile := filepath.Join(partitionDir, "hashes.pkl")
+	invalidFile := filepath.Join(partitionDir, "hashes.invalid")
 
 	modified := false
-	mtime := int64(-1)
 	hashes := make(map[string]string, 4096)
 	lsForSuffixes := true
 	if data, err := ioutil.ReadFile(pklFile); err == nil {
 		if v, err := hummingbird.PickleLoads(data); err == nil {
 			if pickledHashes, ok := v.(map[interface{}]interface{}); ok {
-				if fileInfo, err := os.Stat(pklFile); err == nil {
-					mtime = fileInfo.ModTime().Unix()
-					lsForSuffixes = false
-					for suff, hash := range pickledHashes {
-						if hashes[suff.(string)], ok = hash.(string); !ok {
-							hashes[suff.(string)] = ""
-						}
+				lsForSuffixes = false
+				for suff, hash := range pickledHashes {
+					if hashes[suff.(string)], ok = hash.(string); !ok {
+						hashes[suff.(string)] = ""
 					}
 				}
 			}
@@ -325,6 +301,20 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 			hashes[suffix] = ""
 		}
 	}
+	mtime := int64(-1)
+	if ivf, err := os.OpenFile(invalidFile, os.O_RDWR, 0660); err == nil {
+		defer ivf.Close()
+		if fileInfo, err := ivf.Stat(); err == nil {
+			mtime = fileInfo.ModTime().Unix()
+			scanner := bufio.NewScanner(ivf)
+			for scanner.Scan() {
+				if suff := scanner.Text(); len(suff) == 3 && strings.Trim(suff, "0123456789abcdef") == "" {
+					hashes[suff] = ""
+				}
+			}
+		}
+	}
+
 	for suffix, hash := range hashes {
 		if hash == "" {
 			modified = true
@@ -348,7 +338,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		if err != nil {
 			return nil, &hummingbird.BackendError{Err: err, Code: hummingbird.LockPathError}
 		} else {
-			fileInfo, err := os.Stat(pklFile)
+			fileInfo, err := os.Stat(invalidFile)
 			if lsForSuffixes || os.IsNotExist(err) || mtime == fileInfo.ModTime().Unix() {
 				tempDir := TempDirPath(driveRoot, device)
 				if tempFile, err := NewAtomicFileWriter(tempDir, partitionDir); err == nil {
@@ -356,9 +346,11 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 					tempFile.Write(hummingbird.PickleDumps(hashes))
 					tempFile.Save(pklFile)
 				}
+				os.Truncate(invalidFile, 0)
 				return hashes, nil
 			}
 			logger.LogError("Made recursive call to GetHashes: %s", partitionDir)
+			partitionLock.Close()
 			return GetHashes(driveRoot, device, partition, recalculate, reclaimAge, logger)
 		}
 	}
