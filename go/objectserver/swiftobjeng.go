@@ -286,61 +286,61 @@ func (f *SwiftObjectFactory) objRepConnHandler(writer http.ResponseWriter, reque
 		return
 	}
 	for {
-		err := func() error { // this is a closure so we can use defers inside
+		errType, err := func() (string, error) { // this is a closure so we can use defers inside
 			var sfr SyncFileRequest
 			if err := rc.RecvMessage(&sfr); err != nil {
-				return err
+				return "receiving SyncFileRequest", err
 			}
 			if sfr.Done {
-				return replicationDone
+				return "", replicationDone
 			}
 			tempDir := TempDirPath(f.driveRoot, vars["device"])
 			fileName := filepath.Join(f.driveRoot, sfr.Path)
 			hashDir := filepath.Dir(fileName)
 
 			if ext := filepath.Ext(fileName); (ext != ".data" && ext != ".ts" && ext != ".meta") || len(filepath.Base(filepath.Dir(fileName))) != 32 {
-				return rc.SendMessage(SyncFileResponse{Msg: "bad file path"})
+				return "invalid file path", rc.SendMessage(SyncFileResponse{Msg: "bad file path"})
 			}
 			if hummingbird.Exists(fileName) {
-				return rc.SendMessage(SyncFileResponse{Exists: true, Msg: "exists"})
+				return "file exists", rc.SendMessage(SyncFileResponse{Exists: true, Msg: "exists"})
 			}
 			dataFile, metaFile := ObjectFiles(hashDir)
 			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
-				return rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
+				return "newer file exists", rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
 			}
 			tempFile, err := NewAtomicFileWriter(tempDir, hashDir)
 			if err != nil {
-				return err
+				return "creating file writer", err
 			}
 			defer tempFile.Abandon()
 			if err := tempFile.Preallocate(sfr.Size, f.reserve); err != nil {
-				return err
+				return "preallocating space", err
 			}
 			if xattrs, err := hex.DecodeString(sfr.Xattrs); err != nil || len(xattrs) == 0 {
-				return rc.SendMessage(SyncFileResponse{Msg: "bad xattrs"})
+				return "parsing xattrs", rc.SendMessage(SyncFileResponse{Msg: "bad xattrs"})
 			} else if err := RawWriteMetadata(tempFile.Fd(), xattrs); err != nil {
-				return err
+				return "writing metadata", err
 			}
 			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
-				return err
+				return "sending go ahead", err
 			}
 			if _, err := hummingbird.CopyN(rc, sfr.Size, tempFile); err != nil {
-				return err
+				return "copying data", err
 			}
 			if err := tempFile.Save(fileName); err != nil {
-				return err
+				return "saving file", err
 			}
 			if dataFile != "" || metaFile != "" {
 				HashCleanupListDir(hashDir, f.reclaimAge)
 			}
 			InvalidateHash(hashDir)
 			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
-			return err
+			return "file done", err
 		}()
 		if err == replicationDone {
 			return
 		} else if err != nil {
-			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %v", err)
+			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %s. %v", errType, err)
 			writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}

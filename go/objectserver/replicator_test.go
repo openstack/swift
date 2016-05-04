@@ -384,6 +384,12 @@ func TestReplicationHandoff(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 201, resp.StatusCode)
 
+	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), nil)
+	assert.Nil(t, err)
+	resp, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+
 	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
 	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
 	replicator := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
@@ -396,6 +402,12 @@ func TestReplicationHandoff(t *testing.T) {
 	resp, err = http.DefaultClient.Do(req)
 	require.Nil(t, err)
 	require.Equal(t, 200, resp.StatusCode)
+
+	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), nil)
+	assert.Nil(t, err)
+	resp, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 404, resp.StatusCode)
 }
 
 func TestReplicationHandoffQuorumDelete(t *testing.T) {
