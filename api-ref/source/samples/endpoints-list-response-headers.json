@@ -1,0 +1,14 @@
+{
+    "endpoints": [
+        "http://storage01.swiftdrive.com:6008/d8/583/AUTH_dev/EC_cont1/obj",
+        "http://storage02.swiftdrive.com:6008/d2/583/AUTH_dev/EC_cont1/obj",
+        "http://storage02.swiftdrive.com:6006/d3/583/AUTH_dev/EC_cont1/obj",
+        "http://storage02.swiftdrive.com:6008/d5/583/AUTH_dev/EC_cont1/obj",
+        "http://storage01.swiftdrive.com:6007/d7/583/AUTH_dev/EC_cont1/obj",
+        "http://storage02.swiftdrive.com:6007/d4/583/AUTH_dev/EC_cont1/obj",
+        "http://storage01.swiftdrive.com:6006/d6/583/AUTH_dev/EC_cont1/obj"
+    ],
+    "headers": {
+        "X-Backend-Storage-Policy-Index": "2"
+    }
+}

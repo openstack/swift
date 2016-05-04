@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+Content-Length: 500
+X-Container-Object-Count: 2
+Accept-Ranges: bytes
+X-Container-Meta-Book: TomSawyer
+X-Timestamp: 1389727543.65372
+X-Container-Bytes-Used: 26
+Content-Type: application/xml; charset=utf-8
+X-Trans-Id: txc75ea9a6e66f47d79e0c5-0052d6be76
+Date: Wed, 15 Jan 2014 16:59:35 GMT
