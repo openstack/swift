@@ -41,6 +41,10 @@ func (r *FakeRing) GetNodes(partition uint64) (response []*hummingbird.Device) {
 	return r.devices[0:3]
 }
 
+func (r *FakeRing) GetNodesInOrder(partition uint64) (response []*hummingbird.Device) {
+	return r.GetNodes(partition)
+}
+
 func (r *FakeRing) GetJobNodes(partition uint64, localDevice int) (devs []*hummingbird.Device, handoff bool) {
 	switch localDevice {
 	case 0:

@@ -122,8 +122,8 @@ func doPriRepJobs(jobs []*PriorityRepJob, deviceMax int, client *http.Client) {
 func getPartMoveJobs(oldRing, newRing hummingbird.Ring) []*PriorityRepJob {
 	jobs := make([]*PriorityRepJob, 0)
 	for partition := uint64(0); true; partition++ {
-		olddevs := oldRing.GetNodes(partition)
-		newdevs := newRing.GetNodes(partition)
+		olddevs := oldRing.GetNodesInOrder(partition)
+		newdevs := newRing.GetNodesInOrder(partition)
 		if olddevs == nil || newdevs == nil {
 			break
 		}
@@ -173,7 +173,7 @@ func MoveParts(args []string) {
 func getRestoreDeviceJobs(ring hummingbird.Ring, ip string, devName string) []*PriorityRepJob {
 	jobs := make([]*PriorityRepJob, 0)
 	for partition := uint64(0); true; partition++ {
-		devs := ring.GetNodes(partition)
+		devs := ring.GetNodesInOrder(partition)
 		if devs == nil {
 			break
 		}

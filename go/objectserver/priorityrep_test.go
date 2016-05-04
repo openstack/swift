@@ -69,6 +69,10 @@ func (p *priFakeRing) GetNodes(partition uint64) (response []*hummingbird.Device
 	return
 }
 
+func (p *priFakeRing) GetNodesInOrder(partition uint64) (response []*hummingbird.Device) {
+	return p.GetNodes(partition)
+}
+
 func TestGetPartMoveJobs(t *testing.T) {
 	t.Parallel()
 	oldRing := &priFakeRing{
