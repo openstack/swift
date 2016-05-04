@@ -77,13 +77,13 @@ class CryptoWSGIContext(WSGIContext):
 
 def dump_crypto_meta(crypto_meta):
     """
-    Set the crypto-meta associated to the obj body.
+    Serialize crypto meta to a form suitable for including in a header value.
 
     The IV value is random bytes and as a result needs to be encoded before
-    sending over the wire. Do this by wrapping the crypto meta in a json
-    object and encode the iv value. Base64 encoding returns a bytes object
-    in py3, to future proof the code, decode this data to produce a string,
-    which is what the json.dumps function expects.
+    sending over the wire. Do this by wrapping the crypto meta in a json object
+    and encode the iv value. Base64 encoding returns a bytes object in py3, to
+    future proof the code, decode this data to produce a string, which is what
+    the json.dumps function expects.
 
     :param crypto_meta: a dict containing crypto meta items
     :returns: a string serialization of a crypto meta dict

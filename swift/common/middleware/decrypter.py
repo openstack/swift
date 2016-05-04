@@ -388,10 +388,9 @@ class Decrypter(object):
         self.app = app
         self.logger = get_logger(conf, log_route="decrypter")
         self.conf = conf
-
-    def __call__(self, env, start_response):
         self.crypto = Crypto(self.conf)
 
+    def __call__(self, env, start_response):
         req = Request(env)
         try:
             parts = req.split_path(3, 4, True)
