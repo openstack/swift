@@ -199,7 +199,6 @@ def get_socket(conf):
         raise Exception(_('Could not bind to %s:%s '
                           'after trying for %s seconds') % (
                               bind_addr[0], bind_addr[1], bind_timeout))
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     # in my experience, sockets can hang around forever without keepalive
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)

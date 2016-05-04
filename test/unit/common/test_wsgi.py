@@ -276,7 +276,6 @@ class TestWSGI(unittest.TestCase):
             self.assertTrue(isinstance(sock, MockSocket))
             expected_socket_opts = {
                 socket.SOL_SOCKET: {
-                    socket.SO_REUSEADDR: 1,
                     socket.SO_KEEPALIVE: 1,
                 },
                 socket.IPPROTO_TCP: {
