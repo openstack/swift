@@ -25,7 +25,7 @@ from swift.common.direct_client import (
     direct_head_container, direct_delete_container_object,
     direct_put_container_object, ClientException)
 from swift.common.internal_client import InternalClient, UnexpectedResponse
-from swift.common.utils import get_logger, split_path, quorum_size, \
+from swift.common.utils import get_logger, split_path, majority_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
     LRUCache, decode_timestamps
 
@@ -194,7 +194,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
                              server
 
     :returns: .misplaced_object container name, False on failure. "Success"
-              means a quorum of containers got the update.
+              means a majority of containers got the update.
     """
     container_name = get_reconciler_container_name(obj_timestamp)
     object_name = get_reconciler_obj_name(obj_policy_index, account,
@@ -232,7 +232,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
                    response_timeout=response_timeout)
 
     successes = sum(pile)
-    if successes >= quorum_size(len(nodes)):
+    if successes >= majority_size(len(nodes)):
         return container_name
     else:
         return False
@@ -289,7 +289,7 @@ def direct_get_container_policy_index(container_ring, account_name,
     :param container_ring: ring in which to look up the container locations
     :param account_name: name of the container's account
     :param container_name: name of the container
-    :returns: storage policy index, or None if it couldn't get a quorum
+    :returns: storage policy index, or None if it couldn't get a majority
     """
     def _eat_client_exception(*args):
         try:
@@ -307,7 +307,7 @@ def direct_get_container_policy_index(container_ring, account_name,
                    container_name)
 
     headers = [x for x in pile if x is not None]
-    if len(headers) < quorum_size(len(nodes)):
+    if len(headers) < majority_size(len(nodes)):
         return
     return best_policy_index(headers)
 
