@@ -79,21 +79,24 @@ class EncInputWrapper(object):
         self.wsgi_input = req.environ['wsgi.input']
         self.path = req.path
         self.crypto = crypto
-        crypto_meta = self.crypto.get_crypto_meta()
-        self.crypto_ctxt = crypto.create_encryption_ctxt(keys['object'],
-                                                         crypto_meta.get('iv'))
+        self.body_crypto_meta = self.crypto.get_crypto_meta()
+        self.body_crypto_ctxt = None
         self.keys = keys
         # remove any Etag from headers, it won't be valid for ciphertext and
         # we'll send the ciphertext Etag later in footer metadata
         self.client_etag = req.headers.pop('etag', None)
-        self.plaintext_md5 = md5()
-        self.ciphertext_md5 = md5()
-        self.footers_to_add = {}
+        self.plaintext_md5 = None
+        self.ciphertext_md5 = None
         self.logger = logger
-
-        req.headers['X-Object-Sysmeta-Crypto-Meta'] = \
-            _dump_crypto_meta(crypto_meta)
         self.install_footers_callback(req)
+
+    def _init_encryption_context(self):
+        # do this once when body is first read
+        if self.body_crypto_ctxt is None:
+            self.body_crypto_ctxt = self.crypto.create_encryption_ctxt(
+                self.keys['object'], self.body_crypto_meta.get('iv'))
+            self.plaintext_md5 = md5()
+            self.ciphertext_md5 = md5()
 
     def install_footers_callback(self, req):
         # the proxy controller will call back for footer metadata after
@@ -101,21 +104,31 @@ class EncInputWrapper(object):
         inner_callback = req.environ.get('swift.callback.update_footers')
 
         def footers_callback(footers):
-            # Encrypt the plaintext etag using the object key and persist as
-            # sysmeta along with the crypto parameters that were used.
-            val, crypto_meta = encrypt_header_val(
-                self.crypto, self.plaintext_md5.hexdigest(),
-                self.keys['object'], iv_base=self.path)
-            footers['X-Object-Sysmeta-Crypto-Etag'] = val
-            footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = crypto_meta
+            if self.body_crypto_ctxt:
+                # Encrypt the plaintext etag using the object key and persist
+                # as sysmeta along with the crypto parameters that were used.
+                val, etag_crypto_meta = encrypt_header_val(
+                    self.crypto, self.plaintext_md5.hexdigest(),
+                    self.keys['object'], iv_base=self.path)
+                footers['X-Object-Sysmeta-Crypto-Etag'] = val
+                footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = etag_crypto_meta
+                footers['X-Object-Sysmeta-Crypto-Meta'] = _dump_crypto_meta(
+                    self.body_crypto_meta)
 
-            # Encrypt the plaintext etag using the container key and use
-            # it to override the container update value, with the crypto
-            # parameters appended.
-            val, _ = encrypt_header_val(
-                self.crypto, self.plaintext_md5.hexdigest(),
-                self.keys['container'], append_crypto_meta=True)
-            footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = val
+                # Encrypt the plaintext etag using the container key and use
+                # it to override the container update value, with the crypto
+                # parameters appended.
+                val, _ = encrypt_header_val(
+                    self.crypto, self.plaintext_md5.hexdigest(),
+                    self.keys['container'], append_crypto_meta=True)
+                footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
+                    val
+            else:
+                # No data was read from body, nothing was encrypted, so
+                # don't set any crypto sysmeta for the body, but do re-instate
+                # any etag provided in inbound request.
+                if self.client_etag is not None:
+                    footers['Etag'] = self.client_etag
 
             if inner_callback:
                 # pass on footers dict to any other callback that was
@@ -123,8 +136,15 @@ class EncInputWrapper(object):
                 # were set.
                 inner_callback(footers)
 
-            # we override any previous notion of etag with the ciphertext etag
-            footers['Etag'] = self.ciphertext_md5.hexdigest()
+            if self.body_crypto_ctxt:
+                # If client supplied etag, then validate against plaintext etag
+                self.client_etag = footers.get('Etag') or self.client_etag
+                if (self.client_etag is not None and
+                        self.plaintext_md5.hexdigest() != self.client_etag):
+                    raise HTTPUnprocessableEntity(request=Request(self.env))
+
+                # override any previous notion of etag with the ciphertext etag
+                footers['Etag'] = self.ciphertext_md5.hexdigest()
 
         req.environ['swift.callback.update_footers'] = footers_callback
 
@@ -135,19 +155,15 @@ class EncInputWrapper(object):
         return self.readChunk(self.wsgi_input.readline, *args, **kwargs)
 
     def readChunk(self, read_method, *args, **kwargs):
+        self._init_encryption_context()
         chunk = read_method(*args, **kwargs)
 
         if chunk:
             self.plaintext_md5.update(chunk)
             # Encrypt one chunk at a time
-            ciphertext = self.crypto_ctxt.update(chunk)
+            ciphertext = self.body_crypto_ctxt.update(chunk)
             self.ciphertext_md5.update(ciphertext)
             return ciphertext
-
-        # If client supplied etag, then validate against plaintext etag
-        if self.client_etag:
-            if self.plaintext_md5.hexdigest() != self.client_etag:
-                raise HTTPUnprocessableEntity(request=Request(self.env))
 
         return chunk
 
@@ -210,12 +226,13 @@ class EncrypterObjContext(CryptoWSGIContext):
         resp = self._app_call(req.environ)
 
         # If an etag is in the response headers, then replace its value with
-        # the plaintext version
-        mod_resp_headers = filter(lambda h: h[0].lower() != 'etag',
-                                  self._response_headers)
-        if len(mod_resp_headers) < len(self._response_headers):
-            mod_resp_headers.append(
-                ('etag', enc_input_proxy.plaintext_md5.hexdigest()))
+        # the plaintext version if one was calculated in encrypter
+        mod_resp_headers = self._response_headers
+        if enc_input_proxy.plaintext_md5:
+            plaintext_etag = enc_input_proxy.plaintext_md5.hexdigest()
+            mod_resp_headers = [
+                (h, v if h.lower() != 'etag' else plaintext_etag)
+                for h, v in mod_resp_headers]
 
         start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
