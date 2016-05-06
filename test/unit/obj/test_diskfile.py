@@ -38,6 +38,7 @@ from contextlib import closing, contextmanager
 from gzip import GzipFile
 
 from eventlet import hubs, timeout, tpool
+from swift.obj.diskfile import MD5_OF_EMPTY_STRING
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE)
@@ -723,6 +724,40 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                         'Unexpected file %s'
                         % os.path.join(datadir, unexpected)))
 
+    def test_hash_cleanup_listdir_reclaim_non_data_files(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set or 'survives' is True, the filename
+        # should still be in the dir after cleanup.
+        much_older = Timestamp(time() - 2000).internal
+        older = Timestamp(time() - 1001).internal
+        newer = Timestamp(time() - 900).internal
+        scenarios = [
+            [('%s.ts' % older, False, False)],
+
+            # fresh tombstone is preserved
+            [('%s.ts' % newer, '.ts', True)],
+
+            # tombstone reclaimed despite junk file
+            [('junk', False, True),
+             ('%s.ts' % much_older, '.ts', False)],
+
+            # fresh .meta not reclaimed even if isolated
+            [('%s.meta' % newer, '.meta')],
+
+            # fresh .meta not reclaimed when tombstone is reclaimed
+            [('%s.meta' % newer, '.meta'),
+             ('%s.ts' % older, False, False)],
+
+            # stale isolated .meta is reclaimed
+            [('%s.meta' % older, False, False)],
+
+            # stale .meta is reclaimed along with tombstone
+            [('%s.meta' % older, False, False),
+             ('%s.ts' % older, False, False)]]
+
+        self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
+                                              reclaim_age=1000)
+
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')
         self.assertEqual(os.path.join(self.df_mgr.devices, 'abc'), res_path)
@@ -1190,35 +1225,30 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self.assertEqual("Invalid Timestamp value in filename 'junk'",
                          str(cm.exception))
 
-    def test_hash_cleanup_listdir_reclaim(self):
+    def test_hash_cleanup_listdir_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set or 'survives' is True, the filename
         # should still be in the dir after cleanup.
         much_older = Timestamp(time() - 2000).internal
         older = Timestamp(time() - 1001).internal
         newer = Timestamp(time() - 900).internal
-        scenarios = [[('%s.ts' % older, False, False)],
+        scenarios = [
+            # .data files are not reclaimed, ever
+            [('%s.data' % older, '.data', True)],
+            [('%s.data' % newer, '.data', True)],
 
-                     # fresh tombstone is preserved
-                     [('%s.ts' % newer, '.ts', True)],
+            # ... and we could have a mixture of fresh and stale .data
+            [('%s.data' % newer, '.data', True),
+             ('%s.data' % older, False, False)],
 
-                     # .data files are not reclaimed, ever
-                     [('%s.data' % older, '.data', True)],
-                     [('%s.data' % newer, '.data', True)],
+            # tombstone reclaimed despite newer data
+            [('%s.data' % newer, '.data', True),
+             ('%s.data' % older, False, False),
+             ('%s.ts' % much_older, '.ts', False)],
 
-                     # ... and we could have a mixture of fresh and stale .data
-                     [('%s.data' % newer, '.data', True),
-                      ('%s.data' % older, False, False)],
-
-                     # tombstone reclaimed despite newer data
-                     [('%s.data' % newer, '.data', True),
-                      ('%s.data' % older, False, False),
-                      ('%s.ts' % much_older, '.ts', False)],
-
-                     # tombstone reclaimed despite junk file
-                     [('junk', False, True),
-                      ('%s.ts' % much_older, '.ts', False)],
-                     ]
+            # .meta not reclaimed if there is a .data file
+            [('%s.meta' % older, '.meta'),
+             ('%s.data' % much_older, '.data')]]
 
         self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
                                               reclaim_age=1000)
@@ -1538,57 +1568,61 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         # note: not calling self._test_hash_cleanup_listdir_files(scenarios, 0)
         # here due to the anomalous scenario as commented above
 
-    def test_hash_cleanup_listdir_reclaim(self):
+    def test_hash_cleanup_listdir_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set or 'survives' is True, the filename
         # should still be in the dir after cleanup.
         much_older = Timestamp(time() - 2000).internal
         older = Timestamp(time() - 1001).internal
         newer = Timestamp(time() - 900).internal
-        scenarios = [[('%s.ts' % older, False, False)],
+        scenarios = [
+            # isolated .durable is cleaned up immediately
+            [('%s.durable' % newer, False, False)],
 
-                     # fresh tombstone is preserved
-                     [('%s.ts' % newer, '.ts', True)],
+            # ...even when other older files are in dir
+            [('%s.durable' % older, False, False),
+             ('%s.ts' % much_older, False, False)],
 
-                     # isolated .durable is cleaned up immediately
-                     [('%s.durable' % newer, False, False)],
+            # isolated .data files are cleaned up when stale
+            [('%s#2.data' % older, False, False),
+             ('%s#4.data' % older, False, False)],
 
-                     # ...even when other older files are in dir
-                     [('%s.durable' % older, False, False),
-                      ('%s.ts' % much_older, False, False)],
+            # ...even when there is an older durable fileset
+            [('%s#2.data' % older, False, False),
+             ('%s#4.data' % older, False, False),
+             ('%s#2.data' % much_older, '.data', True),
+             ('%s#4.data' % much_older, False, True),
+             ('%s.durable' % much_older, '.durable', True)],
 
-                     # isolated .data files are cleaned up when stale
-                     [('%s#2.data' % older, False, False),
-                      ('%s#4.data' % older, False, False)],
+            # ... but preserved if still fresh
+            [('%s#2.data' % newer, False, True),
+             ('%s#4.data' % newer, False, True)],
 
-                     # ...even when there is an older durable fileset
-                     [('%s#2.data' % older, False, False),
-                      ('%s#4.data' % older, False, False),
-                      ('%s#2.data' % much_older, '.data', True),
-                      ('%s#4.data' % much_older, False, True),
-                      ('%s.durable' % much_older, '.durable', True)],
+            # ... and we could have a mixture of fresh and stale .data
+            [('%s#2.data' % newer, False, True),
+             ('%s#4.data' % older, False, False)],
 
-                     # ... but preserved if still fresh
-                     [('%s#2.data' % newer, False, True),
-                      ('%s#4.data' % newer, False, True)],
+            # tombstone reclaimed despite newer non-durable data
+            [('%s#2.data' % newer, False, True),
+             ('%s#4.data' % older, False, False),
+             ('%s.ts' % much_older, '.ts', False)],
 
-                     # ... and we could have a mixture of fresh and stale .data
-                     [('%s#2.data' % newer, False, True),
-                      ('%s#4.data' % older, False, False)],
+            # tombstone reclaimed despite much older durable
+            [('%s.ts' % older, '.ts', False),
+             ('%s.durable' % much_older, False, False)],
 
-                     # tombstone reclaimed despite newer non-durable data
-                     [('%s#2.data' % newer, False, True),
-                      ('%s#4.data' % older, False, False),
-                      ('%s.ts' % much_older, '.ts', False)],
+            # .meta not reclaimed if there is durable data
+            [('%s.meta' % older, '.meta'),
+             ('%s#4.data' % much_older, False, True),
+             ('%s.durable' % much_older, '.durable', True)],
 
-                     # tombstone reclaimed despite much older durable
-                     [('%s.ts' % older, '.ts', False),
-                      ('%s.durable' % much_older, False, False)],
+            # stale .meta reclaimed along with stale non-durable .data
+            [('%s.meta' % older, False, False),
+             ('%s#4.data' % much_older, False, False)],
 
-                     # tombstone reclaimed despite junk file
-                     [('junk', False, True),
-                      ('%s.ts' % much_older, '.ts', False)],
-                     ]
+            # stale .meta reclaimed along with stale .durable
+            [('%s.meta' % older, False, False),
+             ('%s.durable' % much_older, False, False)]]
 
         self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
                                               reclaim_age=1000)
@@ -4743,8 +4777,9 @@ class TestSuffixHashes(unittest.TestCase):
             file_list = [file1]
             self.check_hash_cleanup_listdir(policy, file_list, [])
 
-    def test_hash_cleanup_listdir_meta_keeps_old_ts(self):
+    def test_hash_cleanup_listdir_keep_isolated_meta_purge_old_ts(self):
         for policy in self.iter_policies():
+            # A single old .ts file will be removed despite presence of a .meta
             old_float = time() - (diskfile.ONE_WEEK + 1)
             file1 = Timestamp(old_float).internal + '.ts'
             file2 = Timestamp(time() + 2).internal + '.meta'
@@ -4772,13 +4807,13 @@ class TestSuffixHashes(unittest.TestCase):
                 file_list = [file1]
                 self.check_hash_cleanup_listdir(policy, file_list, [])
 
-    def test_hash_cleanup_listdir_keep_single_old_meta(self):
+    def test_hash_cleanup_listdir_purges_single_old_meta(self):
         for policy in self.iter_policies():
-            # A single old .meta file will not be removed
+            # A single old .meta file will be removed
             old_float = time() - (diskfile.ONE_WEEK + 1)
             file1 = Timestamp(old_float).internal + '.meta'
             file_list = [file1]
-            self.check_hash_cleanup_listdir(policy, file_list, [file1])
+            self.check_hash_cleanup_listdir(policy, file_list, [])
 
     # hash_cleanup_listdir tests - error handling
 
@@ -4952,6 +4987,54 @@ class TestSuffixHashes(unittest.TestCase):
                     None: tombstone_hash}},
             }[policy.policy_type]
             self.assertEqual(hashes, expected)
+
+    def test_hash_suffix_one_reclaim_tombstone_and_one_meta(self):
+        # An isolated meta file can happen if a tombstone is replicated to a
+        # node with a newer meta file but older data file, and the tombstone is
+        # subsequently reclaimed. The meta file will be ignored when the
+        # diskfile is opened so the effective state of the disk files is
+        # equivalent to having no files.
+        for policy in self.iter_policies():
+            if policy.policy_type == EC_POLICY:
+                continue
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            now = time()
+            # scale back the df manager's reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write a tombstone that's just a *little* older than reclaim time
+            df.delete(Timestamp(now - 10001))
+            # write a meta file that's not quite so old
+            ts_meta = Timestamp(now - 501)
+            df.write_metadata({'X-Timestamp': ts_meta.internal})
+            # sanity check
+            self.assertEqual(2, len(os.listdir(df._datadir)))
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            # the tombstone is reclaimed, the meta file remains, the suffix
+            # hash is not updated BUT the suffix dir cannot be deleted so
+            # a suffix hash equal to hash of empty string is reported.
+            # TODO: this is not same result as if the meta file did not exist!
+            self.assertEqual([ts_meta.internal + '.meta'],
+                             os.listdir(df._datadir))
+            self.assertEqual(hashes, {suffix: MD5_OF_EMPTY_STRING})
+
+            # scale back the df manager's reclaim age even more - call to
+            # get_hashes does not trigger reclaim because the suffix has
+            # MD5_OF_EMPTY_STRING in hashes.pkl
+            df_mgr.reclaim_age = 500
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual([ts_meta.internal + '.meta'],
+                             os.listdir(df._datadir))
+            self.assertEqual(hashes, {suffix: MD5_OF_EMPTY_STRING})
+
+            # call get_hashes with recalculate = [suffix] and the suffix dir
+            # gets re-hashed so the .meta if finally reclaimed.
+            hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            self.assertFalse(os.path.exists(os.path.dirname(df._datadir)))
+            self.assertEqual(hashes, {})
 
     def test_hash_suffix_one_reclaim_tombstone(self):
         for policy in self.iter_policies():

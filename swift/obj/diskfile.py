@@ -823,7 +823,7 @@ class BaseDiskFileManager(object):
         if exts.get('.ts'):
             results['ts_info'] = exts['.ts'][0]
         if 'data_info' in results and exts.get('.meta'):
-            # only report meta files if there is a data file
+            # only report a meta file if a data file has been chosen
             results['meta_info'] = exts['.meta'][0]
             ctype_info = exts['.meta'].pop()
             if (ctype_info['ctype_timestamp']
@@ -871,7 +871,7 @@ class BaseDiskFileManager(object):
             remove_file(join(hsh_path, results['ts_info']['filename']))
             files.remove(results.pop('ts_info')['filename'])
         for file_info in results.get('possible_reclaim', []):
-            # stray fragments are not deleted until reclaim-age
+            # stray files are not deleted until reclaim-age
             if is_reclaimable(file_info['timestamp']):
                 results.setdefault('obsolete', []).append(file_info)
         for file_info in results.get('obsolete', []):
@@ -2488,6 +2488,11 @@ class DiskFileManager(BaseDiskFileManager):
             # set results
             results['data_info'] = exts['.data'][0]
 
+        # .meta files *may* be ready for reclaim if there is no data
+        if exts.get('.meta') and not exts.get('.data'):
+            results.setdefault('possible_reclaim', []).extend(
+                exts.get('.meta'))
+
     def _update_suffix_hashes(self, hashes, ondisk_info):
         """
         Applies policy specific updates to the given dict of md5 hashes for
@@ -2828,12 +2833,16 @@ class ECDiskFileManager(BaseDiskFileManager):
             results.setdefault('obsolete', []).extend(exts['.durable'])
             exts.pop('.durable')
 
-        # Fragments *may* be ready for reclaim, unless they are durable or
-        # at the timestamp we have just chosen for constructing the diskfile.
+        # Fragments *may* be ready for reclaim, unless they are durable
         for frag_set in frag_sets.values():
             if frag_set == durable_frag_set:
                 continue
             results.setdefault('possible_reclaim', []).extend(frag_set)
+
+        # .meta files *may* be ready for reclaim if there is no durable data
+        if exts.get('.meta') and not durable_frag_set:
+            results.setdefault('possible_reclaim', []).extend(
+                exts.get('.meta'))
 
     def _verify_ondisk_files(self, results, frag_index=None, **kwargs):
         """
