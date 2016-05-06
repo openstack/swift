@@ -210,6 +210,7 @@ func listObjFiles(partdir string, needSuffix func(string) bool) ([]string, error
 	if len(suffixDirs) == 0 {
 		os.Remove(filepath.Join(partdir, ".lock"))
 		os.Remove(filepath.Join(partdir, "hashes.pkl"))
+		os.Remove(filepath.Join(partdir, "hashes.invalid"))
 		os.Remove(partdir)
 		return nil, nil
 	}
