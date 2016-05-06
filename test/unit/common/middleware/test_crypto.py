@@ -181,6 +181,40 @@ class TestCrypto(unittest.TestCase):
         meta2 = self.crypto.create_crypto_meta()
         self.assertNotEqual(meta['iv'], meta2['iv'])  # crude sanity check
 
+    def test_create_random_key(self):
+        # crude check that we get unique keys on each call
+        keys = set()
+        for i in range(10):
+            key = self.crypto.create_random_key()
+            self.assertEqual(32, len(key))
+            keys.add(key)
+        self.assertEqual(10, len(keys))
+
+    def test_wrap_unwrap_key(self):
+        wrapping_key = os.urandom(32)
+        key_to_wrap = os.urandom(32)
+        iv = os.urandom(16)
+        wrapped = self.crypto.wrap_key(wrapping_key, key_to_wrap, iv)
+        cipher = Cipher(algorithms.AES(wrapping_key), modes.CTR(iv),
+                        backend=default_backend())
+        expected = cipher.encryptor().update(key_to_wrap)
+        self.assertEqual(expected, wrapped)
+
+        unwrapped = self.crypto.unwrap_key(wrapping_key, wrapped, iv)
+        self.assertEqual(key_to_wrap, unwrapped)
+
+    def test_unwrap_bad_key(self):
+        # verify that ValueError is raised if unwrapped key is invalid
+        wrapping_key = os.urandom(32)
+        iv = os.urandom(16)
+        for length in (0, 16, 24, 31, 33):
+            key_to_wrap = os.urandom(length)
+            wrapped = self.crypto.wrap_key(wrapping_key, key_to_wrap, iv)
+            with self.assertRaises(ValueError) as cm:
+                self.crypto.unwrap_key(wrapping_key, wrapped, iv)
+            self.assertEqual(
+                cm.exception.message, 'Key must be length 32 bytes')
+
 
 if __name__ == '__main__':
     unittest.main()

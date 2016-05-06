@@ -79,18 +79,20 @@ def dump_crypto_meta(crypto_meta):
     """
     Serialize crypto meta to a form suitable for including in a header value.
 
-    The IV value is random bytes and as a result needs to be encoded before
-    sending over the wire. Do this by wrapping the crypto meta in a json object
-    and encode the iv value. Base64 encoding returns a bytes object in py3, to
-    future proof the code, decode this data to produce a string, which is what
-    the json.dumps function expects.
+    The crypto-meta is serialized as a json object. The iv and key values are
+    random bytes and as a result need to be base64 encoded before sending over
+    the wire. Base64 encoding returns a bytes object in py3, to future proof
+    the code, decode this data to produce a string, which is what the
+    json.dumps function expects.
 
     :param crypto_meta: a dict containing crypto meta items
     :returns: a string serialization of a crypto meta dict
     """
+    # use sort_keys=True to make serialized form predictable for testing
     return urllib.quote_plus(json.dumps({
-        name: (base64.b64encode(value).decode() if name == 'iv' else value)
-        for name, value in crypto_meta.items()}))
+        name: (base64.b64encode(value).decode() if name in ('iv', 'key')
+               else value)
+        for name, value in crypto_meta.items()}, sort_keys=True))
 
 
 def load_crypto_meta(value):
@@ -98,9 +100,10 @@ def load_crypto_meta(value):
     Build the crypto_meta from the json object.
 
     Note that json.loads always produces unicode strings, to ensure the
-    resultant crypto_meta matches the original object cast all key and
-    value data (other then the iv) to a str. This will work in py3 as well
-    where all strings are unicode implying the cast is effectively a no-op.
+    resultant crypto_meta matches the original object cast all key and value
+    data to a str except the key and iv which are base64 decoded. This will
+    work in py3 as well where all strings are unicode implying the cast is
+    effectively a no-op.
 
     :param value: a string serialization of a crypto meta dict
     :returns: a dict containing crypto meta items
@@ -110,7 +113,7 @@ def load_crypto_meta(value):
     try:
         value = urllib.unquote_plus(value)
         crypto_meta = {str(name): (base64.b64decode(value)
-                                   if name == 'iv' else str(value))
+                                   if name in ('iv', 'key') else str(value))
                        for name, value in json.loads(value).items()}
         return crypto_meta
     except (KeyError, ValueError, TypeError) as err:

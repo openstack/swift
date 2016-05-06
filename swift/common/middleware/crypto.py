@@ -23,6 +23,9 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from swift.common.exceptions import EncryptionException
 from swift.common.utils import get_logger
 
+# AES will accept several key sizes - we are using 256 bits i.e. 32 bytes
+KEY_LENGTH = 32
+
 
 class Crypto(object):
     """
@@ -31,10 +34,6 @@ class Crypto(object):
     def __init__(self, conf=None):
         conf = {} if conf is None else conf
         self.logger = get_logger(conf, log_route="crypto")
-
-    def check_key(self, key):
-        if len(key) != 32:
-            raise ValueError("Key must be length 32 bytes")
 
     def create_encryption_ctxt(self, key, iv):
         """
@@ -127,6 +126,30 @@ class Crypto(object):
         except KeyError as err:
             raise EncryptionException(
                 'Bad crypto meta: Missing %s' % err)
+
+    def create_random_key(self):
+        # helper method to create random key of correct length
+        return os.urandom(KEY_LENGTH)
+
+    def wrap_key(self, wrapping_key, key_to_wrap, iv):
+        # we don't use an RFC 3394 key wrap algorithm such as cryptography's
+        # aes_wrap_key because it's slower and we have iv material readily
+        # available so don't need a deterministic algorithm
+        encryptor = Cipher(algorithms.AES(wrapping_key), modes.CTR(iv),
+                           backend=default_backend()).encryptor()
+        return encryptor.update(key_to_wrap)
+
+    def unwrap_key(self, wrapping_key, wrapped_key, iv):
+        # check the key length early - unwrapping won't change the length
+        self.check_key(wrapped_key)
+        decryptor = Cipher(algorithms.AES(wrapping_key), modes.CTR(iv),
+                           backend=default_backend()).decryptor()
+        key = decryptor.update(wrapped_key)
+        return key
+
+    def check_key(self, key):
+        if len(key) != KEY_LENGTH:
+            raise ValueError("Key must be length %s bytes" % KEY_LENGTH)
 
 
 class CryptoContext(object):

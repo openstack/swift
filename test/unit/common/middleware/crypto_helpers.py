@@ -42,5 +42,7 @@ def decrypt(key, iv, enc_val):
 FAKE_IV = "This is an IV123"
 
 
-def fake_get_crypto_meta():
-    return {'iv': FAKE_IV, 'cipher': Crypto({}).get_cipher()}
+def fake_get_crypto_meta(**kwargs):
+    meta = {'iv': FAKE_IV, 'cipher': Crypto({}).get_cipher()}
+    meta.update(kwargs)
+    return meta

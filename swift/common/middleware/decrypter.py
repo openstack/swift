@@ -57,6 +57,29 @@ class BaseDecrypterContext(CryptoWSGIContext):
         self.crypto.check_crypto_meta(crypto_meta)
         return crypto_meta
 
+    def get_unwrapped_key(self, crypto_meta, wrapping_key):
+        """
+        Get a wrapped key from crypto-meta and unwrap it using the provided
+        wrapping key.
+
+        :param crypto_meta: a dict of crypto-meta
+        :param wrapping_key: key to be used to decrypt the wrapped key
+        :return: an unwrapped key
+        :raises EncryptionException: if the crypto-meta has no wrapped key or
+                                     the unwrapped key is invalid
+        """
+        try:
+            return self.crypto.unwrap_key(wrapping_key,
+                                          crypto_meta['key'],
+                                          crypto_meta['iv'])
+        except KeyError as err:
+            err = 'Missing %s' % err
+        except ValueError as err:
+            pass
+        msg = 'Error decrypting %s' % self.server_type
+        self.logger.error('%s: %s', msg, err)
+        raise HTTPInternalServerError(body=msg, content_type='text/plain')
+
     def decrypt_value_with_meta(self, value, key):
         """
         Decrypt a value if suitable crypto_meta can be extracted from the
@@ -190,7 +213,7 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         return mod_resp_headers
 
-    def multipart_response_iter(self, resp, boundary, keys, crypto_meta):
+    def multipart_response_iter(self, resp, boundary, body_key, crypto_meta):
         """
         Decrypts a multipart mime doc response body.
 
@@ -212,7 +235,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                 yield "\r\n"
 
                 decrypt_ctxt = self.crypto.create_decryption_ctxt(
-                    keys['object'], crypto_meta['iv'], first_byte)
+                    body_key, crypto_meta['iv'], first_byte)
                 for chunk in iter(lambda: body.read(DECRYPT_CHUNK_SIZE), ''):
                     chunk = decrypt_ctxt.update(chunk)
                     yield chunk
@@ -221,7 +244,7 @@ class DecrypterObjContext(BaseDecrypterContext):
 
             yield "--" + boundary + "--"
 
-    def response_iter(self, resp, keys, crypto_meta, offset):
+    def response_iter(self, resp, body_key, crypto_meta, offset):
         """
         Decrypts a response body.
 
@@ -232,7 +255,7 @@ class DecrypterObjContext(BaseDecrypterContext):
         :return: generator for decrypted response body
         """
         decrypt_ctxt = self.crypto.create_decryption_ctxt(
-            keys['object'], crypto_meta['iv'], offset)
+            body_key, crypto_meta['iv'], offset)
         with closing_if_possible(resp):
             for chunk in resp:
                 yield decrypt_ctxt.update(chunk)
@@ -259,7 +282,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                     'X-Object-Sysmeta-Crypto-Meta')
             except EncryptionException as err:
                 msg = 'Error decrypting object'
-                self.logger.error('%s:  %s', msg, err)
+                self.logger.error('%s: %s', msg, err)
                 raise HTTPInternalServerError(
                     body=msg, content_type='text/plain')
 
@@ -268,17 +291,19 @@ class DecrypterObjContext(BaseDecrypterContext):
                 resp_iter = app_resp
             elif (self._get_status_int() == 206 and
                   content_type == 'multipart/byteranges'):
+                body_key = self.get_unwrapped_key(crypto_meta, keys['object'])
                 boundary = dict(content_type_attrs)["boundary"]
                 resp_iter = self.multipart_response_iter(
-                    app_resp, boundary, keys, crypto_meta)
+                    app_resp, boundary, body_key, crypto_meta)
             else:
+                body_key = self.get_unwrapped_key(crypto_meta, keys['object'])
                 offset = 0
                 content_range = self._response_header_value('Content-Range')
                 if content_range:
                     # Determine offset within the whole object if ranged GET
                     offset, end, total = parse_content_range(content_range)
                 resp_iter = self.response_iter(
-                    app_resp, keys, crypto_meta, offset)
+                    app_resp, body_key, crypto_meta, offset)
         else:
             # don't decrypt body of non-2xx responses
             resp_iter = app_resp
