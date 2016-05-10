@@ -214,6 +214,10 @@ func listObjFiles(partdir string, needSuffix func(string) bool) ([]string, error
 		os.Remove(partdir)
 		return nil, nil
 	}
+	for i := len(suffixDirs) - 1; i > 0; i-- { // shuffle suffixDirs list
+		j := rand.Intn(i + 1)
+		suffixDirs[j], suffixDirs[i] = suffixDirs[i], suffixDirs[j]
+	}
 	for _, suffDir := range suffixDirs {
 		if !needSuffix(filepath.Base(suffDir)) {
 			continue
