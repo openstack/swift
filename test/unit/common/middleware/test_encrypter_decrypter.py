@@ -199,6 +199,18 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self._check_match_requests('HEAD', self.crypto_app)
         self._check_listing(self.crypto_app)
 
+    def test_write_without_crypto_read_with_crypto_ec(self):
+        self._create_container(self.proxy_app, policy_name='ec')
+        self._put_object(self.proxy_app, self.plaintext)
+        self._post_object(self.proxy_app)
+        self._check_GET_and_HEAD(self.proxy_app)  # sanity check
+        self._check_GET_and_HEAD(self.crypto_app)
+        self._check_match_requests('GET', self.proxy_app)  # sanity check
+        self._check_match_requests('GET', self.crypto_app)
+        self._check_match_requests('HEAD', self.proxy_app)  # sanity check
+        self._check_match_requests('HEAD', self.crypto_app)
+        self._check_listing(self.crypto_app)
+
     def _check_GET_and_HEAD_not_decrypted(self, app):
         req = Request.blank(self.object_path, method='GET')
         resp = req.get_response(app)

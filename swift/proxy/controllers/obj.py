@@ -71,6 +71,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
     HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
+from swift.common.request_helpers import update_etag_is_at_header, \
+    resolve_etag_is_at_header
 
 
 def check_content_type(req):
@@ -1879,8 +1881,7 @@ class ECObjectController(BaseObjectController):
         return range_specs
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
-        req.headers.setdefault("X-Backend-Etag-Is-At",
-                               "X-Object-Sysmeta-Ec-Etag")
+        update_etag_is_at_header(req, "X-Object-Sysmeta-Ec-Etag")
 
         if req.method == 'HEAD':
             # no fancy EC decoding here, just one plain old HEAD request to
@@ -1988,8 +1989,7 @@ class ECObjectController(BaseObjectController):
         # We're about to invoke conditional response checking so set the
         # correct conditional etag from wherever X-Backend-Etag-Is-At points,
         # if it exists at all.
-        resp._conditional_etag = resp.headers.get(
-            req.headers.get('X-Backend-Etag-Is-At'))
+        resp._conditional_etag = resolve_etag_is_at_header(req, resp.headers)
         if (is_success(resp.status_int) or is_redirection(resp.status_int) or
                 resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE):
             resp.accept_ranges = 'bytes'

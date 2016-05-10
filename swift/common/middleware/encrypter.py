@@ -20,7 +20,7 @@ from swift.common.crypto_utils import CryptoWSGIContext, dump_crypto_meta, \
     append_crypto_meta
 from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import get_object_transient_sysmeta, \
-    strip_user_meta_prefix, is_user_meta
+    strip_user_meta_prefix, is_user_meta, update_etag_is_at_header
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity
 from swift.common.middleware.crypto import Crypto
@@ -232,8 +232,7 @@ class EncrypterObjContext(CryptoWSGIContext):
                 new_etags.extend(('"%s"' % etag, '"%s"' % crypto_etag))
 
             req.headers[header_name] = ', '.join(new_etags)
-            req.headers.setdefault(
-                'X-Backend-Etag-Is-At', 'X-Object-Sysmeta-Crypto-Etag')
+            update_etag_is_at_header(req, 'X-Object-Sysmeta-Crypto-Etag')
 
         try:
             yield
