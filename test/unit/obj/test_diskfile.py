@@ -975,7 +975,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.df_mgr.get_diskfile_from_hash(
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             dfclass.assert_called_once_with(
-                self.df_mgr, '/srv/dev/', self.df_mgr.threadpools['dev'], '9',
+                self.df_mgr, '/srv/dev/', '9',
                 'a', 'c', 'o', policy=POLICIES[0])
             hclistdir.assert_called_once_with(
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
