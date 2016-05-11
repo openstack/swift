@@ -426,3 +426,5 @@ for rings that were close to balanceable, like 3 machines with 60TB, 60TB, and
 didn't always get it. After that, overload was added to the ring builder so
 that operators could choose a balance between dispersion and device weights.
 In time the overload concept was improved and made more accurate.
+
+For more background on consistent hashing rings, please see :doc:`ring_background`.
