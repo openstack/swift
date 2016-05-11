@@ -16,10 +16,9 @@ bind_port = 6200
 # ignored.
 # workers = auto
 #
-# Make object-server run this many worker processes per unique port of
-# "local" ring devices across all storage policies.  This can help provide
-# the isolation of threads_per_disk without the severe overhead.  The default
-# value of 0 disables this feature.
+# Make object-server run this many worker processes per unique port of "local"
+# ring devices across all storage policies. The default value of 0 disables this
+# feature.
 # servers_per_port = 0
 #
 # Maximum concurrent requests per worker
@@ -105,10 +104,6 @@ use = egg:swift#object
 # allowed_headers = Content-Disposition, Content-Encoding, X-Delete-At, X-Object-Manifest, X-Static-Large-Object
 #
 # auto_create_account_prefix = .
-#
-# A value of 0 means "don't use thread pools". A reasonable starting point is
-# 4.
-# threads_per_disk = 0
 #
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify

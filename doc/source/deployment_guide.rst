@@ -151,11 +151,6 @@ service a request for any disk, and a slow I/O request blocks the eventlet hub,
 a single slow disk can impair an entire storage node.  This also prevents
 object servers from fully utilizing all their disks during heavy load.
 
-The :ref:`threads_per_disk <object-server-options>` option was one way to
-address this, but came with severe performance overhead which was worse
-than the benefit of I/O isolation.  Any clusters using threads_per_disk should
-switch to using `servers_per_port`.
-
 Another way to get full I/O isolation is to give each disk on a storage node a
 different port in the storage policy rings.  Then set the
 :ref:`servers_per_port <object-server-default-options>`
@@ -547,15 +542,6 @@ allowed_headers                Content-Disposition,   Comma separated list of he
                                X-Static-Large-Object  Content-Type, etag, Content-Length, or deleted
 auto_create_account_prefix     .                      Prefix used when automatically
                                                       creating accounts.
-threads_per_disk               0                      Size of the per-disk thread pool
-                                                      used for performing disk I/O. The
-                                                      default of 0 means to not use a
-                                                      per-disk thread pool.
-                                                      This option is no longer
-                                                      recommended and the
-                                                      :ref:`servers_per_port
-                                                      <server-per-port-configuration>`
-                                                      should be used instead.
 replication_server                                    Configure parameter for creating
                                                       specific server. To handle all verbs,
                                                       including replication verbs, do not
