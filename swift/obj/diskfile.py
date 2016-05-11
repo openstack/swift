@@ -2641,7 +2641,7 @@ class ECDiskFile(BaseDiskFile):
         reverting it to its primary node.
 
         The hash will be invalidated, and if empty or invalid the
-        hsh_path will be removed on next hash_cleanup_listdir.
+        hsh_path will be removed on next cleanup_ondisk_files.
 
         :param timestamp: the object timestamp, an instance of
                           :class:`~swift.common.utils.Timestamp`
