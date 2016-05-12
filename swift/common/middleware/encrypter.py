@@ -15,9 +15,9 @@
 from contextlib import contextmanager
 from hashlib import md5
 import base64
-import json
-import urllib
-from swift.common.crypto_utils import CryptoWSGIContext
+
+from swift.common.crypto_utils import CryptoWSGIContext, dump_crypto_meta, \
+    append_crypto_meta
 from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import get_object_transient_sysmeta, \
     strip_user_meta_prefix, is_user_meta
@@ -27,33 +27,13 @@ from swift.common.middleware.crypto import Crypto
 from swift.common.constraints import check_metadata
 
 
-def _dump_crypto_meta(crypto_meta):
+def encrypt_header_val(crypto, value, key, iv_base=None):
     """
-    Set the crypto-meta associated to the obj body.
+    Encrypt a header value using the supplied key.
 
-    The IV value is random bytes and as a result needs to be encoded before
-    sending over the wire. Do this by wrapping the crypto meta in a json object
-    and encode the iv value. Base64 encoding returns a bytes object in py3, to
-    future proof the code, decode this data to produce a string, which is what
-    the json.dumps function expects.
-
-    :param crypto_meta: a dict containing crypto meta items
-    :returns: a string serialization of a crypto meta dict
-    """
-    return urllib.quote_plus(json.dumps({
-        name: (base64.b64encode(value).decode() if name == 'iv' else value)
-        for name, value in crypto_meta.items()}))
-
-
-def encrypt_header_val(crypto, value, key, append_crypto_meta=False,
-                       iv_base=None):
-    """
-    Encrypt a value using the supplied key.
-
+    :param crypto: a Crypto instance
     :param value: value to encrypt
     :param key: crypto key to use
-    :param crypto_meta: a crypto-meta dict of form returned by
-        :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
     :param iv_base: an optional string from which an iv will be derived
     :returns: a tuple of (encrypted value, crypto_meta) where crypto_meta is a
         dict of form returned by
@@ -62,13 +42,9 @@ def encrypt_header_val(crypto, value, key, append_crypto_meta=False,
     if not value:
         return '', None
 
-    crypto_meta = crypto.get_crypto_meta(iv_base=iv_base)
+    crypto_meta = crypto.create_crypto_meta(iv_base=iv_base)
     crypto_ctxt = crypto.create_encryption_ctxt(key, crypto_meta['iv'])
     enc_val = base64.b64encode(crypto_ctxt.update(value))
-    crypto_meta = _dump_crypto_meta(crypto_meta)
-    if append_crypto_meta:
-        # Store the crypto-meta with the value itself
-        enc_val = '%s; meta=%s' % (enc_val, crypto_meta)
     return enc_val, crypto_meta
 
 
@@ -79,7 +55,7 @@ class EncInputWrapper(object):
         self.wsgi_input = req.environ['wsgi.input']
         self.path = req.path
         self.crypto = crypto
-        self.body_crypto_meta = self.crypto.get_crypto_meta()
+        self.body_crypto_meta = self.crypto.create_crypto_meta()
         self.body_crypto_ctxt = None
         self.keys = keys
         # remove any Etag from headers, it won't be valid for ciphertext and
@@ -111,16 +87,17 @@ class EncInputWrapper(object):
                     self.crypto, self.plaintext_md5.hexdigest(),
                     self.keys['object'], iv_base=self.path)
                 footers['X-Object-Sysmeta-Crypto-Etag'] = val
-                footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = etag_crypto_meta
-                footers['X-Object-Sysmeta-Crypto-Meta'] = _dump_crypto_meta(
+                footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = \
+                    dump_crypto_meta(etag_crypto_meta)
+                footers['X-Object-Sysmeta-Crypto-Meta'] = dump_crypto_meta(
                     self.body_crypto_meta)
 
                 # Encrypt the plaintext etag using the container key and use
                 # it to override the container update value, with the crypto
                 # parameters appended.
-                val, _ = encrypt_header_val(
+                val = append_crypto_meta(*encrypt_header_val(
                     self.crypto, self.plaintext_md5.hexdigest(),
-                    self.keys['container'], append_crypto_meta=True)
+                    self.keys['container']))
                 footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
                     val
             else:
@@ -170,14 +147,17 @@ class EncInputWrapper(object):
 
 class EncrypterObjContext(CryptoWSGIContext):
     def __init__(self, encrypter, logger):
-        super(EncrypterObjContext, self).__init__(encrypter, logger)
-        self.server_type = 'object'
+        super(EncrypterObjContext, self).__init__(
+            encrypter, 'object', logger)
 
     def encrypt_user_metadata(self, req, keys):
         """
         Encrypt user-metadata header values. For each user metadata header, add
         a corresponding x-object-transient-sysmeta-crypto- header with the
         crypto metadata required to decrypt later.
+
+        :param req: a swob Request
+        :param keys: a dict of encryption keys
         """
 
         # Check the user-metadata length before encrypting and encoding
@@ -194,14 +174,14 @@ class EncrypterObjContext(CryptoWSGIContext):
             #         ('Meta-Access-Control-Allow-Origin' in hdr):
             #     continue
             if is_user_meta(self.server_type, name) and val:
-                req.headers[name], full_crypto_meta = encrypt_header_val(
+                req.headers[name], meta = encrypt_header_val(
                     self.crypto, val, keys[self.server_type])
                 # short_name is extracted in order to use it for naming the
                 # corresponding x-object-transient-sysmeta-crypto- header
                 short_name = strip_user_meta_prefix(self.server_type, name)
-                req.headers[prefix + short_name] = full_crypto_meta
-                self.logger.debug("encrypted user meta %s: %s"
-                                  % (name, req.headers[name]))
+                req.headers[prefix + short_name] = dump_crypto_meta(meta)
+                self.logger.debug("encrypted user meta %s: %s",
+                                  name, req.headers[name])
 
     def encrypt_req_headers(self, req, keys):
         if 'container' not in keys:

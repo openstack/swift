@@ -128,7 +128,7 @@ class KeyMasterContext(WSGIContext):
                     raise HTTPUnprocessableEntity(
                         "Cannot get keys for path %s" % req.path)
 
-        self.logger.debug("No keys necessary for path %s" % req.path)
+        self.logger.debug("No keys necessary for path %s", req.path)
 
     def provide_keys_get_or_head(self, req, rederive):
         if (not parse_header_keys(req) and rederive and
@@ -148,7 +148,7 @@ class KeyMasterContext(WSGIContext):
                 try:
                     obj_key_path = base64.b64decode(obj_key_path)
                 except TypeError:
-                    self.logger.warning("path %s could not be decoded" %
+                    self.logger.warning("path %s could not be decoded",
                                         obj_key_path)
                     raise ValueError("path %s could not be decoded" %
                                      obj_key_path)
@@ -157,8 +157,8 @@ class KeyMasterContext(WSGIContext):
                 cont_key_path = os.path.join(os.sep, path_acc, path_cont)
                 self.keys['container'] = self.keymaster.create_key(
                     cont_key_path)
-                self.logger.debug("obj key id: %s" % obj_key_path)
-                self.logger.debug("cont key id: %s" % cont_key_path)
+                self.logger.debug("obj key id: %s", obj_key_path)
+                self.logger.debug("cont key id: %s", cont_key_path)
                 self.keys['object'] = self.keymaster.create_key(
                     obj_key_path)
             except ValueError:

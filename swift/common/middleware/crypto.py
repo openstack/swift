@@ -20,6 +20,7 @@ import os
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from swift.common.exceptions import EncryptionException
 from swift.common.utils import get_logger
 
 
@@ -31,9 +32,9 @@ class Crypto(object):
         conf = {} if conf is None else conf
         self.logger = get_logger(conf, log_route="crypto")
 
-    def _check_key(self, key):
+    def check_key(self, key):
         if len(key) != 32:
-            raise ValueError("Invalid key: length should be 32")
+            raise ValueError("Key must be length 32 bytes")
 
     def create_encryption_ctxt(self, key, iv):
         """
@@ -44,7 +45,7 @@ class Crypto(object):
         :raises: ValueError on invalid key or iv
         :returns: an instance of :class:`CryptoContext`
         """
-        self._check_key(key)
+        self.check_key(key)
         engine = Cipher(algorithms.AES(key), modes.CTR(iv),
                         backend=default_backend())
         enc = engine.encryptor()
@@ -57,13 +58,11 @@ class Crypto(object):
         :param key: 256-bit key
         :param iv: 128-bit iv or nonce used for decryption
         :param offset: offset into the message; used for range reads
-        :raises: ValueError on invalid key, iv or offset
         :returns: an instance of :class:`CryptoContext`
         """
-        # TODO: check keys when we first fetch them from the keymaster
-        self._check_key(key)
+        self.check_key(key)
         if offset < 0:
-            raise ValueError('Invalid offset: should be >= 0')
+            raise ValueError('Offset must not be negative')
         if offset > 0:
             # Adjust IV so that it is correct for decryption at offset.
             # ( 1<< (16 *8)) is to make 'ivl' big enough so that the following
@@ -80,11 +79,8 @@ class Crypto(object):
         dec.update('*' * (offset % 16))
         return CryptoContext(dec, iv, offset)
 
-    def get_block_size(self):
-        return algorithms.AES.block_size
-
     def get_required_iv_length(self):
-        return self.get_block_size() / 8
+        return algorithms.AES.block_size / 8
 
     def _get_derived_iv(self, base):
         target_length = self.get_required_iv_length()
@@ -109,9 +105,28 @@ class Crypto(object):
     def get_cipher(self):
         return 'AES_CTR_256'
 
-    def get_crypto_meta(self, iv_base=None):
+    def create_crypto_meta(self, iv_base=None):
         # create a set of parameters
         return {'iv': self.create_iv(iv_base), 'cipher': self.get_cipher()}
+
+    def check_crypto_meta(self, meta):
+        """
+        Check that crypto meta dict has valid items.
+
+        :param meta: a dict
+        :raises EncryptionException: if an error is found in the crypto meta
+        """
+        try:
+            if meta['cipher'] != self.get_cipher():
+                raise EncryptionException('Bad crypto meta: Cipher must be %s'
+                                          % self.get_cipher())
+            if len(meta['iv']) != self.get_required_iv_length():
+                raise EncryptionException(
+                    'Bad crypto meta: IV must be length %s bytes'
+                    % self.get_required_iv_length())
+        except KeyError as err:
+            raise EncryptionException(
+                'Bad crypto meta: Missing %s' % err)
 
 
 class CryptoContext(object):

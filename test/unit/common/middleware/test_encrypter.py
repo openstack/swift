@@ -115,7 +115,7 @@ class TestEncrypter(unittest.TestCase):
             req_hdrs['X-Object-Meta-Etag'])
         actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Etag']
         actual = json.loads(urllib.unquote_plus(actual))
-        self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
         # sysmeta is not encrypted
@@ -169,11 +169,11 @@ class TestEncrypter(unittest.TestCase):
         # verify encryption footers are ok
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
-        etag_iv = Crypto({}).create_iv(iv_base=req.path)
+        etag_iv = Crypto().create_iv(iv_base=req.path)
         self.assertEqual(encrypt(plaintext_etag, key, etag_iv), actual)
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
-        self.assertEqual(Crypto({}).get_cipher(), actual['cipher'])
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
     def test_PUT_with_bad_etag_in_other_footers(self):
@@ -474,8 +474,9 @@ class TestEncrypter(unittest.TestCase):
             '/v1/a/c/o', environ=env, body=body, headers=hdrs)
         resp = req.get_response(self.encrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('%s not in env' % CRYPTO_KEY_CALLBACK,
-                         resp.body)
+        self.assertIn('%s not in env' % CRYPTO_KEY_CALLBACK,
+                      self.encrypter.logger.get_lines_for_level('error')[0])
+        self.assertEqual('Unable to retrieve encryption keys.', resp.body)
 
     def test_PUT_error_in_key_callback(self):
         def raise_exc():
@@ -490,10 +491,9 @@ class TestEncrypter(unittest.TestCase):
             '/v1/a/c/o', environ=env, body=body, headers=hdrs)
         resp = req.get_response(self.encrypter)
         self.assertEqual('500 Internal Error', resp.status)
-        self.assertEqual('%s had exception: Testing' % CRYPTO_KEY_CALLBACK,
-                         resp.body)
-        self.assertIn('%s: Testing' % CRYPTO_KEY_CALLBACK,
+        self.assertIn('from %s: Testing' % CRYPTO_KEY_CALLBACK,
                       self.encrypter.logger.get_lines_for_level('error')[0])
+        self.assertEqual('Unable to retrieve encryption keys.', resp.body)
 
     def test_PUT_encryption_override(self):
         # set crypto override to disable encryption.
