@@ -56,7 +56,7 @@ are acceptable within this section.
 IP address the object server should bind to. The default is 0.0.0.0 which will make
 it bind to all available addresses.
 .IP "\fBbind_port\fR"
-TCP port the object server should bind to. The default is 6000.
+TCP port the object server should bind to. The default is 6200.
 .IP "\fBbind_timeout\fR"
 Timeout to bind socket. The default is 30.
 .IP \fBbacklog\fR
@@ -88,10 +88,9 @@ The default is 86400.
 .IP \fBexpiring_objects_account_name\fR
 The default is 'expiring_objects'.
 .IP \fBservers_per_port\fR
-Make object-server run this many worker processes per unique port of
-"local" ring devices across all storage policies.  This can help provide
-the isolation of threads_per_disk without the severe overhead.  The default
-value of 0 disables this feature.
+Make object-server run this many worker processes per unique port of "local"
+ring devices across all storage policies. The default value of 0 disables this
+feature.
 .IP \fBlog_name\fR
 Label used when logging. The default is swift.
 .IP \fBlog_facility\fR
@@ -126,8 +125,10 @@ The default is empty.
 .IP \fBeventlet_debug\fR
 Debug mode for eventlet library. The default is false.
 .IP \fBfallocate_reserve\fR
-You can set fallocate_reserve to the number of bytes you'd like fallocate to
-reserve, whether there is space for the given file size or not. The default is 0.
+You can set fallocate_reserve to the number of bytes or percentage of disk
+space you'd like fallocate to reserve, whether there is space for the given
+file size or not. Percentage will be used if the value ends with a '%'.
+The default is 1%.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 3 seconds.
 .IP \fBconn_timeout\fR

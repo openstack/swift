@@ -672,12 +672,15 @@ class TestFuncs(unittest.TestCase):
         base = Controller(self.app)
         # just throw a bunch of test cases at it
         self.assertEqual(base.have_quorum([201, 404], 3), False)
-        self.assertEqual(base.have_quorum([201, 201], 4), False)
-        self.assertEqual(base.have_quorum([201, 201, 404, 404], 4), False)
-        self.assertEqual(base.have_quorum([201, 503, 503, 201], 4), False)
+        self.assertEqual(base.have_quorum([201, 201], 4), True)
+        self.assertEqual(base.have_quorum([201], 4), False)
+        self.assertEqual(base.have_quorum([201, 201, 404, 404], 4), True)
+        self.assertEqual(base.have_quorum([201, 302, 418, 503], 4), False)
+        self.assertEqual(base.have_quorum([201, 503, 503, 201], 4), True)
         self.assertEqual(base.have_quorum([201, 201], 3), True)
         self.assertEqual(base.have_quorum([404, 404], 3), True)
         self.assertEqual(base.have_quorum([201, 201], 2), True)
+        self.assertEqual(base.have_quorum([201, 404], 2), True)
         self.assertEqual(base.have_quorum([404, 404], 2), True)
         self.assertEqual(base.have_quorum([201, 404, 201, 201], 4), True)
 
@@ -842,7 +845,7 @@ class TestFuncs(unittest.TestCase):
             def getheaders(self):
                 return [('content-length', self.getheader('content-length'))]
 
-        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         source1 = TestSource(['abcd', '1234', 'abc', None])
         source2 = TestSource(['efgh5678'])
@@ -882,7 +885,7 @@ class TestFuncs(unittest.TestCase):
             def getheaders(self):
                 return self.headers
 
-        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         source1 = TestChunkedSource(['abcd', '1234', 'abc', None])
         source2 = TestChunkedSource(['efgh5678'])

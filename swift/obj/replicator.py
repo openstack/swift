@@ -68,7 +68,7 @@ class ObjectReplicator(Daemon):
         self.bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
         self.port = None if self.servers_per_port else \
-            int(conf.get('bind_port', 6000))
+            int(conf.get('bind_port', 6200))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
@@ -642,9 +642,10 @@ class ObjectReplicator(Daemon):
                              if failure_dev])
                     continue
         if not found_local:
-            self.logger.error("Can't find itself %s with port %s in ring "
-                              "file, not replicating",
-                              ", ".join(ips), self.port)
+            self.logger.error("Can't find itself in policy with index %d with"
+                              " ips %s and with port %s in ring file, not"
+                              " replicating",
+                              int(policy), ", ".join(ips), self.port)
         return jobs
 
     def collect_jobs(self, override_devices=None, override_partitions=None,

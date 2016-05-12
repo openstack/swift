@@ -99,7 +99,7 @@ def mocked_http_conn(*args, **kwargs):
 class TestDirectClient(unittest.TestCase):
 
     def setUp(self):
-        self.node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda',
+        self.node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda',
                      'replication_ip': '1.2.3.5', 'replication_port': '7000'}
         self.part = '0'
 
@@ -244,7 +244,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('GET' in str(err))
 
     def test_direct_delete_account(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
@@ -261,7 +261,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertTrue('X-Timestamp' in headers)
 
     def test_direct_delete_account_failure(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 

@@ -56,7 +56,7 @@ are acceptable within this section.
 IP address the container server should bind to. The default is 0.0.0.0 which will make
 it bind to all available addresses.
 .IP "\fBbind_port\fR"
-TCP port the container server should bind to. The default is 6001.
+TCP port the container server should bind to. The default is 6201.
 .IP "\fBbind_timeout\fR"
 Timeout to bind socket. The default is 30.
 .IP \fBbacklog\fR
@@ -127,8 +127,10 @@ The default is false.
 .IP \fBeventlet_debug\fR
 Debug mode for eventlet library. The default is false.
 .IP \fBfallocate_reserve\fR
-You can set fallocate_reserve to the number of bytes you'd like fallocate to
-reserve, whether there is space for the given file size or not. The default is 0.
+You can set fallocate_reserve to the number of bytes or percentage of disk
+space you'd like fallocate to reserve, whether there is space for the given
+file size or not. Percentage will be used if the value ends with a '%'.
+The default is 1%.
 .RE
 .PD
 

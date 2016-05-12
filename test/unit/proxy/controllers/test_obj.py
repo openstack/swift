@@ -828,7 +828,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
     def test_PUT_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.ChunkReadError('exception message')
+                raise IOError('error message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -925,62 +925,6 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
-
-    def test_POST_as_COPY_simple(self):
-        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
-        get_resp = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        put_resp = [201] * self.obj_ring.replicas
-        codes = get_resp + put_resp
-        with set_http_connect(*codes):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 202)
-        self.assertEqual(req.environ['QUERY_STRING'], '')
-        self.assertTrue('swift.post_as_copy' in req.environ)
-
-    def test_POST_as_COPY_static_large_object(self):
-        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
-        get_resp = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        put_resp = [201] * self.obj_ring.replicas
-        codes = get_resp + put_resp
-        slo_headers = \
-            [{'X-Static-Large-Object': True}] * self.obj_ring.replicas
-        get_headers = slo_headers + [{}] * (len(codes) - len(slo_headers))
-        headers = {'headers': get_headers}
-        with set_http_connect(*codes, **headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 202)
-        self.assertEqual(req.environ['QUERY_STRING'], '')
-        self.assertTrue('swift.post_as_copy' in req.environ)
-
-    def test_POST_delete_at(self):
-        t = str(int(time.time() + 100))
-        req = swob.Request.blank('/v1/a/c/o', method='POST',
-                                 headers={'Content-Type': 'foo/bar',
-                                          'X-Delete-At': t})
-        post_headers = []
-
-        def capture_headers(ip, port, device, part, method, path, headers,
-                            **kwargs):
-            if method == 'POST':
-                post_headers.append(headers)
-        x_newest_responses = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        post_resp = [200] * self.obj_ring.replicas
-        codes = x_newest_responses + post_resp
-        with set_http_connect(*codes, give_connect=capture_headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 200)
-        self.assertEqual(req.environ['QUERY_STRING'], '')  # sanity
-        self.assertTrue('swift.post_as_copy' in req.environ)
-
-        for given_headers in post_headers:
-            self.assertEqual(given_headers.get('X-Delete-At'), t)
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
 
     def test_PUT_delete_at(self):
         t = str(int(time.time() + 100))
@@ -1178,43 +1122,6 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
-
-    def test_COPY_simple(self):
-        req = swift.common.swob.Request.blank(
-            '/v1/a/c/o', method='COPY',
-            headers={'Content-Length': 0,
-                     'Destination': 'c/o-copy'})
-        head_resp = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        put_resp = [201] * self.obj_ring.replicas
-        codes = head_resp + put_resp
-        with set_http_connect(*codes):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_PUT_log_info(self):
-        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
-        req.headers['x-copy-from'] = 'some/where'
-        req.headers['Content-Length'] = 0
-        # override FakeConn default resp headers to keep log_info clean
-        resp_headers = {'x-delete-at': None}
-        head_resp = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        put_resp = [201] * self.obj_ring.replicas
-        codes = head_resp + put_resp
-        with set_http_connect(*codes, headers=resp_headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(
-            req.environ.get('swift.log_info'), ['x-copy-from:some/where'])
-        # and then check that we don't do that for originating POSTs
-        req = swift.common.swob.Request.blank('/v1/a/c/o')
-        req.method = 'POST'
-        req.headers['x-copy-from'] = 'else/where'
-        with set_http_connect(*codes, headers=resp_headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 202)
-        self.assertEqual(req.environ.get('swift.log_info'), None)
 
 
 @patch_policies(
@@ -1678,7 +1585,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     def test_PUT_ec_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
-                raise exceptions.ChunkReadError('exception message')
+                raise IOError('error message')
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
@@ -1891,72 +1798,6 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
-
-    def test_COPY_cross_policy_type_from_replicated(self):
-        self.app.per_container_info = {
-            'c1': self.app.container_info.copy(),
-            'c2': self.app.container_info.copy(),
-        }
-        # make c2 use replicated storage policy 1
-        self.app.per_container_info['c2']['storage_policy'] = '1'
-
-        # a put request with copy from source c2
-        req = swift.common.swob.Request.blank('/v1/a/c1/o', method='PUT',
-                                              body='', headers={
-                                                  'X-Copy-From': 'c2/o'})
-
-        # c2 get
-        codes = [200] * self.replicas(POLICIES[1])
-        codes += [404] * POLICIES[1].object_ring.max_more_nodes
-        # c1 put
-        codes += [201] * self.replicas()
-        expect_headers = {
-            'X-Obj-Metadata-Footer': 'yes',
-            'X-Obj-Multiphase-Commit': 'yes'
-        }
-        with set_http_connect(*codes, expect_headers=expect_headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_COPY_cross_policy_type_to_replicated(self):
-        self.app.per_container_info = {
-            'c1': self.app.container_info.copy(),
-            'c2': self.app.container_info.copy(),
-        }
-        # make c1 use replicated storage policy 1
-        self.app.per_container_info['c1']['storage_policy'] = '1'
-
-        # a put request with copy from source c2
-        req = swift.common.swob.Request.blank('/v1/a/c1/o', method='PUT',
-                                              body='', headers={
-                                                  'X-Copy-From': 'c2/o'})
-
-        # c2 get
-        codes = [404, 200] * self.policy.ec_ndata
-        headers = {
-            'X-Object-Sysmeta-Ec-Content-Length': 0,
-        }
-        # c1 put
-        codes += [201] * self.replicas(POLICIES[1])
-        with set_http_connect(*codes, headers=headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_COPY_cross_policy_type_unknown(self):
-        self.app.per_container_info = {
-            'c1': self.app.container_info.copy(),
-            'c2': self.app.container_info.copy(),
-        }
-        # make c1 use some made up storage policy index
-        self.app.per_container_info['c1']['storage_policy'] = '13'
-
-        # a COPY request of c2 with destination in c1
-        req = swift.common.swob.Request.blank('/v1/a/c2/o', method='COPY',
-                                              body='', headers={
-                                                  'Destination': 'c1/o'})
-        with set_http_connect():
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 503)
 
     def _make_ec_archive_bodies(self, test_body, policy=None):
         policy = policy or self.policy
@@ -2667,40 +2508,6 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
-    def test_COPY_with_ranges(self):
-        req = swift.common.swob.Request.blank(
-            '/v1/a/c/o', method='COPY',
-            headers={'Destination': 'c1/o',
-                     'Range': 'bytes=5-10'})
-        # turn a real body into fragments
-        segment_size = self.policy.ec_segment_size
-        real_body = ('asdf' * segment_size)[:-10]
-
-        # split it up into chunks
-        chunks = [real_body[x:x + segment_size]
-                  for x in range(0, len(real_body), segment_size)]
-
-        # we need only first chunk to rebuild 5-10 range
-        fragments = self.policy.pyeclib_driver.encode(chunks[0])
-        fragment_payloads = []
-        fragment_payloads.append(fragments)
-
-        node_fragments = zip(*fragment_payloads)
-        self.assertEqual(len(node_fragments), self.replicas())  # sanity
-        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
-        responses = [(200, ''.join(node_fragments[i]), headers)
-                     for i in range(POLICIES.default.ec_ndata)]
-        responses += [(201, '', {})] * self.obj_ring.replicas
-        status_codes, body_iter, headers = zip(*responses)
-        expect_headers = {
-            'X-Obj-Metadata-Footer': 'yes',
-            'X-Obj-Multiphase-Commit': 'yes'
-        }
-        with set_http_connect(*status_codes, body_iter=body_iter,
-                              headers=headers, expect_headers=expect_headers):
-            resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 201)
-
     def test_GET_with_invalid_ranges(self):
         # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
@@ -2711,18 +2518,6 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                                   segment_size, '%s-' % (segment_size - 10))
         # range is out of both real body and segment size
         self._test_invalid_ranges('GET', real_body,
-                                  segment_size, '%s-' % (segment_size + 10))
-
-    def test_COPY_with_invalid_ranges(self):
-        # real body size is segment_size - 10 (just 1 segment)
-        segment_size = self.policy.ec_segment_size
-        real_body = ('a' * segment_size)[:-10]
-
-        # range is out of real body but in segment size
-        self._test_invalid_ranges('COPY', real_body,
-                                  segment_size, '%s-' % (segment_size - 10))
-        # range is out of both real body and segment size
-        self._test_invalid_ranges('COPY', real_body,
                                   segment_size, '%s-' % (segment_size + 10))
 
     def _test_invalid_ranges(self, method, real_body, segment_size, req_range):

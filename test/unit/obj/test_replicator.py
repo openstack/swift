@@ -140,19 +140,19 @@ def _create_test_rings(path, devs=None):
     ]
     intended_devs = devs or [
         {'id': 0, 'device': 'sda', 'zone': 0,
-         'region': 1, 'ip': '127.0.0.0', 'port': 6000},
+         'region': 1, 'ip': '127.0.0.0', 'port': 6200},
         {'id': 1, 'device': 'sda', 'zone': 1,
-         'region': 2, 'ip': '127.0.0.1', 'port': 6000},
+         'region': 2, 'ip': '127.0.0.1', 'port': 6200},
         {'id': 2, 'device': 'sda', 'zone': 2,
-         'region': 3, 'ip': '127.0.0.2', 'port': 6000},
+         'region': 3, 'ip': '127.0.0.2', 'port': 6200},
         {'id': 3, 'device': 'sda', 'zone': 4,
-         'region': 2, 'ip': '127.0.0.3', 'port': 6000},
+         'region': 2, 'ip': '127.0.0.3', 'port': 6200},
         {'id': 4, 'device': 'sda', 'zone': 5,
-         'region': 1, 'ip': '127.0.0.4', 'port': 6000},
+         'region': 1, 'ip': '127.0.0.4', 'port': 6200},
         {'id': 5, 'device': 'sda', 'zone': 6,
-         'region': 3, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+         'region': 3, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6200},
         {'id': 6, 'device': 'sda', 'zone': 7, 'region': 1,
-         'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000},
+         'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6200},
     ]
     intended_part_shift = 30
     with closing(GzipFile(testgz, 'wb')) as f:
@@ -195,7 +195,7 @@ class TestObjectReplicator(unittest.TestCase):
         _create_test_rings(self.testdir)
         self.logger = debug_logger('test-replicator')
         self.conf = dict(
-            bind_ip=_ips()[0], bind_port=6000,
+            bind_ip=_ips()[0], bind_port=6200,
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1', sync_method='rsync')
         self._create_replicator()
@@ -267,10 +267,10 @@ class TestObjectReplicator(unittest.TestCase):
                                                         logger=self.logger)
         replicator.run_once()
         expected = [
-            "Can't find itself 1.1.1.1 with port 6000 "
-            "in ring file, not replicating",
-            "Can't find itself 1.1.1.1 with port 6000 "
-            "in ring file, not replicating",
+            "Can't find itself in policy with index 0 with ips 1.1.1.1 and"
+            " with port 6200 in ring file, not replicating",
+            "Can't find itself in policy with index 1 with ips 1.1.1.1 and"
+            " with port 6200 in ring file, not replicating",
         ]
         self.assertEqual(expected, self.logger.get_lines_for_level('error'))
 
@@ -423,17 +423,17 @@ class TestObjectReplicator(unittest.TestCase):
             # Two disks on same IP/port
             {'id': 0, 'device': 'sda', 'zone': 0,
              'region': 1, 'ip': '1.1.1.1', 'port': 1111,
-             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
             {'id': 1, 'device': 'sdb', 'zone': 1,
              'region': 1, 'ip': '1.1.1.1', 'port': 1111,
-             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
             # Two disks on same server, different ports
             {'id': 2, 'device': 'sdc', 'zone': 2,
              'region': 2, 'ip': '1.1.1.2', 'port': 1112,
-             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+             'replication_ip': '127.0.0.1', 'replication_port': 6200},
             {'id': 3, 'device': 'sdd', 'zone': 4,
              'region': 2, 'ip': '1.1.1.2', 'port': 1112,
-             'replication_ip': '127.0.0.1', 'replication_port': 6001},
+             'replication_ip': '127.0.0.1', 'replication_port': 6201},
         ]
         objects_sdb, objects_1_sdb, _, _ = self._write_disk_data('sdb')
         objects_sdc, objects_1_sdc, _, _ = self._write_disk_data('sdc')
@@ -522,22 +522,22 @@ class TestObjectReplicator(unittest.TestCase):
     def test_collect_jobs_multi_disk_diff_ports_normal(self, mock_shuffle):
         # Normally (servers_per_port=0), replication_ip AND replication_port
         # are used to determine local ring device entries.  Here we show that
-        # with bind_ip='127.0.0.1', bind_port=6000, only "sdc" is local.
+        # with bind_ip='127.0.0.1', bind_port=6200, only "sdc" is local.
         devs = [
             # Two disks on same IP/port
             {'id': 0, 'device': 'sda', 'zone': 0,
              'region': 1, 'ip': '1.1.1.1', 'port': 1111,
-             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
             {'id': 1, 'device': 'sdb', 'zone': 1,
              'region': 1, 'ip': '1.1.1.1', 'port': 1111,
-             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
             # Two disks on same server, different ports
             {'id': 2, 'device': 'sdc', 'zone': 2,
              'region': 2, 'ip': '1.1.1.2', 'port': 1112,
-             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+             'replication_ip': '127.0.0.1', 'replication_port': 6200},
             {'id': 3, 'device': 'sdd', 'zone': 4,
              'region': 2, 'ip': '1.1.1.2', 'port': 1112,
-             'replication_ip': '127.0.0.1', 'replication_port': 6001},
+             'replication_ip': '127.0.0.1', 'replication_port': 6201},
         ]
         objects_sdb, objects_1_sdb, _, _ = self._write_disk_data('sdb')
         objects_sdc, objects_1_sdc, _, _ = self._write_disk_data('sdc')
@@ -601,23 +601,23 @@ class TestObjectReplicator(unittest.TestCase):
     def test_collect_jobs_multi_disk_servers_per_port(self, mock_shuffle):
         # Normally (servers_per_port=0), replication_ip AND replication_port
         # are used to determine local ring device entries.  Here we show that
-        # with servers_per_port > 0 and bind_ip='127.0.0.1', bind_port=6000,
+        # with servers_per_port > 0 and bind_ip='127.0.0.1', bind_port=6200,
         # then both "sdc" and "sdd" are local.
         devs = [
             # Two disks on same IP/port
             {'id': 0, 'device': 'sda', 'zone': 0,
              'region': 1, 'ip': '1.1.1.1', 'port': 1111,
-             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
             {'id': 1, 'device': 'sdb', 'zone': 1,
              'region': 1, 'ip': '1.1.1.1', 'port': 1111,
-             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
             # Two disks on same server, different ports
             {'id': 2, 'device': 'sdc', 'zone': 2,
              'region': 2, 'ip': '1.1.1.2', 'port': 1112,
-             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+             'replication_ip': '127.0.0.1', 'replication_port': 6200},
             {'id': 3, 'device': 'sdd', 'zone': 4,
              'region': 2, 'ip': '1.1.1.2', 'port': 1112,
-             'replication_ip': '127.0.0.1', 'replication_port': 6001},
+             'replication_ip': '127.0.0.1', 'replication_port': 6201},
         ]
         objects_sdb, objects_1_sdb, _, _ = self._write_disk_data('sdb')
         objects_sdc, objects_1_sdc, _, _ = self._write_disk_data('sdc')
@@ -1055,19 +1055,19 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_ssync_single_region(self):
         devs = [
             {'id': 0, 'device': 'sda', 'zone': 0,
-             'region': 1, 'ip': '127.0.0.0', 'port': 6000},
+             'region': 1, 'ip': '127.0.0.0', 'port': 6200},
             {'id': 1, 'device': 'sda', 'zone': 1,
-             'region': 1, 'ip': '127.0.0.1', 'port': 6000},
+             'region': 1, 'ip': '127.0.0.1', 'port': 6200},
             {'id': 2, 'device': 'sda', 'zone': 2,
-             'region': 1, 'ip': '127.0.0.2', 'port': 6000},
+             'region': 1, 'ip': '127.0.0.2', 'port': 6200},
             {'id': 3, 'device': 'sda', 'zone': 4,
-             'region': 1, 'ip': '127.0.0.3', 'port': 6000},
+             'region': 1, 'ip': '127.0.0.3', 'port': 6200},
             {'id': 4, 'device': 'sda', 'zone': 5,
-             'region': 1, 'ip': '127.0.0.4', 'port': 6000},
+             'region': 1, 'ip': '127.0.0.4', 'port': 6200},
             {'id': 5, 'device': 'sda', 'zone': 6,
-             'region': 1, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+             'region': 1, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6200},
             {'id': 6, 'device': 'sda', 'zone': 7, 'region': 1,
-             'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000},
+             'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6200},
         ]
         _create_test_rings(self.testdir, devs=devs)
         self.conf['sync_method'] = 'ssync'

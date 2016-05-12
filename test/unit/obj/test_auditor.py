@@ -988,6 +988,39 @@ class TestAuditor(unittest.TestCase):
 
         self.assertEqual(sorted(forked_pids), [2, 1001, 1003, 1005, 1007])
 
+    def test_run_parallel_audit_once_failed_fork(self):
+        my_auditor = auditor.ObjectAuditor(
+            dict(devices=self.devices, mount_check='false',
+                 concurrency=2))
+
+        start_pid = [1001]
+        outstanding_pids = []
+        failed_once = [False]
+
+        def failing_fork(**kwargs):
+            # this fork fails only on the 2nd call
+            # it's enough to cause the growth of orphaned child processes
+            if len(outstanding_pids) > 0 and not failed_once[0]:
+                failed_once[0] = True
+                raise OSError
+            start_pid[0] += 2
+            pid = start_pid[0]
+            outstanding_pids.append(pid)
+            return pid
+
+        def fake_wait():
+            return outstanding_pids.pop(0), 0
+
+        with mock.patch("swift.obj.auditor.os.wait", fake_wait), \
+                mock.patch.object(my_auditor, 'fork_child', failing_fork), \
+                mock.patch.object(my_auditor, '_sleep', lambda *a: None):
+            for i in range(3):
+                my_auditor.run_once()
+
+        self.assertEqual(len(outstanding_pids), 0,
+                         "orphaned children left {0}, expected 0."
+                         .format(outstanding_pids))
+
 
 if __name__ == '__main__':
     unittest.main()

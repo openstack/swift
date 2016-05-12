@@ -253,7 +253,7 @@ class TestObjectSysmeta(unittest.TestCase):
         self._assertInHeaders(resp, self.new_meta_headers)
         self._assertNotInHeaders(resp, self.original_meta_headers_2)
 
-    def _test_sysmeta_not_updated_by_POST(self):
+    def test_sysmeta_not_updated_by_POST(self):
         # check sysmeta is not changed by a POST but user meta is replaced
         path = '/v1/a/c/o'
 
@@ -298,118 +298,7 @@ class TestObjectSysmeta(unittest.TestCase):
         self._assertInHeaders(resp, self.new_sysmeta_headers)
         self._assertNotInHeaders(resp, self.original_sysmeta_headers_2)
 
-    def test_sysmeta_not_updated_by_POST(self):
-        self.app.object_post_as_copy = False
-        self._test_sysmeta_not_updated_by_POST()
-
-    def test_sysmeta_not_updated_by_POST_as_copy(self):
-        self.app.object_post_as_copy = True
-        self._test_sysmeta_not_updated_by_POST()
-
-    def test_sysmeta_updated_by_COPY(self):
-        # check sysmeta is updated by a COPY in same way as user meta
-        path = '/v1/a/c/o'
-        dest = '/c/o2'
-        env = {'REQUEST_METHOD': 'PUT'}
-        hdrs = dict(self.original_sysmeta_headers_1)
-        hdrs.update(self.original_sysmeta_headers_2)
-        hdrs.update(self.original_meta_headers_1)
-        hdrs.update(self.original_meta_headers_2)
-        hdrs.update(self.original_transient_sysmeta_headers_1)
-        hdrs.update(self.original_transient_sysmeta_headers_2)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
-        resp = req.get_response(self.app)
-        self._assertStatus(resp, 201)
-
-        env = {'REQUEST_METHOD': 'COPY'}
-        hdrs = dict(self.changed_sysmeta_headers)
-        hdrs.update(self.new_sysmeta_headers)
-        hdrs.update(self.changed_meta_headers)
-        hdrs.update(self.new_meta_headers)
-        hdrs.update(self.changed_transient_sysmeta_headers)
-        hdrs.update(self.new_transient_sysmeta_headers)
-        hdrs.update(self.bad_headers)
-        hdrs.update({'Destination': dest})
-        req = Request.blank(path, environ=env, headers=hdrs)
-        resp = req.get_response(self.app)
-        self._assertStatus(resp, 201)
-        self._assertInHeaders(resp, self.changed_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_sysmeta_headers_2)
-        self._assertInHeaders(resp, self.changed_meta_headers)
-        self._assertInHeaders(resp, self.new_meta_headers)
-        self._assertInHeaders(resp, self.original_meta_headers_2)
-        self._assertInHeaders(resp, self.changed_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_transient_sysmeta_headers_2)
-        self._assertNotInHeaders(resp, self.bad_headers)
-
-        req = Request.blank('/v1/a/c/o2', environ={})
-        resp = req.get_response(self.app)
-        self._assertStatus(resp, 200)
-        self._assertInHeaders(resp, self.changed_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_sysmeta_headers_2)
-        self._assertInHeaders(resp, self.changed_meta_headers)
-        self._assertInHeaders(resp, self.new_meta_headers)
-        self._assertInHeaders(resp, self.original_meta_headers_2)
-        self._assertInHeaders(resp, self.changed_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_transient_sysmeta_headers_2)
-        self._assertNotInHeaders(resp, self.bad_headers)
-
-    def test_sysmeta_updated_by_COPY_from(self):
-        # check sysmeta is updated by a COPY in same way as user meta
-        path = '/v1/a/c/o'
-        env = {'REQUEST_METHOD': 'PUT'}
-        hdrs = dict(self.original_sysmeta_headers_1)
-        hdrs.update(self.original_sysmeta_headers_2)
-        hdrs.update(self.original_meta_headers_1)
-        hdrs.update(self.original_meta_headers_2)
-        hdrs.update(self.original_transient_sysmeta_headers_1)
-        hdrs.update(self.original_transient_sysmeta_headers_2)
-        req = Request.blank(path, environ=env, headers=hdrs, body='x')
-        resp = req.get_response(self.app)
-        self._assertStatus(resp, 201)
-
-        env = {'REQUEST_METHOD': 'PUT'}
-        hdrs = dict(self.changed_sysmeta_headers)
-        hdrs.update(self.new_sysmeta_headers)
-        hdrs.update(self.changed_meta_headers)
-        hdrs.update(self.new_meta_headers)
-        hdrs.update(self.changed_transient_sysmeta_headers)
-        hdrs.update(self.new_transient_sysmeta_headers)
-        hdrs.update(self.bad_headers)
-        hdrs.update({'X-Copy-From': '/c/o'})
-        req = Request.blank('/v1/a/c/o2', environ=env, headers=hdrs, body='')
-        resp = req.get_response(self.app)
-        self._assertStatus(resp, 201)
-        self._assertInHeaders(resp, self.changed_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_sysmeta_headers_2)
-        self._assertInHeaders(resp, self.changed_meta_headers)
-        self._assertInHeaders(resp, self.new_meta_headers)
-        self._assertInHeaders(resp, self.original_meta_headers_2)
-        self._assertInHeaders(resp, self.changed_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_transient_sysmeta_headers_2)
-        self._assertNotInHeaders(resp, self.bad_headers)
-
-        req = Request.blank('/v1/a/c/o2', environ={})
-        resp = req.get_response(self.app)
-        self._assertStatus(resp, 200)
-        self._assertInHeaders(resp, self.changed_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_sysmeta_headers_2)
-        self._assertInHeaders(resp, self.changed_meta_headers)
-        self._assertInHeaders(resp, self.new_meta_headers)
-        self._assertInHeaders(resp, self.original_meta_headers_2)
-        self._assertInHeaders(resp, self.changed_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.new_transient_sysmeta_headers)
-        self._assertInHeaders(resp, self.original_transient_sysmeta_headers_2)
-        self._assertNotInHeaders(resp, self.bad_headers)
-
-    def _test_transient_sysmeta_replaced_by_PUT_or_POST(self):
+    def test_transient_sysmeta_replaced_by_PUT_or_POST(self):
         # check transient_sysmeta is replaced en-masse by a POST
         path = '/v1/a/c/o'
 
@@ -476,11 +365,3 @@ class TestObjectSysmeta(unittest.TestCase):
         info = get_object_info(req.environ, self.app)
         self.assertEqual(1, len(info.get('transient_sysmeta', ())))
         self.assertEqual({'testb': 'B'}, info['transient_sysmeta'])
-
-    def test_transient_sysmeta_replaced_by_POST(self):
-        self.app.object_post_as_copy = False
-        self._test_transient_sysmeta_replaced_by_PUT_or_POST()
-
-    def test_transient_sysmeta_replaced_by_POST_as_copy(self):
-        self.app.object_post_as_copy = True
-        self._test_transient_sysmeta_replaced_by_PUT_or_POST()

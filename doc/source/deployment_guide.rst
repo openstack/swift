@@ -151,11 +151,6 @@ service a request for any disk, and a slow I/O request blocks the eventlet hub,
 a single slow disk can impair an entire storage node.  This also prevents
 object servers from fully utilizing all their disks during heavy load.
 
-The :ref:`threads_per_disk <object-server-options>` option was one way to
-address this, but came with severe performance overhead which was worse
-than the benefit of I/O isolation.  Any clusters using threads_per_disk should
-switch to using `servers_per_port`.
-
 Another way to get full I/O isolation is to give each disk on a storage node a
 different port in the storage policy rings.  Then set the
 :ref:`servers_per_port <object-server-default-options>`
@@ -169,18 +164,18 @@ Here's an example (abbreviated) old-style ring (2 node cluster with 2 disks
 each)::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
-              0       1     1       1.1.0.1    6000       1.1.0.1                6000      d1
-              1       1     1       1.1.0.1    6000       1.1.0.1                6000      d2
-              2       1     2       1.1.0.2    6000       1.1.0.2                6000      d3
-              3       1     2       1.1.0.2    6000       1.1.0.2                6000      d4
+              0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
+              1       1     1       1.1.0.1    6200       1.1.0.1                6200      d2
+              2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
+              3       1     2       1.1.0.2    6200       1.1.0.2                6200      d4
 
 And here's the same ring set up for `servers_per_port`::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
-              0       1     1       1.1.0.1    6000       1.1.0.1                6000      d1
-              1       1     1       1.1.0.1    6001       1.1.0.1                6001      d2
-              2       1     2       1.1.0.2    6000       1.1.0.2                6000      d3
-              3       1     2       1.1.0.2    6001       1.1.0.2                6001      d4
+              0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
+              1       1     1       1.1.0.1    6201       1.1.0.1                6201      d2
+              2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
+              3       1     2       1.1.0.2    6201       1.1.0.2                6201      d4
 
 When migrating from normal to `servers_per_port`, perform these steps in order:
 
@@ -195,7 +190,7 @@ When migrating from normal to `servers_per_port`, perform these steps in order:
 
  #. Push out new rings that actually have different ports per disk on each
     server.  One of the ports in the new ring should be the same as the port
-    used in the old ring ("6000" in the example above).  This will cover
+    used in the old ring ("6200" in the example above).  This will cover
     existing proxy-server processes who haven't loaded the new ring yet.  They
     can still talk to any storage node regardless of whether or not that
     storage node has loaded the ring and started object-server processes on the
@@ -422,7 +417,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6000        Port for server to bind to
+bind_port                        6200        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -489,12 +484,14 @@ log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for
                                              eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the
-                                             number of bytes you'd like fallocate to
-                                             reserve, whether there is space for the
-                                             given file size or not. This is useful for
-                                             systems that behave badly when they
-                                             completely run out of space; you can
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
                                              make the services pretend they're out of
                                              space early.
 conn_timeout                     0.5         Time to wait while attempting to connect
@@ -547,15 +544,6 @@ allowed_headers                Content-Disposition,   Comma separated list of he
                                X-Static-Large-Object  Content-Type, etag, Content-Length, or deleted
 auto_create_account_prefix     .                      Prefix used when automatically
                                                       creating accounts.
-threads_per_disk               0                      Size of the per-disk thread pool
-                                                      used for performing disk I/O. The
-                                                      default of 0 means to not use a
-                                                      per-disk thread pool.
-                                                      This option is no longer
-                                                      recommended and the
-                                                      :ref:`servers_per_port
-                                                      <server-per-port-configuration>`
-                                                      should be used instead.
 replication_server                                    Configure parameter for creating
                                                       specific server. To handle all verbs,
                                                       including replication verbs, do not
@@ -765,7 +753,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6001        Port for server to bind to
+bind_port                        6201        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -809,13 +797,16 @@ log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the number of
-                                             bytes you'd like fallocate to reserve, whether
-                                             there is space for the given file size or not.
-                                             This is useful for systems that behave badly
-                                             when they completely run out of space; you can
-                                             make the services pretend they're out of space
-                                             early.
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
 db_preallocation                 off         If you don't mind the extra disk space usage
                                              in overhead, you can turn this on to preallocate
                                              disk space with SQLite databases to decrease
@@ -976,7 +967,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6002        Port for server to bind to
+bind_port                        6202        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -1024,13 +1015,16 @@ log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the number of
-                                             bytes you'd like fallocate to reserve, whether
-                                             there is space for the given file size or not.
-                                             This is useful for systems that behave badly
-                                             when they completely run out of space; you can
-                                             make the services pretend they're out of space
-                                             early.
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
 ===============================  ==========  =============================================
 
 [account-server]

@@ -1,19 +1,92 @@
-If you would like to contribute to the development of OpenStack, you
-must follow the steps in this page:
-http://docs.openstack.org/infra/manual/developers.html
+Contributing to OpenStack Swift
+===============================
 
-Once those steps have been completed, changes to OpenStack should be
-submitted for review via the Gerrit tool, following the workflow
-documented at
+Who is a Contributor?
+---------------------
+
+Put simply, if you improve Swift, you're a contributor. The easiest way to
+improve the project is to tell us where there's a bug. In other words, filing
+a bug is a valuable and helpful way to contribute to the project.
+
+Once a bug has been filed, someone will work on writing a patch to fix the
+bug. Perhaps you'd like to fix a bug. Writing code to fix a bug or add new
+functionality is tremendously important.
+
+Once code has been written, it is submitted upstream for review. All code,
+even that written by the most senior members of the community, must pass code
+review and all tests before it can be included in the project. Reviewing
+proposed patches is a very helpful way to be a contributor.
+
+Swift is nothing without the community behind it. We'd love to welcome you to
+our community. Come find us in #openstack-swift on freenode IRC or on the
+OpenStack dev mailing list.
+
+Filing a Bug
+~~~~~~~~~~~~
+
+Filing a bug is the easiest way to contribute. We use Launchpad as a bug
+tracker; you can find currently-tracked bugs at
+https://bugs.launchpad.net/swift.
+Use the `Report a bug <https://bugs.launchpad.net/swift/+filebug>`__ link to
+file a new bug.
+
+If you find something in Swift that doesn't match the documentation or doesn't
+meet your expectations with how it should work, please let us know. Of course,
+if you ever get an error (like a Traceback message in the logs), we definitely
+want to know about that. We'll do our best to diagnose any problem and patch
+it as soon as possible.
+
+A bug report, at minimum, should describe what you were doing that caused the
+bug. "Swift broke, pls fix" is not helpful. Instead, something like "When I
+restarted syslog, Swift started logging traceback messages" is very helpful.
+The goal is that we can reproduce the bug and isolate the issue in order to
+apply a fix. If you don't have full details, that's ok. Anything you can
+provide is helpful.
+
+You may have noticed that there are many tracked bugs, but not all of them
+have been confirmed. If you take a look at an old bug report and you can
+reproduce the issue described, please leave a comment on the bug about that.
+It lets us all know that the bug is very likely to be valid.
+
+Reviewing Someone Else's Code
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All code reviews in OpenStack projects are done on
+https://review.openstack.org/. Reviewing patches is one of the most effective
+ways you can contribute to the community.
+
+We've written REVIEW_GUIDELINES.rst (found in this source tree) to help you
+give good reviews.
+
+https://wiki.openstack.org/wiki/Swift/PriorityReviews is a starting point to
+find what reviews are priority in the community.
+
+What do I work on?
+------------------
+
+If you're looking for a way to write and contribute code, but you're not sure
+what to work on, check out the "wishlist" bugs in the bug tracker. These are
+normally smaller items that someone took the time to write down but didn't
+have time to implement.
+
+And please join #openstack-swift on freenode IRC to tell us what you're
+working on.
+
+Getting Started
+---------------
+
+http://docs.openstack.org/developer/swift/first_contribution_swift.html
+
+Once those steps have been completed, changes to OpenStack
+should be submitted for review via the Gerrit tool, following
+the workflow documented at
 http://docs.openstack.org/infra/manual/developers.html#development-workflow.
 
-Gerrit is the review system used in the OpenStack projects. We're sorry,
-but we won't be able to respond to pull requests submitted through
-GitHub.
+Gerrit is the review system used in the OpenStack projects. We're sorry, but
+we won't be able to respond to pull requests submitted through GitHub.
 
-Bugs should be filed `on
-Launchpad <https://bugs.launchpad.net/swift>`__, not in GitHub's issue
-tracker.
+Bugs should be filed `on Launchpad <https://bugs.launchpad.net/swift>`__,
+not in GitHub's issue tracker.
 
 Swift Design Principles
 =======================
@@ -93,21 +166,17 @@ Once your patch has been reviewed and approved by two core reviewers and
 has passed all automated tests, it will be merged into the Swift source
 tree.
 
-Specs
+Ideas
 =====
 
-.. |swift-specs| replace:: ``swift-specs``
-.. _swift-specs: https://github.com/openstack/swift-specs
+https://wiki.openstack.org/wiki/Swift/ideas
 
-The |swift-specs|_ repo
-can be used for collaborative design work before a feature is
-implemented.
-
-OpenStack's gerrit system is used to collaborate on the design spec.
-Once approved OpenStack provides a doc site to easily read these
-`specs <http://specs.openstack.org/openstack/swift-specs/>`__
-
-A spec is needed for more impactful features. Coordinating a feature
-between many devs (especially across companies) is a great example of
-when a spec is needed. If you are unsure if a spec document is needed,
-please feel free to ask in #openstack-swift on freenode IRC.
+If you're working on something, it's a very good idea to write down
+what you're thinking about. This lets others get up to speed, helps
+you collaborate, and serves as a great record for future reference.
+Write down your thoughts somewhere and put a link to it here. It
+doesn't matter what form your thoughts are in; use whatever is best
+for you. Your document should include why your idea is needed and your
+thoughts on particular design choices and tradeoffs. Please include
+some contact information (ideally, your IRC nick) so that people can
+collaborate with you.

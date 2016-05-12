@@ -19,7 +19,7 @@ import os
 import time
 import unittest
 from swift.common import swob
-from swift.common.middleware import versioned_writes
+from swift.common.middleware import versioned_writes, copy
 from swift.common.swob import Request
 from test.unit.common.middleware.helpers import FakeSwift
 
@@ -259,6 +259,23 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def test_put_object_post_as_copy(self):
+        # PUTs due to a post-as-copy should NOT cause a versioning op
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100',
+                     'swift.post_as_copy': True})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(1, self.app.call_count)
+
     def test_put_first_object_success(self):
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
@@ -333,7 +350,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
 
     def test_delete_object_no_versioning_with_container_config_true(self):
         # set False to versions_write obviously and expect no GET versioning
-        # container and PUT called (just delete object as normal)
+        # container and GET/PUT called (just delete object as normal)
         self.vw.conf = {'allow_versioned_writes': 'false'}
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, 'passed')
@@ -350,25 +367,6 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertTrue('PUT' not in called_method)
         self.assertTrue('GET' not in called_method)
         self.assertEqual(1, self.app.call_count)
-
-    def test_copy_object_no_versioning_with_container_config_true(self):
-        # set False to versions_write obviously and expect no extra
-        # COPY called (just copy object as normal)
-        self.vw.conf = {'allow_versioned_writes': 'false'}
-        self.app.register(
-            'COPY', '/v1/a/c/o', swob.HTTPCreated, {}, None)
-        cache = FakeCache({'versions': 'ver_cont'})
-        req = Request.blank(
-            '/v1/a/c/o',
-            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-        called_method = \
-            [method for (method, path, rheaders) in self.app._calls]
-        self.assertTrue('COPY' in called_method)
-        self.assertEqual(called_method.count('COPY'), 1)
 
     def test_new_version_success(self):
         self.app.register(
@@ -475,77 +473,6 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         method, path, req_headers = calls[1]
         self.assertEqual('PUT', method)
         self.assertEqual('/v1/a/ver_cont/001o/0000000000.00000', path)
-
-    def test_copy_first_version(self):
-        self.app.register(
-            'COPY', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
-        self.app.register(
-            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPNotFound, {}, None)
-        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
-        req = Request.blank(
-            '/v1/a/src_cont/src_obj',
-            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100'},
-            headers={'Destination': 'tgt_cont/tgt_obj'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(2, self.app.call_count)
-
-    def test_copy_new_version(self):
-        self.app.register(
-            'COPY', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
-        self.app.register(
-            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPOk,
-            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
-        self.app.register(
-            'PUT', '/v1/a/ver_cont/007tgt_obj/0000000001.00000', swob.HTTPOk,
-            {}, None)
-        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
-        req = Request.blank(
-            '/v1/a/src_cont/src_obj',
-            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100'},
-            headers={'Destination': 'tgt_cont/tgt_obj'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(3, self.app.call_count)
-
-    def test_copy_new_version_different_account(self):
-        self.app.register(
-            'COPY', '/v1/src_a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
-        self.app.register(
-            'GET', '/v1/tgt_a/tgt_cont/tgt_obj', swob.HTTPOk,
-            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
-        self.app.register(
-            'PUT', '/v1/tgt_a/ver_cont/007tgt_obj/0000000001.00000',
-            swob.HTTPOk, {}, None)
-        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
-        req = Request.blank(
-            '/v1/src_a/src_cont/src_obj',
-            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100'},
-            headers={'Destination': 'tgt_cont/tgt_obj',
-                     'Destination-Account': 'tgt_a'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(3, self.app.call_count)
-
-    def test_copy_new_version_bogus_account(self):
-        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
-        req = Request.blank(
-            '/v1/src_a/src_cont/src_obj',
-            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100'},
-            headers={'Destination': 'tgt_cont/tgt_obj',
-                     'Destination-Account': '/im/on/a/boat'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '412 Precondition Failed')
 
     def test_delete_first_object_success(self):
         self.app.register(
@@ -1057,3 +984,117 @@ class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
             ('PUT', '/v1/a/c/o'),
             ('DELETE', '/v1/a/ver_cont/001o/2'),
         ])
+
+
+class VersionedWritesCopyingTestCase(VersionedWritesBaseTestCase):
+    # verify interaction of copy and versioned_writes middlewares
+
+    def setUp(self):
+        self.app = FakeSwift()
+        conf = {'allow_versioned_writes': 'true'}
+        self.vw = versioned_writes.filter_factory(conf)(self.app)
+        self.filter = copy.filter_factory({})(self.vw)
+
+    def call_filter(self, req, **kwargs):
+        return self.call_app(req, app=self.filter, **kwargs)
+
+    def test_copy_first_version(self):
+        # no existing object to move to the versions container
+        self.app.register(
+            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPNotFound, {}, None)
+        self.app.register(
+            'GET', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated, {}, 'passed')
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/src_cont/src_obj',
+            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'},
+            headers={'Destination': 'tgt_cont/tgt_obj'})
+        status, headers, body = self.call_filter(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/src_cont/src_obj', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/tgt_cont/tgt_obj', self.authorized[1].path)
+        # note the GET on tgt_cont/tgt_obj is pre-authed
+        self.assertEqual(3, self.app.call_count, self.app.calls)
+
+    def test_copy_new_version(self):
+        # existing object should be moved to versions container
+        self.app.register(
+            'GET', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
+        self.app.register(
+            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/ver_cont/007tgt_obj/0000000001.00000', swob.HTTPOk,
+            {}, None)
+        self.app.register(
+            'PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated, {}, 'passed')
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/src_cont/src_obj',
+            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'},
+            headers={'Destination': 'tgt_cont/tgt_obj'})
+        status, headers, body = self.call_filter(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/src_cont/src_obj', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/tgt_cont/tgt_obj', self.authorized[1].path)
+        self.assertEqual(4, self.app.call_count)
+
+    def test_copy_new_version_different_account(self):
+        self.app.register(
+            'GET', '/v1/src_a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
+        self.app.register(
+            'GET', '/v1/tgt_a/tgt_cont/tgt_obj', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
+        self.app.register(
+            'PUT', '/v1/tgt_a/ver_cont/007tgt_obj/0000000001.00000',
+            swob.HTTPOk, {}, None)
+        self.app.register(
+            'PUT', '/v1/tgt_a/tgt_cont/tgt_obj', swob.HTTPCreated, {},
+            'passed')
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/src_a/src_cont/src_obj',
+            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'},
+            headers={'Destination': 'tgt_cont/tgt_obj',
+                     'Destination-Account': 'tgt_a'})
+        status, headers, body = self.call_filter(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/src_a/src_cont/src_obj', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/tgt_a/tgt_cont/tgt_obj', self.authorized[1].path)
+        self.assertEqual(4, self.app.call_count)
+
+    def test_copy_object_no_versioning_with_container_config_true(self):
+        # set False to versions_write obviously and expect no extra
+        # COPY called (just copy object as normal)
+        self.vw.conf = {'allow_versioned_writes': 'false'}
+        self.app.register(
+            'GET', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated, {}, 'passed')
+        cache = FakeCache({'versions': 'ver_cont'})
+        req = Request.blank(
+            '/v1/a/src_cont/src_obj',
+            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache},
+            headers={'Destination': '/tgt_cont/tgt_obj'})
+        status, headers, body = self.call_filter(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/src_cont/src_obj', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/tgt_cont/tgt_obj', self.authorized[1].path)
+        self.assertEqual(2, self.app.call_count)

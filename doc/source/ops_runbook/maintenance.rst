@@ -54,8 +54,8 @@ system. Rules-of-thumb for 'good' recon output are:
 
    .. code::
 
-      -> [http://<redacted>.29:6000/recon/load:] <urlopen error [Errno 111] ECONNREFUSED>
-      -> [http://<redacted>.31:6000/recon/load:] <urlopen error timed out>
+      -> [http://<redacted>.29:6200/recon/load:] <urlopen error [Errno 111] ECONNREFUSED>
+      -> [http://<redacted>.31:6200/recon/load:] <urlopen error timed out>
 
 -  That could be okay or could require investigation.
 
@@ -86,51 +86,51 @@ two entire racks of Swift are down:
 .. code::
 
    [2012-03-10 16:56:33] Checking async pendings on 384 hosts...
-   -> http://<redacted>.22:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.18:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.16:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.13:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.30:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.6:6000/recon/async: <urlopen error timed out>
+   -> http://<redacted>.22:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.18:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.16:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.13:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.30:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.6:6200/recon/async: <urlopen error timed out>
    .........
-   -> http://<redacted>.5:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.15:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.9:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.27:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.4:6000/recon/async: <urlopen error timed out>
-   -> http://<redacted>.8:6000/recon/async: <urlopen error timed out>
+   -> http://<redacted>.5:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.15:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.9:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.27:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.4:6200/recon/async: <urlopen error timed out>
+   -> http://<redacted>.8:6200/recon/async: <urlopen error timed out>
    Async stats: low: 243, high: 659, avg: 413, total: 132275
    ===============================================================================
    [2012-03-10 16:57:48] Checking replication times on 384 hosts...
-   -> http://<redacted>.22:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.18:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.16:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.13:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.30:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.6:6000/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.22:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.18:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.16:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.13:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.30:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.6:6200/recon/replication: <urlopen error timed out>
    ............
-   -> http://<redacted>.5:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.15:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.9:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.27:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.4:6000/recon/replication: <urlopen error timed out>
-   -> http://<redacted>.8:6000/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.5:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.15:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.9:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.27:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.4:6200/recon/replication: <urlopen error timed out>
+   -> http://<redacted>.8:6200/recon/replication: <urlopen error timed out>
    [Replication Times] shortest: 1.38144306739, longest: 112.620954418, avg: 10.285
    9475361
    ===============================================================================
    [2012-03-10 16:59:03] Checking load avg's on 384 hosts...
-   -> http://<redacted>.22:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.18:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.16:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.13:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.30:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.6:6000/recon/load: <urlopen error timed out>
+   -> http://<redacted>.22:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.18:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.16:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.13:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.30:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.6:6200/recon/load: <urlopen error timed out>
    ............
-   -> http://<redacted>.15:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.9:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.27:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.4:6000/recon/load: <urlopen error timed out>
-   -> http://<redacted>.8:6000/recon/load: <urlopen error timed out>
+   -> http://<redacted>.15:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.9:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.27:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.4:6200/recon/load: <urlopen error timed out>
+   -> http://<redacted>.8:6200/recon/load: <urlopen error timed out>
    [5m load average] lowest: 1.71, highest: 4.91, avg: 2.486375
    [15m load average] lowest: 1.79, highest: 5.04, avg: 2.506125
    [1m load average] lowest: 1.46, highest: 4.55, avg: 2.4929375
@@ -176,33 +176,33 @@ files on <redacted>.72.61 we see:
 
    souzab@<redacted>:~$ sudo tail -f /var/log/swift/background.log | - grep -i ERROR
    Mar 14 17:28:06 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6201}
    Mar 14 17:28:06 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6201}
    Mar 14 17:28:09 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:11 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:13 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6201}
    Mar 14 17:28:13 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6201}
    Mar 14 17:28:15 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:15 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:19 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:19 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:20 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.119', 'id': 5481, 'meta': '', 'device': 'disk6', 'port': 6201}
    Mar 14 17:28:21 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:21 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
    Mar 14 17:28:22 <redacted> container-replicator ERROR Remote drive not mounted
-   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6001}
+   {'zone': 5, 'weight': 1952.0, 'ip': '<redacted>.204.20', 'id': 2311, 'meta': '', 'device': 'disk5', 'port': 6201}
 
 That is why this node has a lot of async pendings: a bunch of disks that
 are not mounted on <redacted> and <redacted>. There may be other issues,
@@ -242,11 +242,11 @@ Procedure
       2097152 partitions, 3 replicas, 5 zones, 1320 devices, 0.02 balance
       The minimum number of hours before a partition can be reassigned is 24
       Devices:    id  zone     ip address    port     name  weight  partitions balance meta
-                   0     1     <redacted>.4  6000     disk0 1708.00       4259   -0.00
-                   1     1     <redacted>.4  6000     disk1 1708.00       4260    0.02
-                   2     1     <redacted>.4  6000     disk2 1952.00       4868    0.01
-                   3     1     <redacted>.4  6000     disk3 1952.00       4868    0.01
-                   4     1     <redacted>.4  6000     disk4 1952.00       4867   -0.01
+                   0     1     <redacted>.4  6200     disk0 1708.00       4259   -0.00
+                   1     1     <redacted>.4  6200     disk1 1708.00       4260    0.02
+                   2     1     <redacted>.4  6200     disk2 1952.00       4868    0.01
+                   3     1     <redacted>.4  6200     disk3 1952.00       4868    0.01
+                   4     1     <redacted>.4  6200     disk4 1952.00       4867   -0.01
 
 #. Here, node <redacted>.4 is in zone 1. If two or more of the three
    nodes under consideration are in the same Swift zone, they do not

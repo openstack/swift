@@ -199,7 +199,6 @@ def get_socket(conf):
         raise Exception(_('Could not bind to %s:%s '
                           'after trying for %s seconds') % (
                               bind_addr[0], bind_addr[1], bind_timeout))
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     # in my experience, sockets can hang around forever without keepalive
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -897,9 +896,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     loadapp(conf_path, global_conf=global_conf)
 
     # set utils.FALLOCATE_RESERVE if desired
-    reserve = int(conf.get('fallocate_reserve', 0))
-    if reserve > 0:
-        utils.FALLOCATE_RESERVE = reserve
+    utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+        utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
+
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
@@ -1100,7 +1099,8 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id', 'swift.authorize_override',
                  'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID',
-                 'HTTP_REFERER', 'swift.metadata.checked'):
+                 'HTTP_REFERER', 'swift.orig_req_method', 'swift.log_info',
+                 'swift.metadata.checked'):
         if name in env:
             newenv[name] = env[name]
     if method:

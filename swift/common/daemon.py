@@ -92,9 +92,8 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     if utils.config_true_value(conf.get('disable_fallocate', 'no')):
         utils.disable_fallocate()
     # set utils.FALLOCATE_RESERVE if desired
-    reserve = int(conf.get('fallocate_reserve', 0))
-    if reserve > 0:
-        utils.FALLOCATE_RESERVE = reserve
+    utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+        utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
 
     # By default, disable eventlet printing stacktraces
     eventlet_debug = utils.config_true_value(conf.get('eventlet_debug', 'no'))

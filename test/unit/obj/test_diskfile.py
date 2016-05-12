@@ -38,6 +38,7 @@ from contextlib import closing, contextmanager
 from gzip import GzipFile
 
 from eventlet import hubs, timeout, tpool
+from swift.obj.diskfile import MD5_OF_EMPTY_STRING
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE)
@@ -91,20 +92,20 @@ def _create_test_ring(path, policy):
         [2, 3, 0, 1, 6, 4, 5]]
     intended_devs = [
         {'id': 0, 'device': 'sda1', 'zone': 0, 'ip': '127.0.0.0',
-         'port': 6000},
+         'port': 6200},
         {'id': 1, 'device': 'sda1', 'zone': 1, 'ip': '127.0.0.1',
-         'port': 6000},
+         'port': 6200},
         {'id': 2, 'device': 'sda1', 'zone': 2, 'ip': '127.0.0.2',
-         'port': 6000},
+         'port': 6200},
         {'id': 3, 'device': 'sda1', 'zone': 4, 'ip': '127.0.0.3',
-         'port': 6000},
+         'port': 6200},
         {'id': 4, 'device': 'sda1', 'zone': 5, 'ip': '127.0.0.4',
-         'port': 6000},
+         'port': 6200},
         {'id': 5, 'device': 'sda1', 'zone': 6,
-         'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+         'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6200},
         {'id': 6, 'device': 'sda1', 'zone': 7,
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
-         'port': 6000}]
+         'port': 6200}]
     intended_part_shift = 30
     intended_reload_time = 15
     with closing(GzipFile(testgz, 'wb')) as f:
@@ -622,7 +623,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     self.fail('%s with files %s' % (str(e), files))
                 shuffle(files)
 
-    def _test_hash_cleanup_listdir_files(self, scenarios, policy,
+    def _test_cleanup_ondisk_files_files(self, scenarios, policy,
                                          reclaim_age=None):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
@@ -637,12 +638,12 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                                           if (f[2] if len(f) > 2 else f[1])])
             if reclaim_age:
                 class_under_test.cleanup_ondisk_files(
-                    hashdir, reclaim_age=reclaim_age)['files']
+                    hashdir, reclaim_age=reclaim_age)
             else:
                 with mock.patch('swift.obj.diskfile.time') as mock_time:
                     # don't reclaim anything
                     mock_time.time.return_value = 0.0
-                    class_under_test.cleanup_ondisk_files(hashdir)['files']
+                    class_under_test.cleanup_ondisk_files(hashdir)
             after_cleanup = set(os.listdir(hashdir))
             errmsg = "expected %r, got %r for test %r" % (
                 sorted(expected_after_cleanup), sorted(after_cleanup), test
@@ -651,7 +652,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def _test_yield_hashes_cleanup(self, scenarios, policy):
         # opportunistic test to check that yield_hashes cleans up dir using
-        # same scenarios as passed to _test_hash_cleanup_listdir_files
+        # same scenarios as passed to _test_cleanup_ondisk_files_files
         for test in scenarios:
             class_under_test = self.df_router[policy]
             # list(zip(...)) for py3 compatibility (zip is lazy there)
@@ -722,6 +723,40 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     log_lines[0].startswith(
                         'Unexpected file %s'
                         % os.path.join(datadir, unexpected)))
+
+    def test_cleanup_ondisk_files_reclaim_non_data_files(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set or 'survives' is True, the filename
+        # should still be in the dir after cleanup.
+        much_older = Timestamp(time() - 2000).internal
+        older = Timestamp(time() - 1001).internal
+        newer = Timestamp(time() - 900).internal
+        scenarios = [
+            [('%s.ts' % older, False, False)],
+
+            # fresh tombstone is preserved
+            [('%s.ts' % newer, '.ts', True)],
+
+            # tombstone reclaimed despite junk file
+            [('junk', False, True),
+             ('%s.ts' % much_older, '.ts', False)],
+
+            # fresh .meta not reclaimed even if isolated
+            [('%s.meta' % newer, '.meta')],
+
+            # fresh .meta not reclaimed when tombstone is reclaimed
+            [('%s.meta' % newer, '.meta'),
+             ('%s.ts' % older, False, False)],
+
+            # stale isolated .meta is reclaimed
+            [('%s.meta' % older, False, False)],
+
+            # stale .meta is reclaimed along with tombstone
+            [('%s.meta' % older, False, False),
+             ('%s.ts' % older, False, False)]]
+
+        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
+                                              reclaim_age=1000)
 
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')
@@ -813,9 +848,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = {'files': ['1381679759.90941.data']}
+            cleanup.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 DiskFileDeviceUnavailable,
@@ -826,13 +861,13 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
                 mock.patch(self._manager_mock(
                     'quarantine_renamer')) as quarantine_renamer:
             osexc = OSError()
             osexc.errno = errno.ENOTDIR
-            hclistdir.side_effect = osexc
+            cleanup.side_effect = osexc
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 DiskFileNotExist,
@@ -846,11 +881,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             osexc = OSError()
             osexc.errno = errno.ENOENT
-            hclistdir.side_effect = osexc
+            cleanup.side_effect = osexc
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 DiskFileNotExist,
@@ -861,10 +896,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             osexc = OSError()
-            hclistdir.side_effect = osexc
+            cleanup.side_effect = osexc
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 OSError,
@@ -875,9 +910,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = {'files': []}
+            cleanup.return_value = {'files': []}
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
                 DiskFileNotExist,
@@ -888,9 +923,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = {'files': ['1381679759.90941.data']}
+            cleanup.return_value = {'files': ['1381679759.90941.data']}
             readmeta.side_effect = EOFError()
             self.assertRaises(
                 DiskFileNotExist,
@@ -901,9 +936,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = {'files': ['1381679759.90941.data']}
+            cleanup.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {}
             try:
                 self.df_mgr.get_diskfile_from_hash(
@@ -917,9 +952,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')), \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = {'files': ['1381679759.90941.data']}
+            cleanup.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': 'bad'}
             try:
                 self.df_mgr.get_diskfile_from_hash(
@@ -933,16 +968,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
         with mock.patch(self._manager_mock('diskfile_cls')) as dfclass, \
                 mock.patch(self._manager_mock(
-                    'cleanup_ondisk_files')) as hclistdir, \
+                    'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
-            hclistdir.return_value = {'files': ['1381679759.90941.data']}
+            cleanup.return_value = {'files': ['1381679759.90941.data']}
             readmeta.return_value = {'name': '/a/c/o'}
             self.df_mgr.get_diskfile_from_hash(
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             dfclass.assert_called_once_with(
-                self.df_mgr, '/srv/dev/', self.df_mgr.threadpools['dev'], '9',
+                self.df_mgr, '/srv/dev/', '9',
                 'a', 'c', 'o', policy=POLICIES[0])
-            hclistdir.assert_called_once_with(
+            cleanup.assert_called_once_with(
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
                 604800)
             readmeta.assert_called_once_with(
@@ -1132,7 +1167,7 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES[0], None)
-        self._test_hash_cleanup_listdir_files(scenarios, POLICIES[0])
+        self._test_cleanup_ondisk_files_files(scenarios, POLICIES[0])
         self._test_yield_hashes_cleanup(scenarios, POLICIES[0])
 
     def test_get_ondisk_files_with_stray_meta(self):
@@ -1190,37 +1225,32 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self.assertEqual("Invalid Timestamp value in filename 'junk'",
                          str(cm.exception))
 
-    def test_hash_cleanup_listdir_reclaim(self):
+    def test_cleanup_ondisk_files_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set or 'survives' is True, the filename
         # should still be in the dir after cleanup.
         much_older = Timestamp(time() - 2000).internal
         older = Timestamp(time() - 1001).internal
         newer = Timestamp(time() - 900).internal
-        scenarios = [[('%s.ts' % older, False, False)],
+        scenarios = [
+            # .data files are not reclaimed, ever
+            [('%s.data' % older, '.data', True)],
+            [('%s.data' % newer, '.data', True)],
 
-                     # fresh tombstone is preserved
-                     [('%s.ts' % newer, '.ts', True)],
+            # ... and we could have a mixture of fresh and stale .data
+            [('%s.data' % newer, '.data', True),
+             ('%s.data' % older, False, False)],
 
-                     # .data files are not reclaimed, ever
-                     [('%s.data' % older, '.data', True)],
-                     [('%s.data' % newer, '.data', True)],
+            # tombstone reclaimed despite newer data
+            [('%s.data' % newer, '.data', True),
+             ('%s.data' % older, False, False),
+             ('%s.ts' % much_older, '.ts', False)],
 
-                     # ... and we could have a mixture of fresh and stale .data
-                     [('%s.data' % newer, '.data', True),
-                      ('%s.data' % older, False, False)],
+            # .meta not reclaimed if there is a .data file
+            [('%s.meta' % older, '.meta'),
+             ('%s.data' % much_older, '.data')]]
 
-                     # tombstone reclaimed despite newer data
-                     [('%s.data' % newer, '.data', True),
-                      ('%s.data' % older, False, False),
-                      ('%s.ts' % much_older, '.ts', False)],
-
-                     # tombstone reclaimed despite junk file
-                     [('junk', False, True),
-                      ('%s.ts' % much_older, '.ts', False)],
-                     ]
-
-        self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
+        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
                                               reclaim_age=1000)
 
     def test_yield_hashes(self):
@@ -1468,7 +1498,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES.default, None)
-        self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default)
+        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default)
         self._test_yield_hashes_cleanup(scenarios, POLICIES.default)
 
     def test_get_ondisk_files_with_ec_policy_and_frag_index(self):
@@ -1535,62 +1565,66 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1)
-        # note: not calling self._test_hash_cleanup_listdir_files(scenarios, 0)
+        # note: not calling self._test_cleanup_ondisk_files_files(scenarios, 0)
         # here due to the anomalous scenario as commented above
 
-    def test_hash_cleanup_listdir_reclaim(self):
+    def test_cleanup_ondisk_files_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set or 'survives' is True, the filename
         # should still be in the dir after cleanup.
         much_older = Timestamp(time() - 2000).internal
         older = Timestamp(time() - 1001).internal
         newer = Timestamp(time() - 900).internal
-        scenarios = [[('%s.ts' % older, False, False)],
+        scenarios = [
+            # isolated .durable is cleaned up immediately
+            [('%s.durable' % newer, False, False)],
 
-                     # fresh tombstone is preserved
-                     [('%s.ts' % newer, '.ts', True)],
+            # ...even when other older files are in dir
+            [('%s.durable' % older, False, False),
+             ('%s.ts' % much_older, False, False)],
 
-                     # isolated .durable is cleaned up immediately
-                     [('%s.durable' % newer, False, False)],
+            # isolated .data files are cleaned up when stale
+            [('%s#2.data' % older, False, False),
+             ('%s#4.data' % older, False, False)],
 
-                     # ...even when other older files are in dir
-                     [('%s.durable' % older, False, False),
-                      ('%s.ts' % much_older, False, False)],
+            # ...even when there is an older durable fileset
+            [('%s#2.data' % older, False, False),
+             ('%s#4.data' % older, False, False),
+             ('%s#2.data' % much_older, '.data', True),
+             ('%s#4.data' % much_older, False, True),
+             ('%s.durable' % much_older, '.durable', True)],
 
-                     # isolated .data files are cleaned up when stale
-                     [('%s#2.data' % older, False, False),
-                      ('%s#4.data' % older, False, False)],
+            # ... but preserved if still fresh
+            [('%s#2.data' % newer, False, True),
+             ('%s#4.data' % newer, False, True)],
 
-                     # ...even when there is an older durable fileset
-                     [('%s#2.data' % older, False, False),
-                      ('%s#4.data' % older, False, False),
-                      ('%s#2.data' % much_older, '.data', True),
-                      ('%s#4.data' % much_older, False, True),
-                      ('%s.durable' % much_older, '.durable', True)],
+            # ... and we could have a mixture of fresh and stale .data
+            [('%s#2.data' % newer, False, True),
+             ('%s#4.data' % older, False, False)],
 
-                     # ... but preserved if still fresh
-                     [('%s#2.data' % newer, False, True),
-                      ('%s#4.data' % newer, False, True)],
+            # tombstone reclaimed despite newer non-durable data
+            [('%s#2.data' % newer, False, True),
+             ('%s#4.data' % older, False, False),
+             ('%s.ts' % much_older, '.ts', False)],
 
-                     # ... and we could have a mixture of fresh and stale .data
-                     [('%s#2.data' % newer, False, True),
-                      ('%s#4.data' % older, False, False)],
+            # tombstone reclaimed despite much older durable
+            [('%s.ts' % older, '.ts', False),
+             ('%s.durable' % much_older, False, False)],
 
-                     # tombstone reclaimed despite newer non-durable data
-                     [('%s#2.data' % newer, False, True),
-                      ('%s#4.data' % older, False, False),
-                      ('%s.ts' % much_older, '.ts', False)],
+            # .meta not reclaimed if there is durable data
+            [('%s.meta' % older, '.meta'),
+             ('%s#4.data' % much_older, False, True),
+             ('%s.durable' % much_older, '.durable', True)],
 
-                     # tombstone reclaimed despite much older durable
-                     [('%s.ts' % older, '.ts', False),
-                      ('%s.durable' % much_older, False, False)],
+            # stale .meta reclaimed along with stale non-durable .data
+            [('%s.meta' % older, False, False),
+             ('%s#4.data' % much_older, False, False)],
 
-                     # tombstone reclaimed despite junk file
-                     [('junk', False, True),
-                      ('%s.ts' % much_older, '.ts', False)],
-                     ]
+            # stale .meta reclaimed along with stale .durable
+            [('%s.meta' % older, False, False),
+             ('%s.durable' % much_older, False, False)]]
 
-        self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
+        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
                                               reclaim_age=1000)
 
     def test_get_ondisk_files_with_stray_meta(self):
@@ -3147,12 +3181,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             if policy.policy_type == EC_POLICY:
                 self.assertTrue(isinstance(mock_fsync.call_args[0][0], int))
 
-    def test_commit_ignores_hash_cleanup_listdir_error(self):
+    def test_commit_ignores_cleanup_ondisk_files_error(self):
         for policy in POLICIES:
-            # Check OSError from hash_cleanup_listdir is caught and ignored
-            mock_hcl = mock.MagicMock(side_effect=OSError)
+            # Check OSError from cleanup_ondisk_files is caught and ignored
+            mock_cleanup = mock.MagicMock(side_effect=OSError)
             df = self._simple_get_diskfile(account='a', container='c',
-                                           obj='o_hcl_error', policy=policy)
+                                           obj='o_error', policy=policy)
 
             timestamp = Timestamp(time())
             with df.create() as writer:
@@ -3163,13 +3197,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 }
                 writer.put(metadata)
                 with mock.patch(self._manager_mock(
-                        'cleanup_ondisk_files', df), mock_hcl):
+                        'cleanup_ondisk_files', df), mock_cleanup):
                     writer.commit(timestamp)
             expected = {
                 EC_POLICY: 1,
                 REPL_POLICY: 0,
             }[policy.policy_type]
-            self.assertEqual(expected, mock_hcl.call_count)
+            self.assertEqual(expected, mock_cleanup.call_count)
             expected = ['%s.data' % timestamp.internal]
             if policy.policy_type == EC_POLICY:
                 expected = ['%s#2.data' % timestamp.internal,
@@ -3179,8 +3213,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                              'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
-    def test_number_calls_to_hash_cleanup_listdir_during_create(self):
-        # Check how many calls are made to hash_cleanup_listdir, and when,
+    def test_number_calls_to_cleanup_ondisk_files_during_create(self):
+        # Check how many calls are made to cleanup_ondisk_files, and when,
         # during put(), commit() sequence
         for policy in POLICIES:
             expected = {
@@ -3188,7 +3222,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 REPL_POLICY: (1, 0),
             }[policy.policy_type]
             df = self._simple_get_diskfile(account='a', container='c',
-                                           obj='o_hcl_error', policy=policy)
+                                           obj='o_error', policy=policy)
             timestamp = Timestamp(time())
             with df.create() as writer:
                 metadata = {
@@ -3197,16 +3231,16 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     'Content-Length': '0',
                 }
                 with mock.patch(self._manager_mock(
-                        'cleanup_ondisk_files', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_cleanup:
                     writer.put(metadata)
-                    self.assertEqual(expected[0], mock_hcl.call_count)
+                    self.assertEqual(expected[0], mock_cleanup.call_count)
                 with mock.patch(self._manager_mock(
-                        'cleanup_ondisk_files', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_cleanup:
                     writer.commit(timestamp)
-                    self.assertEqual(expected[1], mock_hcl.call_count)
+                    self.assertEqual(expected[1], mock_cleanup.call_count)
 
-    def test_number_calls_to_hash_cleanup_listdir_during_delete(self):
-        # Check how many calls are made to hash_cleanup_listdir, and when,
+    def test_number_calls_to_cleanup_ondisk_files_during_delete(self):
+        # Check how many calls are made to cleanup_ondisk_files, and when,
         # for delete() and necessary prerequisite steps
         for policy in POLICIES:
             expected = {
@@ -3214,7 +3248,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 REPL_POLICY: (1, 0, 1),
             }[policy.policy_type]
             df = self._simple_get_diskfile(account='a', container='c',
-                                           obj='o_hcl_error', policy=policy)
+                                           obj='o_error', policy=policy)
             timestamp = Timestamp(time())
             with df.create() as writer:
                 metadata = {
@@ -3223,18 +3257,18 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     'Content-Length': '0',
                 }
                 with mock.patch(self._manager_mock(
-                        'cleanup_ondisk_files', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_cleanup:
                     writer.put(metadata)
-                    self.assertEqual(expected[0], mock_hcl.call_count)
+                    self.assertEqual(expected[0], mock_cleanup.call_count)
                 with mock.patch(self._manager_mock(
-                        'cleanup_ondisk_files', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_cleanup:
                     writer.commit(timestamp)
-                    self.assertEqual(expected[1], mock_hcl.call_count)
+                    self.assertEqual(expected[1], mock_cleanup.call_count)
                 with mock.patch(self._manager_mock(
-                        'cleanup_ondisk_files', df)) as mock_hcl:
+                        'cleanup_ondisk_files', df)) as mock_cleanup:
                     timestamp = Timestamp(time())
                     df.delete(timestamp)
-                    self.assertEqual(expected[2], mock_hcl.call_count)
+                    self.assertEqual(expected[2], mock_cleanup.call_count)
 
     def test_delete(self):
         for policy in POLICIES:
@@ -3657,15 +3691,16 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # open() was attempted, but no data file so expect None
         self.assertIsNone(df.durable_timestamp)
 
-    def test_error_in_hash_cleanup_listdir(self):
+    def test_error_in_cleanup_ondisk_files(self):
 
-        def mock_hcl(*args, **kwargs):
+        def mock_cleanup(*args, **kwargs):
             raise OSError()
 
         df = self._get_open_disk_file()
         file_count = len(os.listdir(df._datadir))
         ts = time()
-        with mock.patch(self._manager_mock('cleanup_ondisk_files'), mock_hcl):
+        with mock.patch(
+                self._manager_mock('cleanup_ondisk_files'), mock_cleanup):
             try:
                 df.delete(ts)
             except OSError:
@@ -4461,27 +4496,27 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 class TestSuffixHashes(unittest.TestCase):
     """
     This tests all things related to hashing suffixes and therefore
-    there's also few test methods for hash_cleanup_listdir as well
+    there's also few test methods for cleanup_ondisk_files as well
     (because it's used by hash_suffix).
 
     The public interface to suffix hashing is on the Manager::
 
-         * hash_cleanup_listdir(hsh_path)
+         * cleanup_ondisk_files(hsh_path)
          * get_hashes(device, partition, suffixes, policy)
          * invalidate_hash(suffix_dir)
 
     The Manager.get_hashes method (used by the REPLICATE verb)
     calls Manager._get_hashes (which may be an alias to the module
     method get_hashes), which calls hash_suffix, which calls
-    hash_cleanup_listdir.
+    cleanup_ondisk_files.
 
-    Outside of that, hash_cleanup_listdir and invalidate_hash are
+    Outside of that, cleanup_ondisk_files and invalidate_hash are
     used mostly after writing new files via PUT or DELETE.
 
     Test methods are organized by::
 
-        * hash_cleanup_listdir tests - behaviors
-        * hash_cleanup_listdir tests - error handling
+        * cleanup_ondisk_files tests - behaviors
+        * cleanup_ondisk_files tests - error handling
         * invalidate_hash tests - behavior
         * invalidate_hash tests - error handling
         * get_hashes tests - hash_suffix behaviors
@@ -4554,7 +4589,7 @@ class TestSuffixHashes(unittest.TestCase):
         filename += '.meta'
         return filename
 
-    def check_hash_cleanup_listdir(self, policy, input_files, output_files):
+    def check_cleanup_ondisk_files(self, policy, input_files, output_files):
         orig_unlink = os.unlink
         file_list = list(input_files)
 
@@ -4582,17 +4617,17 @@ class TestSuffixHashes(unittest.TestCase):
             files = df_mgr.cleanup_ondisk_files('/whatever')['files']
             self.assertEqual(files, output_files)
 
-    # hash_cleanup_listdir tests - behaviors
+    # cleanup_ondisk_files tests - behaviors
 
-    def test_hash_cleanup_listdir_purge_data_newer_ts(self):
+    def test_cleanup_ondisk_files_purge_data_newer_ts(self):
         for policy in self.iter_policies():
             # purge .data if there's a newer .ts
             file1 = self._datafilename(self.ts(), policy)
             file2 = self.ts().internal + '.ts'
             file_list = [file1, file2]
-            self.check_hash_cleanup_listdir(policy, file_list, [file2])
+            self.check_cleanup_ondisk_files(policy, file_list, [file2])
 
-    def test_hash_cleanup_listdir_purge_expired_ts(self):
+    def test_cleanup_ondisk_files_purge_expired_ts(self):
         for policy in self.iter_policies():
             # purge older .ts files if there's a newer .data
             file1 = self.ts().internal + '.ts'
@@ -4606,9 +4641,9 @@ class TestSuffixHashes(unittest.TestCase):
                 EC_POLICY: [file3, file2],
                 REPL_POLICY: [file3],
             }[policy.policy_type]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_purge_ts_newer_data(self):
+    def test_cleanup_ondisk_files_purge_ts_newer_data(self):
         for policy in self.iter_policies():
             # purge .ts if there's a newer .data
             file1 = self.ts().internal + '.ts'
@@ -4622,9 +4657,9 @@ class TestSuffixHashes(unittest.TestCase):
                 EC_POLICY: [durable_file, file2],
                 REPL_POLICY: [file2],
             }[policy.policy_type]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_purge_older_ts(self):
+    def test_cleanup_ondisk_files_purge_older_ts(self):
         for policy in self.iter_policies():
             file1 = self.ts().internal + '.ts'
             file2 = self.ts().internal + '.ts'
@@ -4638,9 +4673,9 @@ class TestSuffixHashes(unittest.TestCase):
                 REPL_POLICY: [file4, file3],
             }[policy.policy_type]
             file_list = [file1, file2, file3, file4]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_keep_meta_data_purge_ts(self):
+    def test_cleanup_ondisk_files_keep_meta_data_purge_ts(self):
         for policy in self.iter_policies():
             file1 = self.ts().internal + '.ts'
             file2 = self.ts().internal + '.ts'
@@ -4657,17 +4692,17 @@ class TestSuffixHashes(unittest.TestCase):
                 EC_POLICY: [file4, durable_filename, file3],
                 REPL_POLICY: [file4, file3],
             }[policy.policy_type]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_keep_one_ts(self):
+    def test_cleanup_ondisk_files_keep_one_ts(self):
         for policy in self.iter_policies():
             file1, file2, file3 = [self.ts().internal + '.ts'
                                    for i in range(3)]
             file_list = [file1, file2, file3]
             # keep only latest of multiple .ts files
-            self.check_hash_cleanup_listdir(policy, file_list, [file3])
+            self.check_cleanup_ondisk_files(policy, file_list, [file3])
 
-    def test_hash_cleanup_listdir_multi_data_file(self):
+    def test_cleanup_ondisk_files_multi_data_file(self):
         for policy in self.iter_policies():
             file1 = self._datafilename(self.ts(), policy, 1)
             file2 = self._datafilename(self.ts(), policy, 2)
@@ -4679,9 +4714,9 @@ class TestSuffixHashes(unittest.TestCase):
                 REPL_POLICY: [file3]
             }[policy.policy_type]
             file_list = [file1, file2, file3]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_keeps_one_datafile(self):
+    def test_cleanup_ondisk_files_keeps_one_datafile(self):
         for policy in self.iter_policies():
             timestamps = [self.ts() for i in range(3)]
             file1 = self._datafilename(timestamps[0], policy, 1)
@@ -4698,9 +4733,9 @@ class TestSuffixHashes(unittest.TestCase):
                 # keep only latest of multiple .data files
                 REPL_POLICY: [file3]
             }[policy.policy_type]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_keep_one_meta(self):
+    def test_cleanup_ondisk_files_keep_one_meta(self):
         for policy in self.iter_policies():
             # keep only latest of multiple .meta files
             t_data = self.ts()
@@ -4714,49 +4749,50 @@ class TestSuffixHashes(unittest.TestCase):
                 EC_POLICY: [file3, durable_file, file1],
                 REPL_POLICY: [file3, file1]
             }[policy.policy_type]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_only_meta(self):
+    def test_cleanup_ondisk_files_only_meta(self):
         for policy in self.iter_policies():
             file1, file2 = [self.ts().internal + '.meta' for i in range(2)]
             file_list = [file1, file2]
-            self.check_hash_cleanup_listdir(policy, file_list, [file2])
+            self.check_cleanup_ondisk_files(policy, file_list, [file2])
 
-    def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
+    def test_cleanup_ondisk_files_ignore_orphaned_ts(self):
         for policy in self.iter_policies():
             # A more recent orphaned .meta file will prevent old .ts files
             # from being cleaned up otherwise
             file1, file2 = [self.ts().internal + '.ts' for i in range(2)]
             file3 = self.ts().internal + '.meta'
             file_list = [file1, file2, file3]
-            self.check_hash_cleanup_listdir(policy, file_list, [file3, file2])
+            self.check_cleanup_ondisk_files(policy, file_list, [file3, file2])
 
-    def test_hash_cleanup_listdir_purge_old_data_only(self):
+    def test_cleanup_ondisk_files_purge_old_data_only(self):
         for policy in self.iter_policies():
             # Oldest .data will be purge, .meta and .ts won't be touched
             file1 = self._datafilename(self.ts(), policy)
             file2 = self.ts().internal + '.ts'
             file3 = self.ts().internal + '.meta'
             file_list = [file1, file2, file3]
-            self.check_hash_cleanup_listdir(policy, file_list, [file3, file2])
+            self.check_cleanup_ondisk_files(policy, file_list, [file3, file2])
 
-    def test_hash_cleanup_listdir_purge_old_ts(self):
+    def test_cleanup_ondisk_files_purge_old_ts(self):
         for policy in self.iter_policies():
             # A single old .ts file will be removed
             old_float = time() - (diskfile.ONE_WEEK + 1)
             file1 = Timestamp(old_float).internal + '.ts'
             file_list = [file1]
-            self.check_hash_cleanup_listdir(policy, file_list, [])
+            self.check_cleanup_ondisk_files(policy, file_list, [])
 
-    def test_hash_cleanup_listdir_meta_keeps_old_ts(self):
+    def test_cleanup_ondisk_files_keep_isolated_meta_purge_old_ts(self):
         for policy in self.iter_policies():
+            # A single old .ts file will be removed despite presence of a .meta
             old_float = time() - (diskfile.ONE_WEEK + 1)
             file1 = Timestamp(old_float).internal + '.ts'
             file2 = Timestamp(time() + 2).internal + '.meta'
             file_list = [file1, file2]
-            self.check_hash_cleanup_listdir(policy, file_list, [file2])
+            self.check_cleanup_ondisk_files(policy, file_list, [file2])
 
-    def test_hash_cleanup_listdir_keep_single_old_data(self):
+    def test_cleanup_ondisk_files_keep_single_old_data(self):
         for policy in self.iter_policies():
             old_float = time() - (diskfile.ONE_WEEK + 1)
             file1 = self._datafilename(Timestamp(old_float), policy)
@@ -4768,33 +4804,33 @@ class TestSuffixHashes(unittest.TestCase):
             else:
                 # A single old .data file will not be removed
                 expected = file_list
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_cleanup_ondisk_files(policy, file_list, expected)
 
-    def test_hash_cleanup_listdir_drops_isolated_durable(self):
+    def test_cleanup_ondisk_files_drops_isolated_durable(self):
         for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
                 file1 = Timestamp(time()).internal + '.durable'
                 file_list = [file1]
-                self.check_hash_cleanup_listdir(policy, file_list, [])
+                self.check_cleanup_ondisk_files(policy, file_list, [])
 
-    def test_hash_cleanup_listdir_keep_single_old_meta(self):
+    def test_cleanup_ondisk_files_purges_single_old_meta(self):
         for policy in self.iter_policies():
-            # A single old .meta file will not be removed
+            # A single old .meta file will be removed
             old_float = time() - (diskfile.ONE_WEEK + 1)
             file1 = Timestamp(old_float).internal + '.meta'
             file_list = [file1]
-            self.check_hash_cleanup_listdir(policy, file_list, [file1])
+            self.check_cleanup_ondisk_files(policy, file_list, [])
 
-    # hash_cleanup_listdir tests - error handling
+    # cleanup_ondisk_files tests - error handling
 
-    def test_hash_cleanup_listdir_hsh_path_enoent(self):
+    def test_cleanup_ondisk_files_hsh_path_enoent(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
             # common.utils.listdir *completely* mutes ENOENT
             path = os.path.join(self.testdir, 'does-not-exist')
             self.assertEqual(df_mgr.cleanup_ondisk_files(path)['files'], [])
 
-    def test_hash_cleanup_listdir_hsh_path_other_oserror(self):
+    def test_cleanup_ondisk_files_hsh_path_other_oserror(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
             with mock.patch('os.listdir') as mock_listdir:
@@ -4804,22 +4840,22 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertRaises(OSError, df_mgr.cleanup_ondisk_files,
                                   path)
 
-    def test_hash_cleanup_listdir_reclaim_tombstone_remove_file_error(self):
+    def test_cleanup_ondisk_files_reclaim_tombstone_remove_file_error(self):
         for policy in self.iter_policies():
             # Timestamp 1 makes the check routine pretend the file
             # disappeared after listdir before unlink.
             file1 = '0000000001.00000.ts'
             file_list = [file1]
-            self.check_hash_cleanup_listdir(policy, file_list, [])
+            self.check_cleanup_ondisk_files(policy, file_list, [])
 
-    def test_hash_cleanup_listdir_older_remove_file_error(self):
+    def test_cleanup_ondisk_files_older_remove_file_error(self):
         for policy in self.iter_policies():
             # Timestamp 1 makes the check routine pretend the file
             # disappeared after listdir before unlink.
             file1 = self._datafilename(Timestamp(1), policy)
             file2 = '0000000002.00000.ts'
             file_list = [file1, file2]
-            self.check_hash_cleanup_listdir(policy, file_list, [])
+            self.check_cleanup_ondisk_files(policy, file_list, [])
 
     # invalidate_hash tests - behavior
 
@@ -4957,6 +4993,54 @@ class TestSuffixHashes(unittest.TestCase):
                     None: tombstone_hash}},
             }[policy.policy_type]
             self.assertEqual(hashes, expected)
+
+    def test_hash_suffix_one_reclaim_tombstone_and_one_meta(self):
+        # An isolated meta file can happen if a tombstone is replicated to a
+        # node with a newer meta file but older data file, and the tombstone is
+        # subsequently reclaimed. The meta file will be ignored when the
+        # diskfile is opened so the effective state of the disk files is
+        # equivalent to having no files.
+        for policy in self.iter_policies():
+            if policy.policy_type == EC_POLICY:
+                continue
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            now = time()
+            # scale back the df manager's reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write a tombstone that's just a *little* older than reclaim time
+            df.delete(Timestamp(now - 10001))
+            # write a meta file that's not quite so old
+            ts_meta = Timestamp(now - 501)
+            df.write_metadata({'X-Timestamp': ts_meta.internal})
+            # sanity check
+            self.assertEqual(2, len(os.listdir(df._datadir)))
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            # the tombstone is reclaimed, the meta file remains, the suffix
+            # hash is not updated BUT the suffix dir cannot be deleted so
+            # a suffix hash equal to hash of empty string is reported.
+            # TODO: this is not same result as if the meta file did not exist!
+            self.assertEqual([ts_meta.internal + '.meta'],
+                             os.listdir(df._datadir))
+            self.assertEqual(hashes, {suffix: MD5_OF_EMPTY_STRING})
+
+            # scale back the df manager's reclaim age even more - call to
+            # get_hashes does not trigger reclaim because the suffix has
+            # MD5_OF_EMPTY_STRING in hashes.pkl
+            df_mgr.reclaim_age = 500
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual([ts_meta.internal + '.meta'],
+                             os.listdir(df._datadir))
+            self.assertEqual(hashes, {suffix: MD5_OF_EMPTY_STRING})
+
+            # call get_hashes with recalculate = [suffix] and the suffix dir
+            # gets re-hashed so the .meta if finally reclaimed.
+            hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            self.assertFalse(os.path.exists(os.path.dirname(df._datadir)))
+            self.assertEqual(hashes, {})
 
     def test_hash_suffix_one_reclaim_tombstone(self):
         for policy in self.iter_policies():
@@ -5394,7 +5478,7 @@ class TestSuffixHashes(unittest.TestCase):
                 (os.path.join(part_path, '123'), False),
             ])
 
-    def test_hash_suffix_hash_cleanup_listdir_enotdir_quarantined(self):
+    def test_hash_suffix_cleanup_ondisk_files_enotdir_quarantined(self):
         for policy in self.iter_policies():
             df = self.df_router[policy].get_diskfile(
                 self.existing_device, '0', 'a', 'c', 'o', policy=policy)
@@ -5423,7 +5507,7 @@ class TestSuffixHashes(unittest.TestCase):
             )
             self.assertTrue(os.path.exists(quarantine_path))
 
-    def test_hash_suffix_hash_cleanup_listdir_other_oserror(self):
+    def test_hash_suffix_cleanup_ondisk_files_other_oserror(self):
         for policy in self.iter_policies():
             timestamp = self.ts()
             df_mgr = self.df_router[policy]
@@ -5453,7 +5537,7 @@ class TestSuffixHashes(unittest.TestCase):
                 listdir_calls.append(path)
                 if path == datadir_path:
                     # we want the part and suffix listdir calls to pass and
-                    # make the hash_cleanup_listdir raise an exception
+                    # make the cleanup_ondisk_files raise an exception
                     raise OSError(errno.EACCES, os.strerror(errno.EACCES))
                 return orig_os_listdir(path)
 

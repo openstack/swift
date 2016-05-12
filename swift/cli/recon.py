@@ -72,7 +72,7 @@ class Scout(object):
         Perform the actual HTTP request to obtain swift recon telemtry.
 
         :param base_url: the base url of the host you wish to check. str of the
-                        format 'http://127.0.0.1:6000/recon/'
+                        format 'http://127.0.0.1:6200/recon/'
         :param recon_type: the swift recon check to request.
         :returns: tuple of (recon url used, response body, and status)
         """

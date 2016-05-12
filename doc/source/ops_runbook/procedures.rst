@@ -292,9 +292,9 @@ re-create the account as follows:
 
        $ sudo swift-get-nodes /etc/swift/account.ring.gz AUTH_4ebe3039674d4864a11fe0864ae4d905
        ...
-       curl -I -XHEAD "http://192.168.245.5:6002/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
-       curl -I -XHEAD "http://192.168.245.3:6002/disk0/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
-       curl -I -XHEAD "http://192.168.245.4:6002/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       curl -I -XHEAD "http://192.168.245.5:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       curl -I -XHEAD "http://192.168.245.3:6202/disk0/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       curl -I -XHEAD "http://192.168.245.4:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
        ...
        Use your own device location of servers:
        such as "export DEVICE=/srv/node"
@@ -310,7 +310,7 @@ re-create the account as follows:
 
    .. code::
 
-       $ curl -I -XHEAD "http://192.168.245.5:6002/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       $ curl -I -XHEAD "http://192.168.245.5:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
        HTTP/1.1 404 Not Found
        Content-Length: 0
        Content-Type: text/html; charset=utf-8
