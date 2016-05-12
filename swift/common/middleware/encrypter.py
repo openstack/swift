@@ -150,6 +150,12 @@ class EncrypterObjContext(CryptoWSGIContext):
         super(EncrypterObjContext, self).__init__(
             encrypter, 'object', logger)
 
+    def _check_headers(self, req):
+        # Check the user-metadata length before encrypting and encoding
+        error_response = check_metadata(req, self.server_type)
+        if error_response:
+                raise error_response
+
     def encrypt_user_metadata(self, req, keys):
         """
         Encrypt user-metadata header values. For each user metadata header, add
@@ -159,20 +165,9 @@ class EncrypterObjContext(CryptoWSGIContext):
         :param req: a swob Request
         :param keys: a dict of encryption keys
         """
-
-        # Check the user-metadata length before encrypting and encoding
-        error_response = check_metadata(req, self.server_type.lower())
-        if error_response:
-                return error_response
-
         prefix = get_object_transient_sysmeta('crypto-meta-')
 
         for name, val in req.headers.items():
-            # TODO - when encrypting account/container meta,
-            # there will need to be an exception list.
-            # if ('Meta-Temp-Url' in hdr) or \
-            #         ('Meta-Access-Control-Allow-Origin' in hdr):
-            #     continue
             if is_user_meta(self.server_type, name) and val:
                 req.headers[name], meta = encrypt_header_val(
                     self.crypto, val, keys[self.server_type])
@@ -183,22 +178,10 @@ class EncrypterObjContext(CryptoWSGIContext):
                 self.logger.debug("encrypted user meta %s: %s",
                                   name, req.headers[name])
 
-    def encrypt_req_headers(self, req, keys):
-        if 'container' not in keys:
-            # TODO fail somewhere else, earlier, or not at all
-            self.logger.error('Error: no container key to encrypt')
-            raise HTTPUnprocessableEntity(request=req)
-
-        error_resp = self.encrypt_user_metadata(req, keys)
-        if error_resp:
-            return error_resp
-
     def PUT(self, req, start_response):
-        keys = self.get_keys(req.environ)
-
-        error_resp = self.encrypt_req_headers(req, keys)
-        if error_resp:
-            return error_resp(req.environ, start_response)
+        self._check_headers(req)
+        keys = self.get_keys(req.environ, required=['object', 'container'])
+        self.encrypt_user_metadata(req, keys)
 
         enc_input_proxy = EncInputWrapper(self.crypto, keys, req, self.logger)
         req.environ['wsgi.input'] = enc_input_proxy
@@ -224,10 +207,9 @@ class EncrypterObjContext(CryptoWSGIContext):
         Note that an object may have encrypted headers while the body may
         remain unencrypted.
         """
+        self._check_headers(req)
         keys = self.get_keys(req.environ)
-        error_resp = self.encrypt_req_headers(req, keys)
-        if error_resp:
-            return error_resp(req.environ, start_response)
+        self.encrypt_user_metadata(req, keys)
 
         resp = self._app_call(req.environ)
         start_response(self._response_status, self._response_headers,
@@ -280,15 +262,14 @@ class Encrypter(object):
         self.app = app
         self.logger = get_logger(conf, log_route="encrypter")
         self.conf = conf
+        self.crypto = Crypto(self.conf)
 
     def __call__(self, env, start_response):
         # If override is set in env, then just pass along
-        req = Request(env)
         if config_true_value(env.get('swift.crypto.override')):
             return self.app(env, start_response)
 
-        self.crypto = Crypto(self.conf)
-
+        req = Request(env)
         try:
             req.split_path(4, 4, True)
         except ValueError:

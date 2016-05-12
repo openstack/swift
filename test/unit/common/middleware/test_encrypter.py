@@ -21,7 +21,7 @@ import mock
 
 from swift.common.middleware import encrypter
 from swift.common.swob import (
-    Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk)
+    Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk, HTTPBadRequest)
 from swift.common.utils import FileLikeIter
 from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.middleware.crypto import Crypto
@@ -524,6 +524,31 @@ class TestEncrypter(unittest.TestCase):
         # verify object is NOT encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         self.assertEqual(body, get_req.get_response(self.app).body)
+
+    def _test_constraints_checking(self, method):
+        # verify that the check_metadata function is called on PUT and POST
+        body = 'FAKE APP'
+        env = {'REQUEST_METHOD': method,
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        hdrs = {'content-type': 'text/plain',
+                'content-length': str(len(body))}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        mocked_func = 'swift.common.middleware.encrypter.check_metadata'
+        with mock.patch(mocked_func) as mocked:
+            mocked.side_effect = [HTTPBadRequest('testing')]
+            resp = req.get_response(self.encrypter)
+        self.assertEqual('400 Bad Request', resp.status)
+        self.assertEqual(1, mocked.call_count)
+        mocked.assert_called_once_with(mock.ANY, 'object')
+        self.assertEqual(req.headers,
+                         mocked.call_args_list[0][0][0].headers)
+
+    def test_PUT_constraints_checking(self):
+        self._test_constraints_checking('PUT')
+
+    def test_POST_constraints_checking(self):
+        self._test_constraints_checking('POST')
 
     def test_filter(self):
         factory = encrypter.filter_factory({})
