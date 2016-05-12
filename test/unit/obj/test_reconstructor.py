@@ -823,8 +823,43 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertFalse(os.path.exists(pol_1_part_1_path))
         warnings = self.reconstructor.logger.get_lines_for_level('warning')
         self.assertEqual(1, len(warnings))
-        self.assertTrue('Unexpected entity in data dir:' in warnings[0],
-                        'Warning not found in %s' % warnings)
+        self.assertIn('Unexpected entity in data dir:', warnings[0])
+
+    def test_ignores_status_file(self):
+        # Following fd86d5a, the auditor will leave status files on each device
+        # until an audit can complete. The reconstructor should ignore these
+
+        @contextmanager
+        def status_files(*auditor_types):
+            status_paths = [os.path.join(self.objects_1,
+                                         'auditor_status_%s.json' % typ)
+                            for typ in auditor_types]
+            for status_path in status_paths:
+                self.assertFalse(os.path.exists(status_path))  # sanity check
+                with open(status_path, 'w'):
+                    pass
+                self.assertTrue(os.path.isfile(status_path))  # sanity check
+            try:
+                yield status_paths
+            finally:
+                for status_path in status_paths:
+                    try:
+                        os.unlink(status_path)
+                    except OSError as e:
+                        if e.errno != 2:
+                            raise
+
+        # since our collect_parts job is a generator, that yields directly
+        # into build_jobs and then spawns it's safe to do the remove_files
+        # without making reconstructor startup slow
+        with status_files('ALL', 'ZBF') as status_paths:
+            self.reconstructor._reset_stats()
+            for part_info in self.reconstructor.collect_parts():
+                self.assertNotIn(part_info['part_path'], status_paths)
+            warnings = self.reconstructor.logger.get_lines_for_level('warning')
+            self.assertEqual(0, len(warnings))
+            for status_path in status_paths:
+                self.assertTrue(os.path.exists(status_path))
 
     def _make_fake_ssync(self, ssync_calls):
         class _fake_ssync(object):
