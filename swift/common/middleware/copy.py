@@ -102,7 +102,7 @@ accounts:
 -------------------
 Large Object Copy
 -------------------
-The best option to copy a large option is to copy segments individually.
+The best option to copy a large object is to copy segments individually.
 To copy the manifest object of a large object, add the query parameter to
 the copy request::
 
