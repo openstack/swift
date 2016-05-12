@@ -525,10 +525,13 @@ class Replicator(Daemon):
         if shouldbehere:
             shouldbehere = bool([n for n in nodes if n['id'] == node_id])
         # See Footnote [1] for an explanation of the repl_nodes assignment.
-        i = 0
-        while i < len(nodes) and nodes[i]['id'] != node_id:
-            i += 1
-        repl_nodes = nodes[i + 1:] + nodes[:i]
+        if len(nodes) > 1:
+            i = 0
+            while i < len(nodes) and nodes[i]['id'] != node_id:
+                i += 1
+            repl_nodes = nodes[i + 1:] + nodes[:i]
+        else:  # Special case if using only a single replica
+            repl_nodes = nodes
         more_nodes = self.ring.get_more_nodes(int(partition))
         if not local_dev:
             # Check further if local device is a handoff node
@@ -563,7 +566,7 @@ class Replicator(Daemon):
         except (Exception, Timeout):
             self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
                                   'hook for %s', broker.db_file)
-        if not shouldbehere and all(responses):
+        if not shouldbehere and responses and all(responses):
             # If the db shouldn't be on this node and has been successfully
             # synced to all of its peers, it can be removed.
             if not self.delete_db(broker):
