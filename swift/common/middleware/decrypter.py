@@ -197,7 +197,7 @@ class DecrypterObjContext(BaseDecrypterContext):
         encrypted_etag = self._response_header_value(etag_header)
         if encrypted_etag:
             decrypted_etag = self._decrypt_header(
-                etag_header, encrypted_etag, keys[self.server_type],
+                etag_header, encrypted_etag, keys['container'],
                 'X-Object-Sysmeta-Crypto-Meta-Etag', required=True)
             mod_hdr_pairs.append(('Etag', decrypted_etag))
 

@@ -42,6 +42,7 @@ class TestEncrypter(unittest.TestCase):
         self.encrypter.logger = FakeLogger()
 
     def test_PUT_req(self):
+        cont_key = fetch_crypto_keys()['container']
         body_key = os.urandom(32)
         object_key = fetch_crypto_keys()['object']
         plaintext = 'FAKE APP'
@@ -85,7 +86,7 @@ class TestEncrypter(unittest.TestCase):
         # verify encrypted version of plaintext etag
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
         etag_iv = Crypto().create_iv(iv_base=req.path)
-        enc_etag = encrypt(plaintext_etag, object_key, etag_iv)
+        enc_etag = encrypt(plaintext_etag, cont_key, etag_iv)
         self.assertEqual(enc_etag, actual)
         # verify crypto_meta was not appended to this etag
         parts = req_hdrs['X-Object-Sysmeta-Crypto-Etag'].rsplit(';', 1)
@@ -206,6 +207,7 @@ class TestEncrypter(unittest.TestCase):
 
     def test_PUT_with_other_footers(self):
         # verify handling of another middleware's footer callback
+        cont_key = fetch_crypto_keys()['container']
         body_key = os.urandom(32)
         object_key = fetch_crypto_keys()['object']
         plaintext = 'FAKE APP'
@@ -252,7 +254,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
         etag_iv = Crypto().create_iv(iv_base=req.path)
-        self.assertEqual(encrypt(plaintext_etag, object_key, etag_iv), actual)
+        self.assertEqual(encrypt(plaintext_etag, cont_key, etag_iv), actual)
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
@@ -421,7 +423,7 @@ class TestEncrypter(unittest.TestCase):
             # verify etags have been supplemented with encrypted values
             self.assertIn(match_header_name, actual_headers)
             actual_etags = set(actual_headers[match_header_name].split(', '))
-            key = fetch_crypto_keys()['object']
+            key = fetch_crypto_keys()['container']
             iv = Crypto().create_iv(iv_base=req.path)
             encrypted_etags = [
                 '"%s"' % base64.b64encode(encrypt(etag.strip('"'), key, iv))

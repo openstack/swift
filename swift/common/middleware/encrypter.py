@@ -92,7 +92,7 @@ class EncInputWrapper(object):
                 # as sysmeta along with the crypto parameters that were used.
                 val, etag_crypto_meta = encrypt_header_val(
                     self.crypto, self.plaintext_md5.hexdigest(),
-                    self.keys['object'], iv_base=self.path)
+                    self.keys['container'], iv_base=self.path)
                 footers['X-Object-Sysmeta-Crypto-Etag'] = val
                 footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = \
                     dump_crypto_meta(etag_crypto_meta)
@@ -234,7 +234,7 @@ class EncrypterObjContext(CryptoWSGIContext):
                     new_etags.append(etag)
                     continue
                 crypto_etag, meta = encrypt_header_val(self.crypto, etag,
-                                                       keys[self.server_type],
+                                                       keys['container'],
                                                        iv_base=req.path)
                 new_etags.extend(('"%s"' % etag, '"%s"' % crypto_etag))
 
