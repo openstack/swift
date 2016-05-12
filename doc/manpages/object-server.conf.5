@@ -125,8 +125,10 @@ The default is empty.
 .IP \fBeventlet_debug\fR
 Debug mode for eventlet library. The default is false.
 .IP \fBfallocate_reserve\fR
-You can set fallocate_reserve to the number of bytes you'd like fallocate to
-reserve, whether there is space for the given file size or not. The default is 0.
+You can set fallocate_reserve to the number of bytes or percentage of disk
+space you'd like fallocate to reserve, whether there is space for the given
+file size or not. Percentage will be used if the value ends with a '%'.
+The default is 1%.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 3 seconds.
 .IP \fBconn_timeout\fR

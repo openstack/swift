@@ -51,9 +51,10 @@ bind_port = 6200
 #
 # eventlet_debug = false
 #
-# You can set fallocate_reserve to the number of bytes you'd like fallocate to
-# reserve, whether there is space for the given file size or not.
-# fallocate_reserve = 0
+# You can set fallocate_reserve to the number of bytes or percentage of disk
+# space you'd like fallocate to reserve, whether there is space for the given
+# file size or not. Percentage will be used if the value ends with a '%'.
+# fallocate_reserve = 1%
 #
 # Time to wait while attempting to connect to another backend node.
 # conn_timeout = 0.5

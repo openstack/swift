@@ -484,12 +484,14 @@ log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for
                                              eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the
-                                             number of bytes you'd like fallocate to
-                                             reserve, whether there is space for the
-                                             given file size or not. This is useful for
-                                             systems that behave badly when they
-                                             completely run out of space; you can
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
                                              make the services pretend they're out of
                                              space early.
 conn_timeout                     0.5         Time to wait while attempting to connect
@@ -795,13 +797,16 @@ log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the number of
-                                             bytes you'd like fallocate to reserve, whether
-                                             there is space for the given file size or not.
-                                             This is useful for systems that behave badly
-                                             when they completely run out of space; you can
-                                             make the services pretend they're out of space
-                                             early.
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
 db_preallocation                 off         If you don't mind the extra disk space usage
                                              in overhead, you can turn this on to preallocate
                                              disk space with SQLite databases to decrease
@@ -1010,13 +1015,16 @@ log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the number of
-                                             bytes you'd like fallocate to reserve, whether
-                                             there is space for the given file size or not.
-                                             This is useful for systems that behave badly
-                                             when they completely run out of space; you can
-                                             make the services pretend they're out of space
-                                             early.
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
 ===============================  ==========  =============================================
 
 [account-server]
