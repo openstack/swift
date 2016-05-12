@@ -64,10 +64,14 @@ required_filters = [
                                if pipe.startswith('catch_errors')
                                else [])},
     {'name': 'dlo', 'after_fn': lambda _junk: [
-        'staticweb', 'tempauth', 'keystoneauth',
+        'copy', 'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']},
     {'name': 'versioned_writes', 'after_fn': lambda _junk: [
-        'slo', 'dlo', 'staticweb', 'tempauth', 'keystoneauth',
+        'slo', 'dlo', 'copy', 'staticweb', 'tempauth',
+        'keystoneauth', 'catch_errors', 'gatekeeper', 'proxy_logging']},
+    # Put copy before dlo, slo and versioned_writes
+    {'name': 'copy', 'after_fn': lambda _junk: [
+        'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']}]
 
 
@@ -107,8 +111,6 @@ class Application(object):
             int(conf.get('recheck_account_existence', 60))
         self.allow_account_management = \
             config_true_value(conf.get('allow_account_management', 'no'))
-        self.object_post_as_copy = \
-            config_true_value(conf.get('object_post_as_copy', 'true'))
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,
@@ -392,8 +394,7 @@ class Application(object):
                 # controller's method indicates it'd like to gather more
                 # information and try again later.
                 resp = req.environ['swift.authorize'](req)
-                if not resp and not req.headers.get('X-Copy-From-Account') \
-                        and not req.headers.get('Destination-Account'):
+                if not resp:
                     # No resp means authorized, no delayed recheck required.
                     old_authorize = req.environ['swift.authorize']
                 else:
@@ -404,7 +405,7 @@ class Application(object):
             # Save off original request method (GET, POST, etc.) in case it
             # gets mutated during handling.  This way logging can display the
             # method the client actually sent.
-            req.environ['swift.orig_req_method'] = req.method
+            req.environ.setdefault('swift.orig_req_method', req.method)
             try:
                 if old_authorize:
                     req.environ.pop('swift.authorize', None)

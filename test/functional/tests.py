@@ -1306,12 +1306,10 @@ class TestFile(Base):
                     acct,
                     '%s%s' % (prefix, self.env.container),
                     Utils.create_name()))
-                if acct == acct2:
-                    # there is no such source container
-                    # and foreign user can have no permission to read it
-                    self.assert_status(403)
-                else:
-                    self.assert_status(404)
+                # there is no such source container but user has
+                # permissions to do a GET (done internally via COPY) for
+                # objects in his own account.
+                self.assert_status(404)
 
                 self.assertFalse(file_item.copy_account(
                     acct,
@@ -1325,12 +1323,10 @@ class TestFile(Base):
                     acct,
                     '%s%s' % (prefix, self.env.container),
                     Utils.create_name()))
-                if acct == acct2:
-                    # there is no such object
-                    # and foreign user can have no permission to read it
-                    self.assert_status(403)
-                else:
-                    self.assert_status(404)
+                # there is no such source container but user has
+                # permissions to do a GET (done internally via COPY) for
+                # objects in his own account.
+                self.assert_status(404)
 
                 self.assertFalse(file_item.copy_account(
                     acct,
@@ -2678,6 +2674,23 @@ class TestSloEnv(object):
     slo_enabled = None  # tri-state: None initially, then True/False
 
     @classmethod
+    def create_segments(cls, container):
+        seg_info = {}
+        for letter, size in (('a', 1024 * 1024),
+                             ('b', 1024 * 1024),
+                             ('c', 1024 * 1024),
+                             ('d', 1024 * 1024),
+                             ('e', 1)):
+            seg_name = "seg_%s" % letter
+            file_item = container.file(seg_name)
+            file_item.write(letter * size)
+            seg_info[seg_name] = {
+                'size_bytes': size,
+                'etag': file_item.md5,
+                'path': '/%s/%s' % (container.name, seg_name)}
+        return seg_info
+
+    @classmethod
     def setUp(cls):
         cls.conn = Connection(tf.config)
         cls.conn.authenticate()
@@ -2711,19 +2724,7 @@ class TestSloEnv(object):
             if not cont.create():
                 raise ResponseError(cls.conn.response)
 
-        cls.seg_info = seg_info = {}
-        for letter, size in (('a', 1024 * 1024),
-                             ('b', 1024 * 1024),
-                             ('c', 1024 * 1024),
-                             ('d', 1024 * 1024),
-                             ('e', 1)):
-            seg_name = "seg_%s" % letter
-            file_item = cls.container.file(seg_name)
-            file_item.write(letter * size)
-            seg_info[seg_name] = {
-                'size_bytes': size,
-                'etag': file_item.md5,
-                'path': '/%s/%s' % (cls.container.name, seg_name)}
+        cls.seg_info = seg_info = cls.create_segments(cls.container)
 
         file_item = cls.container.file("manifest-abcde")
         file_item.write(
@@ -3125,8 +3126,9 @@ class TestSlo(Base):
 
     def test_slo_copy_the_manifest(self):
         file_item = self.env.container.file("manifest-abcde")
-        file_item.copy(self.env.container.name, "copied-abcde-manifest-only",
-                       parms={'multipart-manifest': 'get'})
+        self.assertTrue(file_item.copy(self.env.container.name,
+                                       "copied-abcde-manifest-only",
+                                       parms={'multipart-manifest': 'get'}))
 
         copied = self.env.container.file("copied-abcde-manifest-only")
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})
@@ -3157,10 +3159,40 @@ class TestSlo(Base):
         self.assertTrue(dest_cont.create(hdrs={
             'X-Container-Write': self.env.conn.user_acl
         }))
-        file_item.copy_account(acct,
-                               dest_cont,
-                               "copied-abcde-manifest-only",
-                               parms={'multipart-manifest': 'get'})
+
+        # manifest copy will fail because there is no read access to segments
+        # in destination account
+        file_item.copy_account(
+            acct, dest_cont, "copied-abcde-manifest-only",
+            parms={'multipart-manifest': 'get'})
+        self.assertEqual(400, file_item.conn.response.status)
+        resp_body = file_item.conn.response.read()
+        self.assertEqual(5, resp_body.count('403 Forbidden'),
+                         'Unexpected response body %r' % resp_body)
+
+        # create segments container in account2 with read access for account1
+        segs_container = self.env.account2.container(self.env.container.name)
+        self.assertTrue(segs_container.create(hdrs={
+            'X-Container-Read': self.env.conn.user_acl
+        }))
+
+        # manifest copy will still fail because there are no segments in
+        # destination account
+        file_item.copy_account(
+            acct, dest_cont, "copied-abcde-manifest-only",
+            parms={'multipart-manifest': 'get'})
+        self.assertEqual(400, file_item.conn.response.status)
+        resp_body = file_item.conn.response.read()
+        self.assertEqual(5, resp_body.count('404 Not Found'),
+                         'Unexpected response body %r' % resp_body)
+
+        # create segments in account2 container with same name as in account1,
+        # manifest copy now succeeds
+        self.env.create_segments(segs_container)
+
+        self.assertTrue(file_item.copy_account(
+            acct, dest_cont, "copied-abcde-manifest-only",
+            parms={'multipart-manifest': 'get'}))
 
         copied = dest_cont.file("copied-abcde-manifest-only")
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})

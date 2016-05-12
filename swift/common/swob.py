@@ -888,6 +888,11 @@ class Request(object):
         return self._params_cache
     str_params = params
 
+    @params.setter
+    def params(self, param_pairs):
+        self._params_cache = None
+        self.query_string = urllib.parse.urlencode(param_pairs)
+
     @property
     def timestamp(self):
         """

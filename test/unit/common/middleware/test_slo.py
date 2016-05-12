@@ -26,7 +26,7 @@ from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import slo
-from swift.common.swob import Request, Response, HTTPException
+from swift.common.swob import Request, HTTPException
 from swift.common.utils import quote, closing_if_possible, close_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
@@ -2651,70 +2651,6 @@ class TestSloBulkLogger(unittest.TestCase):
     def test_reused_logger(self):
         slo_mware = slo.filter_factory({})('fake app')
         self.assertTrue(slo_mware.logger is slo_mware.bulk_deleter.logger)
-
-
-class TestSloCopyHook(SloTestCase):
-    def setUp(self):
-        super(TestSloCopyHook, self).setUp()
-
-        self.app.register(
-            'GET', '/v1/AUTH_test/c/o', swob.HTTPOk,
-            {'Content-Length': '3', 'Etag': md5hex("obj")}, "obj")
-        self.app.register(
-            'GET', '/v1/AUTH_test/c/man',
-            swob.HTTPOk, {'Content-Type': 'application/json',
-                          'X-Static-Large-Object': 'true'},
-            json.dumps([{'name': '/c/o', 'hash': md5hex("obj"),
-                         'bytes': '3'}]))
-        self.app.register(
-            'COPY', '/v1/AUTH_test/c/o', swob.HTTPCreated, {})
-
-        copy_hook = [None]
-
-        # slip this guy in there to pull out the hook
-        def extract_copy_hook(env, sr):
-            if env['REQUEST_METHOD'] == 'COPY':
-                copy_hook[0] = env['swift.copy_hook']
-            return self.app(env, sr)
-
-        self.slo = slo.filter_factory({})(extract_copy_hook)
-
-        req = Request.blank('/v1/AUTH_test/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'})
-        self.slo(req.environ, fake_start_response)
-        self.copy_hook = copy_hook[0]
-
-        self.assertTrue(self.copy_hook is not None)  # sanity check
-
-    def test_copy_hook_passthrough(self):
-        source_req = Request.blank(
-            '/v1/AUTH_test/c/o',
-            environ={'REQUEST_METHOD': 'GET'})
-        sink_req = Request.blank(
-            '/v1/AUTH_test/c/o',
-            environ={'REQUEST_METHOD': 'PUT'})
-        # no X-Static-Large-Object header, so do nothing
-        source_resp = Response(request=source_req, status=200)
-
-        modified_resp = self.copy_hook(source_req, source_resp, sink_req)
-        self.assertTrue(modified_resp is source_resp)
-
-    def test_copy_hook_manifest(self):
-        source_req = Request.blank(
-            '/v1/AUTH_test/c/o',
-            environ={'REQUEST_METHOD': 'GET'})
-        sink_req = Request.blank(
-            '/v1/AUTH_test/c/o',
-            environ={'REQUEST_METHOD': 'PUT'})
-        source_resp = Response(request=source_req, status=200,
-                               headers={"X-Static-Large-Object": "true"},
-                               app_iter=[json.dumps([{'name': '/c/o',
-                                                      'hash': md5hex("obj"),
-                                                      'bytes': '3'}])])
-
-        modified_resp = self.copy_hook(source_req, source_resp, sink_req)
-        self.assertTrue(modified_resp is not source_resp)
-        self.assertEqual(modified_resp.etag, md5hex(md5hex("obj")))
 
 
 class TestSwiftInfo(unittest.TestCase):

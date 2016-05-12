@@ -63,7 +63,8 @@ from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
-from swift.common.middleware import proxy_logging, versioned_writes
+from swift.common.middleware import proxy_logging, versioned_writes, \
+    copy
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
     APIVersionError, ChunkWriteTimeout
@@ -3017,7 +3018,6 @@ class TestObjectController(unittest.TestCase):
     @unpatch_policies
     def test_PUT_POST_last_modified(self):
         prolis = _test_sockets[0]
-        prosrv = _test_servers[0]
 
         def _do_HEAD():
             # do a HEAD to get reported last modified time
@@ -3078,9 +3078,7 @@ class TestObjectController(unittest.TestCase):
 
         _do_conditional_GET_checks(last_modified_put)
 
-        # now POST to the object using default object_post_as_copy setting
-        orig_post_as_copy = prosrv.object_post_as_copy
-
+        # now POST to the object
         # last-modified rounded in sec so sleep a sec to increment
         sleep(1)
 
@@ -3099,31 +3097,6 @@ class TestObjectController(unittest.TestCase):
         # last modified time will have changed due to POST
         last_modified_head = _do_HEAD()
         self.assertNotEqual(last_modified_put, last_modified_head)
-        _do_conditional_GET_checks(last_modified_head)
-
-        # now POST using non-default object_post_as_copy setting
-        try:
-            # last-modified rounded in sec so sleep a sec to increment
-            last_modified_post = last_modified_head
-            sleep(1)
-            prosrv.object_post_as_copy = not orig_post_as_copy
-            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('POST /v1/a/c/o.last_modified HTTP/1.1\r\n'
-                     'Host: localhost\r\nConnection: close\r\n'
-                     'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
-            fd.flush()
-            headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 202'
-            self.assertEqual(headers[:len(exp)], exp)
-            for line in headers.split('\r\n'):
-                self.assertFalse(line.startswith(lm_hdr))
-        finally:
-            prosrv.object_post_as_copy = orig_post_as_copy
-
-        # last modified time will have changed due to POST
-        last_modified_head = _do_HEAD()
-        self.assertNotEqual(last_modified_post, last_modified_head)
         _do_conditional_GET_checks(last_modified_head)
 
     def test_PUT_auto_content_type(self):
@@ -3412,59 +3385,6 @@ class TestObjectController(unittest.TestCase):
             }
             check_request(request, **expectations)
 
-        # and this time with post as copy
-        self.app.object_post_as_copy = True
-        self.app.memcache.store = {}
-        backend_requests = []
-        req = Request.blank('/v1/a/c/o', {}, method='POST',
-                            headers={'X-Object-Meta-Color': 'Blue',
-                                     'X-Backend-Storage-Policy-Index': 0})
-        with mocked_http_conn(
-                200, 200, 200, 200, 200, 201, 201, 201,
-                headers=resp_headers, give_connect=capture_requests
-        ) as fake_conn:
-            resp = req.get_response(self.app)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
-        self.assertEqual(resp.status_int, 202)
-        self.assertEqual(len(backend_requests), 8)
-        policy0 = {'X-Backend-Storage-Policy-Index': '0'}
-        policy1 = {'X-Backend-Storage-Policy-Index': '1'}
-        expected = [
-            # account info
-            {'method': 'HEAD', 'path': '/0/a'},
-            # container info
-            {'method': 'HEAD', 'path': '/0/a/c'},
-            # x-newests
-            {'method': 'GET', 'path': '/0/a/c/o', 'headers': policy1},
-            {'method': 'GET', 'path': '/0/a/c/o', 'headers': policy1},
-            {'method': 'GET', 'path': '/0/a/c/o', 'headers': policy1},
-            # new writes
-            {'method': 'PUT', 'path': '/0/a/c/o', 'headers': policy0},
-            {'method': 'PUT', 'path': '/0/a/c/o', 'headers': policy0},
-            {'method': 'PUT', 'path': '/0/a/c/o', 'headers': policy0},
-        ]
-        for request, expectations in zip(backend_requests, expected):
-            check_request(request, **expectations)
-
-    def test_POST_as_copy(self):
-        with save_globals():
-            def test_status_map(statuses, expected):
-                set_http_connect(*statuses)
-                self.app.memcache.store = {}
-                req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
-                                    headers={'Content-Type': 'foo/bar'})
-                self.app.update_request(req)
-                res = req.get_response(self.app)
-                expected = str(expected)
-                self.assertEqual(res.status[:len(expected)], expected)
-            test_status_map((200, 200, 200, 200, 200, 202, 202, 202), 202)
-            test_status_map((200, 200, 200, 200, 200, 202, 202, 500), 202)
-            test_status_map((200, 200, 200, 200, 200, 202, 500, 500), 503)
-            test_status_map((200, 200, 200, 200, 200, 202, 404, 500), 503)
-            test_status_map((200, 200, 200, 200, 200, 202, 404, 404), 404)
-            test_status_map((200, 200, 200, 200, 200, 404, 500, 500), 503)
-            test_status_map((200, 200, 200, 200, 200, 404, 404, 404), 404)
-
     def test_DELETE(self):
         with save_globals():
             def test_status_map(statuses, expected):
@@ -3611,53 +3531,12 @@ class TestObjectController(unittest.TestCase):
             res = req.get_response(self.app)
             self.assertEqual(res.status_int, 400)
 
-    def test_POST_as_copy_meta_val_len(self):
-        with save_globals():
-            limit = constraints.MAX_META_VALUE_LENGTH
-            set_http_connect(200, 200, 200, 200, 200, 202, 202, 202)
-            #                acct cont objc objc objc obj  obj  obj
-            req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
-                                headers={'Content-Type': 'foo/bar',
-                                         'X-Object-Meta-Foo': 'x' * limit})
-            self.app.update_request(req)
-            res = req.get_response(self.app)
-            self.assertEqual(res.status_int, 202)
-            set_http_connect(202, 202, 202)
-            req = Request.blank(
-                '/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
-                headers={'Content-Type': 'foo/bar',
-                         'X-Object-Meta-Foo': 'x' * (limit + 1)})
-            self.app.update_request(req)
-            res = req.get_response(self.app)
-            self.assertEqual(res.status_int, 400)
-
     def test_POST_meta_key_len(self):
         with save_globals():
             limit = constraints.MAX_META_NAME_LENGTH
             self.app.object_post_as_copy = False
             set_http_connect(200, 200, 202, 202, 202)
             #                acct cont obj  obj  obj
-            req = Request.blank(
-                '/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
-                headers={'Content-Type': 'foo/bar',
-                         ('X-Object-Meta-' + 'x' * limit): 'x'})
-            self.app.update_request(req)
-            res = req.get_response(self.app)
-            self.assertEqual(res.status_int, 202)
-            set_http_connect(202, 202, 202)
-            req = Request.blank(
-                '/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
-                headers={'Content-Type': 'foo/bar',
-                         ('X-Object-Meta-' + 'x' * (limit + 1)): 'x'})
-            self.app.update_request(req)
-            res = req.get_response(self.app)
-            self.assertEqual(res.status_int, 400)
-
-    def test_POST_as_copy_meta_key_len(self):
-        with save_globals():
-            limit = constraints.MAX_META_NAME_LENGTH
-            set_http_connect(200, 200, 200, 200, 200, 202, 202, 202)
-            #                acct cont objc objc objc obj  obj  obj
             req = Request.blank(
                 '/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
                 headers={'Content-Type': 'foo/bar',
@@ -4419,25 +4298,6 @@ class TestObjectController(unittest.TestCase):
             resp = controller.POST(req)
             self.assertEqual(resp.status_int, 404)
 
-    def test_PUT_POST_as_copy_requires_container_exist(self):
-        with save_globals():
-            self.app.memcache = FakeMemcacheReturnsNone()
-            controller = ReplicatedObjectController(
-                self.app, 'account', 'container', 'object')
-            set_http_connect(200, 404, 404, 404, 200, 200, 200)
-            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'})
-            self.app.update_request(req)
-            resp = controller.PUT(req)
-            self.assertEqual(resp.status_int, 404)
-
-            set_http_connect(200, 404, 404, 404, 200, 200, 200, 200, 200, 200)
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'POST'},
-                                headers={'Content-Type': 'text/plain'})
-            self.app.update_request(req)
-            resp = controller.POST(req)
-            self.assertEqual(resp.status_int, 404)
-
     def test_bad_metadata(self):
         with save_globals():
             controller = ReplicatedObjectController(
@@ -4553,755 +4413,6 @@ class TestObjectController(unittest.TestCase):
             if unused_status_list:
                 raise self.fail('UN-USED STATUS CODES: %r' %
                                 unused_status_list)
-
-    def test_basic_put_with_x_copy_from(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c/o'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-
-    def test_basic_put_with_x_copy_from_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c/o',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acc1 con1 objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_basic_put_with_x_copy_from_across_container(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c2/o'})
-        status_list = (200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont conc objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c2/o')
-
-    def test_basic_put_with_x_copy_from_across_container_and_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c2/o',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acc1 con1 objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c2/o')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_copy_non_zero_content_length(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '5',
-                                     'X-Copy-From': 'c/o'})
-        status_list = (200, 200)
-        #                acct cont
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 400)
-
-    def test_copy_non_zero_content_length_with_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '5',
-                                     'X-Copy-From': 'c/o',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200)
-        #                acct cont
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 400)
-
-    def test_copy_with_slashes_in_x_copy_from(self):
-        # extra source path parsing
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c/o/o2'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-
-    def test_copy_with_slashes_in_x_copy_from_and_account(self):
-        # extra source path parsing
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c/o/o2',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acc1 con1 objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_copy_with_spaces_in_x_copy_from(self):
-        # space in soure path
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c/o%20o2'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o%20o2')
-
-    def test_copy_with_spaces_in_x_copy_from_and_account(self):
-        # space in soure path
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': 'c/o%20o2',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acc1 con1 objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o%20o2')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_copy_with_leading_slash_in_x_copy_from(self):
-        # repeat tests with leading /
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-
-    def test_copy_with_leading_slash_in_x_copy_from_and_account(self):
-        # repeat tests with leading /
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acc1 con1 objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_copy_with_leading_slash_and_slashes_in_x_copy_from(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o/o2'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-
-    def test_copy_with_leading_slash_and_slashes_in_x_copy_from_acct(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o/o2',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acc1 con1 objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_copy_with_no_object_in_x_copy_from(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c'})
-        status_list = (200, 200)
-        #              acct cont
-        with self.controller_context(req, *status_list) as controller:
-            try:
-                controller.PUT(req)
-            except HTTPException as resp:
-                self.assertEqual(resp.status_int // 100, 4)  # client error
-            else:
-                raise self.fail('Invalid X-Copy-From did not raise '
-                                'client error')
-
-    def test_copy_with_no_object_in_x_copy_from_and_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200)
-        #              acct cont
-        with self.controller_context(req, *status_list) as controller:
-            try:
-                controller.PUT(req)
-            except HTTPException as resp:
-                self.assertEqual(resp.status_int // 100, 4)  # client error
-            else:
-                raise self.fail('Invalid X-Copy-From did not raise '
-                                'client error')
-
-    def test_copy_server_error_reading_source(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o'})
-        status_list = (200, 200, 503, 503, 503)
-        #              acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 503)
-
-    def test_copy_server_error_reading_source_and_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 503, 503, 503)
-        #              acct cont acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 503)
-
-    def test_copy_not_found_reading_source(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o'})
-        # not found
-        status_list = (200, 200, 404, 404, 404)
-        #              acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 404)
-
-    def test_copy_not_found_reading_source_and_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o',
-                                     'X-Copy-From-Account': 'a'})
-        # not found
-        status_list = (200, 200, 200, 200, 404, 404, 404)
-        #              acct cont acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 404)
-
-    def test_copy_with_some_missing_sources(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o'})
-        status_list = (200, 200, 404, 404, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_copy_with_some_missing_sources_and_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o',
-                                     'X-Copy-From-Account': 'a'})
-        status_list = (200, 200, 200, 200, 404, 404, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_copy_with_object_metadata(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o',
-                                     'X-Object-Meta-Ours': 'okay'})
-        # test object metadata
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers.get('x-object-meta-test'), 'testing')
-        self.assertEqual(resp.headers.get('x-object-meta-ours'), 'okay')
-        self.assertEqual(resp.headers.get('x-delete-at'), '9876543210')
-
-    def test_copy_with_object_metadata_and_account(self):
-        req = Request.blank('/v1/a1/c1/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o',
-                                     'X-Object-Meta-Ours': 'okay',
-                                     'X-Copy-From-Account': 'a'})
-        # test object metadata
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.PUT(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers.get('x-object-meta-test'), 'testing')
-        self.assertEqual(resp.headers.get('x-object-meta-ours'), 'okay')
-        self.assertEqual(resp.headers.get('x-delete-at'), '9876543210')
-
-    @_limit_max_file_size
-    def test_copy_source_larger_than_max_file_size(self):
-        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'Content-Length': '0',
-                                     'X-Copy-From': '/c/o'})
-        # copy-from object is too large to fit in target object
-
-        class LargeResponseBody(object):
-
-            def __len__(self):
-                return constraints.MAX_FILE_SIZE + 1
-
-            def __getitem__(self, key):
-                return ''
-
-        copy_from_obj_body = LargeResponseBody()
-        status_list = (200, 200, 200, 200, 200)
-        #              acct cont objc objc objc
-        kwargs = dict(body=copy_from_obj_body)
-        with self.controller_context(req, *status_list,
-                                     **kwargs) as controller:
-            self.app.update_request(req)
-
-            self.app.memcache.store = {}
-            try:
-                resp = controller.PUT(req)
-            except HTTPException as resp:
-                pass
-            self.assertEqual(resp.status_int, 413)
-
-    def test_basic_COPY(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c/o2'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-
-    def test_basic_COPY_account(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c1/o2',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_COPY_across_containers(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c2/o'})
-        status_list = (200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont c2   objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-
-    def test_COPY_source_with_slashes_in_name(self):
-        req = Request.blank('/v1/a/c/o/o2',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c/o'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-
-    def test_COPY_account_source_with_slashes_in_name(self):
-        req = Request.blank('/v1/a/c/o/o2',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c1/o',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_COPY_destination_leading_slash(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-
-    def test_COPY_account_destination_leading_slash(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_COPY_source_with_slashes_destination_leading_slash(self):
-        req = Request.blank('/v1/a/c/o/o2',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-
-    def test_COPY_account_source_with_slashes_destination_leading_slash(self):
-        req = Request.blank('/v1/a/c/o/o2',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers['x-copied-from'], 'c/o/o2')
-        self.assertEqual(resp.headers['x-copied-from-account'], 'a')
-
-    def test_COPY_no_object_in_destination(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c_o'})
-        status_list = []  # no requests needed
-        with self.controller_context(req, *status_list) as controller:
-            self.assertRaises(HTTPException, controller.COPY, req)
-
-    def test_COPY_account_no_object_in_destination(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': 'c_o',
-                                     'Destination-Account': 'a1'})
-        status_list = []  # no requests needed
-        with self.controller_context(req, *status_list) as controller:
-            self.assertRaises(HTTPException, controller.COPY, req)
-
-    def test_COPY_server_error_reading_source(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o'})
-        status_list = (200, 200, 503, 503, 503)
-        #              acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 503)
-
-    def test_COPY_account_server_error_reading_source(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 503, 503, 503)
-        #              acct cont acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 503)
-
-    def test_COPY_not_found_reading_source(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o'})
-        status_list = (200, 200, 404, 404, 404)
-        #                acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 404)
-
-    def test_COPY_account_not_found_reading_source(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 404, 404, 404)
-        #              acct cont acct cont objc objc objc
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 404)
-
-    def test_COPY_with_some_missing_sources(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o'})
-        status_list = (200, 200, 404, 404, 200, 201, 201, 201)
-        #                acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_COPY_account_with_some_missing_sources(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 404, 404, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-
-    def test_COPY_with_metadata(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o',
-                                     'X-Object-Meta-Ours': 'okay'})
-        status_list = (200, 200, 200, 200, 200, 201, 201, 201)
-        #                acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers.get('x-object-meta-test'),
-                         'testing')
-        self.assertEqual(resp.headers.get('x-object-meta-ours'), 'okay')
-        self.assertEqual(resp.headers.get('x-delete-at'), '9876543210')
-
-    def test_COPY_account_with_metadata(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'X-Object-Meta-Ours': 'okay',
-                                     'Destination-Account': 'a1'})
-        status_list = (200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
-        #              acct cont acct cont objc objc objc obj  obj  obj
-        with self.controller_context(req, *status_list) as controller:
-            resp = controller.COPY(req)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(resp.headers.get('x-object-meta-test'),
-                         'testing')
-        self.assertEqual(resp.headers.get('x-object-meta-ours'), 'okay')
-        self.assertEqual(resp.headers.get('x-delete-at'), '9876543210')
-
-    @_limit_max_file_size
-    def test_COPY_source_larger_than_max_file_size(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c/o'})
-
-        class LargeResponseBody(object):
-
-            def __len__(self):
-                return constraints.MAX_FILE_SIZE + 1
-
-            def __getitem__(self, key):
-                return ''
-
-        copy_from_obj_body = LargeResponseBody()
-        status_list = (200, 200, 200, 200, 200)
-        #              acct cont objc objc objc
-        kwargs = dict(body=copy_from_obj_body)
-        with self.controller_context(req, *status_list,
-                                     **kwargs) as controller:
-            try:
-                resp = controller.COPY(req)
-            except HTTPException as resp:
-                pass
-        self.assertEqual(resp.status_int, 413)
-
-    @_limit_max_file_size
-    def test_COPY_account_source_larger_than_max_file_size(self):
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'COPY'},
-                            headers={'Destination': '/c1/o',
-                                     'Destination-Account': 'a1'})
-
-        class LargeResponseBody(object):
-
-            def __len__(self):
-                return constraints.MAX_FILE_SIZE + 1
-
-            def __getitem__(self, key):
-                return ''
-
-        copy_from_obj_body = LargeResponseBody()
-        status_list = (200, 200, 200, 200, 200)
-        #              acct cont objc objc objc
-        kwargs = dict(body=copy_from_obj_body)
-        with self.controller_context(req, *status_list,
-                                     **kwargs) as controller:
-            try:
-                resp = controller.COPY(req)
-            except HTTPException as resp:
-                pass
-        self.assertEqual(resp.status_int, 413)
-
-    def test_COPY_newest(self):
-        with save_globals():
-            controller = ReplicatedObjectController(
-                self.app, 'a', 'c', 'o')
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Destination': '/c/o'})
-            req.account = 'a'
-            controller.object_name = 'o'
-            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
-                             # act cont objc objc objc obj  obj  obj
-                             timestamps=('1', '1', '1', '3', '2', '4', '4',
-                                         '4'))
-            self.app.memcache.store = {}
-            resp = controller.COPY(req)
-            self.assertEqual(resp.status_int, 201)
-            self.assertEqual(resp.headers['x-copied-from-last-modified'],
-                             '3')
-
-    def test_COPY_account_newest(self):
-        with save_globals():
-            controller = ReplicatedObjectController(
-                self.app, 'a', 'c', 'o')
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Destination': '/c1/o',
-                                         'Destination-Account': 'a1'})
-            req.account = 'a'
-            controller.object_name = 'o'
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201,
-                             # act cont acct cont objc objc objc obj  obj  obj
-                             timestamps=('1', '1', '1', '1', '3', '2', '1',
-                                         '4', '4', '4'))
-            self.app.memcache.store = {}
-            resp = controller.COPY(req)
-            self.assertEqual(resp.status_int, 201)
-            self.assertEqual(resp.headers['x-copied-from-last-modified'],
-                             '3')
-
-    def test_COPY_delete_at(self):
-        with save_globals():
-            backend_requests = []
-
-            def capture_requests(ipaddr, port, device, partition, method, path,
-                                 headers=None, query_string=None):
-                backend_requests.append((method, path, headers))
-
-            controller = ReplicatedObjectController(
-                self.app, 'a', 'c', 'o')
-            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
-                             give_connect=capture_requests)
-            self.app.memcache.store = {}
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Destination': '/c/o'})
-
-            self.app.update_request(req)
-            resp = controller.COPY(req)
-            self.assertEqual(201, resp.status_int)  # sanity
-            for method, path, given_headers in backend_requests:
-                if method != 'PUT':
-                    continue
-                self.assertEqual(given_headers.get('X-Delete-At'),
-                                 '9876543210')
-                self.assertTrue('X-Delete-At-Host' in given_headers)
-                self.assertTrue('X-Delete-At-Device' in given_headers)
-                self.assertTrue('X-Delete-At-Partition' in given_headers)
-                self.assertTrue('X-Delete-At-Container' in given_headers)
-
-    def test_COPY_account_delete_at(self):
-        with save_globals():
-            backend_requests = []
-
-            def capture_requests(ipaddr, port, device, partition, method, path,
-                                 headers=None, query_string=None):
-                backend_requests.append((method, path, headers))
-
-            controller = ReplicatedObjectController(
-                self.app, 'a', 'c', 'o')
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201,
-                             give_connect=capture_requests)
-            self.app.memcache.store = {}
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Destination': '/c1/o',
-                                         'Destination-Account': 'a1'})
-
-            self.app.update_request(req)
-            resp = controller.COPY(req)
-            self.assertEqual(201, resp.status_int)  # sanity
-            for method, path, given_headers in backend_requests:
-                if method != 'PUT':
-                    continue
-                self.assertEqual(given_headers.get('X-Delete-At'),
-                                 '9876543210')
-                self.assertTrue('X-Delete-At-Host' in given_headers)
-                self.assertTrue('X-Delete-At-Device' in given_headers)
-                self.assertTrue('X-Delete-At-Partition' in given_headers)
-                self.assertTrue('X-Delete-At-Container' in given_headers)
-
-    def test_chunked_put(self):
-
-        class ChunkedFile(object):
-
-            def __init__(self, bytes):
-                self.bytes = bytes
-                self.read_bytes = 0
-
-            @property
-            def bytes_left(self):
-                return self.bytes - self.read_bytes
-
-            def read(self, amt=None):
-                if self.read_bytes >= self.bytes:
-                    raise StopIteration()
-                if not amt:
-                    amt = self.bytes_left
-                data = 'a' * min(amt, self.bytes_left)
-                self.read_bytes += len(data)
-                return data
-
-        with save_globals():
-            set_http_connect(201, 201, 201, 201)
-            controller = ReplicatedObjectController(
-                self.app, 'account', 'container', 'object')
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Transfer-Encoding': 'chunked',
-                                         'Content-Type': 'foo/bar'})
-
-            req.body_file = ChunkedFile(10)
-            self.app.memcache.store = {}
-            self.app.update_request(req)
-            res = controller.PUT(req)
-            self.assertEqual(res.status_int // 100, 2)  # success
-
-            # test 413 entity to large
-            set_http_connect(201, 201, 201, 201)
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Transfer-Encoding': 'chunked',
-                                         'Content-Type': 'foo/bar'})
-            req.body_file = ChunkedFile(11)
-            self.app.memcache.store = {}
-            self.app.update_request(req)
-
-            with mock.patch('swift.common.constraints.MAX_FILE_SIZE', 10):
-                res = controller.PUT(req)
-                self.assertEqual(res.status_int, 413)
 
     @unpatch_policies
     def test_chunked_put_bad_version(self):
@@ -5720,24 +4831,6 @@ class TestObjectController(unittest.TestCase):
             controller.POST(req)
         self.assertTrue(called[0])
 
-    def test_POST_as_copy_calls_authorize(self):
-        called = [False]
-
-        def authorize(req):
-            called[0] = True
-            return HTTPUnauthorized(request=req)
-        with save_globals():
-            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-            controller = ReplicatedObjectController(
-                self.app, 'account', 'container', 'object')
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'POST'},
-                                headers={'Content-Length': '5'}, body='12345')
-            req.environ['swift.authorize'] = authorize
-            self.app.update_request(req)
-            controller.POST(req)
-        self.assertTrue(called[0])
-
     def test_PUT_calls_authorize(self):
         called = [False]
 
@@ -5753,24 +4846,6 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.PUT(req)
-        self.assertTrue(called[0])
-
-    def test_COPY_calls_authorize(self):
-        called = [False]
-
-        def authorize(req):
-            called[0] = True
-            return HTTPUnauthorized(request=req)
-        with save_globals():
-            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-            controller = ReplicatedObjectController(
-                self.app, 'account', 'container', 'object')
-            req = Request.blank('/v1/a/c/o',
-                                environ={'REQUEST_METHOD': 'COPY'},
-                                headers={'Destination': 'c/o'})
-            req.environ['swift.authorize'] = authorize
-            self.app.update_request(req)
-            controller.COPY(req)
         self.assertTrue(called[0])
 
     def test_POST_converts_delete_after_to_delete_at(self):
@@ -6021,12 +5096,12 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(
                 'https://foo.bar',
                 resp.headers['access-control-allow-origin'])
-            for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
                 self.assertTrue(
                     verb in resp.headers['access-control-allow-methods'])
             self.assertEqual(
                 len(resp.headers['access-control-allow-methods'].split(', ')),
-                7)
+                6)
             self.assertEqual('999', resp.headers['access-control-max-age'])
             req = Request.blank(
                 '/v1/a/c/o.jpg',
@@ -6039,10 +5114,10 @@ class TestObjectController(unittest.TestCase):
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEqual(200, resp.status_int)
-            for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
                 self.assertTrue(
                     verb in resp.headers['Allow'])
-            self.assertEqual(len(resp.headers['Allow'].split(', ')), 7)
+            self.assertEqual(len(resp.headers['Allow'].split(', ')), 6)
             req = Request.blank(
                 '/v1/a/c/o.jpg',
                 {'REQUEST_METHOD': 'OPTIONS'},
@@ -6075,12 +5150,12 @@ class TestObjectController(unittest.TestCase):
             resp = controller.OPTIONS(req)
             self.assertEqual(200, resp.status_int)
             self.assertEqual('*', resp.headers['access-control-allow-origin'])
-            for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
+            for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
                 self.assertTrue(
                     verb in resp.headers['access-control-allow-methods'])
             self.assertEqual(
                 len(resp.headers['access-control-allow-methods'].split(', ')),
-                7)
+                6)
             self.assertEqual('999', resp.headers['access-control-max-age'])
 
     def _get_CORS_response(self, container_cors, strict_mode, object_get=None):
@@ -9232,9 +8307,10 @@ class TestSocketObjectVersions(unittest.TestCase):
         conf = {'devices': _testdir, 'swift_dir': _testdir,
                 'mount_check': 'false', 'allowed_headers': allowed_headers}
         prosrv = versioned_writes.VersionedWritesMiddleware(
-            proxy_logging.ProxyLoggingMiddleware(
-                _test_servers[0], conf,
-                logger=_test_servers[0].logger),
+            copy.ServerSideCopyMiddleware(
+                proxy_logging.ProxyLoggingMiddleware(
+                    _test_servers[0], conf,
+                    logger=_test_servers[0].logger), conf),
             {})
         self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger())
         # replace global prosrv with one that's filtered with version
