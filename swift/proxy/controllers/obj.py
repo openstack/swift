@@ -30,6 +30,7 @@ from six.moves.urllib.parse import unquote
 import collections
 import itertools
 import json
+import mimetypes
 import time
 import math
 import random
@@ -70,7 +71,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
     HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
-from swift.common.request_helpers import update_content_type
 
 
 def check_content_type(req):
@@ -418,6 +418,17 @@ class BaseObjectController(Controller):
 
         return req, delete_at_container, delete_at_part, delete_at_nodes
 
+    def _update_content_type(self, req):
+        # Sometimes the 'content-type' header exists, but is set to None.
+        detect_content_type = \
+            config_true_value(req.headers.get('x-detect-content-type'))
+        if detect_content_type or not req.headers.get('content-type'):
+            guessed_type, _junk = mimetypes.guess_type(req.path_info)
+            req.headers['Content-Type'] = guessed_type or \
+                'application/octet-stream'
+            if detect_content_type:
+                req.headers.pop('x-detect-content-type')
+
     def _update_x_timestamp(self, req):
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
@@ -640,7 +651,7 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
 
         # update content type in case it is missing
-        update_content_type(req)
+        self._update_content_type(req)
 
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \
