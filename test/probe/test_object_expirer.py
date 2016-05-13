@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import random
+import time
 import uuid
 import unittest
 
@@ -125,6 +126,51 @@ class TestObjectExpirer(ReplProbeTest):
                 self.assertTrue('x-backend-timestamp' in metadata)
                 self.assertTrue(Timestamp(metadata['x-backend-timestamp']) >
                                 create_timestamp)
+
+    def test_expirer_object_should_not_be_expired(self):
+        obj_brain = BrainSplitter(self.url, self.token, self.container_name,
+                                  self.object_name, 'object', self.policy)
+
+        # T(obj_created) < T(obj_deleted with x-delete-at) < T(obj_recreated)
+        #   < T(expirer_executed)
+        # Recreated obj should be appeared in any split brain case
+
+        # T(obj_created)
+        first_created_at = time.time()
+        # T(obj_deleted with x-delete-at)
+        # object-server accepts req only if X-Delete-At is later than 'now'
+        delete_at = int(time.time() + 1.5)
+        # T(obj_recreated)
+        recreated_at = time.time() + 2.0
+        # T(expirer_executed) - 'now'
+        sleep_for_expirer = 2.01
+
+        obj_brain.put_container(int(self.policy))
+        obj_brain.put_object(
+            headers={'X-Delete-At': delete_at,
+                     'X-Timestamp': Timestamp(first_created_at).internal})
+
+        # some object servers stopped
+        obj_brain.stop_primary_half()
+        obj_brain.put_object(
+            headers={'X-Timestamp': Timestamp(recreated_at).internal,
+                     'X-Object-Meta-Expired': 'False'})
+
+        # make sure auto-created containers get in the account listing
+        Manager(['container-updater']).once()
+        # some object servers recovered
+        obj_brain.start_primary_half()
+        # sleep to make sure expirer runs at the time after obj is recreated
+        time.sleep(sleep_for_expirer)
+        self.expirer.once()
+        # inconsistent state of objects is recovered
+        Manager(['object-replicator']).once()
+
+        # check if you can get recreated object
+        metadata = self.client.get_object_metadata(
+            self.account, self.container_name, self.object_name)
+        self.assertIn('x-object-meta-expired', metadata)
+
 
 if __name__ == "__main__":
     unittest.main()
