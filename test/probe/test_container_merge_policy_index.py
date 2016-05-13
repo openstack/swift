@@ -20,6 +20,7 @@ import unittest
 
 from nose import SkipTest
 
+from six.moves.urllib.parse import urlparse
 from swift.common.manager import Manager
 from swift.common.internal_client import InternalClient
 from swift.common import utils, direct_client
@@ -237,6 +238,14 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                         orig_policy_index, node))
 
     def test_reconcile_manifest(self):
+        info_url = "%s://%s/info" % (urlparse(self.url).scheme,
+                                     urlparse(self.url).netloc)
+        proxy_conn = client.http_connection(info_url)
+        cluster_info = client.get_capabilities(proxy_conn)
+        if 'slo' not in cluster_info:
+            raise SkipTest("SLO not enabled in proxy; "
+                           "can't test manifest reconciliation")
+
         # this test is not only testing a split brain scenario on
         # multiple policies with mis-placed objects - it even writes out
         # a static large object directly to the storage nodes while the
@@ -278,18 +287,18 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             write_part(i)
 
         # write manifest
-        try:
+        with self.assertRaises(ClientException) as catcher:
             client.put_object(self.url, self.token, self.container_name,
                               self.object_name,
                               contents=utils.json.dumps(manifest_data),
                               query_string='multipart-manifest=put')
-        except ClientException as err:
-            # so as it works out, you can't really upload a multi-part
-            # manifest for objects that are currently misplaced - you have to
-            # wait until they're all available - which is about the same as
-            # some other failure that causes data to be unavailable to the
-            # proxy at the time of upload
-            self.assertEqual(err.http_status, 400)
+
+        # so as it works out, you can't really upload a multi-part
+        # manifest for objects that are currently misplaced - you have to
+        # wait until they're all available - which is about the same as
+        # some other failure that causes data to be unavailable to the
+        # proxy at the time of upload
+        self.assertEqual(catcher.exception.http_status, 400)
 
         # but what the heck, we'll sneak one in just to see what happens...
         direct_manifest_name = self.object_name + '-direct-test'
