@@ -23,7 +23,7 @@ from swift.common.manager import Manager
 from swift.common.utils import Timestamp
 
 from test.probe.common import ReplProbeTest, ENABLED_POLICIES
-from test.probe.test_container_merge_policy_index import BrainSplitter
+from test.probe.brain import BrainSplitter
 
 from swiftclient import client
 
