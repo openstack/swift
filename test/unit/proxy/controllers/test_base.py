@@ -712,6 +712,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(handler.backend_headers['Range'], 'bytes=43-50')
         self.assertRaises(HTTPException,
                           handler.fast_forward, 80)
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 8)
 
         handler = GetOrHeadHandler(None, req, None, None, None, None,
                                    {'Range': 'bytes=23-'})
@@ -722,6 +724,15 @@ class TestFuncs(unittest.TestCase):
                                    {'Range': 'bytes=-100'})
         handler.fast_forward(20)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=-80')
+        self.assertRaises(HTTPException,
+                          handler.fast_forward, 100)
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 80)
+
+        handler = GetOrHeadHandler(None, req, None, None, None, None,
+                                   {'Range': 'bytes=0-0'})
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 1)
 
     def test_range_fast_forward_after_data_timeout(self):
         req = Request.blank('/')
