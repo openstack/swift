@@ -69,7 +69,7 @@ EFFECTIVE_CONSTRAINTS = {}  # populated by reload_constraints
 
 def reload_constraints():
     """
-    Parse SWIFT_CONF_FILE and reset module level global contraint attrs,
+    Parse SWIFT_CONF_FILE and reset module level global constraint attrs,
     populating OVERRIDE_CONSTRAINTS AND EFFECTIVE_CONSTRAINTS along the way.
     """
     global SWIFT_CONSTRAINTS_LOADED, OVERRIDE_CONSTRAINTS
@@ -112,10 +112,11 @@ FORMAT2CONTENT_TYPE = {'plain': 'text/plain', 'json': 'application/json',
 
 
 # By default the maximum number of allowed headers depends on the number of max
-# allowed metadata settings plus a default value of 32 for regular http
-# headers.  If for some reason this is not enough (custom middleware for
-# example) it can be increased with the extra_header_count constraint.
-MAX_HEADER_COUNT = MAX_META_COUNT + 32 + max(EXTRA_HEADER_COUNT, 0)
+# allowed metadata settings plus a default value of 132 for swift internally
+# generated headers and regular http headers.  If for some reason this is not
+# enough (custom middleware for example) it can be increased with the
+# extra_header_count constraint.
+MAX_HEADER_COUNT = MAX_META_COUNT + 132 + max(EXTRA_HEADER_COUNT, 0)
 
 
 def check_metadata(req, target_type):
