@@ -1073,6 +1073,7 @@ class TestServerSideCopyConfiguration(unittest.TestCase):
 @patch_policies(with_ec_default=True)
 class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
     container_info = {
+        'status': 200,
         'write_acl': None,
         'read_acl': None,
         'storage_policy': None,

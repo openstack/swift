@@ -36,7 +36,8 @@ from swift.common.utils import cache_from_env, get_logger, \
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
-from swift.proxy.controllers.base import get_container_info, NodeIter
+from swift.proxy.controllers.base import get_container_info, NodeIter, \
+    DEFAULT_RECHECK_CONTAINER_EXISTENCE, DEFAULT_RECHECK_ACCOUNT_EXISTENCE
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
@@ -106,9 +107,11 @@ class Application(object):
         self.error_suppression_limit = \
             int(conf.get('error_suppression_limit', 10))
         self.recheck_container_existence = \
-            int(conf.get('recheck_container_existence', 60))
+            int(conf.get('recheck_container_existence',
+                         DEFAULT_RECHECK_CONTAINER_EXISTENCE))
         self.recheck_account_existence = \
-            int(conf.get('recheck_account_existence', 60))
+            int(conf.get('recheck_account_existence',
+                         DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
         self.allow_account_management = \
             config_true_value(conf.get('allow_account_management', 'no'))
         self.container_ring = container_ring or Ring(swift_dir,

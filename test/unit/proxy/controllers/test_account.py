@@ -25,6 +25,7 @@ from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
+from swift.proxy.controllers.base import get_account_info
 
 from test.unit import patch_policies
 
@@ -376,6 +377,23 @@ class TestAccountController4Replicas(TestAccountController):
             ((503, 503, 503, 503), 503)
         ]
         self._assert_responses('POST', POST_TEST_CASES)
+
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+class TestGetAccountInfo(unittest.TestCase):
+    def setUp(self):
+        self.app = proxy_server.Application(
+            None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing())
+
+    def test_get_deleted_account_410(self):
+        resp_headers = {'x-account-status': 'deleted'}
+
+        req = Request.blank('/v1/a')
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(404, headers=resp_headers)):
+            info = get_account_info(req.environ, self.app)
+        self.assertEqual(410, info.get('status'))
 
 
 if __name__ == '__main__':

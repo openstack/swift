@@ -58,7 +58,7 @@ class TestContainerController(TestRingBase):
                 proxy_server.ContainerController):
 
             def account_info(controller, *args, **kwargs):
-                patch_path = 'swift.proxy.controllers.base.get_info'
+                patch_path = 'swift.proxy.controllers.base.get_account_info'
                 with mock.patch(patch_path) as mock_get_info:
                     mock_get_info.return_value = dict(self.account_info)
                     return super(FakeAccountInfoContainerController,
@@ -95,18 +95,21 @@ class TestContainerController(TestRingBase):
                              'Expected %s but got %s. Failed case: %s' %
                              (expected, resp.status_int, str(responses)))
 
-    def test_container_info_in_response_env(self):
+    def test_container_info_got_cached(self):
         controller = proxy_server.ContainerController(self.app, 'a', 'c')
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, body='')):
             req = Request.blank('/v1/a/c', {'PATH_INFO': '/v1/a/c'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
+        # Make sure it's in both swift.infocache and memcache
         self.assertTrue(
-            "swift.container/a/c" in resp.environ['swift.infocache'])
+            "swift.container/a/c" in req.environ['swift.infocache'])
         self.assertEqual(
             headers_to_container_info(resp.headers),
             resp.environ['swift.infocache']['swift.container/a/c'])
+        from_memcache = self.app.memcache.get('container/a/c')
+        self.assertTrue(from_memcache)
 
     def test_swift_owner(self):
         owner_headers = {
