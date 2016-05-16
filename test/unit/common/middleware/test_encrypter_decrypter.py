@@ -232,6 +232,39 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self._check_GET_and_HEAD_not_decrypted(self.proxy_app)
         self._check_listing(self.proxy_app, expect_mismatch=True)
 
+    def test_disable_encryption_config_option(self):
+        # check that on disable_encryption = true, object is not encrypted
+        enc = encrypter.Encrypter(
+            self.proxy_app, {'disable_encryption': 'true'})
+        km = keymaster.KeyMaster(enc, {'encryption_root_secret': 's3cr3t'})
+        crypto_app = decrypter.Decrypter(km, {})
+        self._create_container(self.proxy_app, policy_name='one')
+        self._put_object(crypto_app, self.plaintext)
+        self._post_object(crypto_app)
+        self._check_GET_and_HEAD(crypto_app)
+        # check as if no crypto middleware exists
+        self._check_GET_and_HEAD(self.proxy_app)
+        self._check_match_requests('GET', crypto_app)
+        self._check_match_requests('HEAD', crypto_app)
+        self._check_match_requests('GET', self.proxy_app)
+        self._check_match_requests('HEAD', self.proxy_app)
+
+    def test_write_with_crypto_read_with_disable_encryption_conf(self):
+        self._create_container(self.proxy_app, policy_name='one')
+        self._put_object(self.crypto_app, self.plaintext)
+        self._post_object(self.crypto_app)
+        self._check_GET_and_HEAD(self.crypto_app)  # sanity check
+        # turn on disable_encryption config option
+        enc = encrypter.Encrypter(
+            self.proxy_app, {'disable_encryption': 'true'})
+        km = keymaster.KeyMaster(enc, {'encryption_root_secret': 's3cr3t'})
+        crypto_app = decrypter.Decrypter(km, {})
+        # GET and HEAD of encrypted objects should still work
+        self._check_GET_and_HEAD(crypto_app)
+        self._check_listing(crypto_app, expect_mismatch=False)
+        self._check_match_requests('GET', crypto_app)
+        self._check_match_requests('HEAD', crypto_app)
+
 
 class TestCryptoPipelineChangesFastPost(TestCryptoPipelineChanges):
     @classmethod

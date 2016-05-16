@@ -550,6 +550,14 @@ class TestEncrypter(unittest.TestCase):
     def test_POST_constraints_checking(self):
         self._test_constraints_checking('POST')
 
+    def test_config_true_value_on_disable_encryption(self):
+        app = FakeSwift()
+        self.assertFalse(encrypter.Encrypter(app, {}).disable_encryption)
+        for val in ('true', '1', 'yes', 'on', 't', 'y'):
+            app = encrypter.Encrypter(app,
+                                      {'disable_encryption': val})
+            self.assertTrue(app.disable_encryption)
+
     def test_filter(self):
         factory = encrypter.filter_factory({})
         self.assertTrue(callable(factory))
