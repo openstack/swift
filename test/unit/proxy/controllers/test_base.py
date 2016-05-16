@@ -209,7 +209,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(info_c['object_count'], 1000)
         # Make sure the env cache is set
         exp_cached_info_c = {
-            k: str(v) if k in ('bytes', 'object_count') else v
+            k: str(v) if k in (
+                'bytes', 'object_count', 'storage_policy') else v
             for k, v in info_c.items()}
         self.assertEqual(env['swift.infocache'].get('account/a'),
                          exp_cached_info_a)
@@ -340,7 +341,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank("/v1/AUTH_account/cont",
                             environ={'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, FakeApp())
-        self.assertEqual(resp['storage_policy'], '0')
+        self.assertEqual(resp['storage_policy'], 0)
         self.assertEqual(resp['bytes'], 6666)
         self.assertEqual(resp['object_count'], 1000)
 
@@ -365,7 +366,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank("/v1/account/cont",
                             environ={'swift.cache': FakeCache(cache_stub)})
         resp = get_container_info(req.environ, FakeApp())
-        self.assertEqual(resp['storage_policy'], '0')
+        self.assertEqual(resp['storage_policy'], 0)
         self.assertEqual(resp['bytes'], 3333)
         self.assertEqual(resp['object_count'], 10)
         self.assertEqual(resp['status'], 404)

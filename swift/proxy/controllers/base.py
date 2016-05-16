@@ -349,11 +349,10 @@ def get_container_info(env, app, swift_source=None):
 
     # Old data format in memcache immediately after a Swift upgrade; clean
     # it up so consumers of get_container_info() aren't exposed to it.
-    info.setdefault('storage_policy', '0')
     if 'object_count' not in info and 'container_size' in info:
         info['object_count'] = info.pop('container_size')
 
-    for field in ('bytes', 'object_count'):
+    for field in ('storage_policy', 'bytes', 'object_count'):
         if info.get(field) is None:
             info[field] = 0
         else:
@@ -1499,10 +1498,7 @@ class Controller(object):
                 or not is_success(info['status'])
                 or not info.get('account_really_exists', True)):
             return None, None, None
-        if info.get('container_count') is None:
-            container_count = 0
-        else:
-            container_count = int(info['container_count'])
+        container_count = info['container_count']
         return partition, nodes, container_count
 
     def container_info(self, account, container, req=None):
@@ -1535,8 +1531,6 @@ class Controller(object):
         else:
             info['partition'] = part
             info['nodes'] = nodes
-        if info.get('storage_policy') is None:
-            info['storage_policy'] = 0
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,
