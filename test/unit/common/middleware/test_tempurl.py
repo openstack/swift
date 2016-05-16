@@ -96,7 +96,8 @@ class TestTempURL(unittest.TestCase):
             if key:
                 meta[meta_name] = key
 
-        environ['swift.account/' + account] = {
+        ic = environ.setdefault('swift.infocache', {})
+        ic['swift.account/' + account] = {
             'status': 204,
             'container_count': '0',
             'total_object_count': '0',
@@ -109,7 +110,7 @@ class TestTempURL(unittest.TestCase):
             meta[meta_name] = key
 
         container_cache_key = 'swift.container/' + account + '/c'
-        environ.setdefault(container_cache_key, {'meta': meta})
+        ic.setdefault(container_cache_key, {'meta': meta})
 
     def test_passthrough(self):
         resp = self._make_request('/v1/a/c/o').get_response(self.tempurl)
@@ -159,7 +160,8 @@ class TestTempURL(unittest.TestCase):
             self.assert_valid_sig(expires, path, [key1, key2], sig)
 
     def test_get_valid_container_keys(self):
-        environ = {}
+        ic = {}
+        environ = {'swift.infocache': ic}
         # Add two static container keys
         container_keys = ['me', 'other']
         meta = {}
@@ -167,7 +169,7 @@ class TestTempURL(unittest.TestCase):
             meta_name = 'Temp-URL-key' + (("-%d" % (idx + 1) if idx else ""))
             if key:
                 meta[meta_name] = key
-        environ['swift.container/a/c'] = {'meta': meta}
+        ic['swift.container/a/c'] = {'meta': meta}
 
         method = 'GET'
         expires = int(time() + 86400)

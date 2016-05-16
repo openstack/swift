@@ -68,9 +68,11 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/v1/AUTH_bob', {'PATH_INFO': '/v1/AUTH_bob'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
-        self.assertTrue('swift.account/AUTH_bob' in resp.environ)
-        self.assertEqual(headers_to_account_info(resp.headers),
-                         resp.environ['swift.account/AUTH_bob'])
+        self.assertTrue(
+            'swift.account/AUTH_bob' in resp.environ['swift.infocache'])
+        self.assertEqual(
+            headers_to_account_info(resp.headers),
+            resp.environ['swift.infocache']['swift.account/AUTH_bob'])
 
     def test_swift_owner(self):
         owner_headers = {

@@ -252,7 +252,7 @@ class SwiftAuth(unittest.TestCase):
         path = '/v1/' + account
         # fake cached account info
         _, info_key = _get_cache_key(account, None)
-        env = {info_key: {'status': 0, 'sysmeta': {}},
+        env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='3')}
         req = Request.blank(path, environ=env, headers=headers)
         req.method = 'POST'
@@ -281,7 +281,7 @@ class SwiftAuth(unittest.TestCase):
         path = '/v1/' + account
         # fake cached account info
         _, info_key = _get_cache_key(account, None)
-        env = {info_key: {'status': 0, 'sysmeta': {}},
+        env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='3')}
         req = Request.blank(path, environ=env, headers=headers)
         req.method = 'POST'
@@ -303,7 +303,7 @@ class SwiftAuth(unittest.TestCase):
         path = '/v1/' + account
         _, info_key = _get_cache_key(account, None)
         # v2 token
-        env = {info_key: {'status': 0, 'sysmeta': {}},
+        env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='2')}
         req = Request.blank(path, environ=env, headers=headers)
         req.method = 'POST'
@@ -325,7 +325,7 @@ class SwiftAuth(unittest.TestCase):
         path = '/v1/' + account
         _, info_key = _get_cache_key(account, None)
         # v2 token
-        env = {info_key: {'status': 0, 'sysmeta': {}},
+        env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='2')}
         req = Request.blank(path, environ=env, headers=headers)
         req.method = 'POST'
@@ -382,7 +382,7 @@ class ServiceTokenFunctionality(unittest.TestCase):
                                        service_role=service_role)
         (version, account, _junk, _junk) = split_path(path, 2, 4, True)
         _, info_key = _get_cache_key(account, None)
-        env = {info_key: {'status': 0, 'sysmeta': {}},
+        env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='2')}
         if environ:
             env.update(environ)
@@ -596,8 +596,9 @@ class TestAuthorize(BaseTestAuthorize):
             path = '/v1/%s/c' % account
         # fake cached account info
         _, info_key = _get_cache_key(account, None)
-        default_env = {'REMOTE_USER': identity['HTTP_X_TENANT_ID'],
-                       info_key: {'status': 200, 'sysmeta': {}}}
+        default_env = {
+            'REMOTE_USER': identity['HTTP_X_TENANT_ID'],
+            'swift.infocache': {info_key: {'status': 200, 'sysmeta': {}}}}
         default_env.update(identity)
         if env:
             default_env.update(env)
@@ -986,7 +987,7 @@ class TestAuthorize(BaseTestAuthorize):
         info = {'sysmeta': sysmeta}
         _, info_key = _get_cache_key('AUTH_1234', None)
         env = {'PATH_INFO': '/v1/AUTH_1234',
-               info_key: info}
+               'swift.infocache': {info_key: info}}
 
         # account does not exist
         info['status'] = 404
@@ -1029,7 +1030,8 @@ class TestIsNameAllowedInACL(BaseTestAuthorize):
         # pretend account exists
         info = {'status': 200, 'sysmeta': sysmeta}
         _, info_key = _get_cache_key(account, None)
-        req = Request.blank(path, environ={info_key: info})
+        req = Request.blank(path,
+                            environ={'swift.infocache': {info_key: info}})
 
         if scoped == 'account':
             project_name = 'account_name'
@@ -1215,7 +1217,7 @@ class TestSetProjectDomain(BaseTestAuthorize):
             sysmeta['project-domain-id'] = sysmeta_project_domain_id
         info = {'status': status, 'sysmeta': sysmeta}
         _, info_key = _get_cache_key(account, None)
-        env = {info_key: info}
+        env = {'swift.infocache': {info_key: info}}
 
         # create fake env identity
         env_id = self._get_env_id(tenant_id=req_project_id,

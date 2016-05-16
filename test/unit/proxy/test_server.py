@@ -6319,22 +6319,23 @@ class TestContainerController(unittest.TestCase):
                 res = controller.HEAD(req)
                 self.assertEqual(res.status[:len(str(expected))],
                                  str(expected))
+                infocache = res.environ.get('swift.infocache', {})
                 if expected < 400:
-                    self.assertTrue('x-works' in res.headers)
+                    self.assertIn('x-works', res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
                 if c_expected:
-                    self.assertTrue('swift.container/a/c' in res.environ)
+                    self.assertIn('swift.container/a/c', infocache)
                     self.assertEqual(
-                        res.environ['swift.container/a/c']['status'],
+                        infocache['swift.container/a/c']['status'],
                         c_expected)
                 else:
-                    self.assertTrue('swift.container/a/c' not in res.environ)
+                    self.assertNotIn('swift.container/a/c', infocache)
                 if a_expected:
-                    self.assertTrue('swift.account/a' in res.environ)
-                    self.assertEqual(res.environ['swift.account/a']['status'],
+                    self.assertIn('swift.account/a', infocache)
+                    self.assertEqual(infocache['swift.account/a']['status'],
                                      a_expected)
                 else:
-                    self.assertTrue('swift.account/a' not in res.environ)
+                    self.assertNotIn('swift.account/a', res.environ)
 
                 set_http_connect(*statuses, **kwargs)
                 self.app.memcache.store = {}
@@ -6343,22 +6344,23 @@ class TestContainerController(unittest.TestCase):
                 res = controller.GET(req)
                 self.assertEqual(res.status[:len(str(expected))],
                                  str(expected))
+                infocache = res.environ.get('swift.infocache', {})
                 if expected < 400:
                     self.assertTrue('x-works' in res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
                 if c_expected:
-                    self.assertTrue('swift.container/a/c' in res.environ)
+                    self.assertIn('swift.container/a/c', infocache)
                     self.assertEqual(
-                        res.environ['swift.container/a/c']['status'],
+                        infocache['swift.container/a/c']['status'],
                         c_expected)
                 else:
-                    self.assertTrue('swift.container/a/c' not in res.environ)
+                    self.assertNotIn('swift.container/a/c', infocache)
                 if a_expected:
-                    self.assertTrue('swift.account/a' in res.environ)
-                    self.assertEqual(res.environ['swift.account/a']['status'],
+                    self.assertIn('swift.account/a', infocache)
+                    self.assertEqual(infocache['swift.account/a']['status'],
                                      a_expected)
                 else:
-                    self.assertTrue('swift.account/a' not in res.environ)
+                    self.assertNotIn('swift.account/a', infocache)
             # In all the following tests cache 200 for account
             # return and ache vary for container
             # return 200 and cache 200 for and container
@@ -6970,8 +6972,8 @@ class TestContainerController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.GET(req)
             self.assertEqual(res.status_int, 204)
-            self.assertEqual(
-                res.environ['swift.container/a/c']['status'], 204)
+            ic = res.environ['swift.infocache']
+            self.assertEqual(ic['swift.container/a/c']['status'], 204)
             self.assertEqual(res.content_length, 0)
             self.assertTrue('transfer-encoding' not in res.headers)
 
@@ -6989,7 +6991,9 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             res = controller.GET(req)
-        self.assertEqual(res.environ['swift.container/a/c']['status'], 201)
+        self.assertEqual(
+            res.environ['swift.infocache']['swift.container/a/c']['status'],
+            201)
         self.assertTrue(called[0])
 
     def test_HEAD_calls_authorize(self):
@@ -7457,16 +7461,18 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             res = method(req)
             self.assertEqual(res.status_int, expected)
+            infocache = res.environ.get('swift.infocache', {})
             if env_expected:
-                self.assertEqual(res.environ['swift.account/a']['status'],
+                self.assertEqual(infocache['swift.account/a']['status'],
                                  env_expected)
             set_http_connect(*statuses)
             req = Request.blank('/v1/a/', {})
             self.app.update_request(req)
             res = method(req)
+            infocache = res.environ.get('swift.infocache', {})
             self.assertEqual(res.status_int, expected)
             if env_expected:
-                self.assertEqual(res.environ['swift.account/a']['status'],
+                self.assertEqual(infocache['swift.account/a']['status'],
                                  env_expected)
 
     def test_OPTIONS(self):

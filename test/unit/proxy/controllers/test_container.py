@@ -102,9 +102,11 @@ class TestContainerController(TestRingBase):
             req = Request.blank('/v1/a/c', {'PATH_INFO': '/v1/a/c'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
-        self.assertTrue("swift.container/a/c" in resp.environ)
-        self.assertEqual(headers_to_container_info(resp.headers),
-                         resp.environ['swift.container/a/c'])
+        self.assertTrue(
+            "swift.container/a/c" in resp.environ['swift.infocache'])
+        self.assertEqual(
+            headers_to_container_info(resp.headers),
+            resp.environ['swift.infocache']['swift.container/a/c'])
 
     def test_swift_owner(self):
         owner_headers = {
