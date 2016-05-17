@@ -2601,6 +2601,19 @@ cluster_dfw1 = http://dfw1.host/v1/
         try:
             fallocate = utils.FallocateWrapper(noop=True)
             utils.os.fstatvfs = fstatvfs
+
+            # Make sure setting noop, which disables fallocate, also stops the
+            # fallocate_reserve check.
+            # Set the fallocate_reserve to 99% and request an object that is
+            # about 50% the size. With fallocate_reserve off this will succeed.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('99%')
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(500)), 0)
+
+            # Setting noop to False after the constructor allows us to use
+            # a noop fallocate syscall and still test fallocate_reserve.
+            fallocate.noop = False
+
             # Want 1023 reserved, have 1024 * 1 free, so succeeds
             utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
                 utils.config_fallocate_value('1023')

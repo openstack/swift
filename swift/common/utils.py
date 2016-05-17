@@ -596,7 +596,8 @@ class FileLikeIter(object):
 class FallocateWrapper(object):
 
     def __init__(self, noop=False):
-        if noop:
+        self.noop = noop
+        if self.noop:
             self.func_name = 'posix_fallocate'
             self.fallocate = noop_libc_function
             return
@@ -614,16 +615,18 @@ class FallocateWrapper(object):
 
     def __call__(self, fd, mode, offset, length):
         """The length parameter must be a ctypes.c_uint64."""
-        if FALLOCATE_RESERVE > 0:
-            st = os.fstatvfs(fd)
-            free = st.f_frsize * st.f_bavail - length.value
-            if FALLOCATE_IS_PERCENT:
-                free = (float(free) / float(st.f_frsize * st.f_blocks)) * 100
-            if float(free) <= float(FALLOCATE_RESERVE):
-                raise OSError(
-                    errno.ENOSPC,
-                    'FALLOCATE_RESERVE fail %s <= %s' % (free,
-                                                         FALLOCATE_RESERVE))
+        if not self.noop:
+            if FALLOCATE_RESERVE > 0:
+                st = os.fstatvfs(fd)
+                free = st.f_frsize * st.f_bavail - length.value
+                if FALLOCATE_IS_PERCENT:
+                    free = \
+                        (float(free) / float(st.f_frsize * st.f_blocks)) * 100
+                if float(free) <= float(FALLOCATE_RESERVE):
+                    raise OSError(
+                        errno.ENOSPC,
+                        'FALLOCATE_RESERVE fail %s <= %s' %
+                        (free, FALLOCATE_RESERVE))
         args = {
             'fallocate': (fd, mode, offset, length),
             'posix_fallocate': (fd, offset, length)
