@@ -1,4 +1,5 @@
-# Copyright (c) 2015 OpenStack Foundation
+# -*- coding: utf-8 -*-
+#  Copyright (c) 2015 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import base64
+import os
+
 import unittest
 
 from swift.common import swob
@@ -20,6 +23,7 @@ from swift.common.middleware import keymaster
 from swift.common.middleware.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
+from test.unit.common.middleware.crypto_helpers import TEST_KEYMASTER_CONF
 
 
 def capture_start_response():
@@ -47,8 +51,7 @@ class TestKeymaster(unittest.TestCase):
 
     def verify_keys_for_path(self, path, expected_keys, key_id=None):
         put_keys = None
-        app = keymaster.KeyMaster(self.swift,
-                                  {'encryption_root_secret': 'secret'})
+        app = keymaster.KeyMaster(self.swift, TEST_KEYMASTER_CONF)
         for method, resp_class, status in (
                 ('PUT', swob.HTTPCreated, '201'),
                 ('POST', swob.HTTPAccepted, '202'),
@@ -115,8 +118,7 @@ class TestKeymaster(unittest.TestCase):
         # first get keys when path matches key_id
         method = 'HEAD'
         self.swift.register(method, path, swob.HTTPOk, resp_headers, '')
-        app = keymaster.KeyMaster(self.swift,
-                                  {'encryption_root_secret': 'secret'})
+        app = keymaster.KeyMaster(self.swift, TEST_KEYMASTER_CONF)
         req = Request.blank(path, environ={'REQUEST_METHOD': method})
         start_response, calls = capture_start_response()
         app(req.environ, start_response)
@@ -129,8 +131,7 @@ class TestKeymaster(unittest.TestCase):
         path = '/v1/a/got/relocated'
         for method in ('HEAD', 'GET'):
             self.swift.register(method, path, swob.HTTPOk, resp_headers, '')
-            app = keymaster.KeyMaster(self.swift,
-                                      {'encryption_root_secret': 'secret'})
+            app = keymaster.KeyMaster(self.swift, TEST_KEYMASTER_CONF)
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -145,8 +146,7 @@ class TestKeymaster(unittest.TestCase):
         for method in ('HEAD', 'GET'):
             path = '/v1/a/c/o'
             self.swift.register(method, path, swob.HTTPOk, {}, '')
-            app = keymaster.KeyMaster(self.swift,
-                                      {'encryption_root_secret': 'secret'})
+            app = keymaster.KeyMaster(self.swift, TEST_KEYMASTER_CONF)
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -167,8 +167,7 @@ class TestKeymaster(unittest.TestCase):
                 {'x-object-transient-sysmeta-crypto-meta-foo': 'gotcha',
                  'x-object-meta-foo': 'ciphertext of user meta value'},
                 '')
-            app = keymaster.KeyMaster(self.swift,
-                                      {'encryption_root_secret': 'secret'})
+            app = keymaster.KeyMaster(self.swift, TEST_KEYMASTER_CONF)
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -195,8 +194,7 @@ class TestKeymaster(unittest.TestCase):
                                  'x-object-meta-crypto-meta': 'no probs',
                                  'crypto-meta': 'pas de problem'},
                                 '')
-            app = keymaster.KeyMaster(self.swift,
-                                      {'encryption_root_secret': 'secret'})
+            app = keymaster.KeyMaster(self.swift, TEST_KEYMASTER_CONF)
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -204,29 +202,51 @@ class TestKeymaster(unittest.TestCase):
             self.assertEqual('200 OK', calls[0][0])
 
     def test_filter(self):
-        factory = keymaster.filter_factory(
-            {'encryption_root_secret': 'secret'})
+        factory = keymaster.filter_factory(TEST_KEYMASTER_CONF)
         self.assertTrue(callable(factory))
         self.assertTrue(callable(factory(self.swift)))
 
     def test_app_exception(self):
         app = keymaster.KeyMaster(
-            FakeAppThatExcepts(), {'encryption_root_secret': 'secret'})
+            FakeAppThatExcepts(), TEST_KEYMASTER_CONF)
         req = Request.blank('/', environ={'REQUEST_METHOD': 'PUT'})
         start_response, _ = capture_start_response()
         self.assertRaises(Exception, app, req.environ, start_response)
 
-    def test_key_loaded(self):
-        app = keymaster.KeyMaster(self.swift,
-                                  {'encryption_root_secret': 'secret'})
-        self.assertEqual('secret', app.root_secret)
+    def test_root_secret(self):
+        for secret in (os.urandom(32), os.urandom(33), os.urandom(50)):
+            encoded_secret = base64.b64encode(secret)
+            try:
+                app = keymaster.KeyMaster(
+                    self.swift, {'encryption_root_secret':
+                                 bytes(encoded_secret)})
+                self.assertEqual(secret, app.root_secret)
+            except AssertionError as err:
+                self.fail(str(err) + ' for secret %s' % secret)
+            try:
+                app = keymaster.KeyMaster(
+                    self.swift, {'encryption_root_secret':
+                                 unicode(encoded_secret)})
+                self.assertEqual(secret, app.root_secret)
+            except AssertionError as err:
+                self.fail(str(err) + ' for secret %s' % secret)
 
-    def test_no_root_secret_error(self):
-        with self.assertRaises(ValueError) as err:
-            keymaster.KeyMaster(self.swift, {})
-
-        self.assertEqual('encryption_root_secret not set in proxy-server.conf',
-                         err.exception.message)
+    def test_invalid_root_secret(self):
+        for secret in (bytes(base64.b64encode(os.urandom(31))),  # too short
+                       unicode(base64.b64encode(os.urandom(31))),
+                       u'?' * 44, b'?' * 44,  # not base64
+                       u'a' * 45, b'a' * 45,  # bad padding
+                       99, None):
+            try:
+                conf = {'encryption_root_secret': secret}
+                with self.assertRaises(ValueError) as err:
+                    keymaster.KeyMaster(self.swift, conf)
+                self.assertEqual(
+                    'encryption_root_secret option in proxy-server.conf '
+                    'must be a base64 encoding of at least 32 raw bytes',
+                    err.exception.message)
+            except AssertionError as err:
+                self.fail(str(err) + ' for conf %s' % str(conf))
 
 
 if __name__ == '__main__':

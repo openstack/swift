@@ -25,7 +25,8 @@ from swift.common.swob import Request
 from swift.obj import diskfile
 
 from test.unit import FakeLogger
-from test.unit.common.middleware.crypto_helpers import md5hex, encrypt
+from test.unit.common.middleware.crypto_helpers import (
+    md5hex, encrypt, TEST_KEYMASTER_CONF)
 from test.unit.helpers import setup_servers, teardown_servers
 
 
@@ -59,8 +60,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         # via the crypto middleware. Make a fresh instance for each test to
         # avoid any state coupling.
         enc = encrypter.Encrypter(self.proxy_app, {})
-        self.km = keymaster.KeyMaster(enc,
-                                      {'encryption_root_secret': 's3cr3t'})
+        self.km = keymaster.KeyMaster(enc, TEST_KEYMASTER_CONF)
         self.crypto_app = decrypter.Decrypter(self.km, {})
 
     def _create_container(self, app, policy_name='one'):
@@ -308,7 +308,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         # check that on disable_encryption = true, object is not encrypted
         enc = encrypter.Encrypter(
             self.proxy_app, {'disable_encryption': 'true'})
-        km = keymaster.KeyMaster(enc, {'encryption_root_secret': 's3cr3t'})
+        km = keymaster.KeyMaster(enc, TEST_KEYMASTER_CONF)
         crypto_app = decrypter.Decrypter(km, {})
         self._create_container(self.proxy_app, policy_name='one')
         self._put_object(crypto_app, self.plaintext)
@@ -329,7 +329,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         # turn on disable_encryption config option
         enc = encrypter.Encrypter(
             self.proxy_app, {'disable_encryption': 'true'})
-        km = keymaster.KeyMaster(enc, {'encryption_root_secret': 's3cr3t'})
+        km = keymaster.KeyMaster(enc, TEST_KEYMASTER_CONF)
         crypto_app = decrypter.Decrypter(km, {})
         # GET and HEAD of encrypted objects should still work
         self._check_GET_and_HEAD(crypto_app)

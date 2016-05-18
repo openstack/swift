@@ -175,11 +175,15 @@ class KeyMaster(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route="keymaster")
-        self.root_secret = conf.get('encryption_root_secret', None)
-        if not self.root_secret:
-            raise ValueError('encryption_root_secret not set in '
-                             'proxy-server.conf')
-        self.root_secret = self.root_secret.encode('utf-8')
+        self.root_secret = conf.get('encryption_root_secret')
+        try:
+            self.root_secret = base64.b64decode(self.root_secret)
+            if len(self.root_secret) < 32:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError(
+                'encryption_root_secret option in proxy-server.conf must be '
+                'a base64 encoding of at least 32 raw bytes')
 
     def __call__(self, env, start_response):
         req = Request(env)

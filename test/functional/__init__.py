@@ -361,6 +361,12 @@ def in_process_setup(the_object_server=object_server):
         'allow_account_management': 'true',
         'account_autocreate': 'true',
         'allow_versions': 'True',
+        # TODO - Remove encryption_root_secret - this is only necessary while
+        # encryption middleware is in the default proxy pipeline in
+        # proxy-server.conf-sample
+        # base64 encoding of "dontEverUseThisIn_PRODUCTION_xxxxxxxxxxxxxxx"
+        'encryption_root_secret':
+            'ZG9udEV2ZXJVc2VUaGlzSW5fUFJPRFVDVElPTl94eHh4eHh4eHh4eHh4eHg=',
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
         'auth_host': '127.0.0.1',

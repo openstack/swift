@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import base64
 import hashlib
 
 from swift.common.middleware.crypto_utils import Crypto
@@ -41,6 +42,9 @@ def decrypt(key, iv, enc_val):
 
 
 FAKE_IV = "This is an IV123"
+# do not use this example encryption_root_secret in production, use a randomly
+# generated value with high entropy
+TEST_KEYMASTER_CONF = {'encryption_root_secret': base64.b64encode(b'x' * 32)}
 
 
 def fake_get_crypto_meta(**kwargs):
