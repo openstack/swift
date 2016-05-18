@@ -57,8 +57,6 @@ class EncInputWrapper(object):
         self.crypto = crypto
         self.body_crypto_ctxt = None
         self.keys = keys
-        # remove any Etag from headers, it won't be valid for ciphertext and
-        # we'll send the ciphertext Etag later in footer metadata
         self.plaintext_md5 = None
         self.ciphertext_md5 = None
         self.logger = logger
@@ -72,6 +70,7 @@ class EncInputWrapper(object):
             # wrap the body key with object key
             self.body_crypto_meta['body_key'] = self.crypto.wrap_key(
                 self.keys['object'], body_key)
+            self.body_crypto_meta['key_id'] = self.keys['id']
             self.body_crypto_ctxt = self.crypto.create_encryption_ctxt(
                 body_key, self.body_crypto_meta.get('iv'))
             self.plaintext_md5 = md5()
@@ -81,6 +80,8 @@ class EncInputWrapper(object):
         # the proxy controller will call back for footer metadata after
         # body has been sent
         inner_callback = req.environ.get('swift.callback.update_footers')
+        # remove any Etag from headers, it won't be valid for ciphertext and
+        # we'll send the ciphertext Etag later in footer metadata
         client_etag = req.headers.pop('etag', None)
         container_listing_etag_header = req.headers.get(
             'X-Object-Sysmeta-Container-Update-Override-Etag')
@@ -142,13 +143,13 @@ class EncInputWrapper(object):
                 # Encrypt the container-listing etag using the container key
                 # and use it to override the container update value, with the
                 # crypto parameters appended.
-
-                val = append_crypto_meta(*encrypt_header_val(
+                val, crypto_meta = encrypt_header_val(
                     self.crypto, container_listing_etag,
                     self.keys['container'],
-                    iv_base=os.path.join(os.sep, path_for_base)))
+                    iv_base=os.path.join(os.sep, path_for_base))
+                crypto_meta['key_id'] = self.keys['id']
                 footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
-                    val
+                    append_crypto_meta(val, crypto_meta)
 
         req.environ['swift.callback.update_footers'] = footers_callback
 
@@ -198,12 +199,11 @@ class EncrypterObjContext(CryptoWSGIContext):
             if is_user_meta(self.server_type, name) and val:
                 req.headers[name], meta = encrypt_header_val(
                     self.crypto, val, keys[self.server_type])
+                meta['key_id'] = keys['id']
                 # short_name is extracted in order to use it for naming the
                 # corresponding x-object-transient-sysmeta-crypto- header
                 short_name = strip_user_meta_prefix(self.server_type, name)
                 req.headers[prefix + short_name] = dump_crypto_meta(meta)
-                self.logger.debug("encrypted user meta %s: %s",
-                                  name, req.headers[name])
 
     def PUT(self, req, start_response):
         self._check_headers(req)

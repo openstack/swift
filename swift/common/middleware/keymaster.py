@@ -28,11 +28,8 @@ import hashlib
 import hmac
 import os
 
-from swift.common.middleware.crypto_utils import (
-    is_crypto_meta, CRYPTO_KEY_CALLBACK)
-from swift.common.request_helpers import get_sys_meta_prefix
-from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
-from swift.common.utils import get_logger, split_path
+from swift.common.middleware.crypto_utils import CRYPTO_KEY_CALLBACK
+from swift.common.swob import Request, HTTPException
 from swift.common.wsgi import WSGIContext
 
 
@@ -46,35 +43,52 @@ class KeyMasterContext(WSGIContext):
         """
         super(KeyMasterContext, self).__init__(keymaster.app)
         self.keymaster = keymaster
-        self.logger = keymaster.logger
         self.account = account
         self.container = container
         self.obj = obj
-        self._init_keys()
+        self._keys = None
 
-    def _init_keys(self):
+    def fetch_crypto_keys(self):
         """
-        Setup default container and object keys based on the request path.
+        Setup container and object keys based on the request path.
+
+        Keys are derived from request path. The 'id' entry in the results dict
+        includes the part of the path used to derived keys. Other keymaster
+        implementations may use a different strategy to generate keys and may
+        include a different type of 'id', so callers should treat the 'id' as
+        opaque keymaster-specific data.
+
+        :returns: A dict containing encryption keys for 'object' and
+                  'container' and a key 'id'.
         """
-        self.keys = {}
-        self.account_path = os.path.join(os.sep, self.account)
-        self.container_path = self.obj_path = None
-        self.server_type = 'account'
+        if self._keys:
+            return self._keys
+
+        self._keys = {}
+        account_path = os.path.join(os.sep, self.account)
 
         if self.container:
-            self.server_type = 'container'
-            self.container_path = os.path.join(self.account_path,
-                                               self.container)
-            self.keys['container'] = self.keymaster.create_key(
-                self.container_path)
+            path = os.path.join(account_path, self.container)
+            self._keys['container'] = self.keymaster.create_key(path)
 
             if self.obj:
-                self.server_type = 'object'
-                self.obj_path = os.path.join(self.container_path, self.obj)
-                self.keys['object'] = self.keymaster.create_key(
-                    self.obj_path)
+                path = os.path.join(path, self.obj)
+                self._keys['object'] = self.keymaster.create_key(path)
 
-    def _handle_post_or_put(self, req, start_response):
+            # For future-proofing include a keymaster version number and the
+            # path used to derive keys in the 'id' entry of the results. The
+            # encrypter will persist this as part of the crypto-meta for
+            # encrypted data and metadata. If we ever change the way keys are
+            # generated then the decrypter could pass the persisted 'id' value
+            # when it calls fetch_crypto_keys to inform the keymaster as to how
+            # that particular data or metadata had its keys generated.
+            # Currently we have no need to do that, so we are simply persisting
+            # this information for future use.
+            self._keys['id'] = {'v': '1', 'path': base64.b64encode(path)}
+
+        return self._keys
+
+    def _handle_request(self, req, start_response):
         req.environ[CRYPTO_KEY_CALLBACK] = self.fetch_crypto_keys
         resp = self._app_call(req.environ)
         start_response(self._response_status, self._response_headers,
@@ -82,99 +96,22 @@ class KeyMasterContext(WSGIContext):
         return resp
 
     def PUT(self, req, start_response):
-        if self.obj_path:
-            # TODO: re-examine need for this special handling once COPY has
-            # been moved to middleware.
-            # For object PUT we save a key_id as obj sysmeta so that if the
-            # object is copied to another location we can use the key_id
-            # (rather than its new path) to calculate its key for a GET or
-            # HEAD.
-            id_name = "%scrypto-id" % get_sys_meta_prefix(self.server_type)
-            req.headers[id_name] = \
-                base64.b64encode(self.obj_path)
-
-        return self._handle_post_or_put(req, start_response)
+        return self._handle_request(req, start_response)
 
     def POST(self, req, start_response):
-        return self._handle_post_or_put(req, start_response)
+        return self._handle_request(req, start_response)
 
     def GET(self, req, start_response):
-        return self._handle_get_or_head(req, start_response)
+        return self._handle_request(req, start_response)
 
     def HEAD(self, req, start_response):
-        return self._handle_get_or_head(req, start_response)
-
-    def _handle_get_or_head(self, req, start_response):
-        # To get if-match requests working, we now need to provide the keys
-        # before we get a response from the object server. There might be
-        # a better way of doing this.
-        self.provide_keys_get_or_head(req, False)
-        resp = self._app_call(req.environ)
-        self.provide_keys_get_or_head(req, True)
-        start_response(self._response_status, self._response_headers,
-                       self._response_exc_info)
-        return resp
-
-    def error_if_need_keys(self, req):
-        # Determine if keys will actually be needed
-        # Look for any crypto-meta headers
-        if not hasattr(self, '_response_headers'):
-            return
-        for (h, v) in self._response_headers:
-            if is_crypto_meta(h, self.server_type):
-                    raise HTTPUnprocessableEntity(
-                        "Cannot get keys for path %s" % req.path)
-
-        self.logger.debug("No keys necessary for path %s", req.path)
-
-    def provide_keys_get_or_head(self, req, rederive):
-        if rederive and self.obj_path:
-            # TODO: re-examine need for this special handling once COPY has
-            # been moved to middleware.
-            # For object GET or HEAD we look for a key_id that may have been
-            # stored in the object sysmeta during a PUT and use that to
-            # calculate the object key, in case the object has been copied to a
-            # new path.
-            try:
-                id_name = \
-                    "%scrypto-id" % get_sys_meta_prefix(self.server_type)
-                obj_key_path = self._response_header_value(id_name)
-                if not obj_key_path:
-                    raise ValueError('No object key was found.')
-                try:
-                    obj_key_path = base64.b64decode(obj_key_path)
-                except TypeError:
-                    self.logger.warning("path %s could not be decoded",
-                                        obj_key_path)
-                    raise ValueError("path %s could not be decoded" %
-                                     obj_key_path)
-                path_acc, path_cont, path_obj = \
-                    split_path(obj_key_path, 3, 3, True)
-                cont_key_path = os.path.join(os.sep, path_acc, path_cont)
-                self.keys['container'] = self.keymaster.create_key(
-                    cont_key_path)
-                self.logger.debug("obj key id: %s", obj_key_path)
-                self.logger.debug("cont key id: %s", cont_key_path)
-                self.keys['object'] = self.keymaster.create_key(
-                    obj_key_path)
-            except ValueError:
-                req.environ['swift.crypto.override'] = True
-                self.error_if_need_keys(req)
-
-        if not req.environ.get('swift.crypto.override'):
-            req.environ[CRYPTO_KEY_CALLBACK] = self.fetch_crypto_keys
-        else:
-            req.environ.pop(CRYPTO_KEY_CALLBACK, None)
-
-    def fetch_crypto_keys(self):
-        return self.keys
+        return self._handle_request(req, start_response)
 
 
 class KeyMaster(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.logger = get_logger(conf, log_route="keymaster")
         self.root_secret = conf.get('encryption_root_secret')
         try:
             self.root_secret = base64.b64decode(self.root_secret)
