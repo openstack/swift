@@ -107,7 +107,6 @@ Other
 
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
 * `Better Staticweb <https://github.com/CloudVPS/better-staticweb>`_ - Makes swift containers accessible by default.
-* `Swiftsync <https://github.com/stackforge/swiftsync>`_ - A massive syncer between two swift clusters.
 * `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple Django web app to access OpenStack Swift.
 * `Swift-account-stats <https://github.com/enovance/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
 * `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ - High Level Erasure Code library used by Swift
