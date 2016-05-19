@@ -103,11 +103,10 @@ class TestContainerController(TestRingBase):
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
         # Make sure it's in both swift.infocache and memcache
-        self.assertTrue(
-            "swift.container/a/c" in req.environ['swift.infocache'])
+        self.assertIn("container/a/c", resp.environ['swift.infocache'])
         self.assertEqual(
             headers_to_container_info(resp.headers),
-            resp.environ['swift.infocache']['swift.container/a/c'])
+            resp.environ['swift.infocache']['container/a/c'])
         from_memcache = self.app.memcache.get('container/a/c')
         self.assertTrue(from_memcache)
 

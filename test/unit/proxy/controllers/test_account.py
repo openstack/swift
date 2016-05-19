@@ -69,11 +69,10 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/v1/AUTH_bob', {'PATH_INFO': '/v1/AUTH_bob'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
-        self.assertTrue(
-            'swift.account/AUTH_bob' in resp.environ['swift.infocache'])
+        self.assertIn('account/AUTH_bob', resp.environ['swift.infocache'])
         self.assertEqual(
             headers_to_account_info(resp.headers),
-            resp.environ['swift.infocache']['swift.account/AUTH_bob'])
+            resp.environ['swift.infocache']['account/AUTH_bob'])
 
     def test_swift_owner(self):
         owner_headers = {
@@ -228,13 +227,20 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(1, len(resp.headers))  # we always get Content-Type
         self.assertEqual(2, len(resp.environ))
 
-    def test_memcache_key_impossible_cases(self):
+    def test_cache_key_impossible_cases(self):
         # For test coverage: verify that defensive coding does defend, in cases
         # that shouldn't arise naturally
-        self.assertRaises(
-            ValueError,
-            lambda: swift.proxy.controllers.base.get_container_memcache_key(
-                '/a', None))
+        with self.assertRaises(ValueError):
+            # Container needs account
+            swift.proxy.controllers.base.get_cache_key(None, 'c')
+
+        with self.assertRaises(ValueError):
+            # Object needs account
+            swift.proxy.controllers.base.get_cache_key(None, 'c', 'o')
+
+        with self.assertRaises(ValueError):
+            # Object needs container
+            swift.proxy.controllers.base.get_cache_key('a', None, 'o')
 
     def test_stripping_swift_admin_headers(self):
         # Verify that a GET/HEAD which receives privileged headers from the

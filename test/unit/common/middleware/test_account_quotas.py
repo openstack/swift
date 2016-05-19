@@ -18,9 +18,8 @@ from swift.common.swob import Request, wsgify, HTTPForbidden, \
 
 from swift.common.middleware import account_quotas, copy
 
-from swift.proxy.controllers.base import _get_cache_key, \
-    headers_to_account_info, get_object_env_key, \
-    headers_to_object_info
+from swift.proxy.controllers.base import get_cache_key, \
+    headers_to_account_info, headers_to_object_info
 
 
 class FakeCache(object):
@@ -58,8 +57,8 @@ class FakeApp(object):
                 return aresp(env, start_response)
         if env['REQUEST_METHOD'] == "HEAD" and \
                 env['PATH_INFO'] == '/v1/a/c2/o2':
-            env_key = get_object_env_key('a', 'c2', 'o2')
-            env.setdefault('swift.infocache', {})[env_key] = \
+            cache_key = get_cache_key('a', 'c2', 'o2')
+            env.setdefault('swift.infocache', {})[cache_key] = \
                 headers_to_object_info(self.headers, 200)
             start_response('200 OK', self.headers)
         elif env['REQUEST_METHOD'] == "HEAD" and \
@@ -67,8 +66,8 @@ class FakeApp(object):
             start_response('404 Not Found', [])
         else:
             # Cache the account_info (same as a real application)
-            cache_key, env_key = _get_cache_key('a', None)
-            env.setdefault('swift.infocache', {})[env_key] = \
+            cache_key = get_cache_key('a')
+            env.setdefault('swift.infocache', {})[cache_key] = \
                 headers_to_account_info(self.headers, 200)
             start_response('200 OK', self.headers)
         return []

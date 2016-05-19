@@ -107,18 +107,6 @@ def delay_denial(func):
     return func
 
 
-def get_account_memcache_key(account):
-    cache_key, env_key = _get_cache_key(account, None)
-    return cache_key
-
-
-def get_container_memcache_key(account, container):
-    if not container:
-        raise ValueError("container not provided")
-    cache_key, env_key = _get_cache_key(account, container)
-    return cache_key
-
-
 def _prep_headers_to_info(headers, server_type):
     """
     Helper method that iterates once over a dict of headers,
@@ -424,17 +412,24 @@ def get_account_info(env, app, swift_source=None):
     return info
 
 
-def _get_cache_key(account, container):
+def get_cache_key(account, container=None, obj=None):
     """
-    Get the keys for both memcache (cache_key) and env (env_key)
-    where info about accounts and containers is cached
+    Get the keys for both memcache and env['swift.infocache'] (cache_key)
+    where info about accounts, containers, and objects is cached
 
     :param account: The name of the account
     :param container: The name of the container (or None if account)
-    :returns: a tuple of (cache_key, env_key)
+    :param obj: The name of the object (or None if account or container)
+    :returns: a string cache_key
     """
 
-    if container:
+    if obj:
+        if not (account and container):
+            raise ValueError('Object cache key requires account and container')
+        cache_key = 'object/%s/%s/%s' % (account, container, obj)
+    elif container:
+        if not account:
+            raise ValueError('Container cache key requires account')
         cache_key = 'container/%s/%s' % (account, container)
     else:
         cache_key = 'account/%s' % account
@@ -442,22 +437,7 @@ def _get_cache_key(account, container):
     # This allows caching both account and container and ensures that when we
     # copy this env to form a new request, it won't accidentally reuse the
     # old container or account info
-    env_key = 'swift.%s' % cache_key
-    return cache_key, env_key
-
-
-def get_object_env_key(account, container, obj):
-    """
-    Get the keys for env (env_key) where info about object is cached
-
-    :param account: The name of the account
-    :param container: The name of the container
-    :param obj: The name of the object
-    :returns: a string env_key
-    """
-    env_key = 'swift.object/%s/%s/%s' % (account,
-                                         container, obj)
-    return env_key
+    return cache_key
 
 
 def set_info_cache(app, env, account, container, resp):
@@ -483,7 +463,7 @@ def set_info_cache(app, env, account, container, resp):
         cache_time = int(resp.headers.get(
             'X-Backend-Recheck-Account-Existence',
             DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
-    cache_key, env_key = _get_cache_key(account, container)
+    cache_key = get_cache_key(account, container)
 
     if resp:
         if resp.status_int in (HTTP_NOT_FOUND, HTTP_GONE):
@@ -494,7 +474,7 @@ def set_info_cache(app, env, account, container, resp):
     # Next actually set both memcache and the env cache
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if not cache_time:
-        infocache.pop(env_key, None)
+        infocache.pop(cache_key, None)
         if memcache:
             memcache.delete(cache_key)
         return
@@ -505,7 +485,7 @@ def set_info_cache(app, env, account, container, resp):
         info = headers_to_account_info(resp.headers, resp.status_int)
     if memcache:
         memcache.set(cache_key, info, time=cache_time)
-    infocache[env_key] = info
+    infocache[cache_key] = info
     return info
 
 
@@ -525,14 +505,14 @@ def set_object_info_cache(app, env, account, container, obj, resp):
     :returns: the object info
     """
 
-    env_key = get_object_env_key(account, container, obj)
+    cache_key = get_cache_key(account, container, obj)
 
     if 'swift.infocache' in env and not resp:
-        env['swift.infocache'].pop(env_key, None)
+        env['swift.infocache'].pop(cache_key, None)
         return
 
     info = headers_to_object_info(resp.headers, resp.status_int)
-    env.setdefault('swift.infocache', {})[env_key] = info
+    env.setdefault('swift.infocache', {})[cache_key] = info
     return info
 
 
@@ -559,9 +539,9 @@ def _get_info_from_infocache(env, account, container=None):
 
     :returns: a dictionary of cached info on cache hit, None on miss
     """
-    _junk, env_key = _get_cache_key(account, container)
-    if 'swift.infocache' in env and env_key in env['swift.infocache']:
-        return env['swift.infocache'][env_key]
+    cache_key = get_cache_key(account, container)
+    if 'swift.infocache' in env and cache_key in env['swift.infocache']:
+        return env['swift.infocache'][cache_key]
     return None
 
 
@@ -577,7 +557,7 @@ def _get_info_from_memcache(app, env, account, container=None):
     :returns: a dictionary of cached info on cache hit, None on miss. Also
       returns None if memcache is not in use.
     """
-    cache_key, env_key = _get_cache_key(account, container)
+    cache_key = get_cache_key(account, container)
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if memcache:
         info = memcache.get(cache_key)
@@ -589,7 +569,7 @@ def _get_info_from_memcache(app, env, account, container=None):
                     for subkey, value in info[key].items():
                         if isinstance(value, six.text_type):
                             info[key][subkey] = value.encode("utf-8")
-            env.setdefault('swift.infocache', {})[env_key] = info
+            env.setdefault('swift.infocache', {})[cache_key] = info
         return info
     return None
 
@@ -680,8 +660,8 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     :param obj: The unquoted name of the object
     :returns: the cached info or None if cannot be retrieved
     """
-    env_key = get_object_env_key(account, container, obj)
-    info = env.get('swift.infocache', {}).get(env_key)
+    cache_key = get_cache_key(account, container, obj)
+    info = env.get('swift.infocache', {}).get(cache_key)
     if info:
         return info
     # Not in cache, let's try the object servers

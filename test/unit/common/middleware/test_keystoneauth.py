@@ -19,7 +19,7 @@ from swift.common.middleware import keystoneauth
 from swift.common.swob import Request, Response
 from swift.common.http import HTTP_FORBIDDEN
 from swift.common.utils import split_path
-from swift.proxy.controllers.base import _get_cache_key
+from swift.proxy.controllers.base import get_cache_key
 from test.unit import FakeLogger
 
 UNKNOWN_ID = keystoneauth.UNKNOWN_ID
@@ -251,7 +251,7 @@ class SwiftAuth(unittest.TestCase):
         account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
         # fake cached account info
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='3')}
         req = Request.blank(path, environ=env, headers=headers)
@@ -280,7 +280,7 @@ class SwiftAuth(unittest.TestCase):
         account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
         # fake cached account info
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='3')}
         req = Request.blank(path, environ=env, headers=headers)
@@ -301,7 +301,7 @@ class SwiftAuth(unittest.TestCase):
         headers = get_identity_headers(tenant_id=proj_id, role='admin')
         account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         # v2 token
         env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='2')}
@@ -323,7 +323,7 @@ class SwiftAuth(unittest.TestCase):
                                        role='reselleradmin')
         account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         # v2 token
         env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='2')}
@@ -381,7 +381,7 @@ class ServiceTokenFunctionality(unittest.TestCase):
                                        role=user_role,
                                        service_role=service_role)
         (version, account, _junk, _junk) = split_path(path, 2, 4, True)
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         env = {'swift.infocache': {info_key: {'status': 0, 'sysmeta': {}}},
                'keystone.token_info': _fake_token_info(version='2')}
         if environ:
@@ -595,7 +595,7 @@ class TestAuthorize(BaseTestAuthorize):
         if not path:
             path = '/v1/%s/c' % account
         # fake cached account info
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         default_env = {
             'REMOTE_USER': identity['HTTP_X_TENANT_ID'],
             'swift.infocache': {info_key: {'status': 200, 'sysmeta': {}}}}
@@ -985,7 +985,7 @@ class TestAuthorize(BaseTestAuthorize):
     def test_get_project_domain_id(self):
         sysmeta = {}
         info = {'sysmeta': sysmeta}
-        _, info_key = _get_cache_key('AUTH_1234', None)
+        info_key = get_cache_key('AUTH_1234')
         env = {'PATH_INFO': '/v1/AUTH_1234',
                'swift.infocache': {info_key: info}}
 
@@ -1029,7 +1029,7 @@ class TestIsNameAllowedInACL(BaseTestAuthorize):
 
         # pretend account exists
         info = {'status': 200, 'sysmeta': sysmeta}
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         req = Request.blank(path,
                             environ={'swift.infocache': {info_key: info}})
 
@@ -1216,7 +1216,7 @@ class TestSetProjectDomain(BaseTestAuthorize):
         if sysmeta_project_domain_id:
             sysmeta['project-domain-id'] = sysmeta_project_domain_id
         info = {'status': status, 'sysmeta': sysmeta}
-        _, info_key = _get_cache_key(account, None)
+        info_key = get_cache_key(account)
         env = {'swift.infocache': {info_key: info}}
 
         # create fake env identity

@@ -93,7 +93,7 @@ class PatchedObjControllerApp(proxy_server.Application):
             # Seed the cache with our container info so that the real
             # get_container_info finds it.
             ic = env.setdefault('swift.infocache', {})
-            cache_key = "swift.container/%s/%s" % (account, container)
+            cache_key = "container/%s/%s" % (account, container)
 
             old_value = ic.get(cache_key)
 
