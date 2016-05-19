@@ -14,6 +14,7 @@
 # limitations under the License.
 import base64
 import json
+import os
 import urllib
 
 import unittest
@@ -41,10 +42,11 @@ class TestEncrypter(unittest.TestCase):
         self.encrypter.logger = FakeLogger()
 
     def test_PUT_req(self):
-        key = fetch_crypto_keys()['object']
+        body_key = os.urandom(32)
+        object_key = fetch_crypto_keys()['object']
         plaintext = 'FAKE APP'
         plaintext_etag = md5hex(plaintext)
-        ciphertext = encrypt(plaintext, key, FAKE_IV)
+        ciphertext = encrypt(plaintext, body_key, FAKE_IV)
         ciphertext_etag = md5hex(ciphertext)
 
         env = {'REQUEST_METHOD': 'PUT',
@@ -57,7 +59,10 @@ class TestEncrypter(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
-        resp = req.get_response(self.encrypter)
+        with mock.patch(
+                'swift.common.middleware.crypto.Crypto.create_random_key',
+                return_value=body_key):
+            resp = req.get_response(self.encrypter)
         self.assertEqual('201 Created', resp.status)
         self.assertEqual(plaintext_etag, resp.headers['Etag'])
 
@@ -66,12 +71,21 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('PUT', self.app.calls[0][0])
         req_hdrs = self.app.headers[0]
 
+        # verify body crypto meta
+        actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta']
+        actual = json.loads(urllib.unquote_plus(actual))
+        expected_wrapped_key = encrypt(body_key, object_key, FAKE_IV)
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(expected_wrapped_key, base64.b64decode(actual['key']))
+
+        # verify etag
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
 
         # verify encrypted version of plaintext etag
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
         etag_iv = Crypto().create_iv(iv_base=req.path)
-        enc_etag = encrypt(plaintext_etag, key, etag_iv)
+        enc_etag = encrypt(plaintext_etag, object_key, etag_iv)
         self.assertEqual(enc_etag, actual)
         # verify crypto_meta was not appended to this etag
         parts = req_hdrs['X-Object-Sysmeta-Crypto-Etag'].rsplit(';', 1)
@@ -103,15 +117,16 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('text/plain', req_hdrs['Content-Type'])
 
         # user meta is encrypted
-        self.assertEqual(base64.b64encode(encrypt('encrypt me', key, FAKE_IV)),
-                         req_hdrs['X-Object-Meta-Test'])
+        self.assertEqual(
+            base64.b64encode(encrypt('encrypt me', object_key, FAKE_IV)),
+            req_hdrs['X-Object-Meta-Test'])
         actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Test']
         actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
         self.assertEqual(
             base64.b64encode(encrypt('not to be confused with the Etag!',
-                                     key, FAKE_IV)),
+                                     object_key, FAKE_IV)),
             req_hdrs['X-Object-Meta-Etag'])
         actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Etag']
         actual = json.loads(urllib.unquote_plus(actual))
@@ -130,10 +145,11 @@ class TestEncrypter(unittest.TestCase):
 
     def test_PUT_with_other_footers(self):
         # verify handling of another middleware's footer callback
-        key = fetch_crypto_keys()['object']
+        body_key = os.urandom(32)
+        object_key = fetch_crypto_keys()['object']
         plaintext = 'FAKE APP'
         plaintext_etag = md5hex(plaintext)
-        ciphertext = encrypt(plaintext, key, FAKE_IV)
+        ciphertext = encrypt(plaintext, body_key, FAKE_IV)
         ciphertext_etag = md5hex(ciphertext)
         other_footers = {
             'Etag': plaintext_etag,
@@ -151,7 +167,12 @@ class TestEncrypter(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
-        resp = req.get_response(self.encrypter)
+
+        with mock.patch(
+                'swift.common.middleware.crypto.Crypto.create_random_key',
+                lambda *args: body_key):
+            resp = req.get_response(self.encrypter)
+
         self.assertEqual('201 Created', resp.status)
         self.assertEqual(plaintext_etag, resp.headers['Etag'])
 
@@ -170,11 +191,19 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
         etag_iv = Crypto().create_iv(iv_base=req.path)
-        self.assertEqual(encrypt(plaintext_etag, key, etag_iv), actual)
+        self.assertEqual(encrypt(plaintext_etag, object_key, etag_iv), actual)
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
+
+        # verify body crypto meta
+        actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta']
+        actual = json.loads(urllib.unquote_plus(actual))
+        expected_wrapped_key = encrypt(body_key, object_key, FAKE_IV)
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(expected_wrapped_key, base64.b64decode(actual['key']))
 
     def test_PUT_with_bad_etag_in_other_footers(self):
         # verify that etag supplied in footers from other middleware overrides
@@ -414,6 +443,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(md5hex(body), resp.headers['Etag'])
 
     def test_PUT_multiseg_no_client_etag(self):
+        body_key = os.urandom(32)
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
@@ -424,14 +454,20 @@ class TestEncrypter(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c/o', environ=env, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
-        resp = req.get_response(self.encrypter)
+
+        with mock.patch(
+                'swift.common.middleware.crypto.Crypto.create_random_key',
+                lambda *args: body_key):
+            resp = req.get_response(self.encrypter)
+
         self.assertEqual('201 Created', resp.status)
         # verify object is encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        self.assertEqual(encrypt(body, fetch_crypto_keys()['object'], FAKE_IV),
+        self.assertEqual(encrypt(body, body_key, FAKE_IV),
                          get_req.get_response(self.app).body)
 
     def test_PUT_multiseg_good_client_etag(self):
+        body_key = os.urandom(32)
         chunks = ['some', 'chunks', 'of data']
         body = ''.join(chunks)
         env = {'REQUEST_METHOD': 'PUT',
@@ -443,11 +479,16 @@ class TestEncrypter(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c/o', environ=env, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
-        resp = req.get_response(self.encrypter)
+
+        with mock.patch(
+                'swift.common.middleware.crypto.Crypto.create_random_key',
+                lambda *args: body_key):
+            resp = req.get_response(self.encrypter)
+
         self.assertEqual('201 Created', resp.status)
         # verify object is encrypted by getting direct from the app
         get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        self.assertEqual(encrypt(body, fetch_crypto_keys()['object'], FAKE_IV),
+        self.assertEqual(encrypt(body, body_key, FAKE_IV),
                          get_req.get_response(self.app).body)
 
     def test_PUT_multiseg_bad_client_etag(self):

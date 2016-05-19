@@ -144,32 +144,71 @@ class TestCryptoWsgiContext(unittest.TestCase):
 
 
 class TestModuleMethods(unittest.TestCase):
+    meta = {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256'}
+    serialized_meta = '%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22' \
+                      'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22%7D'
+
+    meta_with_key = {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256',
+                     'key': '0123456789abcdef0123456789abcdef'}
+    serialized_meta_with_key = '%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22' \
+                               'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22' \
+                               '%2C+%22key%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZjA' \
+                               'xMjM0NTY3ODlhYmNkZWY%3D%22%7D'
+
+    def test_dump_crypto_meta(self):
+        actual = crypto_utils.dump_crypto_meta(self.meta)
+        self.assertEqual(self.serialized_meta, actual)
+
+        actual = crypto_utils.dump_crypto_meta(self.meta_with_key)
+        self.assertEqual(self.serialized_meta_with_key, actual)
+
+    def test_load_crypto_meta(self):
+        actual = crypto_utils.load_crypto_meta(self.serialized_meta)
+        self.assertEqual(self.meta, actual)
+
+        actual = crypto_utils.load_crypto_meta(self.serialized_meta_with_key)
+        self.assertEqual(self.meta_with_key, actual)
+
+    def test_dump_then_load_crypto_meta(self):
+        actual = crypto_utils.load_crypto_meta(
+            crypto_utils.dump_crypto_meta(self.meta))
+        self.assertEqual(self.meta, actual)
+
+        actual = crypto_utils.load_crypto_meta(
+            crypto_utils.dump_crypto_meta(self.meta_with_key))
+        self.assertEqual(self.meta_with_key, actual)
+
     def test_append_crypto_meta(self):
-        actual = crypto_utils.append_crypto_meta(
-            'abc', {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256'})
-        # the order of the dict serialization is unpredictable
-        expected = [
-            'abc; meta=%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22'
-            'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22%7D',
-            'abc; meta=%7B%22iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22%2C'
-            '+%22cipher%22%3A+%22AES_CTR_256%22%7D']
-        self.assertIn(actual, expected)
+        actual = crypto_utils.append_crypto_meta('abc', self.meta)
+        expected = 'abc; meta=%s' % self.serialized_meta
+        self.assertEqual(actual, expected)
+
+        actual = crypto_utils.append_crypto_meta('abc', self.meta_with_key)
+        expected = 'abc; meta=%s' % self.serialized_meta_with_key
+        self.assertEqual(actual, expected)
 
     def test_extract_crypto_meta(self):
         val, meta = crypto_utils.extract_crypto_meta(
-            'abc; meta=%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22'
-            'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22%7D')
+            'abc; meta=%s' % self.serialized_meta)
         self.assertEqual('abc', val)
-        self.assertDictEqual(
-            {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256'}, meta)
+        self.assertDictEqual(self.meta, meta)
+
+        val, meta = crypto_utils.extract_crypto_meta(
+            'abc; meta=%s' % self.serialized_meta_with_key)
+        self.assertEqual('abc', val)
+        self.assertDictEqual(self.meta_with_key, meta)
 
         val, meta = crypto_utils.extract_crypto_meta('abc')
         self.assertEqual('abc', val)
         self.assertIsNone(meta)
 
+        # other param names will be ignored
+        val, meta = crypto_utils.extract_crypto_meta('abc; foo=bar')
+        self.assertEqual('abc', val)
+        self.assertIsNone(meta)
+
     def test_append_then_extract_crypto_meta(self):
         val = 'abc'
-        meta = {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256'}
         actual = crypto_utils.extract_crypto_meta(
-            crypto_utils.append_crypto_meta(val, meta))
-        self.assertEqual((val, meta), actual)
+            crypto_utils.append_crypto_meta(val, self.meta))
+        self.assertEqual((val, self.meta), actual)

@@ -55,7 +55,6 @@ class EncInputWrapper(object):
         self.wsgi_input = req.environ['wsgi.input']
         self.path = req.path
         self.crypto = crypto
-        self.body_crypto_meta = self.crypto.create_crypto_meta()
         self.body_crypto_ctxt = None
         self.keys = keys
         # remove any Etag from headers, it won't be valid for ciphertext and
@@ -69,8 +68,16 @@ class EncInputWrapper(object):
     def _init_encryption_context(self):
         # do this once when body is first read
         if self.body_crypto_ctxt is None:
+            self.body_crypto_meta = self.crypto.create_crypto_meta()
+            self.body_key = self.crypto.create_random_key()
+            # wrap the body key with object key re-using body iv
+            self.body_crypto_meta['key'] = self.crypto.wrap_key(
+                self.keys['object'],
+                self.body_key,
+                self.body_crypto_meta['iv']
+            )
             self.body_crypto_ctxt = self.crypto.create_encryption_ctxt(
-                self.keys['object'], self.body_crypto_meta.get('iv'))
+                self.body_key, self.body_crypto_meta.get('iv'))
             self.plaintext_md5 = md5()
             self.ciphertext_md5 = md5()
 

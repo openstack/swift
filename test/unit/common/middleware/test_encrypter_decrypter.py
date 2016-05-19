@@ -14,6 +14,8 @@
 # limitations under the License.
 import base64
 import json
+import mock
+import os
 import unittest
 import urllib
 
@@ -35,7 +37,8 @@ class TestEncrypterDecrypter(unittest.TestCase):
     """
 
     def test_basic_put_get_req(self):
-        # Setup pass the PUT request through the encrypter.
+        # pass the PUT request through the encrypter.
+        body_key = os.urandom(32)
         body = 'FAKE APP'
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
@@ -47,7 +50,11 @@ class TestEncrypterDecrypter(unittest.TestCase):
             '/v1/a/c/o', environ=env, body=body, headers=hdrs)
         app = FakeSwift()
         app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
-        req.get_response(encrypter.Encrypter(app, {}))
+
+        with mock.patch(
+                'swift.common.middleware.crypto.Crypto.create_random_key',
+                return_value=body_key):
+            req.get_response(encrypter.Encrypter(app, {}))
 
         # Verify that at least the request body was indeed encrypted.
         # Otherwise, checking that input matches output after decryption is
@@ -61,7 +68,7 @@ class TestEncrypterDecrypter(unittest.TestCase):
             encrypt_get_resp.headers['X-Object-Sysmeta-Crypto-Meta']))
         crypto_meta['iv'] = base64.b64decode(crypto_meta['iv'])
         exp_enc_body = encrypt(
-            body, fetch_crypto_keys()['object'], crypto_meta['iv'])
+            body, body_key, crypto_meta['iv'])
         self.assertEqual(exp_enc_body, encrypt_get_resp.body)
         self.assertNotEqual(body, encrypt_get_resp.body)  # sanity check
 
