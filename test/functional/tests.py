@@ -2875,18 +2875,26 @@ class TestSlo(Base):
     def test_slo_container_listing(self):
         # the listing object size should equal the sum of the size of the
         # segments, not the size of the manifest body
-        raise SkipTest('Only passes with object_post_as_copy=False')
         file_item = self.env.container.file(Utils.create_name)
         file_item.write(
             json.dumps([self.env.seg_info['seg_a']]),
             parms={'multipart-manifest': 'put'})
+        # The container listing has the etag of the actual manifest object
+        # contents which we get using multipart-manifest=get. Arguably this
+        # should be the etag that we get when NOT using multipart-manifest=get,
+        # to be consistent with size and content-type. But here we at least
+        # verify that it remains consistent when the object is updated with a
+        # POST.
+        file_item.initialize(parms={'multipart-manifest': 'get'})
+        expected_etag = file_item.etag
 
-        files = self.env.container.files(parms={'format': 'json'})
-        for f_dict in files:
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
             if f_dict['name'] == file_item.name:
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual('application/octet-stream',
                                  f_dict['content_type'])
+                self.assertEqual(expected_etag, f_dict['hash'])
                 break
         else:
             self.fail('Failed to find manifest file in container listing')
@@ -2898,12 +2906,31 @@ class TestSlo(Base):
         self.assertEqual('image/jpeg', file_item.content_type)  # sanity
 
         # verify that the container listing is consistent with the file
-        files = self.env.container.files(parms={'format': 'json'})
-        for f_dict in files:
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
             if f_dict['name'] == file_item.name:
                 self.assertEqual(1024 * 1024, f_dict['bytes'])
                 self.assertEqual(file_item.content_type,
                                  f_dict['content_type'])
+                self.assertEqual(expected_etag, f_dict['hash'])
+                break
+        else:
+            self.fail('Failed to find manifest file in container listing')
+
+        # now POST with no change to content-type
+        file_item.sync_metadata({'X-Object-Meta-Test': 'blah'},
+                                cfg={'no_content_type': True})
+        file_item.initialize()
+        self.assertEqual('image/jpeg', file_item.content_type)  # sanity
+
+        # verify that the container listing is consistent with the file
+        listing = self.env.container.files(parms={'format': 'json'})
+        for f_dict in listing:
+            if f_dict['name'] == file_item.name:
+                self.assertEqual(1024 * 1024, f_dict['bytes'])
+                self.assertEqual(file_item.content_type,
+                                 f_dict['content_type'])
+                self.assertEqual(expected_etag, f_dict['hash'])
                 break
         else:
             self.fail('Failed to find manifest file in container listing')
@@ -3127,17 +3154,109 @@ class TestSlo(Base):
         self.assertEqual(4 * 1024 * 1024 + 1, len(copied_contents))
 
     def test_slo_copy_the_manifest(self):
-        file_item = self.env.container.file("manifest-abcde")
-        self.assertTrue(file_item.copy(self.env.container.name,
-                                       "copied-abcde-manifest-only",
-                                       parms={'multipart-manifest': 'get'}))
+        source = self.env.container.file("manifest-abcde")
+        source_contents = source.read(parms={'multipart-manifest': 'get'})
+        source_json = json.loads(source_contents)
+        source.initialize()
+        self.assertEqual('application/octet-stream', source.content_type)
+        source.initialize(parms={'multipart-manifest': 'get'})
+        source_hash = hashlib.md5()
+        source_hash.update(source_contents)
+        self.assertEqual(source_hash.hexdigest(), source.etag)
+
+        self.assertTrue(source.copy(self.env.container.name,
+                                    "copied-abcde-manifest-only",
+                                    parms={'multipart-manifest': 'get'}))
 
         copied = self.env.container.file("copied-abcde-manifest-only")
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})
         try:
-            json.loads(copied_contents)
+            copied_json = json.loads(copied_contents)
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
+        self.assertEqual(source_json, copied_json)
+        copied.initialize()
+        self.assertEqual('application/octet-stream', copied.content_type)
+        copied.initialize(parms={'multipart-manifest': 'get'})
+        copied_hash = hashlib.md5()
+        copied_hash.update(copied_contents)
+        self.assertEqual(copied_hash.hexdigest(), copied.etag)
+
+        # verify the listing metadata
+        listing = self.env.container.files(parms={'format': 'json'})
+        names = {}
+        for f_dict in listing:
+            if f_dict['name'] in ('manifest-abcde',
+                                  'copied-abcde-manifest-only'):
+                names[f_dict['name']] = f_dict
+
+        self.assertIn('manifest-abcde', names)
+        actual = names['manifest-abcde']
+        self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
+        self.assertEqual('application/octet-stream', actual['content_type'])
+        self.assertEqual(source.etag, actual['hash'])
+
+        self.assertIn('copied-abcde-manifest-only', names)
+        actual = names['copied-abcde-manifest-only']
+        self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
+        self.assertEqual('application/octet-stream', actual['content_type'])
+        self.assertEqual(copied.etag, actual['hash'])
+
+    def test_slo_copy_the_manifest_updating_metadata(self):
+        source = self.env.container.file("manifest-abcde")
+        source.content_type = 'application/octet-stream'
+        source.sync_metadata({'test': 'original'})
+        source_contents = source.read(parms={'multipart-manifest': 'get'})
+        source_json = json.loads(source_contents)
+        source.initialize()
+        self.assertEqual('application/octet-stream', source.content_type)
+        source.initialize(parms={'multipart-manifest': 'get'})
+        source_hash = hashlib.md5()
+        source_hash.update(source_contents)
+        self.assertEqual(source_hash.hexdigest(), source.etag)
+        self.assertEqual(source.metadata['test'], 'original')
+
+        self.assertTrue(
+            source.copy(self.env.container.name, "copied-abcde-manifest-only",
+                        parms={'multipart-manifest': 'get'},
+                        hdrs={'Content-Type': 'image/jpeg',
+                              'X-Object-Meta-Test': 'updated'}))
+
+        copied = self.env.container.file("copied-abcde-manifest-only")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        try:
+            copied_json = json.loads(copied_contents)
+        except ValueError:
+            self.fail("COPY didn't copy the manifest (invalid json on GET)")
+        self.assertEqual(source_json, copied_json)
+        copied.initialize()
+        self.assertEqual('image/jpeg', copied.content_type)
+        copied.initialize(parms={'multipart-manifest': 'get'})
+        copied_hash = hashlib.md5()
+        copied_hash.update(copied_contents)
+        self.assertEqual(copied_hash.hexdigest(), copied.etag)
+        self.assertEqual(copied.metadata['test'], 'updated')
+
+        # verify the listing metadata
+        listing = self.env.container.files(parms={'format': 'json'})
+        names = {}
+        for f_dict in listing:
+            if f_dict['name'] in ('manifest-abcde',
+                                  'copied-abcde-manifest-only'):
+                names[f_dict['name']] = f_dict
+
+        self.assertIn('manifest-abcde', names)
+        actual = names['manifest-abcde']
+        self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
+        self.assertEqual('application/octet-stream', actual['content_type'])
+        # the container listing should have the etag of the manifest contents
+        self.assertEqual(source.etag, actual['hash'])
+
+        self.assertIn('copied-abcde-manifest-only', names)
+        actual = names['copied-abcde-manifest-only']
+        self.assertEqual(4 * 1024 * 1024 + 1, actual['bytes'])
+        self.assertEqual('image/jpeg', actual['content_type'])
+        self.assertEqual(copied.etag, actual['hash'])
 
     def test_slo_copy_the_manifest_account(self):
         acct = self.env.conn.account_name
@@ -3295,8 +3414,8 @@ class TestSlo(Base):
         got_body = manifest.read(parms={'multipart-manifest': 'get',
                                         'format': 'raw'})
 
-        self.assertEqual('application/json; charset=utf-8',
-                         manifest.content_type)
+        # raw format should have the actual manifest object content-type
+        self.assertEqual('application/octet-stream', manifest.content_type)
         try:
             value = json.loads(got_body)
         except ValueError:

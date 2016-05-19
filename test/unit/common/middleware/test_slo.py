@@ -1112,7 +1112,8 @@ class TestSloGetRawManifest(SloTestCase):
         self.bc_etag = md5hex(_bc_manifest_json)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=35',
+            # proxy obj controller removes swift_bytes from content-type
+            swob.HTTPOk, {'Content-Type': 'text/plain',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
                           'Etag': md5hex(_bc_manifest_json)},
@@ -1127,7 +1128,8 @@ class TestSloGetRawManifest(SloTestCase):
               'content_type': 'text/plain', 'range': '100-200'}])
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc-r',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
+            # proxy obj controller removes swift_bytes from content-type
+            swob.HTTPOk, {'Content-Type': 'text/plain',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
                           'Etag': md5hex(_bc_manifest_json_ranges)},
@@ -1144,9 +1146,8 @@ class TestSloGetRawManifest(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertTrue(('Etag', self.bc_etag) in headers, headers)
         self.assertTrue(('X-Static-Large-Object', 'true') in headers, headers)
-        self.assertTrue(
-            ('Content-Type', 'application/json; charset=utf-8') in headers,
-            headers)
+        # raw format should return the actual manifest object content-type
+        self.assertIn(('Content-Type', 'text/plain'), headers)
 
         try:
             resp_data = json.loads(body)
@@ -1172,9 +1173,8 @@ class TestSloGetRawManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')
-        self.assertTrue(
-            ('Content-Type', 'application/json; charset=utf-8') in headers,
-            headers)
+        # raw format should return the actual manifest object content-type
+        self.assertIn(('Content-Type', 'text/plain'), headers)
         try:
             resp_data = json.loads(body)
         except ValueError:
