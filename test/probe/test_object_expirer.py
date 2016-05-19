@@ -19,7 +19,7 @@ import unittest
 
 from nose import SkipTest
 
-from swift.common.internal_client import InternalClient
+from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.manager import Manager
 from swift.common.utils import Timestamp
 
@@ -32,9 +32,6 @@ from swiftclient import client
 class TestObjectExpirer(ReplProbeTest):
 
     def setUp(self):
-        if len(ENABLED_POLICIES) < 2:
-            raise SkipTest('Need more than one policy')
-
         self.expirer = Manager(['object-expirer'])
         self.expirer.start()
         err = self.expirer.stop()
@@ -54,6 +51,9 @@ class TestObjectExpirer(ReplProbeTest):
                                    self.object_name)
 
     def test_expirer_object_split_brain(self):
+        if len(ENABLED_POLICIES) < 2:
+            raise SkipTest('Need more than one policy')
+
         old_policy = random.choice(ENABLED_POLICIES)
         wrong_policy = random.choice([p for p in ENABLED_POLICIES
                                       if p != old_policy])
@@ -128,6 +128,32 @@ class TestObjectExpirer(ReplProbeTest):
                                 create_timestamp)
 
     def test_expirer_object_should_not_be_expired(self):
+
+        # Current object-expirer checks the correctness via x-if-delete-at
+        # header that it can be deleted by expirer. If there are objects
+        # either which doesn't have x-delete-at header as metadata or which
+        # has different x-delete-at value from x-if-delete-at value,
+        # object-expirer's delete will fail as 412 PreconditionFailed.
+        # However, if some of the objects are in handoff nodes, the expirer
+        # can put the tombstone with the timestamp as same as x-delete-at and
+        # the object consistency will be resolved as the newer timestamp will
+        # be winner (in particular, overwritten case w/o x-delete-at). This
+        # test asserts such a situation that, at least, the overwriten object
+        # which have larger timestamp than the original expirered date should
+        # be safe.
+
+        def put_object(headers):
+            # use internal client to PUT objects so that X-Timestamp in headers
+            # is effective
+            headers['Content-Length'] = '0'
+            path = self.client.make_path(
+                self.account, self.container_name, self.object_name)
+            try:
+                self.client.make_request('PUT', path, headers, (2,))
+            except UnexpectedResponse as e:
+                self.fail(
+                    'Expected 201 for PUT object but got %s' % e.resp.status)
+
         obj_brain = BrainSplitter(self.url, self.token, self.container_name,
                                   self.object_name, 'object', self.policy)
 
@@ -135,40 +161,69 @@ class TestObjectExpirer(ReplProbeTest):
         #   < T(expirer_executed)
         # Recreated obj should be appeared in any split brain case
 
-        # T(obj_created)
-        first_created_at = time.time()
+        obj_brain.put_container()
+
         # T(obj_deleted with x-delete-at)
         # object-server accepts req only if X-Delete-At is later than 'now'
-        delete_at = int(time.time() + 1.5)
-        # T(obj_recreated)
-        recreated_at = time.time() + 2.0
-        # T(expirer_executed) - 'now'
-        sleep_for_expirer = 2.01
+        # so here, T(obj_created) < T(obj_deleted with x-delete-at)
+        now = time.time()
+        delete_at = int(now + 2.0)
+        recreate_at = delete_at + 1.0
+        put_object(headers={'X-Delete-At': delete_at,
+                            'X-Timestamp': Timestamp(now).normal})
 
-        obj_brain.put_container(int(self.policy))
-        obj_brain.put_object(
-            headers={'X-Delete-At': delete_at,
-                     'X-Timestamp': Timestamp(first_created_at).internal})
-
-        # some object servers stopped
+        # some object servers stopped to make a situation that the
+        # object-expirer can put tombstone in the primary nodes.
         obj_brain.stop_primary_half()
-        obj_brain.put_object(
-            headers={'X-Timestamp': Timestamp(recreated_at).internal,
-                     'X-Object-Meta-Expired': 'False'})
+
+        # increment the X-Timestamp explicitly
+        # (will be T(obj_deleted with x-delete-at) < T(obj_recreated))
+        put_object(headers={'X-Object-Meta-Expired': 'False',
+                            'X-Timestamp': Timestamp(recreate_at).normal})
 
         # make sure auto-created containers get in the account listing
         Manager(['container-updater']).once()
+        # sanity, the newer object is still there
+        try:
+            metadata = self.client.get_object_metadata(
+                self.account, self.container_name, self.object_name)
+        except UnexpectedResponse as e:
+            self.fail(
+                'Expected 200 for HEAD object but got %s' % e.resp.status)
+
+        self.assertIn('x-object-meta-expired', metadata)
+
         # some object servers recovered
         obj_brain.start_primary_half()
-        # sleep to make sure expirer runs at the time after obj is recreated
-        time.sleep(sleep_for_expirer)
+
+        # sleep until after recreated_at
+        while time.time() <= recreate_at:
+            time.sleep(0.1)
+        # Now, expirer runs at the time after obj is recreated
         self.expirer.once()
-        # inconsistent state of objects is recovered
+
+        # verify that original object was deleted by expirer
+        obj_brain.stop_handoff_half()
+        try:
+            metadata = self.client.get_object_metadata(
+                self.account, self.container_name, self.object_name,
+                acceptable_statuses=(4,))
+        except UnexpectedResponse as e:
+            self.fail(
+                'Expected 404 for HEAD object but got %s' % e.resp.status)
+        obj_brain.start_handoff_half()
+
+        # and inconsistent state of objects is recovered by replicator
         Manager(['object-replicator']).once()
 
         # check if you can get recreated object
-        metadata = self.client.get_object_metadata(
-            self.account, self.container_name, self.object_name)
+        try:
+            metadata = self.client.get_object_metadata(
+                self.account, self.container_name, self.object_name)
+        except UnexpectedResponse as e:
+            self.fail(
+                'Expected 200 for HEAD object but got %s' % e.resp.status)
+
         self.assertIn('x-object-meta-expired', metadata)
 
 
