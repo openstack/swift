@@ -39,7 +39,7 @@ from swift.common.ring.utils import validate_args, \
     parse_builder_ring_filename_args, parse_search_value, \
     parse_search_values_from_opts, parse_change_values_from_opts, \
     dispersion_report, parse_add_value
-from swift.common.utils import lock_parent_directory
+from swift.common.utils import lock_parent_directory, is_valid_ipv6
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -376,6 +376,58 @@ def _parse_remove_values(argvish):
         exit(EXIT_ERROR)
 
 
+def _make_display_device_table(builder):
+    ip_width = 10
+    port_width = 4
+    rep_ip_width = 14
+    rep_port_width = 4
+    ip_ipv6 = rep_ipv6 = False
+    for dev in builder._iter_devs():
+        if is_valid_ipv6(dev['ip']):
+            ip_ipv6 = True
+        if is_valid_ipv6(dev['replication_ip']):
+            rep_ipv6 = True
+        ip_width = max(len(dev['ip']), ip_width)
+        rep_ip_width = max(len(dev['replication_ip']), rep_ip_width)
+        port_width = max(len(str(dev['port'])), port_width)
+        rep_port_width = max(len(str(dev['replication_port'])),
+                             rep_port_width)
+    if ip_ipv6:
+        ip_width += 2
+    if rep_ipv6:
+        rep_ip_width += 2
+    header_line = ('Devices:%5s %6s %4s %' + str(ip_width)
+                   + 's:%-' + str(port_width) + 's %' +
+                   str(rep_ip_width) + 's:%-' + str(rep_port_width) +
+                   's %5s %6s %10s %7s %5s %s') % (
+                       'id', 'region', 'zone', 'ip address',
+                       'port', 'replication ip', 'port', 'name',
+                       'weight', 'partitions', 'balance', 'flags',
+                       'meta')
+
+    def print_dev_f(dev, balance_per_dev=0.00, flags=''):
+        def get_formated_ip(key):
+            value = dev[key]
+            if ':' in value:
+                value = '[%s]' % value
+            return value
+        dev_ip = get_formated_ip('ip')
+        dev_replication_ip = get_formated_ip('replication_ip')
+        format_string = ''.join(['%13d %6d %4d ',
+                                 '%', str(ip_width), 's:%-',
+                                 str(port_width), 'd ', '%',
+                                 str(rep_ip_width), 's', ':%-',
+                                 str(rep_port_width), 'd %5s %6.02f'
+                                 ' %10s %7.02f %5s %s'])
+        args = (dev['id'], dev['region'], dev['zone'], dev_ip, dev['port'],
+                dev_replication_ip, dev['replication_port'], dev['device'],
+                dev['weight'], dev['parts'], balance_per_dev, flags,
+                dev['meta'])
+        print(format_string % args)
+
+    return header_line, print_dev_f
+
+
 class Commands(object):
     @staticmethod
     def unknown():
@@ -458,18 +510,11 @@ swift-ring-builder <builder_file>
 
         if builder.devs:
             balance_per_dev = builder._build_balance_per_dev()
-            print('Devices:    id  region  zone      ip address  port  '
-                  'replication ip  replication port      name '
-                  'weight partitions balance flags meta')
+            header_line, print_dev_f = _make_display_device_table(builder)
+            print(header_line)
             for dev in builder._iter_devs():
                 flags = 'DEL' if dev in builder._remove_devs else ''
-                print('         %5d %7d %5d %15s %5d %15s %17d %9s %6.02f '
-                      '%10s %7.02f %5s %s' %
-                      (dev['id'], dev['region'], dev['zone'], dev['ip'],
-                       dev['port'], dev['replication_ip'],
-                       dev['replication_port'], dev['device'], dev['weight'],
-                       dev['parts'], balance_per_dev[dev['id']], flags,
-                       dev['meta']))
+                print_dev_f(dev, balance_per_dev[dev['id']], flags)
         exit(EXIT_SUCCESS)
 
     @staticmethod
@@ -905,7 +950,7 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
     --verbose option will display dispersion graph broken down by tier
 
     You can filter which tiers are evaluated to drill down using a regex
-    in the optional search_filter arguemnt.  i.e.
+    in the optional search_filter argument.  i.e.
 
         swift-ring-builder <builder_file> dispersion "r\d+z\d+$" -v
 

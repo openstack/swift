@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
+import itertools
 import logging
 import mock
 import os
@@ -91,6 +93,43 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             shutil.rmtree(self.tmpdir, True)
         except OSError:
             pass
+
+    def assertOutputStub(self, output, ext='stub'):
+        """
+        assert that the given output string is equal to a in-tree stub file,
+        if a test needs to check multiple outputs it can use custom ext's
+        """
+        filepath = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), self.id().split('.')[-1]))
+        print(filepath)
+        filepath = '%s.%s' % (filepath, ext)
+        try:
+            with open(filepath, 'r') as f:
+                stub = f.read()
+        except (IOError, OSError) as e:
+            if e.errno == errno.ENOENT:
+                self.fail('%r does not exist' % filepath)
+            else:
+                self.fail('%r could not be read (%s)' % (filepath, e))
+        output = output.replace(self.tempfile, '__RINGFILE__')
+        for i, (value, expected) in enumerate(
+                itertools.izip_longest(
+                    output.splitlines(), stub.splitlines())):
+            # N.B. differences in trailing whitespace are ignored!
+            value = (value or '').rstrip()
+            expected = (expected or '').rstrip()
+            try:
+                self.assertEqual(value, expected)
+            except AssertionError:
+                msg = 'Line #%s value is not like expected:\n%r\n%r' % (
+                    i, value, expected)
+                msg += '\n\nFull output was:\n'
+                for i, line in enumerate(output.splitlines()):
+                    msg += '%3d: %s\n' % (i, line)
+                msg += '\n\nCompared to stub:\n'
+                for i, line in enumerate(stub.splitlines()):
+                    msg += '%3d: %s\n' % (i, line)
+                self.fail(msg)
 
     def create_sample_ring(self, part_power=6):
         """ Create a sample ring with four devices
@@ -1614,6 +1653,50 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
+    def test_default_output(self):
+        self.create_sample_ring()
+        out, err = self.run_srb('')
+        self.assertOutputStub(out)
+
+    def test_ipv6_output(self):
+        ring = RingBuilder(8, 3, 1)
+        ring.add_dev({'weight': 100.0,
+                      'region': 0,
+                      'zone': 0,
+                      'ip': '2001:db8:85a3::8a2e:370:7334',
+                      'port': 6200,
+                      'device': 'sda1',
+                      'meta': 'some meta data',
+                      })
+        ring.add_dev({'weight': 100.0,
+                      'region': 1,
+                      'zone': 1,
+                      'ip': '127.0.0.1',
+                      'port': 66201,
+                      'device': 'sda2',
+                      })
+        ring.add_dev({'weight': 100.0,
+                      'region': 2,
+                      'zone': 2,
+                      'ip': '2001:db8:85a3::8a2e:370:7336',
+                      'port': 6202,
+                      'device': 'sdc3',
+                      'replication_ip': '127.0.10.127',
+                      'replication_port': 7070,
+                      })
+        ring.add_dev({'weight': 100.0,
+                      'region': 3,
+                      'zone': 3,
+                      'ip': '2001:db8:85a3::8a2e:370:7337',
+                      'port': 6203,
+                      'device': 'sdd4',
+                      'replication_ip': '7001:db8:85a3::8a2e:370:7337',
+                      'replication_port': 11664,
+                      })
+        ring.save(self.tmpfile)
+        out, err = self.run_srb('')
+        self.assertOutputStub(out)
+
     def test_default_show_removed(self):
         mock_stdout = six.StringIO()
         mock_stderr = six.StringIO()
@@ -1642,20 +1725,20 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             "The overload factor is 0.00%% (0.000000)\n" \
             "Ring file %s.ring.gz not found, probably " \
             "it hasn't been written yet\n" \
-            "Devices:    id  region  zone      ip address  port  " \
-            "replication ip  replication port      name weight " \
+            "Devices:   id region zone ip address:port " \
+            "replication ip:port  name weight " \
             "partitions balance flags meta\n" \
-            "             0       0     0       127.0.0.1  6200       " \
-            "127.0.0.1              6200      sda1 100.00" \
+            "            0      0    0  127.0.0.1:6200 " \
+            "     127.0.0.1:6200  sda1 100.00" \
             "          0 -100.00       some meta data\n" \
-            "             1       1     1       127.0.0.2  6201       " \
-            "127.0.0.2              6201      sda2   0.00" \
+            "            1      1    1  127.0.0.2:6201 " \
+            "     127.0.0.2:6201  sda2   0.00" \
             "          0    0.00   DEL \n" \
-            "             2       2     2       127.0.0.3  6202       " \
-            "127.0.0.3              6202      sdc3 100.00" \
+            "            2      2    2  127.0.0.3:6202 " \
+            "     127.0.0.3:6202  sdc3 100.00" \
             "          0 -100.00       \n" \
-            "             3       3     3       127.0.0.4  6203       " \
-            "127.0.0.4              6203      sdd4   0.00" \
+            "            3      3    3  127.0.0.4:6203 " \
+            "     127.0.0.4:6203  sdd4   0.00" \
             "          0    0.00       \n" % (self.tmpfile, self.tmpfile)
         self.assertEqual(expected, mock_stdout.getvalue())
 
