@@ -2674,7 +2674,8 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
         endpoint = realms_conf.endpoint(realm, cluster)
         if not endpoint:
             return (
-                _('No cluster endpoint for %r %r') % (realm, cluster),
+                _('No cluster endpoint for %(realm)r %(cluster)r')
+                % {'realm': realm, 'cluster': cluster},
                 None, None, None)
         return (
             None,

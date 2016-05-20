@@ -77,15 +77,17 @@ class ObjectExpirer(Daemon):
         """
         if final:
             elapsed = time() - self.report_first_time
-            self.logger.info(_('Pass completed in %ds; %d objects expired') %
-                             (elapsed, self.report_objects))
+            self.logger.info(_('Pass completed in %(time)ds; '
+                               '%(objects)d objects expired') % {
+                             'time': elapsed, 'objects': self.report_objects})
             dump_recon_cache({'object_expiration_pass': elapsed,
                               'expired_last_pass': self.report_objects},
                              self.rcache, self.logger)
         elif time() - self.report_last_time >= self.report_interval:
             elapsed = time() - self.report_first_time
-            self.logger.info(_('Pass so far %ds; %d objects expired') %
-                             (elapsed, self.report_objects))
+            self.logger.info(_('Pass so far %(time)ds; '
+                               '%(objects)d objects expired') % {
+                             'time': elapsed, 'objects': self.report_objects})
             self.report_last_time = time()
 
     def iter_cont_objs_to_expire(self):
@@ -168,8 +170,10 @@ class ObjectExpirer(Daemon):
             self.logger.debug('Run begin')
             containers, objects = \
                 self.swift.get_account_info(self.expiring_objects_account)
-            self.logger.info(_('Pass beginning; %s possible containers; %s '
-                               'possible objects') % (containers, objects))
+            self.logger.info(_('Pass beginning; '
+                               '%(containers)s possible containers; '
+                               '%(objects)s possible objects') % {
+                             'containers': containers, 'objects': objects})
 
             for container, obj in self.iter_cont_objs_to_expire():
                 containers_to_delete.add(container)
