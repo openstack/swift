@@ -313,6 +313,7 @@ metadata which can be used for stats and billing purposes.
 """
 
 import base64
+from cgi import parse_header
 from collections import defaultdict
 from datetime import datetime
 import json
@@ -322,6 +323,8 @@ import six
 import time
 from hashlib import md5
 from swift.common.exceptions import ListingIterError, SegmentError
+from swift.common.middleware.listing_formats import \
+    MAX_CONTAINER_LISTING_CONTENT_LENGTH
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
@@ -1276,6 +1279,14 @@ class StaticLargeObject(object):
                 'Etag': md5(json_data).hexdigest(),
             })
 
+            # Ensure container listings have both etags. However, if any
+            # middleware to the left of us touched the base value, trust them.
+            override_header = 'X-Object-Sysmeta-Container-Update-Override-Etag'
+            val, sep, params = req.headers.get(
+                override_header, '').partition(';')
+            req.headers[override_header] = '%s; slo_etag=%s' % (
+                (val or req.headers['Etag']) + sep + params, slo_etag)
+
             env = req.environ
             if not env.get('CONTENT_TYPE'):
                 guessed_type, _junk = mimetypes.guess_type(req.path_info)
@@ -1408,6 +1419,30 @@ class StaticLargeObject(object):
             out_content_type=out_content_type)
         return resp
 
+    def handle_container_listing(self, req, start_response):
+        resp = req.get_response(self.app)
+        if not resp.is_success or resp.content_type != 'application/json':
+            return resp(req.environ, start_response)
+        if resp.content_length is None or \
+                resp.content_length > MAX_CONTAINER_LISTING_CONTENT_LENGTH:
+            return resp(req.environ, start_response)
+        try:
+            listing = json.loads(resp.body)
+        except ValueError:
+            return resp(req.environ, start_response)
+
+        for item in listing:
+            if 'subdir' in item:
+                continue
+            etag, params = parse_header(item['hash'])
+            if 'slo_etag' in params:
+                item['slo_etag'] = '"%s"' % params.pop('slo_etag')
+                item['hash'] = etag + ''.join(
+                    '; %s=%s' % kv for kv in params.items())
+
+        resp.body = json.dumps(listing).encode('ascii')
+        return resp(req.environ, start_response)
+
     def __call__(self, env, start_response):
         """
         WSGI entry point
@@ -1417,8 +1452,13 @@ class StaticLargeObject(object):
 
         req = Request(env)
         try:
-            vrs, account, container, obj = req.split_path(4, 4, True)
+            vrs, account, container, obj = req.split_path(3, 4, True)
         except ValueError:
+            return self.app(env, start_response)
+
+        if not obj:
+            if req.method == 'GET':
+                return self.handle_container_listing(req, start_response)
             return self.app(env, start_response)
 
         try:

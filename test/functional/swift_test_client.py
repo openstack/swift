@@ -830,7 +830,7 @@ class File(Base):
 
         header_fields = self.header_fields(fields,
                                            optional_fields=optional_fields)
-        header_fields['etag'] = header_fields['etag'].strip('"')
+        header_fields['etag'] = header_fields['etag']
         return header_fields
 
     def initialize(self, hdrs=None, parms=None):
@@ -855,7 +855,7 @@ class File(Base):
             if hdr[0].lower().startswith('x-object-meta-'):
                 self.metadata[hdr[0][14:]] = hdr[1]
             if hdr[0].lower() == 'etag':
-                self.etag = hdr[1].strip('"')
+                self.etag = hdr[1]
             if hdr[0].lower() == 'content-length':
                 self.size = int(hdr[1])
             if hdr[0].lower() == 'last-modified':

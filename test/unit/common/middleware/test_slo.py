@@ -418,12 +418,18 @@ class TestSloPutManifest(SloTestCase):
                 list(self.slo.handle_multipart_put(req, fake_start_response))
 
     def test_handle_multipart_put_success(self):
+        override_header = 'X-Object-Sysmeta-Container-Update-Override-Etag'
+        headers = {
+            'Accept': 'test',
+            override_header: '; params=are important',
+        }
         req = Request.blank(
             '/v1/AUTH_test/c/man?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            environ={'REQUEST_METHOD': 'PUT'}, headers=headers,
             body=test_json_data)
         for h in ('X-Static-Large-Object', 'X-Object-Sysmeta-Slo-Etag',
                   'X-Object-Sysmeta-Slo-Size'):
+            # Sanity
             self.assertNotIn(h, req.headers)
 
         status, headers, body = self.call_slo(req)
@@ -431,9 +437,16 @@ class TestSloPutManifest(SloTestCase):
         self.assertIn(('Etag', gen_etag), headers)
         self.assertIn('X-Static-Large-Object', req.headers)
         self.assertEqual(req.headers['X-Static-Large-Object'], 'True')
+        self.assertIn('Etag', req.headers)
         self.assertIn('X-Object-Sysmeta-Slo-Etag', req.headers)
+        self.assertIn('X-Object-Sysmeta-Container-Update-Override-Etag',
+                      req.headers)
         self.assertEqual(req.headers['X-Object-Sysmeta-Slo-Etag'],
-                         md5hex('etagoftheobjectsegment'))
+                         gen_etag.strip('"'))
+        self.assertEqual(
+            req.headers['X-Object-Sysmeta-Container-Update-Override-Etag'],
+            '%s; params=are important; slo_etag=%s' % (
+                req.headers['Etag'], gen_etag.strip('"')))
         self.assertIn('X-Object-Sysmeta-Slo-Size', req.headers)
         self.assertEqual(req.headers['X-Object-Sysmeta-Slo-Size'], '100')
         self.assertIn('Content-Type', req.headers)
@@ -968,13 +981,15 @@ class TestSloPutManifest(SloTestCase):
               'size_bytes': None},
              {'path': '/cont/object', 'etag': None,
               'size_bytes': None, 'range': '10-40'}])
+        override_header = 'X-Object-Sysmeta-Container-Update-Override-Etag'
         req = Request.blank(
             '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
+            environ={'REQUEST_METHOD': 'PUT'}, body=good_data,
+            headers={override_header: 'my custom etag'})
         status, headers, body = self.call_slo(req)
         self.assertEqual(('201 Created', ''), (status, body))
-        expected_etag = '"%s"' % md5hex('ab:1-1;b:0-0;aetagoftheobjectsegment:'
-                                        '10-40;')
+        expected_etag = '"%s"' % md5hex(
+            'ab:1-1;b:0-0;aetagoftheobjectsegment:10-40;')
         self.assertEqual(expected_etag, dict(headers)['Etag'])
         self.assertEqual([
             ('HEAD', '/v1/AUTH_test/checktest/a_1'),  # Only once!
@@ -984,6 +999,9 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual(
             ('PUT', '/v1/AUTH_test/checktest/man_3?multipart-manifest=put'),
             self.app.calls[-1])
+        self.assertEqual(
+            'my custom etag; slo_etag=%s' % expected_etag.strip('"'),
+            self.app.headers[-1].get(override_header))
 
         # Check that we still populated the manifest properly from our HEADs
         req = Request.blank(
@@ -3853,6 +3871,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(5, mware.yield_frequency)
         self.assertEqual(1, mware.concurrency)
         self.assertEqual(3, mware.bulk_deleter.delete_concurrency)
+
 
 if __name__ == '__main__':
     unittest.main()
