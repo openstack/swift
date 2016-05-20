@@ -76,6 +76,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 base64.b64encode(encrypt('encrypt me', object_key, FAKE_IV)),
             'x-object-transient-sysmeta-crypto-meta-test':
                 get_crypto_meta_header(),
+            'x-object-sysmeta-container-update-override-etag':
+                encrypt_and_append_meta('encrypt me, too', cont_key),
             'x-object-sysmeta-test': 'do not encrypt me'}
         self.app.register(
             'GET', '/v1/a/c/o', HTTPOk, body=enc_body, headers=hdrs)
@@ -87,6 +89,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
         self.assertEqual('do not encrypt me',
                          resp.headers['x-object-sysmeta-test'])
+        self.assertEqual(
+            'encrypt me, too',
+            resp.headers['X-Object-Sysmeta-Container-Update-Override-Etag'])
 
     def _test_412_response(self, method):
         # simulate a 412 response to a conditional GET which has an Etag header

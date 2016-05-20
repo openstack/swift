@@ -217,8 +217,10 @@ class TestEncrypter(unittest.TestCase):
         other_footers = {
             'Etag': plaintext_etag,
             'X-Object-Sysmeta-Other': 'other sysmeta',
+            'X-Object-Sysmeta-Container-Update-Override-Size':
+                'other override',
             'X-Object-Sysmeta-Container-Update-Override-Etag':
-                'other override'}
+                'final etag'}
 
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
@@ -245,8 +247,9 @@ class TestEncrypter(unittest.TestCase):
         req_hdrs = self.app.headers[0]
 
         # verify that other middleware's footers made it to app, including any
-        # container update overrides but not Etag
+        # container update overrides but nothing Etag-related
         other_footers.pop('Etag')
+        other_footers.pop('X-Object-Sysmeta-Container-Update-Override-Etag')
         for k, v in other_footers.items():
             self.assertEqual(v, req_hdrs[k])
 
@@ -260,6 +263,23 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
+        # verify encrypted etag for container update
+        self.assertIn(
+            'X-Object-Sysmeta-Container-Update-Override-Etag', req_hdrs)
+        parts = req_hdrs[
+            'X-Object-Sysmeta-Container-Update-Override-Etag'].rsplit(';', 1)
+        self.assertEqual(2, len(parts))
+        cont_key = fetch_crypto_keys()['container']
+        actual = base64.b64decode(parts[0])
+        self.assertEqual(encrypt('final etag', cont_key, FAKE_IV), actual)
+
+        # extract crypto_meta from end of etag for container update
+        param = parts[1].strip()
+        self.assertTrue(param.startswith('meta='), param)
+        actual = json.loads(urllib.unquote_plus(param[5:]))
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta']
         actual = json.loads(urllib.unquote_plus(actual))
@@ -267,6 +287,49 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
         self.assertEqual(expected_wrapped_key, base64.b64decode(actual['key']))
+
+    def test_PUT_with_etag_override_in_headers(self):
+        # verify handling of another middleware's
+        # container-update-override-etag in headers
+        plaintext = 'FAKE APP'
+        plaintext_etag = md5hex(plaintext)
+
+        env = {'REQUEST_METHOD': 'PUT',
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        hdrs = {'content-type': 'text/plain',
+                'content-length': str(len(plaintext)),
+                'Etag': plaintext_etag,
+                'X-Object-Sysmeta-Container-Update-Override-Etag':
+                    'final etag'}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
+        self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
+        resp = req.get_response(self.encrypter)
+
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual(plaintext_etag, resp.headers['Etag'])
+
+        # verify metadata items
+        self.assertEqual(1, len(self.app.calls), self.app.calls)
+        self.assertEqual(('PUT', '/v1/a/c/o'), self.app.calls[0])
+        req_hdrs = self.app.headers[0]
+
+        # verify encrypted etag for container update
+        self.assertIn(
+            'X-Object-Sysmeta-Container-Update-Override-Etag', req_hdrs)
+        parts = req_hdrs[
+            'X-Object-Sysmeta-Container-Update-Override-Etag'].rsplit(';', 1)
+        self.assertEqual(2, len(parts))
+        cont_key = fetch_crypto_keys()['container']
+        actual = base64.b64decode(parts[0])
+        self.assertEqual(encrypt('final etag', cont_key, FAKE_IV), actual)
+
+        # extract crypto_meta from end of etag for container update
+        param = parts[1].strip()
+        self.assertTrue(param.startswith('meta='), param)
+        actual = json.loads(urllib.unquote_plus(param[5:]))
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
     def test_PUT_with_bad_etag_in_other_footers(self):
         # verify that etag supplied in footers from other middleware overrides
