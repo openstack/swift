@@ -114,17 +114,18 @@ specific partition can be moved in succession (24 is a good value for this).
 
 Devices can be added to the ring with::
 
-    swift-ring-builder <builder_file> add z<zone>-<ip>:<port>/<device_name>_<meta> <weight>
+    swift-ring-builder <builder_file> add r<region>z<zone>-<ip>:<port>/<device_name>_<meta> <weight>
 
 This will add a device to the ring where <builder_file> is the name of the
-builder file that was created previously, <zone> is the number of the zone
-this device is in, <ip> is the ip address of the server the device is in,
-<port> is the port number that the server is running on, <device_name> is
-the name of the device on the server (for example: sdb1), <meta> is a string
-of metadata for the device (optional), and <weight> is a float weight that
-determines how many partitions are put on the device relative to the rest of
-the devices in the cluster (a good starting point is 100.0 x TB on the drive).
-Add each device that will be initially in the cluster.
+builder file that was created previously, <region> is the number of the region
+the zone is in, <zone> is the number of the zone this device is in, <ip> is
+the ip address of the server the device is in, <port> is the port number that
+the server is running on, <device_name> is the name of the device on the server
+(for example: sdb1), <meta> is a string of metadata for the device (optional),
+and <weight> is a float weight that determines how many partitions are put on
+the device relative to the rest of the devices in the cluster (a good starting
+point is 100.0 x TB on the drive).Add each device that will be initially in the
+cluster.
 
 Once all of the devices are added to the ring, run::
 
