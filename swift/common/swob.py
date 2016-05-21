@@ -1086,6 +1086,7 @@ class Response(object):
     content_range = _header_property('content-range')
     etag = _resp_etag_property()
     status = _resp_status_property()
+    status_int = None
     body = _resp_body_property()
     host_url = _host_url_property()
     last_modified = _datetime_property('last-modified')
