@@ -101,8 +101,12 @@ into consideration can include physical location, power availability, and
 network connectivity. For example, in a small cluster you might decide to
 split the zones up by cabinet, with each cabinet having its own power and
 network connectivity. The zone concept is very abstract, so feel free to use
-it in whatever way best isolates your data from failure. Zones are referenced
-by number, beginning with 1.
+it in whatever way best isolates your data from failure. Each zone exists
+in a region.
+
+A region is also an abstract concept that may be used to distinguish between
+geographically separated areas as well as can be used within same datacenter.
+Regions and zones are referenced by a positive integer.
 
 You can now start building the ring with::
 
