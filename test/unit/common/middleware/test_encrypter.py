@@ -26,7 +26,7 @@ from swift.common.swob import (
 from swift.common.utils import FileLikeIter
 from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.middleware.crypto import Crypto
-from test.unit import FakeLogger
+from test.unit import FakeLogger, EMPTY_ETAG
 
 from test.unit.common.middleware.crypto_helpers import fetch_crypto_keys, \
     md5hex, FAKE_IV, encrypt
@@ -142,6 +142,67 @@ class TestEncrypter(unittest.TestCase):
         resp = get_req.get_response(self.app)
         self.assertEqual(ciphertext, resp.body)
         self.assertEqual(ciphertext_etag, resp.headers['Etag'])
+
+    def test_PUT_zero_size_object(self):
+        # object body encryption should be skipped for zero sized object body
+        object_key = fetch_crypto_keys()['object']
+        plaintext_etag = EMPTY_ETAG
+
+        env = {'REQUEST_METHOD': 'PUT',
+               CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        hdrs = {'content-type': 'text/plain',
+                'content-length': '0',
+                'x-object-meta-etag': 'not to be confused with the Etag!',
+                'x-object-meta-test': 'encrypt me',
+                'x-object-sysmeta-test': 'do not encrypt me'}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, body='', headers=hdrs)
+        self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
+
+        resp = req.get_response(self.encrypter)
+
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual(plaintext_etag, resp.headers['Etag'])
+        self.assertEqual(1, len(self.app.calls), self.app.calls)
+        self.assertEqual('PUT', self.app.calls[0][0])
+        req_hdrs = self.app.headers[0]
+
+        # verify that there is no body crypto meta
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Meta', req_hdrs)
+        # verify etag is md5 of plaintext
+        self.assertEqual(EMPTY_ETAG, req_hdrs['Etag'])
+        # verify there is no etag crypto meta
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Etag', req_hdrs)
+        # verify there is no container update override for etag
+        self.assertNotIn(
+            'X-Object-Sysmeta-Container-Update-Override-Etag', req_hdrs)
+
+        # user meta is still encrypted
+        self.assertEqual(
+            base64.b64encode(encrypt('encrypt me', object_key, FAKE_IV)),
+            req_hdrs['X-Object-Meta-Test'])
+        actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Test']
+        actual = json.loads(urllib.unquote_plus(actual))
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(
+            base64.b64encode(encrypt('not to be confused with the Etag!',
+                                     object_key, FAKE_IV)),
+            req_hdrs['X-Object-Meta-Etag'])
+        actual = req_hdrs['X-Object-Transient-Sysmeta-Crypto-Meta-Etag']
+        actual = json.loads(urllib.unquote_plus(actual))
+        self.assertEqual(Crypto().get_cipher(), actual['cipher'])
+        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+
+        # sysmeta is not encrypted
+        self.assertEqual('do not encrypt me',
+                         req_hdrs['X-Object-Sysmeta-Test'])
+
+        # verify object is empty by getting direct from the app
+        get_req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        resp = get_req.get_response(self.app)
+        self.assertEqual('', resp.body)
+        self.assertEqual(EMPTY_ETAG, resp.headers['Etag'])
 
     def test_PUT_with_other_footers(self):
         # verify handling of another middleware's footer callback

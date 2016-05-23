@@ -139,10 +139,10 @@ class EncInputWrapper(object):
         return self.readChunk(self.wsgi_input.readline, *args, **kwargs)
 
     def readChunk(self, read_method, *args, **kwargs):
-        self._init_encryption_context()
         chunk = read_method(*args, **kwargs)
 
         if chunk:
+            self._init_encryption_context()
             self.plaintext_md5.update(chunk)
             # Encrypt one chunk at a time
             ciphertext = self.body_crypto_ctxt.update(chunk)
