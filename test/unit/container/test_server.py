@@ -2299,6 +2299,48 @@ class TestContainerController(unittest.TestCase):
         result = [x['content_type'] for x in json.loads(resp.body)]
         self.assertEqual(result, [u'\u2603', 'text/plain;charset="utf-8"'])
 
+    def test_swift_bytes_in_content_type(self):
+        # create container
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        req.get_response(self.controller)
+
+        # regular object update
+        ctype = 'text/plain; charset="utf-8"'
+        req = Request.blank(
+            '/sda1/p/a/c/o1', environ={
+                'REQUEST_METHOD': 'PUT',
+                'HTTP_X_TIMESTAMP': '1', 'HTTP_X_CONTENT_TYPE': ctype,
+                'HTTP_X_ETAG': 'x', 'HTTP_X_SIZE': 99})
+        self._update_object_put_headers(req)
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # slo object update
+        ctype = 'text/plain; charset="utf-8"; swift_bytes=12345678'
+        req = Request.blank(
+            '/sda1/p/a/c/o2', environ={
+                'REQUEST_METHOD': 'PUT',
+                'HTTP_X_TIMESTAMP': '1', 'HTTP_X_CONTENT_TYPE': ctype,
+                'HTTP_X_ETAG': 'x', 'HTTP_X_SIZE': 99})
+        self._update_object_put_headers(req)
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # verify listing
+        req = Request.blank('/sda1/p/a/c?format=json',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        listing = json.loads(resp.body)
+        self.assertEqual(2, len(listing))
+        self.assertEqual('text/plain;charset="utf-8"',
+                         listing[0]['content_type'])
+        self.assertEqual(99, listing[0]['bytes'])
+        self.assertEqual('text/plain;charset="utf-8"',
+                         listing[1]['content_type'])
+        self.assertEqual(12345678, listing[1]['bytes'])
+
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': Timestamp(0).internal})
