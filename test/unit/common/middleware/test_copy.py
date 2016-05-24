@@ -602,6 +602,71 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o-copy', self.authorized[1].path)
 
+    def test_COPY_source_metadata(self):
+        source_headers = {
+            'x-object-sysmeta-test1': 'copy me',
+            'x-object-meta-test2': 'copy me too',
+            'x-object-transient-sysmeta-test3': 'ditto',
+            'x-object-sysmeta-container-update-override-etag': 'etag val',
+            'x-object-sysmeta-container-update-override-size': 'size val'}
+
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            headers=source_headers.copy(), body='passed')
+
+        def verify_response(
+                expected_status, expected_headers, unexpected_headers):
+            self.assertEqual(expected_status, status)
+            for k, v in headers:
+                if k.lower() in expected_headers:
+                    expected_val = expected_headers.pop(k.lower())
+                    self.assertEqual(expected_val, v)
+                self.assertNotIn(k.lower(), unexpected_headers)
+            self.assertFalse(expected_headers)
+
+        # use a COPY request
+        self.app.register('PUT', '/v1/a/c/o-copy1', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='COPY',
+                            headers={'Content-Length': 0,
+                                     'Destination': 'c/o-copy1'})
+        status, headers, body = self.call_ssc(req)
+        verify_response('201 Created', source_headers.copy(), [])
+
+        req = Request.blank('/v1/a/c/o-copy1', method='GET')
+        status, headers, body = self.call_ssc(req)
+        verify_response('200 OK', source_headers.copy(), [])
+
+        # use a COPY request with a Range header
+        self.app.register('PUT', '/v1/a/c/o-copy1', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='COPY',
+                            headers={'Content-Length': 0,
+                                     'Destination': 'c/o-copy1',
+                                     'Range': 'bytes=1-2'})
+        status, headers, body = self.call_ssc(req)
+        expected_headers = source_headers.copy()
+        unexpected_headers = (
+            'x-object-sysmeta-container-update-override-etag',
+            'x-object-sysmeta-container-update-override-size')
+        for h in unexpected_headers:
+            expected_headers.pop(h)
+        verify_response('201 Created', expected_headers, unexpected_headers)
+
+        req = Request.blank('/v1/a/c/o-copy1', method='GET')
+        status, headers, body = self.call_ssc(req)
+        verify_response('200 OK', expected_headers, unexpected_headers)
+
+        # use a PUT with x-copy-from
+        self.app.register('PUT', '/v1/a/c/o-copy2', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o-copy2', method='PUT',
+                            headers={'Content-Length': 0,
+                                     'X-Copy-From': 'c/o'})
+        status, headers, body = self.call_ssc(req)
+        verify_response('201 Created', source_headers.copy(), [])
+
+        req = Request.blank('/v1/a/c/o-copy2', method='GET')
+        status, headers, body = self.call_ssc(req)
+        verify_response('200 OK', source_headers.copy(), [])
+
     def test_COPY_no_destination_header(self):
         req = Request.blank(
             '/v1/a/c/o', method='COPY', headers={'Content-Length': 0})

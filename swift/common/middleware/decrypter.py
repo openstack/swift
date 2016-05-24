@@ -25,13 +25,20 @@ from swift.common.middleware.crypto_utils import CryptoWSGIContext, \
     load_crypto_meta, extract_crypto_meta, Crypto
 from swift.common.exceptions import EncryptionException
 from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
-    get_object_transient_sysmeta, get_listing_content_type
+    get_object_transient_sysmeta, get_listing_content_type, get_sys_meta_prefix
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible, parse_content_type, \
     FileLikeIter, multipart_byteranges_to_document_iters
 
 DECRYPT_CHUNK_SIZE = 65536
+
+
+def purge_crypto_sysmeta_headers(headers):
+    return [h for h in headers if not
+            h[0].lower().startswith(
+                (get_object_transient_sysmeta('crypto-'),
+                 get_sys_meta_prefix('object') + 'crypto-'))]
 
 
 class BaseDecrypterContext(CryptoWSGIContext):
@@ -313,6 +320,7 @@ class DecrypterObjContext(BaseDecrypterContext):
             # don't decrypt body of non-2xx responses
             resp_iter = app_resp
 
+        mod_resp_headers = purge_crypto_sysmeta_headers(mod_resp_headers)
         start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
 
@@ -329,6 +337,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                            self._response_exc_info)
         else:
             mod_resp_headers = self.decrypt_resp_headers(keys)
+            mod_resp_headers = purge_crypto_sysmeta_headers(mod_resp_headers)
             start_response(self._response_status, mod_resp_headers,
                            self._response_exc_info)
 
