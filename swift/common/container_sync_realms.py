@@ -57,7 +57,8 @@ class ContainerSyncRealms(object):
                     log_func = self.logger.debug
                 else:
                     log_func = self.logger.error
-                log_func(_('Could not load %r: %s'), self.conf_path, err)
+                log_func(_('Could not load %(conf)r: %(error)s') % {
+                         'conf': self.conf_path, 'error': err})
             else:
                 if mtime != self.conf_path_mtime:
                     self.conf_path_mtime = mtime
@@ -66,7 +67,8 @@ class ContainerSyncRealms(object):
                         conf.read(self.conf_path)
                     except configparser.ParsingError as err:
                         self.logger.error(
-                            _('Could not load %r: %s'), self.conf_path, err)
+                            _('Could not load %(conf)r: %(error)s')
+                            % {'conf': self.conf_path, 'error': err})
                     else:
                         try:
                             self.mtime_check_interval = conf.getint(
@@ -79,8 +81,9 @@ class ContainerSyncRealms(object):
                                 now + self.mtime_check_interval
                         except (configparser.ParsingError, ValueError) as err:
                             self.logger.error(
-                                _('Error in %r with mtime_check_interval: %s'),
-                                self.conf_path, err)
+                                _('Error in %(conf)r with '
+                                  'mtime_check_interval: %(error)s')
+                                % {'conf': self.conf_path, 'error': err})
                         realms = {}
                         for section in conf.sections():
                             realm = {}

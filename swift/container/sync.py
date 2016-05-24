@@ -237,8 +237,9 @@ class ContainerSync(Daemon):
             if err.errno != errno.ENOENT:
                 raise
             raise SystemExit(
-                _('Unable to load internal client from config: %r (%s)') %
-                (internal_client_conf_path, err))
+                _('Unable to load internal client from config: '
+                  '%(conf)r (%(error)s)')
+                % {'conf': internal_client_conf_path, 'error': err})
 
     def run_forever(self, *args, **kwargs):
         """

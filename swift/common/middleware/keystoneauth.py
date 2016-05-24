@@ -287,7 +287,8 @@ class KeystoneAuth(object):
     def _get_project_domain_id(self, environ):
         info = get_account_info(environ, self.app, 'KS')
         domain_id = info.get('sysmeta', {}).get('project-domain-id')
-        exists = is_success(info.get('status', 0))
+        exists = (is_success(info.get('status', 0))
+                  and info.get('account_really_exists', True))
         return exists, domain_id
 
     def _set_project_domain_id(self, req, path_parts, env_identity):

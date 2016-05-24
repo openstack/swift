@@ -173,7 +173,9 @@ class TestAccount(Base):
         finally:
             self.env.account.conn.storage_url = was_url
 
-    def testPUT(self):
+    def testPUTError(self):
+        if load_constraint('allow_account_management'):
+            raise SkipTest("Allow account management is enabled")
         self.env.account.conn.make_request('PUT')
         self.assert_status([403, 405])
 

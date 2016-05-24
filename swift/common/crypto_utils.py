@@ -67,7 +67,8 @@ class CryptoWSGIContext(WSGIContext):
                 self.logger.exception(_("Did not get a keys dict"))
             except ValueError as e:
                 # don't include the key in any messages!
-                self.logger.exception(_("Bad key for %r: %s") % (name, str(e)))
+                self.logger.exception(_("Bad key for %(name)r: %(err)s") %
+                                      {'name': name, 'err': e})
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")
 

@@ -378,8 +378,9 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                 base, policy = split_policy_string(dir_)
             except PolicyError as e:
                 if logger:
-                    logger.warning(_('Directory %r does not map '
-                                     'to a valid policy (%s)') % (dir_, e))
+                    logger.warning(_('Directory %(directory)r does not map '
+                                     'to a valid policy (%(error)s)') % {
+                                   'directory': dir_, 'error': e})
                 continue
             datadir_path = os.path.join(devices, device, dir_)
 

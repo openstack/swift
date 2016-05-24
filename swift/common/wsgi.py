@@ -196,9 +196,10 @@ def get_socket(conf):
                 raise
             sleep(0.1)
     if not sock:
-        raise Exception(_('Could not bind to %s:%s '
-                          'after trying for %s seconds') % (
-                              bind_addr[0], bind_addr[1], bind_timeout))
+        raise Exception(_('Could not bind to %(addr)s:%(port)s '
+                          'after trying for %(timeout)s seconds') % {
+                              'addr': bind_addr[0], 'port': bind_addr[1],
+                              'timeout': bind_timeout})
     # in my experience, sockets can hang around forever without keepalive
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -1100,7 +1101,7 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'swift.trans_id', 'swift.authorize_override',
                  'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID',
                  'HTTP_REFERER', 'swift.orig_req_method', 'swift.log_info',
-                 'swift.metadata.checked'):
+                 'swift.infocache', 'swift.metadata.checked'):
         if name in env:
             newenv[name] = env[name]
     if method:

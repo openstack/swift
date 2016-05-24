@@ -160,9 +160,9 @@ class ObjectUpdater(Daemon):
             try:
                 base, policy = split_policy_string(asyncdir)
             except PolicyError as e:
-                self.logger.warning(_('Directory %r does not map '
-                                    'to a valid policy (%s)') %
-                                    (asyncdir, e))
+                self.logger.warning(_('Directory %(directory)r does not map '
+                                      'to a valid policy (%(error)s)') % {
+                                    'directory': asyncdir, 'error': e})
                 continue
             for prefix in self._listdir(async_pending):
                 prefix_path = os.path.join(async_pending, prefix)

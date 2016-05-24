@@ -245,8 +245,9 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                       'status': 200, 'object_count': 1}
         req = Request.blank('/v1/a/c2/o2',
                             environ={'REQUEST_METHOD': 'COPY',
-                                     'swift.container/a/c': a_c_cache,
-                                     'swift.container/a2/c': a2_c_cache},
+                                     'swift.infocache': {
+                                         'container/a/c': a_c_cache,
+                                         'container/a2/c': a2_c_cache}},
                             headers={'Destination': '/c/o',
                                      'Destination-Account': 'a2'})
         res = req.get_response(self.copy_filter)
@@ -261,8 +262,9 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                       'status': 200, 'object_count': 1}
         req = Request.blank('/v1/a2/c/o',
                             environ={'REQUEST_METHOD': 'PUT',
-                                     'swift.container/a/c': a_c_cache,
-                                     'swift.container/a2/c': a2_c_cache},
+                                     'swift.infocache': {
+                                         'container/a/c': a_c_cache,
+                                         'container/a2/c': a2_c_cache}},
                             headers={'X-Copy-From': '/c2/o2',
                                      'X-Copy-From-Account': 'a'})
         res = req.get_response(self.copy_filter)

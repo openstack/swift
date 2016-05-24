@@ -34,7 +34,8 @@ from swift.common import utils, swob, exceptions
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
-from swift.proxy.controllers.base import get_info as _real_get_info
+from swift.proxy.controllers.base import \
+    get_container_info as _real_get_container_info
 from swift.common.storage_policy import POLICIES, ECDriverError, StoragePolicy
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
@@ -76,7 +77,7 @@ def set_http_connect(*args, **kwargs):
 class PatchedObjControllerApp(proxy_server.Application):
     """
     This patch is just a hook over the proxy server's __call__ to ensure
-    that calls to get_info will return the stubbed value for
+    that calls to get_container_info will return the stubbed value for
     container_info if it's a container info call.
     """
 
@@ -85,16 +86,38 @@ class PatchedObjControllerApp(proxy_server.Application):
 
     def __call__(self, *args, **kwargs):
 
-        def _fake_get_info(app, env, account, container=None, **kwargs):
-            if container:
-                if container in self.per_container_info:
-                    return self.per_container_info[container]
-                return self.container_info
-            else:
-                return _real_get_info(app, env, account, container, **kwargs)
+        def _fake_get_container_info(env, app, swift_source=None):
+            _vrs, account, container, _junk = utils.split_path(
+                env['PATH_INFO'], 3, 4)
 
-        mock_path = 'swift.proxy.controllers.base.get_info'
-        with mock.patch(mock_path, new=_fake_get_info):
+            # Seed the cache with our container info so that the real
+            # get_container_info finds it.
+            ic = env.setdefault('swift.infocache', {})
+            cache_key = "container/%s/%s" % (account, container)
+
+            old_value = ic.get(cache_key)
+
+            # Copy the container info so we don't hand out a reference to a
+            # mutable thing that's set up only once at compile time. Nothing
+            # *should* mutate it, but it's better to be paranoid than wrong.
+            if container in self.per_container_info:
+                ic[cache_key] = self.per_container_info[container].copy()
+            else:
+                ic[cache_key] = self.container_info.copy()
+
+            real_info = _real_get_container_info(env, app, swift_source)
+
+            if old_value is None:
+                del ic[cache_key]
+            else:
+                ic[cache_key] = old_value
+
+            return real_info
+
+        with mock.patch('swift.proxy.server.get_container_info',
+                        new=_fake_get_container_info), \
+                mock.patch('swift.proxy.controllers.base.get_container_info',
+                           new=_fake_get_container_info):
             return super(
                 PatchedObjControllerApp, self).__call__(*args, **kwargs)
 
@@ -122,6 +145,7 @@ def make_footers_callback(body):
 
 class BaseObjectControllerMixin(object):
     container_info = {
+        'status': 200,
         'write_acl': None,
         'read_acl': None,
         'storage_policy': None,
@@ -142,8 +166,11 @@ class BaseObjectControllerMixin(object):
         self.app = PatchedObjControllerApp(
             None, FakeMemcache(), account_ring=FakeRing(),
             container_ring=FakeRing(), logger=self.logger)
+
         # you can over-ride the container_info just by setting it on the app
+        # (see PatchedObjControllerApp for details)
         self.app.container_info = dict(self.container_info)
+
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
@@ -1136,31 +1163,6 @@ class TestReplicatedObjControllerVariousReplicas(BaseObjectControllerMixin,
     controller_cls = obj.ReplicatedObjectController
 
 
-@patch_policies(legacy_only=True)
-class TestObjControllerLegacyCache(TestReplicatedObjController):
-    """
-    This test pretends like memcache returned a stored value that should
-    resemble whatever "old" format.  It catches KeyErrors you'd get if your
-    code was expecting some new format during a rolling upgrade.
-    """
-
-    # in this case policy_index is missing
-    container_info = {
-        'read_acl': None,
-        'write_acl': None,
-        'sync_key': None,
-        'versions': None,
-    }
-
-    def test_invalid_storage_policy_cache(self):
-        self.app.container_info['storage_policy'] = 1
-        for method in ('GET', 'HEAD', 'POST', 'PUT', 'COPY'):
-            req = swob.Request.blank('/v1/a/c/o', method=method)
-            with set_http_connect():
-                resp = req.get_response(self.app)
-            self.assertEqual(resp.status_int, 503)
-
-
 class StubResponse(object):
 
     def __init__(self, status, body='', headers=None):
@@ -1234,6 +1236,7 @@ def capture_http_requests(get_response):
 @patch_policies(with_ec_default=True)
 class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     container_info = {
+        'status': 200,
         'read_acl': None,
         'write_acl': None,
         'sync_key': None,

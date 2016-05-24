@@ -74,8 +74,8 @@ from swift.common.ring import RingData
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
 from swift.proxy.controllers import base as proxy_base
-from swift.proxy.controllers.base import get_container_memcache_key, \
-    get_account_memcache_key, cors_validation, _get_info_cache
+from swift.proxy.controllers.base import get_cache_key, cors_validation, \
+    get_account_info, get_container_info
 import swift.proxy.controllers
 import swift.proxy.controllers.obj
 from swift.common.header_key_dict import HeaderKeyDict
@@ -482,14 +482,14 @@ class TestController(unittest.TestCase):
                 self.controller.account_info(self.account)
             self.assertEqual(count, 123)
         with save_globals():
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             account_info = {'status': 200, 'container_count': 1234}
             self.memcache.set(cache_key, account_info)
             partition, nodes, count = \
                 self.controller.account_info(self.account)
             self.assertEqual(count, 1234)
         with save_globals():
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             account_info = {'status': 200, 'container_count': '1234'}
             self.memcache.set(cache_key, account_info)
             partition, nodes, count = \
@@ -517,8 +517,9 @@ class TestController(unittest.TestCase):
 
             # Test the internal representation in memcache
             # 'container_count' changed from int to str
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             container_info = {'status': 200,
+                              'account_really_exists': True,
                               'container_count': '12345',
                               'total_object_count': None,
                               'bytes': None,
@@ -544,7 +545,7 @@ class TestController(unittest.TestCase):
 
             # Test the internal representation in memcache
             # 'container_count' changed from 0 to None
-            cache_key = get_account_memcache_key(self.account)
+            cache_key = get_cache_key(self.account)
             account_info = {'status': 404,
                             'container_count': None,  # internally keep None
                             'total_object_count': None,
@@ -621,8 +622,7 @@ class TestController(unittest.TestCase):
                 self.account, self.container, self.request)
             self.check_container_info_return(ret)
 
-            cache_key = get_container_memcache_key(self.account,
-                                                   self.container)
+            cache_key = get_cache_key(self.account, self.container)
             cache_value = self.memcache.get(cache_key)
             self.assertTrue(isinstance(cache_value, dict))
             self.assertEqual(200, cache_value.get('status'))
@@ -644,8 +644,7 @@ class TestController(unittest.TestCase):
                 self.account, self.container, self.request)
             self.check_container_info_return(ret, True)
 
-            cache_key = get_container_memcache_key(self.account,
-                                                   self.container)
+            cache_key = get_cache_key(self.account, self.container)
             cache_value = self.memcache.get(cache_key)
             self.assertTrue(isinstance(cache_value, dict))
             self.assertEqual(404, cache_value.get('status'))
@@ -660,8 +659,7 @@ class TestController(unittest.TestCase):
                 self.account, self.container, self.request)
             self.check_container_info_return(ret, True)
 
-            cache_key = get_container_memcache_key(self.account,
-                                                   self.container)
+            cache_key = get_cache_key(self.account, self.container)
             cache_value = self.memcache.get(cache_key)
             self.assertTrue(isinstance(cache_value, dict))
             self.assertEqual(404, cache_value.get('status'))
@@ -687,7 +685,32 @@ class TestController(unittest.TestCase):
             test(404, 507, 503)
             test(503, 503, 503)
 
-    def test_get_info_cache_returns_values_as_strings(self):
+    def test_get_account_info_returns_values_as_strings(self):
+        app = mock.MagicMock()
+        app.memcache = mock.MagicMock()
+        app.memcache.get = mock.MagicMock()
+        app.memcache.get.return_value = {
+            u'foo': u'\u2603',
+            u'meta': {u'bar': u'\u2603'},
+            u'sysmeta': {u'baz': u'\u2603'}}
+        env = {'PATH_INFO': '/v1/a'}
+        ai = get_account_info(env, app)
+
+        # Test info is returned as strings
+        self.assertEqual(ai.get('foo'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(ai.get('foo'), str))
+
+        # Test info['meta'] is returned as strings
+        m = ai.get('meta', {})
+        self.assertEqual(m.get('bar'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(m.get('bar'), str))
+
+        # Test info['sysmeta'] is returned as strings
+        m = ai.get('sysmeta', {})
+        self.assertEqual(m.get('baz'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(m.get('baz'), str))
+
+    def test_get_container_info_returns_values_as_strings(self):
         app = mock.MagicMock()
         app.memcache = mock.MagicMock()
         app.memcache.get = mock.MagicMock()
@@ -696,25 +719,25 @@ class TestController(unittest.TestCase):
             u'meta': {u'bar': u'\u2603'},
             u'sysmeta': {u'baz': u'\u2603'},
             u'cors': {u'expose_headers': u'\u2603'}}
-        env = {}
-        r = _get_info_cache(app, env, 'account', 'container')
+        env = {'PATH_INFO': '/v1/a/c'}
+        ci = get_container_info(env, app)
 
         # Test info is returned as strings
-        self.assertEqual(r.get('foo'), '\xe2\x98\x83')
-        self.assertTrue(isinstance(r.get('foo'), str))
+        self.assertEqual(ci.get('foo'), '\xe2\x98\x83')
+        self.assertTrue(isinstance(ci.get('foo'), str))
 
         # Test info['meta'] is returned as strings
-        m = r.get('meta', {})
+        m = ci.get('meta', {})
         self.assertEqual(m.get('bar'), '\xe2\x98\x83')
         self.assertTrue(isinstance(m.get('bar'), str))
 
         # Test info['sysmeta'] is returned as strings
-        m = r.get('sysmeta', {})
+        m = ci.get('sysmeta', {})
         self.assertEqual(m.get('baz'), '\xe2\x98\x83')
         self.assertTrue(isinstance(m.get('baz'), str))
 
         # Test info['cors'] is returned as strings
-        m = r.get('cors', {})
+        m = ci.get('cors', {})
         self.assertEqual(m.get('expose_headers'), '\xe2\x98\x83')
         self.assertTrue(isinstance(m.get('expose_headers'), str))
 
@@ -6338,22 +6361,23 @@ class TestContainerController(unittest.TestCase):
                 res = controller.HEAD(req)
                 self.assertEqual(res.status[:len(str(expected))],
                                  str(expected))
+                infocache = res.environ.get('swift.infocache', {})
                 if expected < 400:
-                    self.assertTrue('x-works' in res.headers)
+                    self.assertIn('x-works', res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
                 if c_expected:
-                    self.assertTrue('swift.container/a/c' in res.environ)
+                    self.assertIn('container/a/c', infocache)
                     self.assertEqual(
-                        res.environ['swift.container/a/c']['status'],
+                        infocache['container/a/c']['status'],
                         c_expected)
                 else:
-                    self.assertTrue('swift.container/a/c' not in res.environ)
+                    self.assertNotIn('container/a/c', infocache)
                 if a_expected:
-                    self.assertTrue('swift.account/a' in res.environ)
-                    self.assertEqual(res.environ['swift.account/a']['status'],
+                    self.assertIn('account/a', infocache)
+                    self.assertEqual(infocache['account/a']['status'],
                                      a_expected)
                 else:
-                    self.assertTrue('swift.account/a' not in res.environ)
+                    self.assertNotIn('account/a', res.environ)
 
                 set_http_connect(*statuses, **kwargs)
                 self.app.memcache.store = {}
@@ -6362,25 +6386,26 @@ class TestContainerController(unittest.TestCase):
                 res = controller.GET(req)
                 self.assertEqual(res.status[:len(str(expected))],
                                  str(expected))
+                infocache = res.environ.get('swift.infocache', {})
                 if expected < 400:
                     self.assertTrue('x-works' in res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
                 if c_expected:
-                    self.assertTrue('swift.container/a/c' in res.environ)
+                    self.assertIn('container/a/c', infocache)
                     self.assertEqual(
-                        res.environ['swift.container/a/c']['status'],
+                        infocache['container/a/c']['status'],
                         c_expected)
                 else:
-                    self.assertTrue('swift.container/a/c' not in res.environ)
+                    self.assertNotIn('container/a/c', infocache)
                 if a_expected:
-                    self.assertTrue('swift.account/a' in res.environ)
-                    self.assertEqual(res.environ['swift.account/a']['status'],
+                    self.assertIn('account/a', infocache)
+                    self.assertEqual(infocache['account/a']['status'],
                                      a_expected)
                 else:
-                    self.assertTrue('swift.account/a' not in res.environ)
+                    self.assertNotIn('account/a', infocache)
             # In all the following tests cache 200 for account
-            # return and ache vary for container
-            # return 200 and cache 200 for and container
+            # return and cache vary for container
+            # return 200 and cache 200 for account and container
             test_status_map((200, 200, 404, 404), 200, 200, 200)
             test_status_map((200, 200, 500, 404), 200, 200, 200)
             # return 304 don't cache container
@@ -6392,12 +6417,13 @@ class TestContainerController(unittest.TestCase):
             test_status_map((200, 500, 500, 500), 503, None, 200)
             self.assertFalse(self.app.account_autocreate)
 
-            # In all the following tests cache 404 for account
             # return 404 (as account is not found) and don't cache container
             test_status_map((404, 404, 404), 404, None, 404)
-            # This should make no difference
+
+            # cache a 204 for the account because it's sort of like it
+            # exists
             self.app.account_autocreate = True
-            test_status_map((404, 404, 404), 404, None, 404)
+            test_status_map((404, 404, 404), 404, None, 204)
 
     def test_PUT_policy_headers(self):
         backend_requests = []
@@ -6983,14 +7009,13 @@ class TestContainerController(unittest.TestCase):
     def test_GET_no_content(self):
         with save_globals():
             set_http_connect(200, 204, 204, 204)
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
             req = Request.blank('/v1/a/c')
             self.app.update_request(req)
             res = controller.GET(req)
             self.assertEqual(res.status_int, 204)
-            self.assertEqual(
-                res.environ['swift.container/a/c']['status'], 204)
+            ic = res.environ['swift.infocache']
+            self.assertEqual(ic['container/a/c']['status'], 204)
             self.assertEqual(res.content_length, 0)
             self.assertTrue('transfer-encoding' not in res.headers)
 
@@ -7002,13 +7027,14 @@ class TestContainerController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 201, 201, 201)
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
             req = Request.blank('/v1/a/c')
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             res = controller.GET(req)
-        self.assertEqual(res.environ['swift.container/a/c']['status'], 201)
+        self.assertEqual(
+            res.environ['swift.infocache']['container/a/c']['status'],
+            201)
         self.assertTrue(called[0])
 
     def test_HEAD_calls_authorize(self):
@@ -7019,8 +7045,7 @@ class TestContainerController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 201, 201, 201)
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
             req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'HEAD'})
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
@@ -7476,16 +7501,18 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             res = method(req)
             self.assertEqual(res.status_int, expected)
+            infocache = res.environ.get('swift.infocache', {})
             if env_expected:
-                self.assertEqual(res.environ['swift.account/a']['status'],
+                self.assertEqual(infocache['account/a']['status'],
                                  env_expected)
             set_http_connect(*statuses)
             req = Request.blank('/v1/a/', {})
             self.app.update_request(req)
             res = method(req)
+            infocache = res.environ.get('swift.infocache', {})
             self.assertEqual(res.status_int, expected)
             if env_expected:
-                self.assertEqual(res.environ['swift.account/a']['status'],
+                self.assertEqual(infocache['account/a']['status'],
                                  env_expected)
 
     def test_OPTIONS(self):
@@ -7530,7 +7557,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET(self):
         with save_globals():
-            controller = proxy_server.AccountController(self.app, 'account')
+            controller = proxy_server.AccountController(self.app, 'a')
             # GET returns after the first successful call to an Account Server
             self.assert_status_map(controller.GET, (200,), 200, 200)
             self.assert_status_map(controller.GET, (503, 200), 200, 200)
@@ -7552,7 +7579,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_autocreate(self):
         with save_globals():
-            controller = proxy_server.AccountController(self.app, 'account')
+            controller = proxy_server.AccountController(self.app, 'a')
             self.app.memcache = FakeMemcacheReturnsNone()
             self.assertFalse(self.app.account_autocreate)
             # Repeat the test for autocreate = False and 404 by all
@@ -7577,7 +7604,7 @@ class TestAccountController(unittest.TestCase):
     def test_HEAD(self):
         # Same behaviour as GET
         with save_globals():
-            controller = proxy_server.AccountController(self.app, 'account')
+            controller = proxy_server.AccountController(self.app, 'a')
             self.assert_status_map(controller.HEAD, (200,), 200, 200)
             self.assert_status_map(controller.HEAD, (503, 200), 200, 200)
             self.assert_status_map(controller.HEAD, (503, 503, 200), 200, 200)
@@ -7595,7 +7622,7 @@ class TestAccountController(unittest.TestCase):
     def test_HEAD_autocreate(self):
         # Same behaviour as GET
         with save_globals():
-            controller = proxy_server.AccountController(self.app, 'account')
+            controller = proxy_server.AccountController(self.app, 'a')
             self.app.memcache = FakeMemcacheReturnsNone()
             self.assertFalse(self.app.account_autocreate)
             self.assert_status_map(controller.HEAD,
@@ -7611,7 +7638,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_POST_autocreate(self):
         with save_globals():
-            controller = proxy_server.AccountController(self.app, 'account')
+            controller = proxy_server.AccountController(self.app, 'a')
             self.app.memcache = FakeMemcacheReturnsNone()
             # first test with autocreate being False
             self.assertFalse(self.app.account_autocreate)
@@ -7633,7 +7660,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_POST_autocreate_with_sysmeta(self):
         with save_globals():
-            controller = proxy_server.AccountController(self.app, 'account')
+            controller = proxy_server.AccountController(self.app, 'a')
             self.app.memcache = FakeMemcacheReturnsNone()
             # first test with autocreate being False
             self.assertFalse(self.app.account_autocreate)
