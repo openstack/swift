@@ -270,6 +270,8 @@ class Encrypter(object):
         self.logger = get_logger(conf, log_route="encrypter")
         self.conf = conf
         self.crypto = Crypto(self.conf)
+        self.disable_encryption = config_true_value(
+            conf.get('disable_encryption', 'false'))
 
     def __call__(self, env, start_response):
         # If override is set in env, then just pass along
@@ -277,6 +279,9 @@ class Encrypter(object):
             return self.app(env, start_response)
 
         req = Request(env)
+
+        if self.disable_encryption and req.method in ('PUT', 'POST'):
+            return self.app(env, start_response)
         try:
             req.split_path(4, 4, True)
         except ValueError:
