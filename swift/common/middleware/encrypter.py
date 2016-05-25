@@ -92,8 +92,9 @@ class EncInputWrapper(object):
             plaintext_etag = None
             if self.body_crypto_ctxt:
                 plaintext_etag = self.plaintext_md5.hexdigest()
-                # Encrypt the plaintext etag using the object key and persist
-                # as sysmeta along with the crypto parameters that were used.
+                # Encrypt the plaintext etag using the container key and
+                # persist as sysmeta along with the crypto parameters
+                # that were used.
                 val, etag_crypto_meta = encrypt_header_val(
                     self.crypto, plaintext_etag,
                     self.keys['container'], iv_base=self.path)
