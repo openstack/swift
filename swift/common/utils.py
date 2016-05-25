@@ -2606,6 +2606,48 @@ class GreenAsyncPile(object):
     __next__ = next
 
 
+class StreamingPile(GreenAsyncPile):
+    """
+    Runs jobs in a pool of green threads, spawning more jobs as results are
+    retrieved and worker threads become available.
+
+    When used as a context manager, has the same worker-killing properties as
+    :class:`ContextPool`.
+    """
+    def __init__(self, size):
+        """:param size: number of worker threads to use"""
+        self.pool = ContextPool(size)
+        super(StreamingPile, self).__init__(self.pool)
+
+    def asyncstarmap(self, func, args_iter):
+        """
+        This is the same as :func:`itertools.starmap`, except that *func* is
+        executed in a separate green thread for each item, and results won't
+        necessarily have the same order as inputs.
+        """
+        args_iter = iter(args_iter)
+
+        # Initialize the pile
+        for args in itertools.islice(args_iter, self.pool.size):
+            self.spawn(func, *args)
+
+        # Keep populating the pile as greenthreads become available
+        for args in args_iter:
+            yield next(self)
+            self.spawn(func, *args)
+
+        # Drain the pile
+        for result in self:
+            yield result
+
+    def __enter__(self):
+        self.pool.__enter__()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.pool.__exit__(type, value, traceback)
+
+
 class ModifiedParseResult(ParseResult):
     "Parse results class for urlparse."
 

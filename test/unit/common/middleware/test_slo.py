@@ -917,15 +917,17 @@ class TestSloDeleteManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         resp_data = json.loads(body)
         self.assertEqual(
-            self.app.calls,
-            [('GET', '/v1/AUTH_test/deltest/' +
-              'manifest-missing-submanifest?multipart-manifest=get'),
-             ('DELETE', '/v1/AUTH_test/deltest/a_1?multipart-manifest=delete'),
-             ('GET', '/v1/AUTH_test/deltest/' +
-              'missing-submanifest?multipart-manifest=get'),
-             ('DELETE', '/v1/AUTH_test/deltest/d_3?multipart-manifest=delete'),
-             ('DELETE', '/v1/AUTH_test/deltest/' +
-              'manifest-missing-submanifest?multipart-manifest=delete')])
+            set(self.app.calls),
+            set([('GET', '/v1/AUTH_test/deltest/' +
+                  'manifest-missing-submanifest?multipart-manifest=get'),
+                 ('DELETE', '/v1/AUTH_test/deltest/' +
+                  'a_1?multipart-manifest=delete'),
+                 ('GET', '/v1/AUTH_test/deltest/' +
+                  'missing-submanifest?multipart-manifest=get'),
+                 ('DELETE', '/v1/AUTH_test/deltest/' +
+                  'd_3?multipart-manifest=delete'),
+                 ('DELETE', '/v1/AUTH_test/deltest/' +
+                  'manifest-missing-submanifest?multipart-manifest=delete')]))
         self.assertEqual(resp_data['Response Status'], '200 OK')
         self.assertEqual(resp_data['Response Body'], '')
         self.assertEqual(resp_data['Number Deleted'], 3)
@@ -2651,6 +2653,10 @@ class TestSloBulkLogger(unittest.TestCase):
     def test_reused_logger(self):
         slo_mware = slo.filter_factory({})('fake app')
         self.assertTrue(slo_mware.logger is slo_mware.bulk_deleter.logger)
+
+    def test_passes_through_concurrency(self):
+        slo_mware = slo.filter_factory({'delete_concurrency': 5})('fake app')
+        self.assertEqual(5, slo_mware.bulk_deleter.delete_concurrency)
 
 
 class TestSwiftInfo(unittest.TestCase):
