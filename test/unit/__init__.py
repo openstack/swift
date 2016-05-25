@@ -345,6 +345,14 @@ class FakeMemcache(object):
         return True
 
 
+class FakeMemcacheReturnsNone(FakeMemcache):
+
+    def get(self, key):
+        # Returns None as the timestamp of the container; assumes we're only
+        # using the FakeMemcache for container existence checks.
+        return None
+
+
 def readuntil2crlfs(fd):
     rv = ''
     lc = ''
