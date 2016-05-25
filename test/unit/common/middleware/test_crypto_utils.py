@@ -149,11 +149,14 @@ class TestModuleMethods(unittest.TestCase):
                       'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22%7D'
 
     meta_with_key = {'iv': '0123456789abcdef', 'cipher': 'AES_CTR_256',
-                     'key': '0123456789abcdef0123456789abcdef'}
-    serialized_meta_with_key = '%7B%22cipher%22%3A+%22AES_CTR_256%22%2C+%22' \
-                               'iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg%3D%3D%22' \
-                               '%2C+%22key%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZjA' \
-                               'xMjM0NTY3ODlhYmNkZWY%3D%22%7D'
+                     'body_key': {'key': 'fedcba9876543210fedcba9876543210',
+                                  'iv': 'fedcba9876543210'}}
+    serialized_meta_with_key = '%7B%22body_key%22%3A+%7B%22iv%22%3A+%22ZmVkY' \
+                               '2JhOTg3NjU0MzIxMA%3D%3D%22%2C+%22key%22%3A+%' \
+                               '22ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMT' \
+                               'A%3D%22%7D%2C+%22cipher%22%3A+%22AES_CTR_256' \
+                               '%22%2C+%22iv%22%3A+%22MDEyMzQ1Njc4OWFiY2RlZg' \
+                               '%3D%3D%22%7D'
 
     def test_dump_crypto_meta(self):
         actual = crypto_utils.dump_crypto_meta(self.meta)

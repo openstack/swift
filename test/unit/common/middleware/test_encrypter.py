@@ -75,10 +75,15 @@ class TestEncrypter(unittest.TestCase):
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta']
         actual = json.loads(urllib.unquote_plus(actual))
-        expected_wrapped_key = encrypt(body_key, object_key, FAKE_IV)
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
-        self.assertEqual(expected_wrapped_key, base64.b64decode(actual['key']))
+
+        # verify wrapped body key
+        expected_wrapped_key = encrypt(body_key, object_key, FAKE_IV)
+        self.assertEqual(expected_wrapped_key,
+                         base64.b64decode(actual['body_key']['key']))
+        self.assertEqual(FAKE_IV,
+                         base64.b64decode(actual['body_key']['iv']))
 
         # verify etag
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
@@ -285,10 +290,15 @@ class TestEncrypter(unittest.TestCase):
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta']
         actual = json.loads(urllib.unquote_plus(actual))
-        expected_wrapped_key = encrypt(body_key, object_key, FAKE_IV)
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
-        self.assertEqual(expected_wrapped_key, base64.b64decode(actual['key']))
+
+        # verify wrapped body key
+        expected_wrapped_key = encrypt(body_key, object_key, FAKE_IV)
+        self.assertEqual(expected_wrapped_key,
+                         base64.b64decode(actual['body_key']['key']))
+        self.assertEqual(FAKE_IV,
+                         base64.b64decode(actual['body_key']['iv']))
 
     def test_PUT_with_etag_override_in_headers(self):
         # verify handling of another middleware's

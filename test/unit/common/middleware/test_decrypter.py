@@ -61,8 +61,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
         enc_body = encrypt(body, body_key, FAKE_IV)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         hdrs = {
             'Etag': 'hashOfCiphertext',
             'content-type': 'text/plain',
@@ -313,7 +314,8 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_GET_with_bad_body_key_for_object_body(self):
-        bad_crypto_meta = fake_get_crypto_meta(key='wrapped too short key')
+        body_key_meta = {'key': 'wrapped too short key', 'iv': FAKE_IV}
+        bad_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         self._test_GET_with_bad_crypto_meta_for_object_body(bad_crypto_meta)
         self.assertIn('Key must be length 32',
                       self.decrypter.logger.get_lines_for_level('error')[0])
@@ -321,7 +323,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
     def test_GET_with_missing_body_key_for_object_body(self):
         bad_crypto_meta = fake_get_crypto_meta()  # no key by default
         self._test_GET_with_bad_crypto_meta_for_object_body(bad_crypto_meta)
-        self.assertIn("Missing 'key'",
+        self.assertIn("Missing 'body_key'",
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
     def test_HEAD_success(self):
@@ -368,8 +370,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
         enc_body = encrypt(body, body_key, FAKE_IV)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         hdrs = {
             'Etag': 'hashOfCiphertext',
             'etag': 'hashOfCiphertext',
@@ -405,8 +408,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
         enc_body = encrypt(body, body_key, FAKE_IV)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         hdrs = {
             'Etag': 'hashOfCiphertext',
             'etag': 'hashOfCiphertext',
@@ -471,8 +475,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         ctxt = Crypto().create_encryption_ctxt(body_key, FAKE_IV)
         enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
         hdrs = {
@@ -503,8 +508,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         ctxt = Crypto().create_encryption_ctxt(body_key, FAKE_IV)
         enc_body = [encrypt(chunk, ctxt=ctxt) for chunk in chunks]
         enc_body = [enc_body[0][3:], enc_body[1], enc_body[2][:2]]
@@ -539,8 +545,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         plaintext = 'Cwm fjord veg balks nth pyx quiz'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, body_key, FAKE_IV)
@@ -605,8 +612,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         object_key = fetch_crypto_keys()['object']
         body_key = os.urandom(32)
-        body_crypto_meta = fake_get_crypto_meta(
-            key=encrypt(body_key, object_key, FAKE_IV))
+        body_key_meta = {'key': encrypt(body_key, object_key, FAKE_IV),
+                         'iv': FAKE_IV}
+        body_crypto_meta = fake_get_crypto_meta(body_key=body_key_meta)
         plaintext = 'Cwm fjord veg balks nth pyx quiz'
         plaintext_etag = md5hex(plaintext)
         ciphertext = encrypt(plaintext, body_key, FAKE_IV)

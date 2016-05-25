@@ -300,11 +300,10 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                 # verify on disk data - body
                 body_iv = load_crypto_meta(
                     metadata['x-object-sysmeta-crypto-meta'])['iv']
-                wrapped_body_key = load_crypto_meta(
-                    metadata['x-object-sysmeta-crypto-meta'])['key']
+                body_key_meta = load_crypto_meta(
+                    metadata['x-object-sysmeta-crypto-meta'])['body_key']
                 obj_key = self.km.create_key('/a/%s/o' % self.container_name)
-                body_key = crypto.Crypto({}).unwrap_key(
-                    obj_key, wrapped_body_key, body_iv)
+                body_key = crypto.Crypto({}).unwrap_key(obj_key, body_key_meta)
                 exp_enc_body = encrypt(self.plaintext, body_key, body_iv)
                 self.assertEqual(exp_enc_body, contents)
                 # verify on disk user metadata

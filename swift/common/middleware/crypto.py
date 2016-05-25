@@ -131,21 +131,23 @@ class Crypto(object):
         # helper method to create random key of correct length
         return os.urandom(KEY_LENGTH)
 
-    def wrap_key(self, wrapping_key, key_to_wrap, iv):
+    def wrap_key(self, wrapping_key, key_to_wrap):
         # we don't use an RFC 3394 key wrap algorithm such as cryptography's
         # aes_wrap_key because it's slower and we have iv material readily
         # available so don't need a deterministic algorithm
+        iv = self._get_random_iv()
         encryptor = Cipher(algorithms.AES(wrapping_key), modes.CTR(iv),
                            backend=default_backend()).encryptor()
-        return encryptor.update(key_to_wrap)
+        return {'key': encryptor.update(key_to_wrap), 'iv': iv}
 
-    def unwrap_key(self, wrapping_key, wrapped_key, iv):
+    def unwrap_key(self, wrapping_key, context):
+        # unwrap a key from dict of form returned by wrap_key
         # check the key length early - unwrapping won't change the length
-        self.check_key(wrapped_key)
-        decryptor = Cipher(algorithms.AES(wrapping_key), modes.CTR(iv),
+        self.check_key(context['key'])
+        decryptor = Cipher(algorithms.AES(wrapping_key),
+                           modes.CTR(context['iv']),
                            backend=default_backend()).decryptor()
-        key = decryptor.update(wrapped_key)
-        return key
+        return decryptor.update(context['key'])
 
     def check_key(self, key):
         if len(key) != KEY_LENGTH:

@@ -88,11 +88,16 @@ def dump_crypto_meta(crypto_meta):
     :param crypto_meta: a dict containing crypto meta items
     :returns: a string serialization of a crypto meta dict
     """
+    def b64_encode_meta(crypto_meta):
+        return {
+            name: (base64.b64encode(value).decode() if name in ('iv', 'key')
+                   else b64_encode_meta(value) if isinstance(value, dict)
+                   else value)
+            for name, value in crypto_meta.items()}
+
     # use sort_keys=True to make serialized form predictable for testing
-    return urllib.quote_plus(json.dumps({
-        name: (base64.b64encode(value).decode() if name in ('iv', 'key')
-               else value)
-        for name, value in crypto_meta.items()}, sort_keys=True))
+    return urllib.quote_plus(
+        json.dumps(b64_encode_meta(crypto_meta), sort_keys=True))
 
 
 def load_crypto_meta(value):
@@ -110,12 +115,16 @@ def load_crypto_meta(value):
     :raises EncryptionException: if an error occurs while parsing the
                                  crypto meta
     """
+    def b64_decode_meta(crypto_meta):
+        return {
+            str(name): (base64.b64decode(val) if name in ('iv', 'key')
+                        else b64_decode_meta(val) if isinstance(val, dict)
+                        else str(val))
+            for name, val in crypto_meta.items()}
+
     try:
         value = urllib.unquote_plus(value)
-        crypto_meta = {str(name): (base64.b64decode(value)
-                                   if name in ('iv', 'key') else str(value))
-                       for name, value in json.loads(value).items()}
-        return crypto_meta
+        return b64_decode_meta(json.loads(value))
     except (KeyError, ValueError, TypeError) as err:
         msg = 'Bad crypto meta %s: %s' % (value, err)
         raise EncryptionException(msg)

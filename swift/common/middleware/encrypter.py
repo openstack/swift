@@ -68,15 +68,12 @@ class EncInputWrapper(object):
         # do this once when body is first read
         if self.body_crypto_ctxt is None:
             self.body_crypto_meta = self.crypto.create_crypto_meta()
-            self.body_key = self.crypto.create_random_key()
-            # wrap the body key with object key re-using body iv
-            self.body_crypto_meta['key'] = self.crypto.wrap_key(
-                self.keys['object'],
-                self.body_key,
-                self.body_crypto_meta['iv']
-            )
+            body_key = self.crypto.create_random_key()
+            # wrap the body key with object key
+            self.body_crypto_meta['body_key'] = self.crypto.wrap_key(
+                self.keys['object'], body_key)
             self.body_crypto_ctxt = self.crypto.create_encryption_ctxt(
-                self.body_key, self.body_crypto_meta.get('iv'))
+                body_key, self.body_crypto_meta.get('iv'))
             self.plaintext_md5 = md5()
             self.ciphertext_md5 = md5()
 

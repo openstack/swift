@@ -70,8 +70,7 @@ class BaseDecrypterContext(CryptoWSGIContext):
         """
         try:
             return self.crypto.unwrap_key(wrapping_key,
-                                          crypto_meta['key'],
-                                          crypto_meta['iv'])
+                                          crypto_meta['body_key'])
         except KeyError as err:
             err = 'Missing %s' % err
         except ValueError as err:

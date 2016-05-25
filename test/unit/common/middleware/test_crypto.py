@@ -12,8 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
+import mock
 import unittest
 import os
 
@@ -194,24 +193,26 @@ class TestCrypto(unittest.TestCase):
         wrapping_key = os.urandom(32)
         key_to_wrap = os.urandom(32)
         iv = os.urandom(16)
-        wrapped = self.crypto.wrap_key(wrapping_key, key_to_wrap, iv)
+        with mock.patch('swift.common.middleware.crypto.Crypto._get_random_iv',
+                        return_value=iv):
+            wrapped = self.crypto.wrap_key(wrapping_key, key_to_wrap)
         cipher = Cipher(algorithms.AES(wrapping_key), modes.CTR(iv),
                         backend=default_backend())
-        expected = cipher.encryptor().update(key_to_wrap)
+        expected = {'key': cipher.encryptor().update(key_to_wrap),
+                    'iv': iv}
         self.assertEqual(expected, wrapped)
 
-        unwrapped = self.crypto.unwrap_key(wrapping_key, wrapped, iv)
+        unwrapped = self.crypto.unwrap_key(wrapping_key, wrapped)
         self.assertEqual(key_to_wrap, unwrapped)
 
     def test_unwrap_bad_key(self):
         # verify that ValueError is raised if unwrapped key is invalid
         wrapping_key = os.urandom(32)
-        iv = os.urandom(16)
         for length in (0, 16, 24, 31, 33):
             key_to_wrap = os.urandom(length)
-            wrapped = self.crypto.wrap_key(wrapping_key, key_to_wrap, iv)
+            wrapped = self.crypto.wrap_key(wrapping_key, key_to_wrap)
             with self.assertRaises(ValueError) as cm:
-                self.crypto.unwrap_key(wrapping_key, wrapped, iv)
+                self.crypto.unwrap_key(wrapping_key, wrapped)
             self.assertEqual(
                 cm.exception.message, 'Key must be length 32 bytes')
 
