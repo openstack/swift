@@ -2554,6 +2554,22 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
+        # match x-backend-etag-is-at, using first in list of alternates
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At':
+                'X-Object-Meta-Xtag,X-Object-Sysmeta-Z'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, using second in list of alternates
+        alts = 'X-Object-Sysmeta-Y,X-Object-Meta-Xtag,X-Object-Sysmeta-Z'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At': alts})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
         # no match x-backend-etag-is-at
         req = Request.blank('/sda1/p/a/c/o', headers={
             'If-Match': real_etag,

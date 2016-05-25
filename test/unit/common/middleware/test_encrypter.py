@@ -472,8 +472,9 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(method, self.app.calls[0][0])
         actual_headers = self.app.headers[0]
         self.assertIn('X-Backend-Etag-Is-At', actual_headers)
-        self.assertEqual('X-Object-Sysmeta-Other-Etag',
-                         actual_headers['X-Backend-Etag-Is-At'])
+        self.assertEqual(
+            'X-Object-Sysmeta-Other-Etag,X-Object-Sysmeta-Crypto-Etag',
+            actual_headers['X-Backend-Etag-Is-At'])
         actual_etags = set(actual_headers[match_header_name].split(', '))
         self.assertIn('"an etag"', actual_etags)
 

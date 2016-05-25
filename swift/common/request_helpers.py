@@ -38,7 +38,7 @@ from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range
+    parse_content_range, csv_append, list_from_csv
 
 from swift.common.wsgi import make_subrequest
 
@@ -585,3 +585,46 @@ def http_response_to_document_iters(response, read_chunk_size=4096):
         params = dict(params_list)
         return multipart_byteranges_to_document_iters(
             response, params['boundary'], read_chunk_size)
+
+
+def update_etag_is_at_header(req, name):
+    """
+    Helper function to update an X-Backend-Etag-Is-At header whose value is a
+    list of alternative header names at which the actual object etag may be
+    found. This informs the object server where to look for the actual object
+    etag when processing conditional requests.
+
+    Since the proxy server and/or middleware may set alternative etag header
+    names, the value of X-Backend-Etag-Is-At is a comma separated list which
+    the object server inspects in order until it finds an etag value.
+
+    :param req: a swob Request
+    :param name: name of a sysmeta where alternative etag may be found
+    """
+    existing = req.headers.get("X-Backend-Etag-Is-At")
+    req.headers["X-Backend-Etag-Is-At"] = csv_append(
+        existing, name)
+
+
+def resolve_etag_is_at_header(req, metadata):
+    """
+    Helper function to resolve an alternative etag value that may be stored in
+    metadata under an alternate name.
+
+    The value of the request's X-Backend-Etag-Is-At header (if it exists) is a
+    comma separated list of alternate names in the metadata at which an
+    alternate etag value may be found. This list is processed in order until an
+    alternate etag is found.
+
+    :param req: a swob Request
+    :param metadata: a dict containing object metadata
+    :return: an alternate etag value if any is found, otherwise None
+    """
+    alternate_etag = None
+    if "X-Backend-Etag-Is-At" in req.headers:
+        names = list_from_csv(req.headers["X-Backend-Etag-Is-At"])
+        for name in names:
+            if name in metadata:
+                alternate_etag = metadata.get(name)
+                break
+    return alternate_etag
