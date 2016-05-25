@@ -582,14 +582,15 @@ class SloGetContext(WSGIContext):
             if req.params.get('format') == 'raw':
                 resp_iter = self.convert_segment_listing(
                     self._response_headers, resp_iter)
-            new_headers = []
-            for header, value in self._response_headers:
-                if header.lower() == 'content-type':
-                    new_headers.append(('Content-Type',
-                                        'application/json; charset=utf-8'))
-                else:
-                    new_headers.append((header, value))
-            self._response_headers = new_headers
+            else:
+                new_headers = []
+                for header, value in self._response_headers:
+                    if header.lower() == 'content-type':
+                        new_headers.append(('Content-Type',
+                                            'application/json; charset=utf-8'))
+                    else:
+                        new_headers.append((header, value))
+                self._response_headers = new_headers
             start_response(self._response_status,
                            self._response_headers,
                            self._response_exc_info)
