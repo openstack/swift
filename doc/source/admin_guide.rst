@@ -98,6 +98,23 @@ This produces a great deal of output that is mostly useful if you are
 either (a) attempting to fix the ring builder, or (b) filing a bug
 against the ring builder.
 
+You may notice in the rebalance output a 'dispersion' number. What this
+number means is explained in :ref:`ring_dispersion` but in essence
+is the percentage of partitions in the ring that have too many replicas
+within a particular failure domain. You can ask 'swift-ring-builder' what
+the dispersion is with::
+
+  swift-ring-builder <builder-file> dispersion
+
+This will give you the percentage again, if you want a detailed view of
+the dispersion simply add a ``--verbose``::
+
+  swift-ring-builder <builder-file> dispersion --verbose
+
+This will not only display the percentage but will also display a dispersion
+table that lists partition dispersion by tier. You can use this table to figure
+out were you need to add capacity or to help tune an :ref:`ring_overload` value.
+
 -----------------------
 Scripting Ring Creation
 -----------------------
