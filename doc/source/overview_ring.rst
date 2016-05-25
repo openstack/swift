@@ -158,6 +158,8 @@ for the ring. This means that some partitions will have more replicas than
 others. For example, if a ring has 3.25 replicas, then 25% of its partitions
 will have four replicas, while the remaining 75% will have just three.
 
+.. _ring_dispersion:
+
 **********
 Dispersion
 **********
@@ -172,6 +174,8 @@ the dispersion metric.
 
 A lower dispersion value is better, and the value can be used to find the
 proper value for "overload".
+
+.. _ring_overload:
 
 ********
 Overload
