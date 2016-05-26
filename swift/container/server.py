@@ -183,11 +183,12 @@ class ContainerController(BaseStorageServer):
         if len(account_hosts) != len(account_devices):
             # This shouldn't happen unless there's a bug in the proxy,
             # but if there is, we want to know about it.
-            self.logger.error(_('ERROR Account update failed: different  '
-                                'numbers of hosts and devices in request: '
-                                '"%s" vs "%s"') %
-                               (req.headers.get('X-Account-Host', ''),
-                                req.headers.get('X-Account-Device', '')))
+            self.logger.error(_(
+                'ERROR Account update failed: different  '
+                'numbers of hosts and devices in request: '
+                '"%(hosts)s" vs "%(devices)s"') % {
+                    'hosts': req.headers.get('X-Account-Host', ''),
+                    'devices': req.headers.get('X-Account-Device', '')})
             return HTTPBadRequest(req=req)
 
         if account_partition:

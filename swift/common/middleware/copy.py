@@ -102,7 +102,7 @@ accounts:
 -------------------
 Large Object Copy
 -------------------
-The best option to copy a large option is to copy segments individually.
+The best option to copy a large object is to copy segments individually.
 To copy the manifest object of a large object, add the query parameter to
 the copy request::
 
@@ -425,7 +425,9 @@ class ServerSideCopyMiddleware(object):
         # Existing sys and user meta of source object is added to response
         # headers in addition to the new ones.
         for k, v in sink_req.headers.items():
-            if is_sys_or_user_meta('object', k) or k.lower() == 'x-delete-at':
+            if (is_sys_or_user_meta('object', k) or
+                    k.lower() == 'x-delete-at' or
+                    is_object_transient_sysmeta(k)):
                 resp_headers[k] = v
         return resp_headers
 

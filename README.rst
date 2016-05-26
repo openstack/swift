@@ -33,7 +33,7 @@ Getting Started
 Swift is part of OpenStack and follows the code contribution, review, and testing processes common to all OpenStack projects.
 
 If you would like to start contributing, check out these
-`notes <CONTRIBUTING.md>`__ to help you get started.
+`notes <CONTRIBUTING.rst>`__ to help you get started.
 
 The best place to get started is the
 `"SAIO - Swift All In One" <http://docs.openstack.org/developer/swift/development_saio.html>`__.

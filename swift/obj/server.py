@@ -282,11 +282,12 @@ class ObjectController(BaseStorageServer):
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
             # but if there is, we want to know about it.
-            self.logger.error(_('ERROR Container update failed: different '
-                                'numbers of hosts and devices in request: '
-                                '"%s" vs "%s"') %
-                               (headers_in.get('X-Container-Host', ''),
-                                headers_in.get('X-Container-Device', '')))
+            self.logger.error(_(
+                'ERROR Container update failed: different '
+                'numbers of hosts and devices in request: '
+                '"%(hosts)s" vs "%(devices)s"') % {
+                    'hosts': headers_in.get('X-Container-Host', ''),
+                    'devices': headers_in.get('X-Container-Device', '')})
             return
 
         if contpartition:
