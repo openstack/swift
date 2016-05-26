@@ -147,7 +147,8 @@ are storing 2 replicas in this zone (which is somewhat expected, because there
 are more disks in this zone).
 
 You can now either add more capacity to the other zones, decrease the total
-weight in zone 3 or set the overload value to 33.333333%.
+weight in zone 3 or set the overload to a value `greater than` 33.333333% -
+only as much overload as needed will be used.
 
 -----------------------
 Scripting Ring Creation
