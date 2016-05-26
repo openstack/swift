@@ -91,14 +91,12 @@ func makeReplicator(settings ...string) *Replicator {
 }
 
 func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) *Replicator {
-	conf, _ := ioutil.TempFile("", "")
-	conf.WriteString("[object-replicator]\nmount_check=false\n")
+	configString := "[object-replicator]\nmount_check=false\n"
 	for i := 0; i < len(settings); i += 2 {
-		fmt.Fprintf(conf, "%s=%s\n", settings[i], settings[i+1])
+		configString += fmt.Sprintf("%s=%s\n", settings[i], settings[i+1])
 	}
-	defer conf.Close()
-	defer os.RemoveAll(conf.Name())
-	replicator, _ := NewReplicator(conf.Name(), flags)
+	conf, _ := hummingbird.StringConfig(configString)
+	replicator, _ := NewReplicator(conf, flags)
 	rep := replicator.(*Replicator)
 	rep.concurrencySem = make(chan struct{}, 1)
 	return rep
@@ -196,12 +194,6 @@ type FakeHandoffRing struct {
 
 func (r *FakeHandoffRing) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
 	return []*hummingbird.Device{r.dev}, true
-}
-
-func TestReplicatorInitFail(t *testing.T) {
-	replicator, err := NewReplicator("nonexistentfile", &flag.FlagSet{})
-	assert.Nil(t, replicator)
-	assert.NotNil(t, err)
 }
 
 func TestReplicatorVmDuration(t *testing.T) {

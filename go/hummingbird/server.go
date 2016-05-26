@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -224,7 +223,7 @@ func RetryListen(ip string, port int) (net.Listener, error) {
 }
 
 type Server interface {
-	GetHandler() http.Handler
+	GetHandler(Config) http.Handler
 }
 
 /*
@@ -234,7 +233,7 @@ type Server interface {
 
 	Graceful shutdown/restart gives any open connections 5 minutes to complete, then exits.
 */
-func RunServers(GetServer func(string, *flag.FlagSet) (string, int, Server, SysLogLike, error), flags *flag.FlagSet) {
+func RunServers(GetServer func(Config, *flag.FlagSet) (string, int, Server, SysLogLike, error), flags *flag.FlagSet) {
 	var servers []*HummingbirdServer
 
 	if flags.NArg() != 0 {
@@ -242,12 +241,14 @@ func RunServers(GetServer func(string, *flag.FlagSet) (string, int, Server, SysL
 		return
 	}
 	configFile := flags.Lookup("c").Value.(flag.Getter).Get().(string)
-	configFiles, err := filepath.Glob(filepath.Join(configFile, "*.conf"))
-	if err != nil || len(configFiles) <= 0 {
-		configFiles = []string{configFile}
+	configs, err := LoadConfigs(configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding configs: %v\n", err)
+		return
 	}
-	for _, configFile := range configFiles {
-		ip, port, server, logger, err := GetServer(configFile, flags)
+
+	for _, config := range configs {
+		ip, port, server, logger, err := GetServer(config, flags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -260,7 +261,7 @@ func RunServers(GetServer func(string, *flag.FlagSet) (string, int, Server, SysL
 		}
 		srv := HummingbirdServer{
 			Server: http.Server{
-				Handler:      server.GetHandler(),
+				Handler:      server.GetHandler(config),
 				ReadTimeout:  24 * time.Hour,
 				WriteTimeout: 24 * time.Hour,
 			},
@@ -305,7 +306,7 @@ type Daemon interface {
 	LogError(format string, args ...interface{})
 }
 
-func RunDaemon(GetDaemon func(string, *flag.FlagSet) (Daemon, error), flags *flag.FlagSet) {
+func RunDaemon(GetDaemon func(Config, *flag.FlagSet) (Daemon, error), flags *flag.FlagSet) {
 	var daemons []Daemon
 
 	if flags.NArg() != 0 {
@@ -314,15 +315,16 @@ func RunDaemon(GetDaemon func(string, *flag.FlagSet) (Daemon, error), flags *fla
 	}
 
 	configFile := flags.Lookup("c").Value.(flag.Getter).Get().(string)
-	configFiles, err := filepath.Glob(filepath.Join(configFile, "*.conf"))
-	if err != nil || len(configFiles) <= 0 {
-		configFiles = []string{configFile}
+	configs, err := LoadConfigs(configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding configs: %v\n", err)
+		return
 	}
 
 	once := flags.Lookup("once").Value.(flag.Getter).Get() == true
 
-	for _, configFile := range configFiles {
-		if daemon, err := GetDaemon(configFile, flags); err == nil {
+	for _, config := range configs {
+		if daemon, err := GetDaemon(config, flags); err == nil {
 			if once {
 				daemon.Run()
 				fmt.Fprintf(os.Stderr, "Daemon pass completed.\n")

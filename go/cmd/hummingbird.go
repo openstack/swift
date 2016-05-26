@@ -73,8 +73,10 @@ func findConfig(name string) string {
 	configName := strings.Split(name, "-")[0]
 	configSearch := []string{
 		fmt.Sprintf("/etc/hummingbird/%s-server.conf", configName),
+		fmt.Sprintf("/etc/hummingbird/%s-server.conf.d", configName),
 		fmt.Sprintf("/etc/hummingbird/%s-server", configName),
 		fmt.Sprintf("/etc/swift/%s-server.conf", configName),
+		fmt.Sprintf("/etc/swift/%s-server.conf.d", configName),
 		fmt.Sprintf("/etc/swift/%s-server", configName),
 	}
 	for _, config := range configSearch {

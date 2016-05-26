@@ -63,25 +63,25 @@ type memcacheRing struct {
 }
 
 func NewMemcacheRing(conf string) (*memcacheRing, error) {
-	iniFile, err := LoadIniFile(conf)
+	config, err := LoadConfig(conf)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to load conf file: %s", conf)
 	}
-	return NewMemcacheRingFromIniFile(iniFile)
+	return NewMemcacheRingFromConfig(config)
 }
 
-func NewMemcacheRingFromIniFile(iniFile IniFile) (*memcacheRing, error) {
+func NewMemcacheRingFromConfig(config Config) (*memcacheRing, error) {
 	ring := &memcacheRing{}
 	ring.ring = make(map[string]string)
 	ring.serverKeys = make([]string, 0)
 	ring.servers = make(map[string]*server)
 
-	ring.maxFreeConnectionsPerServer = iniFile.GetInt("memcache", "max_free_connections_per_server", 100)
-	ring.connTimeout = iniFile.GetInt("memcache", "conn_timeout", 100)
-	ring.responseTimeout = iniFile.GetInt("memcache", "response_timeout", 100)
-	ring.nodeWeight = iniFile.GetInt("memcache", "node_weight", 50)
-	ring.tries = iniFile.GetInt("memcache", "tries", 5)
-	for _, s := range strings.Split(iniFile.GetDefault("memcache", "memcache_servers", ""), ",") {
+	ring.maxFreeConnectionsPerServer = config.GetInt("memcache", "max_free_connections_per_server", 100)
+	ring.connTimeout = config.GetInt("memcache", "conn_timeout", 100)
+	ring.responseTimeout = config.GetInt("memcache", "response_timeout", 100)
+	ring.nodeWeight = config.GetInt("memcache", "node_weight", 50)
+	ring.tries = config.GetInt("memcache", "tries", 5)
+	for _, s := range strings.Split(config.GetDefault("memcache", "memcache_servers", ""), ",") {
 		err := ring.addServer(s)
 		if err != nil {
 			return nil, err

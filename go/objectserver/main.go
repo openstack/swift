@@ -455,7 +455,7 @@ func (server *ObjectServer) updateDeviceLocks(seconds int64) {
 	}
 }
 
-func (server *ObjectServer) GetHandler() http.Handler {
+func (server *ObjectServer) GetHandler(config hummingbird.Config) http.Handler {
 	commonHandlers := alice.New(middleware.ClearHandler, server.LogRequest, middleware.ValidateRequest, server.AcquireDevice)
 	router := hummingbird.NewRouter()
 	router.Get("/healthcheck", commonHandlers.ThenFunc(server.HealthcheckHandler))
@@ -477,7 +477,7 @@ func (server *ObjectServer) GetHandler() http.Handler {
 	return alice.New(middleware.GrepObject).Then(router)
 }
 
-func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, serv hummingbird.Server, logger hummingbird.SysLogLike, err error) {
+func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (bindIP string, bindPort int, serv hummingbird.Server, logger hummingbird.SysLogLike, err error) {
 	server := &ObjectServer{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
@@ -489,11 +489,6 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 	server.hashPathPrefix, server.hashPathSuffix, err = hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		return "", 0, nil, nil, err
-	}
-
-	serverconf, err := hummingbird.LoadIniFile(conf)
-	if err != nil {
-		return "", 0, nil, nil, errors.New(fmt.Sprintf("Unable to load %s", conf))
 	}
 
 	objEngineName := serverconf.GetDefault("app:object-server", "object_engine", DefaultObjEngine)

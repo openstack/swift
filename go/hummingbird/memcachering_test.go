@@ -18,7 +18,7 @@ import (
 func TestLocalHost(t *testing.T) {
 	// construct ini and check for running memcache servers
 	var buffer bytes.Buffer
-	iniFile := IniFile{File: make(ini.File)}
+	iniFile := Config{File: make(ini.File)}
 	for i := 0; i < 4; i++ {
 		server := fmt.Sprintf("localhost:%d", 10000+i)
 		if i > 0 {
@@ -39,7 +39,7 @@ func TestLocalHost(t *testing.T) {
 	section["dial_timeout"] = "1000"
 	section["max_free_connections_per_server"] = "3"
 	section["memcache_servers"] = buffer.String()
-	ring, err := NewMemcacheRingFromIniFile(iniFile)
+	ring, err := NewMemcacheRingFromConfig(iniFile)
 	if err != nil {
 		t.Fatal("Unable to get memcache ring")
 	}
@@ -49,7 +49,7 @@ func TestLocalHost(t *testing.T) {
 func TestUnixSocket(t *testing.T) {
 	// construct ini and start memcache servers
 	var buffer bytes.Buffer
-	iniFile := IniFile{File: make(ini.File)}
+	iniFile := Config{File: make(ini.File)}
 	for i := 0; i < 4; i++ {
 		sock := fmt.Sprintf("/tmp/test-memecachering-%d", i)
 		if err := os.Remove(sock); err != nil {
@@ -85,7 +85,7 @@ func TestUnixSocket(t *testing.T) {
 	section["dial_timeout"] = "1000"
 	section["max_free_connections_per_server"] = "3"
 	section["memcache_servers"] = buffer.String()
-	ring, err := NewMemcacheRingFromIniFile(iniFile)
+	ring, err := NewMemcacheRingFromConfig(iniFile)
 	if err != nil {
 		t.Fatal("Unable to get memcache ring")
 	}

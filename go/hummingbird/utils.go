@@ -25,7 +25,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -36,7 +35,6 @@ import (
 	"time"
 
 	"github.com/cactus/go-statsd-client/statsd"
-	ini "github.com/vaughan0/go-ini"
 )
 
 var (
@@ -62,85 +60,6 @@ type httpRange struct {
 }
 
 var GMT *time.Location
-
-type IniFile struct{ ini.File }
-
-func (f IniFile) Get(section string, key string) (string, bool) {
-	if value, ok := f.File.Get(section, key); ok {
-		return value, true
-	} else if value, ok := f.File.Get("DEFAULT", key); ok {
-		return value, true
-	} else if value, ok := f.File.Get(section, "set "+key); ok {
-		return value, true
-	} else if value, ok := f.File.Get("DEFAULT", "set "+key); ok {
-		return value, true
-	}
-	return "", false
-}
-
-func (f IniFile) GetDefault(section string, key string, dfl string) string {
-	if value, ok := f.Get(section, key); ok {
-		return value
-	}
-	return dfl
-}
-
-func (f IniFile) GetBool(section string, key string, dfl bool) bool {
-	if value, ok := f.Get(section, key); ok {
-		return LooksTrue(value)
-	}
-	return dfl
-}
-
-func (f IniFile) GetInt(section string, key string, dfl int64) int64 {
-	if value, ok := f.Get(section, key); ok {
-		if val, err := strconv.ParseInt(value, 10, 64); err == nil {
-			return val
-		}
-		panic(fmt.Sprintf("Error parsing integer %s/%s from config.", section, key))
-	}
-	return dfl
-}
-
-func (f IniFile) GetLimit(section string, key string, dfla int64, dflb int64) (int64, int64) {
-	if value, ok := f.Get(section, key); ok {
-		fmt.Sscanf(value, "%d/%d", &dfla, &dflb)
-	}
-	return dfla, dflb
-}
-
-func (f IniFile) HasSection(section string) bool {
-	return f.File[section] != nil
-}
-
-func LoadIniFile(filename string) (IniFile, error) {
-	file := IniFile{make(ini.File)}
-	return file, file.LoadFile(filename)
-}
-
-func UidFromConf(serverConf string) (uint32, uint32, error) {
-	if ini, err := LoadIniFile(serverConf); err == nil {
-		username := ini.GetDefault("DEFAULT", "user", "swift")
-		usr, err := user.Lookup(username)
-		if err != nil {
-			return 0, 0, err
-		}
-		uid, err := strconv.ParseUint(usr.Uid, 10, 32)
-		if err != nil {
-			return 0, 0, err
-		}
-		gid, err := strconv.ParseUint(usr.Gid, 10, 32)
-		if err != nil {
-			return 0, 0, err
-		}
-		return uint32(uid), uint32(gid), nil
-	} else {
-		if matches, err := filepath.Glob(serverConf + "/*.conf"); err == nil && len(matches) > 0 {
-			return UidFromConf(matches[0])
-		}
-	}
-	return 0, 0, fmt.Errorf("Unable to find config file")
-}
 
 func WriteFileAtomic(filename string, data []byte, perm os.FileMode) error {
 	partDir := filepath.Dir(filename)
@@ -572,7 +491,7 @@ func GetHashPrefixAndSuffix() (prefix string, suffix string, err error) {
 	config_locations := []string{"/etc/hummingbird/hummingbird.conf", "/etc/swift/swift.conf"}
 
 	for _, loc := range config_locations {
-		if conf, e := LoadIniFile(loc); e == nil {
+		if conf, e := LoadConfig(loc); e == nil {
 			var ok bool
 			prefix, _ = conf.Get("swift-hash", "swift_hash_path_prefix")
 			if suffix, ok = conf.Get("swift-hash", "swift_hash_path_suffix"); !ok {

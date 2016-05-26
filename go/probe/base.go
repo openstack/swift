@@ -160,24 +160,19 @@ func NewEnvironment(settings ...string) *Environment {
 		host, ports, _ := net.SplitHostPort(u.Host)
 		port, _ := strconv.Atoi(ports)
 
-		conf, _ := ioutil.TempFile("", "")
-		conf.WriteString("[DEFAULT]\nmount_check=false\n")
-		fmt.Fprintf(conf, "devices=%s\n", driveRoot)
-		fmt.Fprintf(conf, "bind_port=%d\n", port)
-		fmt.Fprintf(conf, "bind_ip=%s\n", host)
+		configString := "[DEFAULT]\nmount_check=false\n"
+		configString += fmt.Sprintf("devices=%s\n", driveRoot)
+		configString += fmt.Sprintf("bind_port=%d\n", port)
+		configString += fmt.Sprintf("bind_ip=%s\n", host)
 		for i := 0; i < len(settings); i += 2 {
-			fmt.Fprintf(conf, "%s=%s\n", settings[i], settings[i+1])
+			configString += fmt.Sprintf("%s=%s\n", settings[i], settings[i+1])
 		}
-		conf.WriteString("[app:object-server]\n")
-		conf.WriteString("[object-replicator]\n")
-		conf.WriteString("[object-auditor]\n")
-		defer conf.Close()
-		defer os.RemoveAll(conf.Name())
-
-		_, _, server, _, _ := objectserver.GetServer(conf.Name(), &flag.FlagSet{})
-		ts.Config.Handler = server.GetHandler()
-		replicator, _ := objectserver.NewReplicator(conf.Name(), &flag.FlagSet{})
-		auditor, _ := objectserver.NewAuditor(conf.Name(), &flag.FlagSet{})
+		configString += "[app:object-server]\n[object-replicator]\n[object-auditor]\n"
+		conf, _ := hummingbird.StringConfig(configString)
+		_, _, server, _, _ := objectserver.GetServer(conf, &flag.FlagSet{})
+		ts.Config.Handler = server.GetHandler(conf)
+		replicator, _ := objectserver.NewReplicator(conf, &flag.FlagSet{})
+		auditor, _ := objectserver.NewAuditor(conf, &flag.FlagSet{})
 		replicator.(*objectserver.Replicator).Ring = env.ring
 		env.ring.(*FakeRing).devices = append(env.ring.(*FakeRing).devices, &hummingbird.Device{
 			Id: i, Device: "sda", Ip: host, Port: port, Region: 0, ReplicationIp: host, ReplicationPort: port, Weight: 1, Zone: i,

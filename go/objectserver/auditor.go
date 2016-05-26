@@ -326,12 +326,11 @@ func (d *AuditorDaemon) RunForever() {
 }
 
 // NewAuditor returns a new AuditorDaemon with the given conf.
-func NewAuditor(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error) {
-	d := &AuditorDaemon{}
-	serverconf, err := hummingbird.LoadIniFile(conf)
-	if err != nil || !serverconf.HasSection("object-auditor") {
-		return nil, fmt.Errorf("Unable to find auditor config: %s", conf)
+func NewAuditor(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingbird.Daemon, error) {
+	if !serverconf.HasSection("object-auditor") {
+		return nil, fmt.Errorf("Unable to find object-auditor config section")
 	}
+	d := &AuditorDaemon{}
 	d.driveRoot = serverconf.GetDefault("object-auditor", "devices", "/srv/node")
 	d.checkMounts = serverconf.GetBool("object-auditor", "mount_check", true)
 	d.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-auditor", "log_facility", "LOG_LOCAL0"), "object-auditor", "")

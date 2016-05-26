@@ -754,7 +754,11 @@ func (r *Replicator) RunForever() {
 	r.run(time.Tick(RunForeverInterval))
 }
 
-func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error) {
+func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingbird.Daemon, error) {
+	if !serverconf.HasSection("object-replicator") {
+		return nil, fmt.Errorf("Unable to find object-auditor config section")
+	}
+
 	replicator := &Replicator{
 		partitionTimesAdd:         make(chan float64),
 		replicationCountIncrement: make(chan uint64),
@@ -765,10 +769,6 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to get hash prefix and suffix")
-	}
-	serverconf, err := hummingbird.LoadIniFile(conf)
-	if err != nil || !serverconf.HasSection("object-replicator") {
-		return nil, fmt.Errorf("Unable to find replicator config: %s", conf)
 	}
 	replicator.reconCachePath = serverconf.GetDefault("object-auditor", "recon_cache_path", "/var/cache/swift")
 	replicator.checkMounts = serverconf.GetBool("object-replicator", "mount_check", true)

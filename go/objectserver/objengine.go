@@ -61,7 +61,7 @@ type ObjectEngine interface {
 }
 
 // ObjectEngineConstructor> is a function that, given configs and flags, returns an ObjectEngine
-type ObjectEngineConstructor func(hummingbird.IniFile, *flag.FlagSet) (ObjectEngine, error)
+type ObjectEngineConstructor func(hummingbird.Config, *flag.FlagSet) (ObjectEngine, error)
 
 type engineFactoryEntry struct {
 	name        string
