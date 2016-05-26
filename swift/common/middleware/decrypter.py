@@ -201,15 +201,21 @@ class DecrypterObjContext(BaseDecrypterContext):
                 'X-Object-Sysmeta-Crypto-Meta-Etag', required=True)
             mod_hdr_pairs.append(('Etag', decrypted_etag))
 
+        etag_header = 'X-Object-Sysmeta-Container-Update-Override-Etag'
+        encrypted_etag = self._response_header_value(etag_header)
+        if encrypted_etag:
+            decrypted_etag = self.decrypt_value_with_meta(
+                encrypted_etag, keys['container'])
+            mod_hdr_pairs.append((etag_header, decrypted_etag))
+
         # Decrypt all user metadata
         mod_hdr_pairs.extend(self.decrypt_user_metadata(keys))
 
-        mod_hdr_names = map(lambda h: h[0].lower(), mod_hdr_pairs)
-        mod_resp_headers = filter(lambda h: h[0].lower() not in mod_hdr_names,
-                                  self._response_headers)
+        mod_hdr_names = {h.lower() for h, v in mod_hdr_pairs}
+        mod_resp_headers = [(h, v) for h, v in self._response_headers
+                            if h.lower() not in mod_hdr_names]
 
-        for pair in mod_hdr_pairs:
-            mod_resp_headers.append(pair)
+        mod_resp_headers.extend(mod_hdr_pairs)
 
         return mod_resp_headers
 

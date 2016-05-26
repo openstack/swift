@@ -59,7 +59,6 @@ class EncInputWrapper(object):
         self.keys = keys
         # remove any Etag from headers, it won't be valid for ciphertext and
         # we'll send the ciphertext Etag later in footer metadata
-        self.client_etag = req.headers.pop('etag', None)
         self.plaintext_md5 = None
         self.ciphertext_md5 = None
         self.logger = logger
@@ -85,34 +84,30 @@ class EncInputWrapper(object):
         # the proxy controller will call back for footer metadata after
         # body has been sent
         inner_callback = req.environ.get('swift.callback.update_footers')
+        client_etag = req.headers.pop('etag', None)
+        container_listing_etag_header = req.headers.get(
+            'X-Object-Sysmeta-Container-Update-Override-Etag')
 
         def footers_callback(footers):
+            plaintext_etag = None
             if self.body_crypto_ctxt:
+                plaintext_etag = self.plaintext_md5.hexdigest()
                 # Encrypt the plaintext etag using the object key and persist
                 # as sysmeta along with the crypto parameters that were used.
                 val, etag_crypto_meta = encrypt_header_val(
-                    self.crypto, self.plaintext_md5.hexdigest(),
+                    self.crypto, plaintext_etag,
                     self.keys['container'], iv_base=self.path)
                 footers['X-Object-Sysmeta-Crypto-Etag'] = val
                 footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = \
                     dump_crypto_meta(etag_crypto_meta)
                 footers['X-Object-Sysmeta-Crypto-Meta'] = dump_crypto_meta(
                     self.body_crypto_meta)
-
-                # Encrypt the plaintext etag using the container key and use
-                # it to override the container update value, with the crypto
-                # parameters appended.
-                val = append_crypto_meta(*encrypt_header_val(
-                    self.crypto, self.plaintext_md5.hexdigest(),
-                    self.keys['container']))
-                footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
-                    val
             else:
                 # No data was read from body, nothing was encrypted, so
                 # don't set any crypto sysmeta for the body, but do re-instate
                 # any etag provided in inbound request.
-                if self.client_etag is not None:
-                    footers['Etag'] = self.client_etag
+                if client_etag is not None:
+                    footers['Etag'] = client_etag
 
             if inner_callback:
                 # pass on footers dict to any other callback that was
@@ -121,14 +116,35 @@ class EncInputWrapper(object):
                 inner_callback(footers)
 
             if self.body_crypto_ctxt:
-                # If client supplied etag, then validate against plaintext etag
-                self.client_etag = footers.get('Etag') or self.client_etag
-                if (self.client_etag is not None and
-                        self.plaintext_md5.hexdigest() != self.client_etag):
+                # If client (or other middleware) supplied etag, then validate
+                # against plaintext etag
+                etag_to_check = footers.get('Etag') or client_etag
+                if (etag_to_check is not None and
+                        plaintext_etag != etag_to_check):
                     raise HTTPUnprocessableEntity(request=Request(self.env))
 
                 # override any previous notion of etag with the ciphertext etag
                 footers['Etag'] = self.ciphertext_md5.hexdigest()
+
+            # When deciding on the etag that should appear in container
+            # listings, look for:
+            #   * override in the footer, otherwise
+            #   * override in the header, and finally
+            #   * MD5 of the plaintext received
+            # This may be None if no override was set and no data was read
+            container_listing_etag = footers.get(
+                'X-Object-Sysmeta-Container-Update-Override-Etag',
+                container_listing_etag_header or plaintext_etag)
+
+            if container_listing_etag is not None:
+                # Encrypt the container-listing etag using the container key
+                # and use it to override the container update value, with the
+                # crypto parameters appended.
+                val = append_crypto_meta(*encrypt_header_val(
+                    self.crypto, container_listing_etag,
+                    self.keys['container']))
+                footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
+                    val
 
         req.environ['swift.callback.update_footers'] = footers_callback
 
