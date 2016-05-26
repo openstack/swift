@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,7 +147,7 @@ func TestCleanTemp(t *testing.T) {
 	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "tmp", "oldfile")))
 }
 
-func TestReplicatorReportStats(t *testing.T) {
+func TestReplicatorReportStatsNotSetup(t *testing.T) {
 	saved := &replicationLogSaver{}
 	replicator := makeReplicator("devices", os.TempDir(), "ms_per_part", "1", "concurrency", "3")
 	replicator.logger = saved
@@ -157,25 +158,51 @@ func TestReplicatorReportStats(t *testing.T) {
 			replicator.statsReporter(c)
 			done <- true
 		}()
-		replicator.jobCountIncrement <- 100
-		replicator.replicationCountIncrement <- 50
-		replicator.partitionTimesAdd <- 10.0
-		replicator.partitionTimesAdd <- 20.0
-		replicator.partitionTimesAdd <- 15.0
+		replicator.deviceProgressIncr <- deviceProgress{
+			dev:             &hummingbird.Device{Device: "sda"},
+			PartitionsTotal: 12}
+
 		c <- t
 		close(c)
 		<-done
 		return saved.logged[len(saved.logged)-1]
 	}
-	var remaining int
-	var elapsed, rate float64
-	replicator.startTime = time.Now()
 	reportStats(time.Now().Add(100 * time.Second))
-	cnt, err := fmt.Sscanf(saved.logged[0], "50/100 (50.00%%) partitions replicated in %fs (%f/sec, %dm remaining)", &elapsed, &rate, &remaining)
-	assert.Nil(t, err)
-	assert.Equal(t, 3, cnt)
-	assert.Equal(t, 2, remaining)
-	assert.Equal(t, saved.logged[1], "Partition times: max 20.0000s, min 10.0000s, med 15.0000s")
+	assert.Equal(t, "Trying to increment progress and not present: sda", saved.logged[0])
+}
+
+func TestReplicatorReportStats(t *testing.T) {
+	saved := &replicationLogSaver{}
+	replicator := makeReplicator("devices", os.TempDir(), "ms_per_part", "1", "concurrency", "3")
+	replicator.logger = saved
+
+	replicator.deviceProgressMap["sda"] = &deviceProgress{
+		dev: &hummingbird.Device{Device: "sda"}}
+	replicator.deviceProgressMap["sdb"] = &deviceProgress{
+		dev: &hummingbird.Device{Device: "sdb"}}
+
+	reportStats := func(t time.Time) string {
+		c := make(chan time.Time)
+		done := make(chan bool)
+		go func() {
+			replicator.statsReporter(c)
+			done <- true
+		}()
+		replicator.deviceProgressPassInit <- deviceProgress{
+			dev:             &hummingbird.Device{Device: "sda"},
+			PartitionsTotal: 10}
+		replicator.deviceProgressIncr <- deviceProgress{
+			dev:            &hummingbird.Device{Device: "sda"},
+			PartitionsDone: 10}
+
+		c <- t
+		close(c)
+		<-done
+		return saved.logged[len(saved.logged)-1]
+	}
+	reportStats(time.Now().Add(100 * time.Second))
+	assert.Equal(t, replicator.deviceProgressMap["sda"].PartitionsDone, uint64(10))
+	assert.NotEqual(t, strings.Index(saved.logged[0], "10/10 (100.00%) partitions replicated in"), -1)
 }
 
 type FakeLocalRing struct {
@@ -512,4 +539,98 @@ func TestPriorityRepHandler404(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/priorityrep", bytes.NewBuffer(jsonned))
 	replicator.priorityRepHandler(w, req)
 	require.EqualValues(t, 404, w.Code)
+}
+
+func TestRestartDevice(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	ts2, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts2.Close()
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port),
+		bytes.NewBuffer([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "26")
+	req.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+	resp, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 201, resp.StatusCode)
+
+	req, err = http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/1/a/c/o2", ts.host, ts.port),
+		bytes.NewBuffer([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "26")
+	req.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+	resp, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 201, resp.StatusCode)
+
+	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
+	dp := &deviceProgress{
+		dev:        ldev,
+		StartDate:  time.Now(),
+		LastUpdate: time.Now(),
+	}
+
+	saved := &replicationLogSaver{}
+	repl := makeReplicator()
+	repl.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	repl.logger = saved
+
+	// set stuff up
+	repl.driveRoot = ts.objServer.driveRoot
+	myTicker := make(chan time.Time)
+	repl.partRateTicker = time.NewTicker(repl.timePerPart)
+	repl.partRateTicker.C = myTicker
+	repl.concurrencySem = make(chan struct{}, 5)
+	repl.deviceProgressMap["sda"] = dp
+
+	repl.restartReplicateDevice(ldev)
+	cancelChan := repl.cancelers["sda"]
+	// precancel the run
+	delete(repl.cancelers, "sda")
+	close(cancelChan)
+	//start replication for loop
+	statsDp := <-repl.deviceProgressPassInit
+	assert.Equal(t, uint64(2), statsDp.PartitionsTotal)
+	// but got canceled
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.CancelCount)
+	// start up everything again
+	repl.restartReplicateDevice(ldev)
+	//start replication for loop again
+	<-repl.deviceProgressPassInit
+	// 1st partition process
+	myTicker <- time.Now()
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.PartitionsDone)
+	// syncing file
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.FilesSent)
+
+	// 2nd partition process
+	myTicker <- time.Now()
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.PartitionsDone)
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.FilesSent)
+	// 2nd partition was processed so cancel next run
+	cancelChan = repl.cancelers["sda"]
+	delete(repl.cancelers, "sda")
+	close(cancelChan)
+	// check that full replicate was tracked
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.FullReplicateCount)
+	// starting final run
+	statsDp = <-repl.deviceProgressPassInit
+	assert.Equal(t, uint64(2), statsDp.PartitionsTotal)
+	// but it got canceled so returning
+	statsDp = <-repl.deviceProgressIncr
+	assert.Equal(t, uint64(1), statsDp.CancelCount)
 }
