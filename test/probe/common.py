@@ -206,7 +206,7 @@ def get_ring(ring_name, required_replicas, required_devices,
     devs = [dev for dev in ring.devs if dev is not None]
     if len(devs) != required_devices:
         raise SkipTest('%s has %s devices instead of %s' % (
-            ring.serialized_path, len(ring.devs), required_devices))
+            ring.serialized_path, len(devs), required_devices))
     for dev in devs:
         # verify server is exposing mounted device
         ipport = (dev['ip'], dev['port'])
