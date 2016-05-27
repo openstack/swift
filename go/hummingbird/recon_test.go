@@ -161,7 +161,7 @@ func TestGetMem(t *testing.T) {
 	var v map[string]string
 	err := json.Unmarshal(output, &v)
 	require.Nil(t, err)
-	_, ok := v["Active"]
+	_, ok := v["MemTotal"]
 	require.True(t, ok)
 }
 

@@ -19,7 +19,6 @@ import (
 	"bufio"
 	"crypto/md5"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -28,10 +27,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/openstack/swift/go/hummingbird"
+	"github.com/openstack/swift/go/xattr"
 )
 
 const METADATA_CHUNK_SIZE = 65536
@@ -50,16 +49,6 @@ type AtomicFileWriter interface {
 	Preallocate(int64, int64) error
 }
 
-func GetXAttr(fileNameOrFd interface{}, attr string, value []byte) (int, error) {
-	switch v := fileNameOrFd.(type) {
-	case string:
-		return syscall.Getxattr(v, attr, value)
-	case uintptr:
-		return hummingbird.FGetXattr(v, attr, value)
-	}
-	return 0, &hummingbird.BackendError{Err: errors.New("Invalid fileNameOrFd"), Code: hummingbird.UnhandledError}
-}
-
 func RawReadMetadata(fileNameOrFd interface{}) ([]byte, error) {
 	var pickledMetadata []byte
 	offset := 0
@@ -72,7 +61,7 @@ func RawReadMetadata(fileNameOrFd interface{}) ([]byte, error) {
 			metadataName = "user.swift.metadata" + strconv.Itoa(index)
 		}
 		// get size of xattr
-		length, err := GetXAttr(fileNameOrFd, metadataName, nil)
+		length, err := xattr.Getxattr(fileNameOrFd, metadataName, nil)
 		if err != nil || length <= 0 {
 			break
 		}
@@ -81,7 +70,7 @@ func RawReadMetadata(fileNameOrFd interface{}) ([]byte, error) {
 			pickledMetadata = append(pickledMetadata, 0)
 		}
 		pickledMetadata = pickledMetadata[0 : offset+length]
-		if _, err := GetXAttr(fileNameOrFd, metadataName, pickledMetadata[offset:]); err != nil {
+		if _, err := xattr.Getxattr(fileNameOrFd, metadataName, pickledMetadata[offset:]); err != nil {
 			return nil, err
 		}
 		offset += length
@@ -126,7 +115,7 @@ func RawWriteMetadata(fd uintptr, buf []byte) error {
 		if len(buf) < writelen {
 			writelen = len(buf)
 		}
-		if _, err := hummingbird.FSetXattr(fd, metadataName, buf[0:writelen]); err != nil {
+		if _, err := xattr.Setxattr(fd, metadataName, buf[0:writelen]); err != nil {
 			return err
 		}
 		buf = buf[writelen:len(buf)]

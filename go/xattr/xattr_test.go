@@ -13,7 +13,7 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-package hummingbird
+package xattr
 
 import (
 	"io/ioutil"
@@ -23,8 +23,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// func FGetXattr(fd uintptr, attr string, value []byte) (int, error)
-// func FSetXattr(fd uintptr, attr string, value []byte) (int, error)
+func TestFXattr(t *testing.T) {
+	fp, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	defer fp.Close()
+	defer os.RemoveAll(fp.Name())
+
+	_, err = Setxattr(fp.Fd(), "user.swift.metadata", []byte("somevalue"))
+	require.Nil(t, err)
+
+	count, err := Getxattr(fp.Fd(), "user.swift.metadata", nil)
+	require.Nil(t, err)
+	value := make([]byte, count)
+	count, err = Getxattr(fp.Fd(), "user.swift.metadata", value)
+	require.Nil(t, err)
+	require.Equal(t, "somevalue", string(value))
+}
 
 func TestXattr(t *testing.T) {
 	fp, err := ioutil.TempFile("", "")
@@ -32,13 +46,13 @@ func TestXattr(t *testing.T) {
 	defer fp.Close()
 	defer os.RemoveAll(fp.Name())
 
-	_, err = FSetXattr(fp.Fd(), "user.swift.metadata", []byte("somevalue"))
+	_, err = Setxattr(fp.Name(), "user.swift.metadata", []byte("somevalue"))
 	require.Nil(t, err)
 
-	count, err := FGetXattr(fp.Fd(), "user.swift.metadata", nil)
+	count, err := Getxattr(fp.Name(), "user.swift.metadata", nil)
 	require.Nil(t, err)
 	value := make([]byte, count)
-	count, err = FGetXattr(fp.Fd(), "user.swift.metadata", value)
+	count, err = Getxattr(fp.Name(), "user.swift.metadata", value)
 	require.Nil(t, err)
 	require.Equal(t, "somevalue", string(value))
 }

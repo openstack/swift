@@ -216,7 +216,7 @@ func TestUrlencode(t *testing.T) {
 }
 
 func TestIsMount(t *testing.T) {
-	isMount, err := IsMount("/proc")
+	isMount, err := IsMount("/dev")
 	assert.Nil(t, err)
 	assert.True(t, isMount)
 	isMount, err = IsMount(".")
