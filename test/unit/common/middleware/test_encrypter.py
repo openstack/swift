@@ -109,8 +109,9 @@ class TestEncrypter(unittest.TestCase):
 
         # extract crypto_meta from end of etag for container update
         param = parts[1].strip()
-        self.assertTrue(param.startswith('meta='), param)
-        actual = json.loads(urllib.unquote_plus(param[5:]))
+        crypto_meta_tag = 'swift_meta='
+        self.assertTrue(param.startswith(crypto_meta_tag), param)
+        actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
@@ -275,8 +276,9 @@ class TestEncrypter(unittest.TestCase):
 
         # extract crypto_meta from end of etag for container update
         param = parts[1].strip()
-        self.assertTrue(param.startswith('meta='), param)
-        actual = json.loads(urllib.unquote_plus(param[5:]))
+        crypto_meta_tag = 'swift_meta='
+        self.assertTrue(param.startswith(crypto_meta_tag), param)
+        actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 
@@ -326,8 +328,9 @@ class TestEncrypter(unittest.TestCase):
 
         # extract crypto_meta from end of etag for container update
         param = parts[1].strip()
-        self.assertTrue(param.startswith('meta='), param)
-        actual = json.loads(urllib.unquote_plus(param[5:]))
+        crypto_meta_tag = 'swift_meta='
+        self.assertTrue(param.startswith(crypto_meta_tag), param)
+        actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
 

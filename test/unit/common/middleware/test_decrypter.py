@@ -38,7 +38,7 @@ def get_crypto_meta_header(crypto_meta=None):
 
 
 def encrypt_and_append_meta(value, key, crypto_meta=None):
-    return '%s; meta=%s' % (
+    return '%s; swift_meta=%s' % (
         base64.b64encode(encrypt(value, key, FAKE_IV)),
         get_crypto_meta_header(crypto_meta))
 

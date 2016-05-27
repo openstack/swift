@@ -127,9 +127,9 @@ def append_crypto_meta(value, crypto_meta):
 
     :param value: value to which serialized crypto meta will be appended.
     :param crypto_meta: a dict of crypto meta
-    :return: a string of the form <value>; meta=<serialized crypto meta>
+    :return: a string of the form <value>; swift_meta=<serialized crypto meta>
     """
-    return '%s; meta=%s' % (value, dump_crypto_meta(crypto_meta))
+    return '%s; swift_meta=%s' % (value, dump_crypto_meta(crypto_meta))
 
 
 def extract_crypto_meta(value):
@@ -144,8 +144,9 @@ def extract_crypto_meta(value):
     parts = value.rsplit(';', 1)
     if len(parts) == 2:
         value, param = parts
-        if param.strip().startswith('meta='):
-            param = param.strip()[5:]
+        crypto_meta_tag = 'swift_meta='
+        if param.strip().startswith(crypto_meta_tag):
+            param = param.strip()[len(crypto_meta_tag):]
             crypto_meta = load_crypto_meta(param)
     return value, crypto_meta
 

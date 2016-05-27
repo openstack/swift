@@ -180,21 +180,21 @@ class TestModuleMethods(unittest.TestCase):
 
     def test_append_crypto_meta(self):
         actual = crypto_utils.append_crypto_meta('abc', self.meta)
-        expected = 'abc; meta=%s' % self.serialized_meta
+        expected = 'abc; swift_meta=%s' % self.serialized_meta
         self.assertEqual(actual, expected)
 
         actual = crypto_utils.append_crypto_meta('abc', self.meta_with_key)
-        expected = 'abc; meta=%s' % self.serialized_meta_with_key
+        expected = 'abc; swift_meta=%s' % self.serialized_meta_with_key
         self.assertEqual(actual, expected)
 
     def test_extract_crypto_meta(self):
         val, meta = crypto_utils.extract_crypto_meta(
-            'abc; meta=%s' % self.serialized_meta)
+            'abc; swift_meta=%s' % self.serialized_meta)
         self.assertEqual('abc', val)
         self.assertDictEqual(self.meta, meta)
 
         val, meta = crypto_utils.extract_crypto_meta(
-            'abc; meta=%s' % self.serialized_meta_with_key)
+            'abc; swift_meta=%s' % self.serialized_meta_with_key)
         self.assertEqual('abc', val)
         self.assertDictEqual(self.meta_with_key, meta)
 
