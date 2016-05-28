@@ -471,6 +471,7 @@ func TestReplicationHandoffQuorumDelete(t *testing.T) {
 }
 
 func TestListObjFiles(t *testing.T) {
+	repl := makeReplicator()
 	dir, err := ioutil.TempDir("", "")
 	require.Nil(t, err)
 	defer os.RemoveAll(dir)
@@ -478,21 +479,40 @@ func TestListObjFiles(t *testing.T) {
 	fp, err := os.Create(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"))
 	require.Nil(t, err)
 	defer fp.Close()
-	files, err := listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
-	require.Nil(t, err)
+	objChan := make(chan string)
+	var files []string
+	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	for obj := range objChan {
+		files = append(files, obj)
+	}
 	require.Equal(t, 1, len(files))
 	require.Equal(t, filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"), files[0])
 
 	os.RemoveAll(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"))
-	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	objChan = make(chan string)
+	files = nil
+	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	for obj := range objChan {
+		files = append(files, obj)
+	}
 	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e")))
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects", "1", "abc")))
 
-	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	objChan = make(chan string)
+	files = nil
+	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	for obj := range objChan {
+		files = append(files, obj)
+	}
 	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1", "abc")))
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects", "1")))
 
-	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	objChan = make(chan string)
+	files = nil
+	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	for obj := range objChan {
+		files = append(files, obj)
+	}
 	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1")))
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects")))
 }
