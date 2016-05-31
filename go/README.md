@@ -51,14 +51,14 @@ environments later.
      libraries for Go are kept -- not any code you write.
 
    * `GOPATH` -- The folder where you intend to keep Go code, binaries, etc.
-     In this case, this is exclusively for Hummingbird, so we'll use
-     `/opt/hummingbird`.
+     For simplicity, we'll do this in your home directory, so we'll use
+     `~/go`.
 
    * `PATH` -- Append the bin dirs within both of the above onto your PATH,
      with your normal path first, then $GOROOT/bin, and your $GOPATH/bin:
 
           export GOROOT=/usr/local/go
-          export GOPATH=/opt/hummingbird
+          export GOPATH=~/go
           export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
 
 1. It's also recommended to add these three lines either to the end of the
@@ -109,7 +109,7 @@ Once complete, your output will look similar like this:
 
 To install the hummingbird executable to /usr/bin, run this last command:
 
-    $ make install
+    $ sudo GOPATH=$GOPATH GOROOT=$GOROOT PATH=$PATH:$GOROOT/bin make develop
 
 
 Configuration
