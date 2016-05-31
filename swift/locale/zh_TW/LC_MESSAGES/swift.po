@@ -3,18 +3,17 @@
 # This file is distributed under the same license as the swift project.
 #
 # Translators:
-# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev176\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"Project-Id-Version: swift 2.7.1.dev50\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-17 21:20+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2015-08-11 11:22+0000\n"
-"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
+"PO-Revision-Date: 2016-03-24 01:54+0000\n"
+"Last-Translator: Jennifer <cristxu@tw.ibm.com>\n"
 "Language: zh-TW\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -52,6 +51,16 @@ msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
 
 #, python-format
 msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"在 %(time).2fs 內重新建構了 %(device)d/%(dtotal)d (%(dpercentage).2f%%) 個裝"
+"置的 %(reconstructed)d/%(total)d (%(percentage).2f%%) 個分割區（%(rate).2f/"
+"秒，剩餘 %(remaining)s）"
+
+#, python-format
+msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
 "%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
@@ -67,14 +76,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s 針對 %(statuses)s 正在傳回 503"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d 未在執行中 (%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s (%s) 似乎已停止"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s 已啟動..."
 
@@ -87,12 +88,8 @@ msgid "%s is not mounted"
 msgstr "未裝載 %s"
 
 #, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s 在執行中 (%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s：%s"
+msgid "%s responded as unmounted"
+msgstr "%s 已回應為未裝載"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -133,10 +130,6 @@ msgid "Account"
 msgstr "帳戶"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "尚未回收帳戶 %s（自 %s 之後）"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "帳戶審核「一次性」模式已完成：%.02fs"
 
@@ -148,10 +141,6 @@ msgstr "帳戶審核通過已完成：%.02fs"
 msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr "已嘗試在 %(time).5f 秒內抄寫 %(count)d 個資料庫 (%(rate).5f/s)"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "%s 的審核失敗：%s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -177,10 +166,6 @@ msgstr "開始儲存器更新單一執行緒清理"
 
 msgid "Begin container update sweep"
 msgstr "開始儲存器更新清理"
-
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "開始物件審核 \"%s\" 模式 (%s%s)"
 
 msgid "Begin object update single threaded sweep"
 msgstr "開始物件更新單一執行緒清理"
@@ -216,10 +201,20 @@ msgstr "用戶端在讀取時中斷連線"
 msgid "Client disconnected without sending enough data"
 msgstr "用戶端已中斷連線，未傳送足夠的資料"
 
+msgid "Client disconnected without sending last chunk"
+msgstr "用戶端已中斷連線，未傳送最後一個片段"
+
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
 msgstr "用戶端路徑 %(client)s 不符合物件 meta 資料%(meta)s 中儲存的路徑"
+
+msgid ""
+"Configuration option internal_client_conf_path not defined. Using default "
+"configuration, See internal-client.conf-sample for options"
+msgstr ""
+"為定義配置選項 internal_client_conf_path。將使用預設配置，請參閱 internal-"
+"client.conf-sample 以取得選項"
 
 msgid "Connection refused"
 msgstr "連線遭拒"
@@ -277,6 +272,10 @@ msgstr "資料下載錯誤：%s"
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "裝置通過已完成：%.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr "目錄 %r 未對映至有效的原則 (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -348,6 +347,10 @@ msgstr "錯誤：磁碟檔 %(data_file)s 關閉失敗：%(exc)s：%(stack)s"
 
 msgid "ERROR Exception causing client disconnect"
 msgstr "錯誤：異常狀況造成用戶端中斷連線"
+
+#, python-format
+msgid "ERROR Exception transferring data to object servers %s"
+msgstr "錯誤：將資料轉送至物件伺服器 %s 時發生異常狀況"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "錯誤：無法取得我自己的 IP？"
@@ -517,6 +520,10 @@ msgstr "同步分割區時發生錯誤"
 msgid "Error syncing with node: %s"
 msgstr "與節點同步時發生錯誤：%s"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr "嘗試重建 %(path)s 原則 #%(policy)d 分段 #%(frag_index)s 時發生錯誤"
+
 msgid "Error: An error occurred"
 msgstr "錯誤：發生錯誤"
 
@@ -536,13 +543,8 @@ msgstr "最上層帳戶 Reaper 迴圈發生異常狀況"
 msgid "Exception in top-level replication loop"
 msgstr "最上層抄寫迴圈中發生異常狀況"
 
-#, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "刪除儲存器 %s %s 時發生異常狀況"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "刪除物件 %s %s %s 時發生異常狀況"
+msgid "Exception in top-levelreconstruction loop"
+msgstr "最上層重新建構迴圈中發生異常狀況"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
@@ -572,6 +574,11 @@ msgstr "遵循 %(given_domain)s 到 %(found_domain)s 的 CNAME 鏈"
 msgid "Found configs:"
 msgstr "找到配置："
 
+msgid ""
+"Handoffs first mode still has handoffs remaining.  Aborting current "
+"replication pass."
+msgstr "「遞交作業最先」模式仍有剩餘的遞交作業。正在中斷現行抄寫傳遞。"
+
 msgid "Host unreachable"
 msgstr "無法抵達主機"
 
@@ -590,6 +597,10 @@ msgstr "X-Container-Sync-To 中的主機 %r 無效"
 #, python-format
 msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "無效的擱置項目 %(file)s：%(entry)s"
+
+#, python-format
+msgid "Invalid response %(resp)s from %(full_path)s"
+msgstr "來自 %(full_path)s 的回應 %(resp)s 無效"
 
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
@@ -626,6 +637,10 @@ msgid "No permission to signal PID %d"
 msgstr "沒有信號 PID %d 的許可權"
 
 #, python-format
+msgid "No policy with index %s"
+msgstr "沒有具有索引 %s 的原則"
+
+#, python-format
 msgid "No realm key for %r"
 msgstr "沒有 %r 的範圍金鑰"
 
@@ -634,11 +649,19 @@ msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "節點錯誤限制 %(ip)s:%(port)s (%(device)s)"
 
 #, python-format
+msgid "Not enough object servers ack'ed (got %d)"
+msgstr "未確認足夠的物件伺服器（已取得 %d）"
+
+#, python-format
 msgid ""
 "Not found %(sync_from)r => %(sync_to)r                       - object "
 "%(obj_name)r"
 msgstr ""
 "找不到 %(sync_from)r => %(sync_to)r                       - 物件%(obj_name)r"
+
+#, python-format
+msgid "Nothing reconstructed for %s seconds."
+msgstr "%s 秒未重新建構任何內容。"
 
 #, python-format
 msgid "Nothing replicated for %s seconds."
@@ -670,8 +693,28 @@ msgstr ""
 "%(brate).2f，審核時間：%(audit).2f，速率：%(audit_rate).2f"
 
 #, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"物件審核 (%(type)s)。自 %(start_time)s 以來：本端：%(passes)d 個已通"
+"過，%(quars)d 個已隔離，%(errors)d 個錯誤，檔案/秒：%(frate).2f，位元組數/"
+"秒：%(brate).2f，時間總計：%(total).2f，審核時間：%(audit).2f，速率："
+"%(audit_rate).2f"
+
+#, python-format
 msgid "Object audit stats: %s"
 msgstr "物件審核統計資料：%s"
+
+#, python-format
+msgid "Object reconstruction complete (once). (%.02f minutes)"
+msgstr "物件重新建構完成（一次性）。（%.02f 分鐘）"
+
+#, python-format
+msgid "Object reconstruction complete. (%.02f minutes)"
+msgstr "物件重新建構完成。（%.02f 分鐘）"
 
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
@@ -745,10 +788,6 @@ msgid ""
 msgstr "已將 %(object_path)s 隔離至 %(quar_path)s，原因是它不是目錄"
 
 #, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "已將 %s 隔離至 %s，原因是 %s 資料庫"
-
-#, python-format
 msgid "Quarantining DB %s"
 msgstr "正在隔離資料庫 %s"
 
@@ -769,6 +808,14 @@ msgid "Removing partition: %s"
 msgstr "正在移除分割區：%s"
 
 #, python-format
+msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
+msgstr "正在移除具有錯誤 PID %(pid)d 的 PID 檔 %(pid_file)s"
+
+#, python-format
+msgid "Removing pid file %s with invalid pid"
+msgstr "正在移除具有無效 PID 的 PID 檔 %s"
+
+#, python-format
 msgid "Removing stale pid file %s"
 msgstr "正在移除過時 PID 檔案 %s"
 
@@ -787,6 +834,9 @@ msgstr ""
 "正在將 %(meth)s 的 498 傳回至 %(acc)s/%(cont)s/%(obj)s。Ratelimit（休眠上"
 "限）%(e)s"
 
+msgid "Ring change detected. Aborting current reconstruction pass."
+msgstr "偵測到環變更。正在中斷現行重新建構傳遞。"
+
 msgid "Ring change detected. Aborting current replication pass."
 msgstr "偵測到環變更。正在中斷現行抄寫傳遞。"
 
@@ -794,12 +844,11 @@ msgstr "偵測到環變更。正在中斷現行抄寫傳遞。"
 msgid "Running %s once"
 msgstr "正在執行 %s 一次"
 
+msgid "Running object reconstructor in script mode."
+msgstr "正在 Script 模式下執行物件重新建構器。"
+
 msgid "Running object replicator in script mode."
 msgstr "正在 Script 模式下執行物件抄寫器"
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "信號 %s  PID：%s  信號：%s"
 
 #, python-format
 msgid ""
@@ -835,6 +884,12 @@ msgstr "正在跳過 %s，原因是它未裝載"
 msgid "Starting %s"
 msgstr "正在啟動 %s"
 
+msgid "Starting object reconstruction pass."
+msgstr "正在啟動物件重新建構傳遞。"
+
+msgid "Starting object reconstructor in daemon mode."
+msgstr "正在常駐程式模式下啟動物件重新建構器。"
+
 msgid "Starting object replication pass."
 msgstr "正在啟動物件抄寫傳遞。"
 
@@ -860,8 +915,16 @@ msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "對 memcached %(server)s 執行%(action)s作業時逾時"
 
 #, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "%(ip)s:%(port)s/%(device)s  發生逾時異常狀況"
+
+#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "正在嘗試 %(method)s %(path)s"
+
+#, python-format
+msgid "Trying to GET %(full_path)s"
+msgstr "正在嘗試對 %(full_path)s 執行 GET 動作"
 
 #, python-format
 msgid "Trying to get final status of PUT to %s"
@@ -877,6 +940,10 @@ msgid "Trying to send to client"
 msgstr "正在嘗試傳送至用戶端"
 
 #, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "正在嘗試與 %s 同步字尾"
+
+#, python-format
 msgid "Trying to write to %s"
 msgstr "正在嘗試寫入至 %s"
 
@@ -884,20 +951,20 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕捉的異常狀況"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "找不到 %s 配置區段（在 %s 中）"
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr "無法從配置載入內部用戶端：%r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "在 libc 中找不到 %s。保留為 no-op。"
 
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr "找不到 %s 的配置"
+
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr "在 libc 中找不到 fallocate、posix_fallocate。保留為 no-op。"
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "無法在目錄 %s 上執行 fsync()：%s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -913,6 +980,11 @@ msgstr "非預期的回應：%s"
 
 msgid "Unhandled exception"
 msgstr "無法處理的異常狀況"
+
+#, python-format
+msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
+msgstr ""
+"嘗試執行 GET 動作時發生不明異常狀況：%(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
@@ -936,10 +1008,6 @@ msgstr "警告：無法修改處理程序數上限限制。以非 root 使用者
 
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr "警告：無法修改記憶體限制。以非 root 使用者身分執行？"
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "已等待 %s 秒以讓 %s 當掉；正在放棄"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：無法在沒有 memcached 用戶端的情況下限制速率"

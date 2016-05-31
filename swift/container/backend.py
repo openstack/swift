@@ -146,7 +146,7 @@ def update_new_item_from_existing(new_item, existing):
     their timestamps are newer.
 
     The multiple timestamps are encoded into a single string for storing
-    in the 'created_at' column of the the objects db table.
+    in the 'created_at' column of the objects db table.
 
     :param new_item: A dict of object update attributes
     :param existing: A dict of existing object attributes
@@ -776,7 +776,7 @@ class ContainerBroker(DatabaseBroker):
                                 marker = name[:end] + chr(ord(delimiter) + 1)
                             curs.close()
                             break
-                    elif end > 0:
+                    elif end >= 0:
                         if reverse:
                             end_marker = name[:end + 1]
                         else:

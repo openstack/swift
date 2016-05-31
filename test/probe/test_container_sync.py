@@ -266,6 +266,26 @@ class TestContainerSync(ReplProbeTest):
                               % item) for item in mismatched_headers])
             self.fail(msg)
 
+    def test_sync_newer_remote(self):
+        source_container, dest_container = self._setup_synced_containers()
+
+        # upload to source
+        object_name = 'object-%s' % uuid.uuid4()
+        client.put_object(self.url, self.token, source_container, object_name,
+                          'old-source-body')
+
+        # upload to dest with same name
+        client.put_object(self.url, self.token, dest_container, object_name,
+                          'new-test-body')
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify that the remote object did not change
+        resp_headers, body = client.get_object(self.url, self.token,
+                                               dest_container, object_name)
+        self.assertEqual(body, 'new-test-body')
+
 
 if __name__ == "__main__":
     unittest.main()

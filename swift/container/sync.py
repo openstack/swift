@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
 import errno
 import os
 import uuid
 from swift import gettext_ as _
 from time import ctime, time
-from random import choice, random, shuffle
+from random import choice, random
 from struct import unpack_from
 
 from eventlet import sleep, Timeout
@@ -29,7 +30,8 @@ from swift.container.backend import ContainerBroker
 from swift.container.sync_store import ContainerSyncStore
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.internal_client import (
-    delete_object, put_object, InternalClient, UnexpectedResponse)
+    delete_object, put_object, head_object,
+    InternalClient, UnexpectedResponse)
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
@@ -39,7 +41,6 @@ from swift.common.utils import (
     whataremyips, Timestamp, decode_timestamps)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
-from swift.common.storage_policy import POLICIES
 from swift.common.wsgi import ConfigString
 
 
@@ -99,13 +100,6 @@ class ContainerSync(Daemon):
     checking for x-container-sync-to and x-container-sync-key metadata values.
     If they exist, newer rows since the last sync will trigger PUTs or DELETEs
     to the other container.
-
-    .. note::
-
-        Container sync will sync object POSTs only if the proxy server is set
-        to use "object_post_as_copy = true" which is the default. So-called
-        fast object posts, "object_post_as_copy = false" do not update the
-        container listings and therefore can't be detected for synchronization.
 
     The actual syncing is slightly more complicated to make use of the three
     (or number-of-replicas) main nodes for a container without each trying to
@@ -205,6 +199,14 @@ class ContainerSync(Daemon):
         self.container_skips = 0
         #: Number of containers that had a failure of some type.
         self.container_failures = 0
+
+        #: Per container stats. These are collected per container.
+        #: puts - the number of puts that were done for the container
+        #: deletes - the number of deletes that were fot the container
+        #: bytes - the total number of bytes transferred per the container
+        self.container_stats = collections.defaultdict(int)
+        self.container_stats.clear()
+
         #: Time of last stats report.
         self.reported = time()
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -213,7 +215,7 @@ class ContainerSync(Daemon):
                                                      ring_name='container')
         bind_ip = conf.get('bind_ip', '0.0.0.0')
         self._myips = whataremyips(bind_ip)
-        self._myport = int(conf.get('bind_port', 6001))
+        self._myport = int(conf.get('bind_port', 6201))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.conn_timeout = float(conf.get('conn_timeout', 5))
@@ -235,17 +237,9 @@ class ContainerSync(Daemon):
             if err.errno != errno.ENOENT:
                 raise
             raise SystemExit(
-                _('Unable to load internal client from config: %r (%s)') %
-                (internal_client_conf_path, err))
-
-    def get_object_ring(self, policy_idx):
-        """
-        Get the ring object to use based on its policy.
-
-        :policy_idx: policy index as defined in swift.conf
-        :returns: appropriate ring object
-        """
-        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
+                _('Unable to load internal client from config: '
+                  '%(conf)r (%(error)s)')
+                % {'conf': internal_client_conf_path, 'error': err})
 
     def run_forever(self, *args, **kwargs):
         """
@@ -255,6 +249,7 @@ class ContainerSync(Daemon):
         while True:
             begin = time()
             for path in self.sync_store.synced_containers_generator():
+                self.container_stats.clear()
                 self.container_sync(path)
                 if time() - self.reported >= 3600:  # once an hour
                     self.report()
@@ -297,6 +292,30 @@ class ContainerSync(Daemon):
         self.container_puts = 0
         self.container_skips = 0
         self.container_failures = 0
+
+    def container_report(self, start, end, sync_point1, sync_point2, info,
+                         max_row):
+        self.logger.info(_('Container sync report: %(container)s, '
+                           'time window start: %(start)s, '
+                           'time window end: %(end)s, '
+                           'puts: %(puts)s, '
+                           'posts: %(posts)s, '
+                           'deletes: %(deletes)s, '
+                           'bytes: %(bytes)s, '
+                           'sync_point1: %(point1)s, '
+                           'sync_point2: %(point2)s, '
+                           'total_rows: %(total)s'),
+                         {'container': '%s/%s' % (info['account'],
+                                                  info['container']),
+                          'start': start,
+                          'end': end,
+                          'puts': self.container_stats['puts'],
+                          'posts': 0,
+                          'deletes': self.container_stats['deletes'],
+                          'bytes': self.container_stats['bytes'],
+                          'point1': sync_point1,
+                          'point2': sync_point2,
+                          'total': max_row})
 
     def container_sync(self, path):
         """
@@ -355,63 +374,152 @@ class ContainerSync(Daemon):
                     self.container_failures += 1
                     self.logger.increment('failures')
                     return
-                stop_at = time() + self.container_time
+                start_at = time()
+                stop_at = start_at + self.container_time
                 next_sync_point = None
-                while time() < stop_at and sync_point2 < sync_point1:
-                    rows = broker.get_items_since(sync_point2, 1)
-                    if not rows:
-                        break
-                    row = rows[0]
-                    if row['ROWID'] > sync_point1:
-                        break
-                    key = hash_path(info['account'], info['container'],
-                                    row['name'], raw_digest=True)
-                    # This node will only initially sync out one third of the
-                    # objects (if 3 replicas, 1/4 if 4, etc.) and will skip
-                    # problematic rows as needed in case of faults.
-                    # This section will attempt to sync previously skipped
-                    # rows in case the previous attempts by any of the nodes
-                    # didn't succeed.
-                    if not self.container_sync_row(
-                            row, sync_to, user_key, broker, info, realm,
-                            realm_key):
-                        if not next_sync_point:
-                            next_sync_point = sync_point2
-                    sync_point2 = row['ROWID']
-                    broker.set_x_container_sync_points(None, sync_point2)
-                if next_sync_point:
-                    broker.set_x_container_sync_points(None, next_sync_point)
-                while time() < stop_at:
-                    rows = broker.get_items_since(sync_point1, 1)
-                    if not rows:
-                        break
-                    row = rows[0]
-                    key = hash_path(info['account'], info['container'],
-                                    row['name'], raw_digest=True)
-                    # This node will only initially sync out one third of the
-                    # objects (if 3 replicas, 1/4 if 4, etc.). It'll come back
-                    # around to the section above and attempt to sync
-                    # previously skipped rows in case the other nodes didn't
-                    # succeed or in case it failed to do so the first time.
-                    if unpack_from('>I', key)[0] % \
-                            len(nodes) == ordinal:
-                        self.container_sync_row(
-                            row, sync_to, user_key, broker, info, realm,
-                            realm_key)
-                    sync_point1 = row['ROWID']
-                    broker.set_x_container_sync_points(sync_point1, None)
-                self.container_syncs += 1
-                self.logger.increment('syncs')
+                sync_stage_time = start_at
+                try:
+                    while time() < stop_at and sync_point2 < sync_point1:
+                        rows = broker.get_items_since(sync_point2, 1)
+                        if not rows:
+                            break
+                        row = rows[0]
+                        if row['ROWID'] > sync_point1:
+                            break
+                        # This node will only initially sync out one third
+                        # of the objects (if 3 replicas, 1/4 if 4, etc.)
+                        # and will skip problematic rows as needed in case of
+                        # faults.
+                        # This section will attempt to sync previously skipped
+                        # rows in case the previous attempts by any of the
+                        # nodes didn't succeed.
+                        if not self.container_sync_row(
+                                row, sync_to, user_key, broker, info, realm,
+                                realm_key):
+                            if not next_sync_point:
+                                next_sync_point = sync_point2
+                        sync_point2 = row['ROWID']
+                        broker.set_x_container_sync_points(None, sync_point2)
+                    if next_sync_point:
+                        broker.set_x_container_sync_points(None,
+                                                           next_sync_point)
+                    else:
+                        next_sync_point = sync_point2
+                    sync_stage_time = time()
+                    while sync_stage_time < stop_at:
+                        rows = broker.get_items_since(sync_point1, 1)
+                        if not rows:
+                            break
+                        row = rows[0]
+                        key = hash_path(info['account'], info['container'],
+                                        row['name'], raw_digest=True)
+                        # This node will only initially sync out one third of
+                        # the objects (if 3 replicas, 1/4 if 4, etc.).
+                        # It'll come back around to the section above
+                        # and attempt to sync previously skipped rows in case
+                        # the other nodes didn't succeed or in case it failed
+                        # to do so the first time.
+                        if unpack_from('>I', key)[0] % \
+                                len(nodes) == ordinal:
+                            self.container_sync_row(
+                                row, sync_to, user_key, broker, info, realm,
+                                realm_key)
+                        sync_point1 = row['ROWID']
+                        broker.set_x_container_sync_points(sync_point1, None)
+                        sync_stage_time = time()
+                    self.container_syncs += 1
+                    self.logger.increment('syncs')
+                except Exception as ex:
+                    raise ex
+                finally:
+                    self.container_report(start_at, sync_stage_time,
+                                          sync_point1,
+                                          next_sync_point,
+                                          info, broker.get_max_row())
         except (Exception, Timeout):
             self.container_failures += 1
             self.logger.increment('failures')
             self.logger.exception(_('ERROR Syncing %s'),
                                   broker if broker else path)
 
+    def _update_sync_to_headers(self, name, sync_to, user_key,
+                                realm, realm_key, method, headers):
+        """
+        Updates container sync headers
+
+        :param name: The name of the object
+        :param sync_to: The URL to the remote container.
+        :param user_key: The X-Container-Sync-Key to use when sending requests
+                         to the other container.
+        :param realm: The realm from self.realms_conf, if there is one.
+            If None, fallback to using the older allowed_sync_hosts
+            way of syncing.
+        :param realm_key: The realm key from self.realms_conf, if there
+            is one. If None, fallback to using the older
+            allowed_sync_hosts way of syncing.
+        :param method: HTTP method to create sig with
+        :param headers: headers to update with container sync headers
+        """
+        if realm and realm_key:
+            nonce = uuid.uuid4().hex
+            path = urlparse(sync_to).path + '/' + quote(name)
+            sig = self.realms_conf.get_sig(method, path,
+                                           headers.get('x-timestamp', 0),
+                                           nonce, realm_key,
+                                           user_key)
+            headers['x-container-sync-auth'] = '%s %s %s' % (realm,
+                                                             nonce,
+                                                             sig)
+        else:
+            headers['x-container-sync-key'] = user_key
+
+    def _object_in_remote_container(self, name, sync_to, user_key,
+                                    realm, realm_key, timestamp):
+        """
+        Performs head object on remote to eliminate extra remote put and
+        local get object calls
+
+        :param name: The name of the object in the updated row in the local
+                     database triggering the sync update.
+        :param sync_to: The URL to the remote container.
+        :param user_key: The X-Container-Sync-Key to use when sending requests
+                         to the other container.
+        :param realm: The realm from self.realms_conf, if there is one.
+            If None, fallback to using the older allowed_sync_hosts
+            way of syncing.
+        :param realm_key: The realm key from self.realms_conf, if there
+            is one. If None, fallback to using the older
+            allowed_sync_hosts way of syncing.
+        :param timestamp: last modified date of local object
+        :returns: True if object already exists in remote
+        """
+        headers = {'x-timestamp': timestamp.internal}
+        self._update_sync_to_headers(name, sync_to, user_key, realm,
+                                     realm_key, 'HEAD', headers)
+        try:
+            metadata, _ = head_object(sync_to, name=name,
+                                      headers=headers,
+                                      proxy=self.select_http_proxy(),
+                                      logger=self.logger,
+                                      retries=0)
+            remote_ts = Timestamp(metadata.get('x-timestamp', 0))
+            self.logger.debug("remote obj timestamp %s local obj %s" %
+                              (timestamp.internal, remote_ts.internal))
+            if timestamp <= remote_ts:
+                return True
+            # Object in remote should be updated
+            return False
+        except ClientException as http_err:
+            # Object not in remote
+            if http_err.http_status == 404:
+                return False
+            raise http_err
+
     def container_sync_row(self, row, sync_to, user_key, broker, info,
                            realm, realm_key):
         """
         Sends the update the row indicates to the sync_to container.
+        Update can be either delete or put.
 
         :param row: The updated row in the local database triggering the sync
                     update.
@@ -439,17 +547,9 @@ class ContainerSync(Daemon):
                 # timestamp of the source tombstone
                 try:
                     headers = {'x-timestamp': ts_data.internal}
-                    if realm and realm_key:
-                        nonce = uuid.uuid4().hex
-                        path = urlparse(sync_to).path + '/' + quote(
-                            row['name'])
-                        sig = self.realms_conf.get_sig(
-                            'DELETE', path, headers['x-timestamp'], nonce,
-                            realm_key, user_key)
-                        headers['x-container-sync-auth'] = '%s %s %s' % (
-                            realm, nonce, sig)
-                    else:
-                        headers['x-container-sync-key'] = user_key
+                    self._update_sync_to_headers(row['name'], sync_to,
+                                                 user_key, realm, realm_key,
+                                                 'DELETE', headers)
                     delete_object(sync_to, name=row['name'], headers=headers,
                                   proxy=self.select_http_proxy(),
                                   logger=self.logger,
@@ -458,16 +558,16 @@ class ContainerSync(Daemon):
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
                 self.container_deletes += 1
+                self.container_stats['deletes'] += 1
                 self.logger.increment('deletes')
                 self.logger.timing_since('deletes.timing', start_time)
             else:
                 # when sync'ing a live object, use ts_meta - this is the time
                 # at which the source object was last modified by a PUT or POST
-                part, nodes = \
-                    self.get_object_ring(info['storage_policy_index']). \
-                    get_nodes(info['account'], info['container'],
-                              row['name'])
-                shuffle(nodes)
+                if self._object_in_remote_container(row['name'],
+                                                    sync_to, user_key, realm,
+                                                    realm_key, ts_meta):
+                    return True
                 exc = None
                 # look up for the newest one
                 headers_out = {'X-Newest': True,
@@ -502,21 +602,15 @@ class ContainerSync(Daemon):
                 if 'content-type' in headers:
                     headers['content-type'] = clean_content_type(
                         headers['content-type'])
-                if realm and realm_key:
-                    nonce = uuid.uuid4().hex
-                    path = urlparse(sync_to).path + '/' + quote(row['name'])
-                    sig = self.realms_conf.get_sig(
-                        'PUT', path, headers['x-timestamp'], nonce, realm_key,
-                        user_key)
-                    headers['x-container-sync-auth'] = '%s %s %s' % (
-                        realm, nonce, sig)
-                else:
-                    headers['x-container-sync-key'] = user_key
+                self._update_sync_to_headers(row['name'], sync_to, user_key,
+                                             realm, realm_key, 'PUT', headers)
                 put_object(sync_to, name=row['name'], headers=headers,
                            contents=FileLikeIter(body),
                            proxy=self.select_http_proxy(), logger=self.logger,
                            timeout=self.conn_timeout)
                 self.container_puts += 1
+                self.container_stats['puts'] += 1
+                self.container_stats['bytes'] += row['size']
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
         except ClientException as err:

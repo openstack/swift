@@ -460,6 +460,7 @@ class Account(Base):
     def delete_containers(self):
         for c in listing_items(self.containers):
             cont = self.container(c)
+            cont.update_metadata(hdrs={'x-versions-location': ''})
             if not cont.delete_recursive():
                 return False
 

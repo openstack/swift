@@ -308,7 +308,7 @@ def print_obj_metadata(metadata):
     print_metadata('Other Metadata:', other_metadata)
 
 
-def print_info(db_type, db_file, swift_dir='/etc/swift'):
+def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False):
     if db_type not in ('account', 'container'):
         print("Unrecognized DB type: internal error")
         raise InfoSystemExit()
@@ -318,10 +318,10 @@ def print_info(db_type, db_file, swift_dir='/etc/swift'):
     if not db_file.startswith(('/', './')):
         db_file = './' + db_file  # don't break if the bare db file is given
     if db_type == 'account':
-        broker = AccountBroker(db_file)
+        broker = AccountBroker(db_file, stale_reads_ok=stale_reads_ok)
         datadir = ABDATADIR
     else:
-        broker = ContainerBroker(db_file)
+        broker = ContainerBroker(db_file, stale_reads_ok=stale_reads_ok)
         datadir = CBDATADIR
     try:
         info = broker.get_info()

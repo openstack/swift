@@ -179,11 +179,11 @@ class TestParseScenario(unittest.TestCase):
         self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
 
         # no weight
-        busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6000/d7']]])
+        busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6200/d7']]])
         self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
 
         # too many fields
-        busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6000/d7', 1, 2]]])
+        busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6200/d7', 1, 2]]])
         self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
 
         # can't parse
@@ -198,7 +198,7 @@ class TestParseScenario(unittest.TestCase):
             self.assertEqual(str(err), expected)
 
         # negative weight
-        busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6000/d7', -1]]])
+        busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6200/d7', -1]]])
         self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
 
     def test_bad_remove(self):

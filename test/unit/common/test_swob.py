@@ -98,64 +98,6 @@ class TestHeaderEnvironProxy(unittest.TestCase):
             set(('Content-Length', 'Content-Type', 'Something-Else')))
 
 
-class TestHeaderKeyDict(unittest.TestCase):
-    def test_case_insensitive(self):
-        headers = swift.common.swob.HeaderKeyDict()
-        headers['Content-Length'] = 0
-        headers['CONTENT-LENGTH'] = 10
-        headers['content-length'] = 20
-        self.assertEqual(headers['Content-Length'], '20')
-        self.assertEqual(headers['content-length'], '20')
-        self.assertEqual(headers['CONTENT-LENGTH'], '20')
-
-    def test_setdefault(self):
-        headers = swift.common.swob.HeaderKeyDict()
-
-        # it gets set
-        headers.setdefault('x-rubber-ducky', 'the one')
-        self.assertEqual(headers['X-Rubber-Ducky'], 'the one')
-
-        # it has the right return value
-        ret = headers.setdefault('x-boat', 'dinghy')
-        self.assertEqual(ret, 'dinghy')
-
-        ret = headers.setdefault('x-boat', 'yacht')
-        self.assertEqual(ret, 'dinghy')
-
-        # shouldn't crash
-        headers.setdefault('x-sir-not-appearing-in-this-request', None)
-
-    def test_del_contains(self):
-        headers = swift.common.swob.HeaderKeyDict()
-        headers['Content-Length'] = 0
-        self.assertTrue('Content-Length' in headers)
-        del headers['Content-Length']
-        self.assertTrue('Content-Length' not in headers)
-
-    def test_update(self):
-        headers = swift.common.swob.HeaderKeyDict()
-        headers.update({'Content-Length': '0'})
-        headers.update([('Content-Type', 'text/plain')])
-        self.assertEqual(headers['Content-Length'], '0')
-        self.assertEqual(headers['Content-Type'], 'text/plain')
-
-    def test_get(self):
-        headers = swift.common.swob.HeaderKeyDict()
-        headers['content-length'] = 20
-        self.assertEqual(headers.get('CONTENT-LENGTH'), '20')
-        self.assertEqual(headers.get('something-else'), None)
-        self.assertEqual(headers.get('something-else', True), True)
-
-    def test_keys(self):
-        headers = swift.common.swob.HeaderKeyDict()
-        headers['content-length'] = 20
-        headers['cOnTent-tYpe'] = 'text/plain'
-        headers['SomeThing-eLse'] = 'somevalue'
-        self.assertEqual(
-            set(headers.keys()),
-            set(('Content-Length', 'Content-Type', 'Something-Else')))
-
-
 class TestRange(unittest.TestCase):
     def test_range(self):
         swob_range = swift.common.swob.Range('bytes=1-7')
@@ -289,12 +231,13 @@ class TestRange(unittest.TestCase):
 
     def test_range_invalid_syntax(self):
 
-        def _check_invalid_range(range_value):
+        def _assert_invalid_range(range_value):
             try:
                 swift.common.swob.Range(range_value)
-                return False
+                self.fail("Expected %r to be invalid, but wasn't" %
+                          (range_value,))
             except ValueError:
-                return True
+                pass
 
         """
         All the following cases should result ValueError exception
@@ -306,15 +249,16 @@ class TestRange(unittest.TestCase):
         6. any combination of the above
         """
 
-        self.assertTrue(_check_invalid_range('nonbytes=foobar,10-2'))
-        self.assertTrue(_check_invalid_range('bytes=5-3'))
-        self.assertTrue(_check_invalid_range('bytes=-'))
-        self.assertTrue(_check_invalid_range('bytes=45'))
-        self.assertTrue(_check_invalid_range('bytes=foo-bar,3-5'))
-        self.assertTrue(_check_invalid_range('bytes=4-10,45'))
-        self.assertTrue(_check_invalid_range('bytes=foobar,3-5'))
-        self.assertTrue(_check_invalid_range('bytes=nonumber-5'))
-        self.assertTrue(_check_invalid_range('bytes=nonumber'))
+        _assert_invalid_range('nonbytes=foobar,10-2')
+        _assert_invalid_range('bytes=5-3')
+        _assert_invalid_range('bytes=-')
+        _assert_invalid_range('bytes=45')
+        _assert_invalid_range('bytes=foo-bar,3-5')
+        _assert_invalid_range('bytes=4-10,45')
+        _assert_invalid_range('bytes=foobar,3-5')
+        _assert_invalid_range('bytes=nonumber-5')
+        _assert_invalid_range('bytes=nonumber')
+        _assert_invalid_range('bytes=--1')
 
 
 class TestMatch(unittest.TestCase):
@@ -487,9 +431,10 @@ class TestRequest(unittest.TestCase):
     def test_invalid_req_environ_property_args(self):
         # getter only property
         try:
-            swift.common.swob.Request.blank('/', params={'a': 'b'})
+            swift.common.swob.Request.blank(
+                '/', host_url='http://example.com:8080/v1/a/c/o')
         except TypeError as e:
-            self.assertEqual("got unexpected keyword argument 'params'",
+            self.assertEqual("got unexpected keyword argument 'host_url'",
                              str(e))
         else:
             self.assertTrue(False, "invalid req_environ_property "
@@ -580,6 +525,14 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/?a=b&c=d')
         self.assertEqual(req.params['a'], 'b')
         self.assertEqual(req.params['c'], 'd')
+
+        new_params = {'e': 'f', 'g': 'h'}
+        req.params = new_params
+        self.assertDictEqual(new_params, req.params)
+
+        new_params = (('i', 'j'), ('k', 'l'))
+        req.params = new_params
+        self.assertDictEqual(dict(new_params), req.params)
 
     def test_timestamp_missing(self):
         req = swift.common.swob.Request.blank('/')

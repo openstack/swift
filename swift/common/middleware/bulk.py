@@ -201,7 +201,8 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
-from swift.common.utils import get_logger, register_swift_info
+from swift.common.utils import get_logger, register_swift_info, \
+    StreamingPile
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 
@@ -274,8 +275,9 @@ class Bulk(object):
 
     def __init__(self, app, conf, max_containers_per_extraction=10000,
                  max_failed_extractions=1000, max_deletes_per_request=10000,
-                 max_failed_deletes=1000, yield_frequency=10, retry_count=0,
-                 retry_interval=1.5, logger=None):
+                 max_failed_deletes=1000, yield_frequency=10,
+                 delete_concurrency=2, retry_count=0, retry_interval=1.5,
+                 logger=None):
         self.app = app
         self.logger = logger or get_logger(conf, log_route='bulk')
         self.max_containers = max_containers_per_extraction
@@ -283,6 +285,7 @@ class Bulk(object):
         self.max_failed_deletes = max_failed_deletes
         self.max_deletes_per_request = max_deletes_per_request
         self.yield_frequency = yield_frequency
+        self.delete_concurrency = min(1000, max(1, delete_concurrency))
         self.retry_count = retry_count
         self.retry_interval = retry_interval
         self.max_path_length = constraints.MAX_OBJECT_NAME_LENGTH \
@@ -397,39 +400,74 @@ class Bulk(object):
                 objs_to_delete = self.get_objs_to_delete(req)
             failed_file_response = {'type': HTTPBadRequest}
             req.environ['eventlet.minimum_write_chunk_size'] = 0
-            for obj_to_delete in objs_to_delete:
-                if last_yield + self.yield_frequency < time():
-                    separator = '\r\n\r\n'
-                    last_yield = time()
-                    yield ' '
-                obj_name = obj_to_delete['name']
-                if not obj_name:
-                    continue
-                if len(failed_files) >= self.max_failed_deletes:
-                    raise HTTPBadRequest('Max delete failures exceeded')
-                if obj_to_delete.get('error'):
-                    if obj_to_delete['error']['code'] == HTTP_NOT_FOUND:
-                        resp_dict['Number Not Found'] += 1
-                    else:
+
+            def delete_filter(predicate, objs_to_delete):
+                for obj_to_delete in objs_to_delete:
+                    obj_name = obj_to_delete['name']
+                    if not obj_name:
+                        continue
+                    if not predicate(obj_name):
+                        continue
+                    if obj_to_delete.get('error'):
+                        if obj_to_delete['error']['code'] == HTTP_NOT_FOUND:
+                            resp_dict['Number Not Found'] += 1
+                        else:
+                            failed_files.append([
+                                quote(obj_name),
+                                obj_to_delete['error']['message']])
+                        continue
+                    delete_path = '/'.join(['', vrs, account,
+                                            obj_name.lstrip('/')])
+                    if not constraints.check_utf8(delete_path):
                         failed_files.append([quote(obj_name),
-                                            obj_to_delete['error']['message']])
-                    continue
-                delete_path = '/'.join(['', vrs, account,
-                                        obj_name.lstrip('/')])
-                if not constraints.check_utf8(delete_path):
-                    failed_files.append([quote(obj_name),
-                                         HTTPPreconditionFailed().status])
-                    continue
+                                             HTTPPreconditionFailed().status])
+                        continue
+                    yield (obj_name, delete_path)
+
+            def objs_then_containers(objs_to_delete):
+                # process all objects first
+                yield delete_filter(lambda name: '/' in name.strip('/'),
+                                    objs_to_delete)
+                # followed by containers
+                yield delete_filter(lambda name: '/' not in name.strip('/'),
+                                    objs_to_delete)
+
+            def do_delete(obj_name, delete_path):
                 new_env = req.environ.copy()
                 new_env['PATH_INFO'] = delete_path
                 del(new_env['wsgi.input'])
                 new_env['CONTENT_LENGTH'] = 0
                 new_env['REQUEST_METHOD'] = 'DELETE'
-                new_env['HTTP_USER_AGENT'] = \
-                    '%s %s' % (req.environ.get('HTTP_USER_AGENT'), user_agent)
+                new_env['HTTP_USER_AGENT'] = '%s %s' % (
+                    req.environ.get('HTTP_USER_AGENT'), user_agent)
                 new_env['swift.source'] = swift_source
-                self._process_delete(delete_path, obj_name, new_env, resp_dict,
-                                     failed_files, failed_file_response)
+                delete_obj_req = Request.blank(delete_path, new_env)
+                return (delete_obj_req.get_response(self.app), obj_name, 0)
+
+            with StreamingPile(self.delete_concurrency) as pile:
+                for names_to_delete in objs_then_containers(objs_to_delete):
+                    for resp, obj_name, retry in pile.asyncstarmap(
+                            do_delete, names_to_delete):
+                        if last_yield + self.yield_frequency < time():
+                            separator = '\r\n\r\n'
+                            last_yield = time()
+                            yield ' '
+                        self._process_delete(resp, pile, obj_name,
+                                             resp_dict, failed_files,
+                                             failed_file_response, retry)
+                        if len(failed_files) >= self.max_failed_deletes:
+                            # Abort, but drain off the in-progress deletes
+                            for resp, obj_name, retry in pile:
+                                if last_yield + self.yield_frequency < time():
+                                    separator = '\r\n\r\n'
+                                    last_yield = time()
+                                    yield ' '
+                                # Don't pass in the pile, as we shouldn't retry
+                                self._process_delete(
+                                    resp, None, obj_name, resp_dict,
+                                    failed_files, failed_file_response, retry)
+                            msg = 'Max delete failures exceeded'
+                            raise HTTPBadRequest(msg)
 
             if failed_files:
                 resp_dict['Response Status'] = \
@@ -603,10 +641,8 @@ class Bulk(object):
         yield separator + get_response_body(
             out_content_type, resp_dict, failed_files)
 
-    def _process_delete(self, delete_path, obj_name, env, resp_dict,
+    def _process_delete(self, resp, pile, obj_name, resp_dict,
                         failed_files, failed_file_response, retry=0):
-        delete_obj_req = Request.blank(delete_path, env)
-        resp = delete_obj_req.get_response(self.app)
         if resp.status_int // 100 == 2:
             resp_dict['Number Deleted'] += 1
         elif resp.status_int == HTTP_NOT_FOUND:
@@ -614,13 +650,16 @@ class Bulk(object):
         elif resp.status_int == HTTP_UNAUTHORIZED:
             failed_files.append([quote(obj_name),
                                  HTTPUnauthorized().status])
-        elif resp.status_int == HTTP_CONFLICT and \
+        elif resp.status_int == HTTP_CONFLICT and pile and \
                 self.retry_count > 0 and self.retry_count > retry:
             retry += 1
             sleep(self.retry_interval ** retry)
-            self._process_delete(delete_path, obj_name, env, resp_dict,
-                                 failed_files, failed_file_response,
-                                 retry)
+            delete_obj_req = Request.blank(resp.environ['PATH_INFO'],
+                                           resp.environ)
+
+            def _retry(req, app, obj_name, retry):
+                return req.get_response(app), obj_name, retry
+            pile.spawn(_retry, delete_obj_req, self.app, obj_name, retry)
         else:
             if resp.status_int // 100 == 5:
                 failed_file_response['type'] = HTTPBadGateway
@@ -664,6 +703,8 @@ def filter_factory(global_conf, **local_conf):
     max_deletes_per_request = int(conf.get('max_deletes_per_request', 10000))
     max_failed_deletes = int(conf.get('max_failed_deletes', 1000))
     yield_frequency = int(conf.get('yield_frequency', 10))
+    delete_concurrency = min(1000, max(1, int(
+        conf.get('delete_concurrency', 2))))
     retry_count = int(conf.get('delete_container_retry_count', 0))
     retry_interval = 1.5
 
@@ -684,6 +725,7 @@ def filter_factory(global_conf, **local_conf):
             max_deletes_per_request=max_deletes_per_request,
             max_failed_deletes=max_failed_deletes,
             yield_frequency=yield_frequency,
+            delete_concurrency=delete_concurrency,
             retry_count=retry_count,
             retry_interval=retry_interval)
     return bulk_filter

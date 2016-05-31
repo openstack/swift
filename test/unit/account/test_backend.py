@@ -793,33 +793,79 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(items_by_name['b']['object_count'], 0)
         self.assertEqual(items_by_name['b']['bytes_used'], 0)
 
-    def test_load_old_pending_puts(self):
+    @with_tempdir
+    def test_load_old_pending_puts(self, tempdir):
         # pending puts from pre-storage-policy account brokers won't contain
         # the storage policy index
-        tempdir = mkdtemp()
         broker_path = os.path.join(tempdir, 'test-load-old.db')
-        try:
-            broker = AccountBroker(broker_path, account='real')
-            broker.initialize(Timestamp(1).internal)
-            with open(broker_path + '.pending', 'a+b') as pending:
-                pending.write(':')
-                pending.write(pickle.dumps(
-                    # name, put_timestamp, delete_timestamp, object_count,
-                    # bytes_used, deleted
-                    ('oldcon', Timestamp(200).internal,
-                     Timestamp(0).internal,
-                     896, 9216695, 0)).encode('base64'))
+        broker = AccountBroker(broker_path, account='real')
+        broker.initialize(Timestamp(1).internal)
+        with open(broker.pending_file, 'a+b') as pending:
+            pending.write(':')
+            pending.write(pickle.dumps(
+                # name, put_timestamp, delete_timestamp, object_count,
+                # bytes_used, deleted
+                ('oldcon', Timestamp(200).internal,
+                 Timestamp(0).internal,
+                 896, 9216695, 0)).encode('base64'))
 
-            broker._commit_puts()
-            with broker.get() as conn:
-                results = list(conn.execute('''
-                    SELECT name, storage_policy_index FROM container
-                '''))
-            self.assertEqual(len(results), 1)
-            self.assertEqual(dict(results[0]),
-                             {'name': 'oldcon', 'storage_policy_index': 0})
-        finally:
-            rmtree(tempdir)
+        broker._commit_puts()
+        with broker.get() as conn:
+            results = list(conn.execute('''
+                SELECT name, storage_policy_index FROM container
+            '''))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(dict(results[0]),
+                         {'name': 'oldcon', 'storage_policy_index': 0})
+
+    @with_tempdir
+    def test_get_info_stale_read_ok(self, tempdir):
+        # test getting a stale read from the db
+        broker_path = os.path.join(tempdir, 'test-load-old.db')
+
+        def mock_commit_puts():
+            raise sqlite3.OperationalError('unable to open database file')
+
+        broker = AccountBroker(broker_path, account='real',
+                               stale_reads_ok=True)
+        broker.initialize(Timestamp(1).internal)
+        with open(broker.pending_file, 'a+b') as pending:
+            pending.write(':')
+            pending.write(pickle.dumps(
+                # name, put_timestamp, delete_timestamp, object_count,
+                # bytes_used, deleted
+                ('oldcon', Timestamp(200).internal,
+                 Timestamp(0).internal,
+                 896, 9216695, 0)).encode('base64'))
+
+        broker._commit_puts = mock_commit_puts
+        broker.get_info()
+
+    @with_tempdir
+    def test_get_info_no_stale_reads(self, tempdir):
+        broker_path = os.path.join(tempdir, 'test-load-old.db')
+
+        def mock_commit_puts():
+            raise sqlite3.OperationalError('unable to open database file')
+
+        broker = AccountBroker(broker_path, account='real',
+                               stale_reads_ok=False)
+        broker.initialize(Timestamp(1).internal)
+        with open(broker.pending_file, 'a+b') as pending:
+            pending.write(':')
+            pending.write(pickle.dumps(
+                # name, put_timestamp, delete_timestamp, object_count,
+                # bytes_used, deleted
+                ('oldcon', Timestamp(200).internal,
+                 Timestamp(0).internal,
+                 896, 9216695, 0)).encode('base64'))
+
+        broker._commit_puts = mock_commit_puts
+
+        with self.assertRaises(sqlite3.OperationalError) as exc_context:
+            broker.get_info()
+        self.assertIn('unable to open database file',
+                      str(exc_context.exception))
 
     @patch_policies([StoragePolicy(0, 'zero', False),
                      StoragePolicy(1, 'one', True),

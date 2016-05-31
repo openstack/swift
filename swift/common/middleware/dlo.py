@@ -344,12 +344,11 @@ class GetContext(WSGIContext):
                 close_if_possible(resp_iter)
                 response = self.get_or_head_response(req, value)
                 return response(req.environ, start_response)
-        else:
-            # Not a dynamic large object manifest; just pass it through.
-            start_response(self._response_status,
-                           self._response_headers,
-                           self._response_exc_info)
-            return resp_iter
+        # Not a dynamic large object manifest; just pass it through.
+        start_response(self._response_status,
+                       self._response_headers,
+                       self._response_exc_info)
+        return resp_iter
 
 
 class DynamicLargeObject(object):
@@ -406,11 +405,6 @@ class DynamicLargeObject(object):
         except ValueError:
             return self.app(env, start_response)
 
-        # install our COPY-callback hook
-        env['swift.copy_hook'] = self.copy_hook(
-            env.get('swift.copy_hook',
-                    lambda src_req, src_resp, sink_req: src_resp))
-
         if ((req.method == 'GET' or req.method == 'HEAD') and
                 req.params.get('multipart-manifest') != 'get'):
             return GetContext(self, self.logger).\
@@ -438,24 +432,6 @@ class DynamicLargeObject(object):
                     request=req,
                     body=('X-Object-Manifest must be in the '
                           'format container/prefix'))
-
-    def copy_hook(self, inner_hook):
-
-        def dlo_copy_hook(source_req, source_resp, sink_req):
-            x_o_m = source_resp.headers.get('X-Object-Manifest')
-            if x_o_m:
-                if source_req.params.get('multipart-manifest') == 'get':
-                    # To copy the manifest, we let the copy proceed as normal,
-                    # but ensure that X-Object-Manifest is set on the new
-                    # object.
-                    sink_req.headers['X-Object-Manifest'] = x_o_m
-                else:
-                    ctx = GetContext(self, self.logger)
-                    source_resp = ctx.get_or_head_response(
-                        source_req, x_o_m, source_resp.headers.items())
-            return inner_hook(source_req, source_resp, sink_req)
-
-        return dlo_copy_hook
 
 
 def filter_factory(global_conf, **local_conf):

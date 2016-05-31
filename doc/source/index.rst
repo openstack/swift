@@ -58,6 +58,7 @@ Overview and Concepts
     crossdomain
     overview_erasure_code
     overview_backing_store
+    ring_background
     associated_projects
 
 Developer Documentation

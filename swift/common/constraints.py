@@ -20,7 +20,6 @@ import time
 import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 from six.moves import urllib
-from six.moves.urllib.parse import unquote
 
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
@@ -129,7 +128,8 @@ def check_metadata(req, target_type):
                         which type the target storage for the metadata is
     :returns: HTTPBadRequest with bad metadata otherwise None
     """
-    prefix = 'x-%s-meta-' % target_type.lower()
+    target_type = target_type.lower()
+    prefix = 'x-%s-meta-' % target_type
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.items():
@@ -144,6 +144,11 @@ def check_metadata(req, target_type):
         key = key[len(prefix):]
         if not key:
             return HTTPBadRequest(body='Metadata name cannot be empty',
+                                  request=req, content_type='text/plain')
+        bad_key = not check_utf8(key)
+        bad_value = value and not check_utf8(value)
+        if target_type in ('account', 'container') and (bad_key or bad_value):
+            return HTTPBadRequest(body='Metadata must be valid UTF-8',
                                   request=req, content_type='text/plain')
         meta_count += 1
         meta_size += len(key) + len(value)
@@ -198,10 +203,6 @@ def check_object_creation(req, object_name):
         return HTTPLengthRequired(body='Missing Content-Length header.',
                                   request=req,
                                   content_type='text/plain')
-
-    if 'X-Copy-From' in req.headers and req.content_length:
-        return HTTPBadRequest(body='Copy requests require a zero byte body',
-                              request=req, content_type='text/plain')
 
     if len(object_name) > MAX_OBJECT_NAME_LENGTH:
         return HTTPBadRequest(body='Object name length of %d longer than %d' %
@@ -351,63 +352,6 @@ def check_utf8(string):
     # So, we should catch both UnicodeDecodeError & UnicodeEncodeError
     except UnicodeError:
         return False
-
-
-def check_path_header(req, name, length, error_msg):
-    """
-    Validate that the value of path-like header is
-    well formatted. We assume the caller ensures that
-    specific header is present in req.headers.
-
-    :param req: HTTP request object
-    :param name: header name
-    :param length: length of path segment check
-    :param error_msg: error message for client
-    :returns: A tuple with path parts according to length
-    :raise: HTTPPreconditionFailed if header value
-            is not well formatted.
-    """
-    src_header = unquote(req.headers.get(name))
-    if not src_header.startswith('/'):
-        src_header = '/' + src_header
-    try:
-        return utils.split_path(src_header, length, length, True)
-    except ValueError:
-        raise HTTPPreconditionFailed(
-            request=req,
-            body=error_msg)
-
-
-def check_copy_from_header(req):
-    """
-    Validate that the value from x-copy-from header is
-    well formatted. We assume the caller ensures that
-    x-copy-from header is present in req.headers.
-
-    :param req: HTTP request object
-    :returns: A tuple with container name and object name
-    :raise: HTTPPreconditionFailed if x-copy-from value
-            is not well formatted.
-    """
-    return check_path_header(req, 'X-Copy-From', 2,
-                             'X-Copy-From header must be of the form '
-                             '<container name>/<object name>')
-
-
-def check_destination_header(req):
-    """
-    Validate that the value from destination header is
-    well formatted. We assume the caller ensures that
-    destination header is present in req.headers.
-
-    :param req: HTTP request object
-    :returns: A tuple with container name and object name
-    :raise: HTTPPreconditionFailed if destination value
-            is not well formatted.
-    """
-    return check_path_header(req, 'Destination', 2,
-                             'Destination header must be of the form '
-                             '<container name>/<object name>')
 
 
 def check_name_format(req, name, target_type):

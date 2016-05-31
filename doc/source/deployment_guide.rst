@@ -151,11 +151,6 @@ service a request for any disk, and a slow I/O request blocks the eventlet hub,
 a single slow disk can impair an entire storage node.  This also prevents
 object servers from fully utilizing all their disks during heavy load.
 
-The :ref:`threads_per_disk <object-server-options>` option was one way to
-address this, but came with severe performance overhead which was worse
-than the benefit of I/O isolation.  Any clusters using threads_per_disk should
-switch to using `servers_per_port`.
-
 Another way to get full I/O isolation is to give each disk on a storage node a
 different port in the storage policy rings.  Then set the
 :ref:`servers_per_port <object-server-default-options>`
@@ -169,18 +164,18 @@ Here's an example (abbreviated) old-style ring (2 node cluster with 2 disks
 each)::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
-              0       1     1       1.1.0.1    6000       1.1.0.1                6000      d1
-              1       1     1       1.1.0.1    6000       1.1.0.1                6000      d2
-              2       1     2       1.1.0.2    6000       1.1.0.2                6000      d3
-              3       1     2       1.1.0.2    6000       1.1.0.2                6000      d4
+              0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
+              1       1     1       1.1.0.1    6200       1.1.0.1                6200      d2
+              2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
+              3       1     2       1.1.0.2    6200       1.1.0.2                6200      d4
 
 And here's the same ring set up for `servers_per_port`::
 
  Devices:    id  region  zone      ip address  port  replication ip  replication port      name
-              0       1     1       1.1.0.1    6000       1.1.0.1                6000      d1
-              1       1     1       1.1.0.1    6001       1.1.0.1                6001      d2
-              2       1     2       1.1.0.2    6000       1.1.0.2                6000      d3
-              3       1     2       1.1.0.2    6001       1.1.0.2                6001      d4
+              0       1     1       1.1.0.1    6200       1.1.0.1                6200      d1
+              1       1     1       1.1.0.1    6201       1.1.0.1                6201      d2
+              2       1     2       1.1.0.2    6200       1.1.0.2                6200      d3
+              3       1     2       1.1.0.2    6201       1.1.0.2                6201      d4
 
 When migrating from normal to `servers_per_port`, perform these steps in order:
 
@@ -195,7 +190,7 @@ When migrating from normal to `servers_per_port`, perform these steps in order:
 
  #. Push out new rings that actually have different ports per disk on each
     server.  One of the ports in the new ring should be the same as the port
-    used in the old ring ("6000" in the example above).  This will cover
+    used in the old ring ("6200" in the example above).  This will cover
     existing proxy-server processes who haven't loaded the new ring yet.  They
     can still talk to any storage node regardless of whether or not that
     storage node has loaded the ring and started object-server processes on the
@@ -422,7 +417,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6000        Port for server to bind to
+bind_port                        6200        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -489,12 +484,14 @@ log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for
                                              eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the
-                                             number of bytes you'd like fallocate to
-                                             reserve, whether there is space for the
-                                             given file size or not. This is useful for
-                                             systems that behave badly when they
-                                             completely run out of space; you can
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
                                              make the services pretend they're out of
                                              space early.
 conn_timeout                     0.5         Time to wait while attempting to connect
@@ -547,15 +544,6 @@ allowed_headers                Content-Disposition,   Comma separated list of he
                                X-Static-Large-Object  Content-Type, etag, Content-Length, or deleted
 auto_create_account_prefix     .                      Prefix used when automatically
                                                       creating accounts.
-threads_per_disk               0                      Size of the per-disk thread pool
-                                                      used for performing disk I/O. The
-                                                      default of 0 means to not use a
-                                                      per-disk thread pool.
-                                                      This option is no longer
-                                                      recommended and the
-                                                      :ref:`servers_per_port
-                                                      <server-per-port-configuration>`
-                                                      should be used instead.
 replication_server                                    Configure parameter for creating
                                                       specific server. To handle all verbs,
                                                       including replication verbs, do not
@@ -569,15 +557,15 @@ replication_server                                    Configure parameter for cr
                                                       should not specify any value for
                                                       "replication_server".
 replication_concurrency        4                      Set to restrict the number of
-                                                      concurrent incoming REPLICATION
+                                                      concurrent incoming SSYNC
                                                       requests; set to 0 for unlimited
-replication_one_per_device     True                   Restricts incoming REPLICATION
+replication_one_per_device     True                   Restricts incoming SSYNC
                                                       requests to one per device,
                                                       replication_currency above
                                                       allowing. This can help control
                                                       I/O to each device, but you may
                                                       wish to set this to False to
-                                                      allow multiple REPLICATION
+                                                      allow multiple SSYNC
                                                       requests (up to the above
                                                       replication_concurrency setting)
                                                       per device.
@@ -589,9 +577,9 @@ replication_failure_threshold  100                    The number of subrequest f
                                                       replication_failure_ratio is
                                                       checked
 replication_failure_ratio      1.0                    If the value of failures /
-                                                      successes of REPLICATION
+                                                      successes of SSYNC
                                                       subrequests exceeds this ratio,
-                                                      the overall REPLICATION request
+                                                      the overall SSYNC request
                                                       will be aborted
 splice                         no                     Use splice() for zero-copy object
                                                       GETs. This requires Linux kernel
@@ -738,6 +726,11 @@ concurrency                 1                   The number of parallel processes
 zero_byte_files_per_second  50
 object_size_stats
 recon_cache_path            /var/cache/swift    Path to recon cache
+rsync_tempfile_timeout      auto                Time elapsed in seconds before rsync
+                                                tempfiles will be unlinked. Config value
+                                                of "auto" try to use object-replicator's
+                                                rsync_timeout + 900 or fallback to 86400
+                                                (1 day).
 =========================== =================== ==========================================
 
 ------------------------------
@@ -760,7 +753,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6001        Port for server to bind to
+bind_port                        6201        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -804,13 +797,16 @@ log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the number of
-                                             bytes you'd like fallocate to reserve, whether
-                                             there is space for the given file size or not.
-                                             This is useful for systems that behave badly
-                                             when they completely run out of space; you can
-                                             make the services pretend they're out of space
-                                             early.
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
 db_preallocation                 off         If you don't mind the extra disk space usage
                                              in overhead, you can turn this on to preallocate
                                              disk space with SQLite databases to decrease
@@ -971,7 +967,7 @@ mount_check                      true        Whether or not check if the devices
                                              mounted to prevent accidentally writing
                                              to the root device
 bind_ip                          0.0.0.0     IP Address for server to bind to
-bind_port                        6002        Port for server to bind to
+bind_port                        6202        Port for server to bind to
 bind_timeout                     30          Seconds to attempt bind before giving up
 backlog                          4096        Maximum number of allowed pending
                                              connections
@@ -1019,13 +1015,16 @@ log_statsd_default_sample_rate   1.0
 log_statsd_sample_rate_factor    1.0
 log_statsd_metric_prefix
 eventlet_debug                   false       If true, turn on debug logging for eventlet
-fallocate_reserve                0           You can set fallocate_reserve to the number of
-                                             bytes you'd like fallocate to reserve, whether
-                                             there is space for the given file size or not.
-                                             This is useful for systems that behave badly
-                                             when they completely run out of space; you can
-                                             make the services pretend they're out of space
-                                             early.
+fallocate_reserve                1%          You can set fallocate_reserve to the
+                                             number of bytes or percentage of disk
+                                             space you'd like fallocate to reserve,
+                                             whether there is space for the given
+                                             file size or not. Percentage will be used
+                                             if the value ends with a '%'. This is
+                                             useful for systems that behave badly when
+                                             they completely run out of space; you can
+                                             make the services pretend they're out of
+                                             space early.
 ===============================  ==========  =============================================
 
 [account-server]
@@ -1271,9 +1270,9 @@ expiring_objects_account_name         expiring_objects
 
 [proxy-server]
 
-============================  ===============  =============================
+============================  ===============  =====================================
 Option                        Default          Description
-----------------------------  ---------------  -----------------------------
+----------------------------  ---------------  -------------------------------------
 use                                            Entry point for paste.deploy for
                                                the proxy server.  For most
                                                cases, this should be
@@ -1325,11 +1324,7 @@ object_post_as_copy           true             Set object_post_as_copy = false
                                                the metadata changes are stored
                                                anew and the original data file
                                                is kept in place. This makes for
-                                               quicker posts; but since the
-                                               container metadata isn't updated
-                                               in this mode, features like
-                                               container sync won't be able to
-                                               sync posts.
+                                               quicker posts.
 account_autocreate            false            If set to 'true' authorized
                                                accounts that do not yet exist
                                                within the Swift cluster will
@@ -1367,7 +1362,37 @@ swift_owner_headers           <see the sample  These are the headers whose
                               headers>         up to the auth system in use,
                                                but usually indicates
                                                administrative responsibilities.
-============================  ===============  =============================
+sorting_method                shuffle          Storage nodes can be chosen at
+                                               random (shuffle), by using timing
+                                               measurements (timing), or by using
+                                               an explicit match (affinity).
+                                               Using timing measurements may allow
+                                               for lower overall latency, while
+                                               using affinity allows for finer
+                                               control. In both the timing and
+                                               affinity cases, equally-sorting nodes
+                                               are still randomly chosen to spread
+                                               load.
+timing_expiry                 300              If the "timing" sorting_method is
+                                               used, the timings will only be valid
+                                               for the number of seconds configured
+                                               by timing_expiry.
+concurrent_gets               off              Use replica count number of
+                                               threads concurrently during a
+                                               GET/HEAD and return with the
+                                               first successful response. In
+                                               the EC case, this parameter only
+                                               effects an EC HEAD as an EC GET
+                                               behaves differently.
+concurrency_timeout           conn_timeout     This parameter controls how long
+                                               to wait before firing off the
+                                               next concurrent_get thread. A
+                                               value of 0 would we fully concurrent
+                                               any other number will stagger the
+                                               firing of the threads. This number
+                                               should be between 0 and node_timeout.
+                                               The default is conn_timeout (0.5).
+============================  ===============  =====================================
 
 [tempauth]
 

@@ -24,7 +24,7 @@ The supported headers are,
 +------------------------------------------------+------------------------------+
 | X-Container-Meta-Access-Control-Expose-Headers | Headers exposed to the user  |
 |                                                | agent (e.g. browser) in the  |
-|                                                | the actual request response. |
+|                                                | actual request response.     |
 |                                                | Space separated.             |
 +------------------------------------------------+------------------------------+
 

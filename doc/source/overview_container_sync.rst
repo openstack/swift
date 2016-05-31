@@ -14,13 +14,6 @@ synchronization key.
 
 .. note::
 
-    Container sync will sync object POSTs only if the proxy server is set to
-    use "object_post_as_copy = true" which is the default. So-called fast
-    object posts, "object_post_as_copy = false" do not update the container
-    listings and therefore can't be detected for synchronization.
-
-.. note::
-
     If you are using the large objects feature you will need to ensure both
     your manifest file and your segment files are synced if they happen to be
     in different containers.
@@ -127,6 +120,50 @@ container-sync logs to a different file for easier monitoring. Additionally, it
 should be noted there is no way for an end user to detect sync progress or
 problems other than HEADing both containers and comparing the overall
 information.
+
+
+
+-----------------------------
+Container Sync Statistics
+-----------------------------
+
+Container Sync INFO level logs contains activity metrics and accounting
+information foe insightful tracking.
+Currently two different statistics are collected:
+
+About once an hour or so, accumulated statistics of all operations performed
+by Container Sync are reported to the log file with the following format:
+"Since (time): (sync) synced [(delete) deletes, (put) puts], (skip) skipped,
+(fail) failed"
+time: last report time
+sync: number of containers with sync turned on that were successfully synced
+delete: number of successful DELETE object requests to the target cluster
+put: number of successful PUT object request to the target cluster
+skip: number of containers whose sync has been turned off, but are not
+yet cleared from the sync store
+fail: number of containers with failure (due to exception, timeout or other
+reason)
+
+For each container synced, per container statistics are reported with the
+following format:
+Container sync report: (container), time window start: (start), time window
+end: %(end), puts: (puts), posts: (posts), deletes: (deletes), bytes: (bytes),
+sync_point1: (point1), sync_point2: (point2), total_rows: (total)
+container: account/container statistics are for
+start: report start time
+end: report end time
+puts: number of successful PUT object requests to the target container
+posts: N/A (0)
+deletes: number of successful DELETE object requests to the target container
+bytes: number of bytes sent over the network to the target container
+point1: progress indication - the container's x_container_sync_point1
+point2: progress indication - the container's x_container_sync_point2
+total: number of objects processed at the container
+
+it is possible that more than one server syncs a container, therefore logfiles
+from all servers need to be evaluated
+
+
 
 ----------------------------------------------------------
 Using the ``swift`` tool to set up synchronized containers
@@ -385,13 +422,6 @@ from ``sync-containers``.
     cluster and talks to the proxy servers (or load balancers) in the remote
     cluster. Therefore, the container servers must be permitted to initiate
     outbound connections to the remote proxy servers (or load balancers).
-
-.. note::
-
-    Container sync will sync object POSTs only if the proxy server is set to
-    use "object_post_as_copy = true" which is the default. So-called fast
-    object posts, "object_post_as_copy = false" do not update the container
-    listings and therefore can't be detected for synchronization.
 
 The actual syncing is slightly more complicated to make use of the three
 (or number-of-replicas) main nodes for a container without each trying to

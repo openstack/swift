@@ -77,15 +77,17 @@ class ObjectExpirer(Daemon):
         """
         if final:
             elapsed = time() - self.report_first_time
-            self.logger.info(_('Pass completed in %ds; %d objects expired') %
-                             (elapsed, self.report_objects))
+            self.logger.info(_('Pass completed in %(time)ds; '
+                               '%(objects)d objects expired') % {
+                             'time': elapsed, 'objects': self.report_objects})
             dump_recon_cache({'object_expiration_pass': elapsed,
                               'expired_last_pass': self.report_objects},
                              self.rcache, self.logger)
         elif time() - self.report_last_time >= self.report_interval:
             elapsed = time() - self.report_first_time
-            self.logger.info(_('Pass so far %ds; %d objects expired') %
-                             (elapsed, self.report_objects))
+            self.logger.info(_('Pass so far %(time)ds; '
+                               '%(objects)d objects expired') % {
+                             'time': elapsed, 'objects': self.report_objects})
             self.report_last_time = time()
 
     def iter_cont_objs_to_expire(self):
@@ -168,8 +170,10 @@ class ObjectExpirer(Daemon):
             self.logger.debug('Run begin')
             containers, objects = \
                 self.swift.get_account_info(self.expiring_objects_account)
-            self.logger.info(_('Pass beginning; %s possible containers; %s '
-                               'possible objects') % (containers, objects))
+            self.logger.info(_('Pass beginning; '
+                               '%(containers)s possible containers; '
+                               '%(objects)s possible objects') % {
+                             'containers': containers, 'objects': objects})
 
             for container, obj in self.iter_cont_objs_to_expire():
                 containers_to_delete.add(container)
@@ -194,8 +198,9 @@ class ObjectExpirer(Daemon):
                         acceptable_statuses=(2, HTTP_NOT_FOUND, HTTP_CONFLICT))
                 except (Exception, Timeout) as err:
                     self.logger.exception(
-                        _('Exception while deleting container %s %s') %
-                        (container, str(err)))
+                        _('Exception while deleting container %(container)s '
+                          '%(err)s') % {'container': container,
+                                        'err': str(err)})
             self.logger.debug('Run end')
             self.report(final=True)
         except (Exception, Timeout):
@@ -266,8 +271,9 @@ class ObjectExpirer(Daemon):
         except (Exception, Timeout) as err:
             self.logger.increment('errors')
             self.logger.exception(
-                _('Exception while deleting object %s %s %s') %
-                (container, obj, str(err)))
+                _('Exception while deleting object %(container)s %(obj)s'
+                  ' %(err)s') % {'container': container,
+                                 'obj': obj, 'err': str(err)})
         self.logger.timing_since('timing', start_time)
         self.report()
 
@@ -293,5 +299,6 @@ class ObjectExpirer(Daemon):
         """
         path = '/v1/' + urllib.parse.quote(actual_obj.lstrip('/'))
         self.swift.make_request('DELETE', path,
-                                {'X-If-Delete-At': str(timestamp)},
+                                {'X-If-Delete-At': str(timestamp),
+                                 'X-Timestamp': str(timestamp)},
                                 (2, HTTP_PRECONDITION_FAILED))

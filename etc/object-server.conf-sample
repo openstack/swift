@@ -1,6 +1,6 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
-bind_port = 6000
+bind_port = 6200
 # bind_timeout = 30
 # backlog = 4096
 # user = swift
@@ -16,10 +16,9 @@ bind_port = 6000
 # ignored.
 # workers = auto
 #
-# Make object-server run this many worker processes per unique port of
-# "local" ring devices across all storage policies.  This can help provide
-# the isolation of threads_per_disk without the severe overhead.  The default
-# value of 0 disables this feature.
+# Make object-server run this many worker processes per unique port of "local"
+# ring devices across all storage policies. The default value of 0 disables this
+# feature.
 # servers_per_port = 0
 #
 # Maximum concurrent requests per worker
@@ -52,9 +51,10 @@ bind_port = 6000
 #
 # eventlet_debug = false
 #
-# You can set fallocate_reserve to the number of bytes you'd like fallocate to
-# reserve, whether there is space for the given file size or not.
-# fallocate_reserve = 0
+# You can set fallocate_reserve to the number of bytes or percentage of disk
+# space you'd like fallocate to reserve, whether there is space for the given
+# file size or not. Percentage will be used if the value ends with a '%'.
+# fallocate_reserve = 1%
 #
 # Time to wait while attempting to connect to another backend node.
 # conn_timeout = 0.5
@@ -106,10 +106,6 @@ use = egg:swift#object
 #
 # auto_create_account_prefix = .
 #
-# A value of 0 means "don't use thread pools". A reasonable starting point is
-# 4.
-# threads_per_disk = 0
-#
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify
 # "replication_server" (this is the default). To only handle replication,
@@ -118,14 +114,15 @@ use = egg:swift#object
 # should not specify any value for "replication_server".
 # replication_server = false
 #
-# Set to restrict the number of concurrent incoming REPLICATION requests
+# Set to restrict the number of concurrent incoming SSYNC requests
 # Set to 0 for unlimited
-# Note that REPLICATION is currently an ssync only item
+# Note that SSYNC requests are only used by the object reconstructor or the
+# object replicator when configured to use ssync.
 # replication_concurrency = 4
 #
-# Restricts incoming REPLICATION requests to one per device,
+# Restricts incoming SSYNC requests to one per device,
 # replication_currency above allowing. This can help control I/O to each
-# device, but you may wish to set this to False to allow multiple REPLICATION
+# device, but you may wish to set this to False to allow multiple SSYNC
 # requests (up to the above replication_concurrency setting) per device.
 # replication_one_per_device = True
 #
@@ -133,8 +130,8 @@ use = egg:swift#object
 # giving up.
 # replication_lock_timeout = 15
 #
-# These next two settings control when the REPLICATION subrequest handler will
-# abort an incoming REPLICATION attempt. An abort will occur if there are at
+# These next two settings control when the SSYNC subrequest handler will
+# abort an incoming SSYNC attempt. An abort will occur if there are at
 # least threshold number of failures and the value of failures / successes
 # exceeds the ratio. The defaults of 100 and 1.0 means that at least 100
 # failures have to occur and there have to be more failures than successes for
@@ -304,6 +301,13 @@ use = egg:swift#recon
 # increment a counter for every object whose size is <= to the given break
 # points and report the result after a full scan.
 # object_size_stats =
+
+# The auditor will cleanup old rsync tempfiles after they are "old
+# enough" to delete.  You can configure the time elapsed in seconds
+# before rsync tempfiles will be unlinked, or the default value of
+# "auto" try to use object-replicator's rsync_timeout + 900 and fallback
+# to 86400 (1 day).
+# rsync_tempfile_timeout = auto
 
 # Note: Put it at the beginning of the pipleline to profile all middleware. But
 # it is safer to put this after healthcheck.

@@ -98,17 +98,24 @@ class OpenAndReadTester(object):
 
 class MockOS(object):
 
-    def __init__(self, ls_out=None, im_out=False, statvfs_out=None):
+    def __init__(self, ls_out=None, isdir_out=None, ismount_out=False,
+                 statvfs_out=None):
         self.ls_output = ls_out
-        self.ismount_output = im_out
+        self.isdir_output = isdir_out
+        self.ismount_output = ismount_out
         self.statvfs_output = statvfs_out
         self.listdir_calls = []
-        self.statvfs_calls = []
+        self.isdir_calls = []
         self.ismount_calls = []
+        self.statvfs_calls = []
 
     def fake_listdir(self, *args, **kwargs):
         self.listdir_calls.append((args, kwargs))
         return self.ls_output
+
+    def fake_isdir(self, *args, **kwargs):
+        self.isdir_calls.append((args, kwargs))
+        return self.isdir_output
 
     def fake_ismount(self, *args, **kwargs):
         self.ismount_calls.append((args, kwargs))
@@ -164,7 +171,7 @@ class FakeRecon(object):
     def fake_unmounted(self):
         return {'unmountedtest': "1"}
 
-    def fake_no_unmounted(self):
+    def fake_unmounted_empty(self):
         return []
 
     def fake_diskusage(self):
@@ -214,9 +221,11 @@ class TestReconSuccess(TestCase):
         self.mockos = MockOS()
         self.fakecache = FakeFromCache()
         self.real_listdir = os.listdir
+        self.real_isdir = os.path.isdir
         self.real_ismount = utils.ismount
         self.real_statvfs = os.statvfs
         os.listdir = self.mockos.fake_listdir
+        os.path.isdir = self.mockos.fake_isdir
         utils.ismount = self.mockos.fake_ismount
         os.statvfs = self.mockos.fake_statvfs
         self.real_from_cache = self.app._from_recon_cache
@@ -225,22 +234,23 @@ class TestReconSuccess(TestCase):
 
         self.ring_part_shift = 5
         self.ring_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
-                           'ip': '10.1.1.1', 'port': 6000,
+                           'ip': '10.1.1.1', 'port': 6200,
                            'device': 'sda1'},
                           {'id': 1, 'zone': 0, 'weight': 1.0,
-                           'ip': '10.1.1.1', 'port': 6000,
+                           'ip': '10.1.1.1', 'port': 6200,
                            'device': 'sdb1'},
                           None,
                           {'id': 3, 'zone': 2, 'weight': 1.0,
-                           'ip': '10.1.2.1', 'port': 6000,
+                           'ip': '10.1.2.1', 'port': 6200,
                            'device': 'sdc1'},
                           {'id': 4, 'zone': 2, 'weight': 1.0,
-                           'ip': '10.1.2.2', 'port': 6000,
+                           'ip': '10.1.2.2', 'port': 6200,
                            'device': 'sdd1'}]
         self._create_rings()
 
     def tearDown(self):
         os.listdir = self.real_listdir
+        os.path.isdir = self.real_isdir
         utils.ismount = self.real_ismount
         os.statvfs = self.real_statvfs
         del self.mockos
@@ -304,15 +314,15 @@ class TestReconSuccess(TestCase):
         # We should only see configured and present rings, so to handle the
         # "normal" case just patch the policies to match the existing rings.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '782728be98644fb725e165d4bf5728d4',
                     '%s/object-1.ring.gz' % self.tempdir:
-                    '3f1899b27abf5f2efcc67d6fae1e1c64',
+                    '7c3a4bc9f724d4eb69c9b797cdc28b8c',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+                    '324b9c4da20cf7ef097edbd219d296e0'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-{1,2}.ring.gz should both appear as they are present on disk
@@ -362,7 +372,7 @@ class TestReconSuccess(TestCase):
         expt_out = {'%s/account.ring.gz' % self.tempdir: None,
                     '%s/container.ring.gz' % self.tempdir: None,
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+                    '782728be98644fb725e165d4bf5728d4'}
         ringmd5 = self.app.get_ring_md5(openr=fake_open_objonly)
         self.assertEqual(sorted(ringmd5.items()),
                          sorted(expt_out.items()))
@@ -377,13 +387,13 @@ class TestReconSuccess(TestCase):
         # later moved into place, we shouldn't need to restart object-server
         # for it to appear in recon.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '782728be98644fb725e165d4bf5728d4',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+                    '324b9c4da20cf7ef097edbd219d296e0'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-1.ring.gz should not appear as it's present but unconfigured.
@@ -402,7 +412,7 @@ class TestReconSuccess(TestCase):
                    array.array('H', [1, 1, 0, 3])]
         self._create_ring(os.path.join(self.tempdir, ringfn),
                           ringmap, self.ring_devs, self.ring_part_shift)
-        expt_out[ringpath] = 'acfa4b85396d2a33f361ebc07d23031d'
+        expt_out[ringpath] = 'a7e591642beea6933f64aebd56f357d9'
 
         # We should now see it in the ringmd5 response, without a restart
         # (using the same app instance)
@@ -418,13 +428,13 @@ class TestReconSuccess(TestCase):
         # Object rings that are configured but missing aren't meant to appear
         # in the ringmd5 response.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '782728be98644fb725e165d4bf5728d4',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+                    '324b9c4da20cf7ef097edbd219d296e0'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-1.ring.gz should not appear as it's present but unconfigured.
@@ -441,11 +451,11 @@ class TestReconSuccess(TestCase):
         # Object rings that are present but not configured in swift.conf
         # aren't meant to appear in the ringmd5 response.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '11e0c98abb209474d40d6a9a8a523803',
                     '%s/container.ring.gz' % self.tempdir:
-                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '6685496a4045ce0be123068e0165a64d',
                     '%s/object.ring.gz' % self.tempdir:
-                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+                    '782728be98644fb725e165d4bf5728d4'}
 
         # We need to instantiate app after overriding the configured policies.
         # object-{1,2}.ring.gz should not appear as they are present on disk
@@ -931,39 +941,63 @@ class TestReconSuccess(TestCase):
         unmounted_resp = [{'device': 'fakeone', 'mounted': False},
                           {'device': 'faketwo', 'mounted': False}]
         self.mockos.ls_output = ['fakeone', 'faketwo']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/fakeone',), {}),
+                          (('/srv/node/faketwo',), {})])
         self.assertEqual(rv, unmounted_resp)
 
-    def test_get_unmounted_everything_normal(self):
+    def test_get_unmounted_excludes_files(self):
+        unmounted_resp = []
+        self.mockos.ls_output = ['somerando.log']
+        self.mockos.isdir_output = False
+        self.mockos.ismount_output = False
+        rv = self.app.get_unmounted()
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/somerando.log',), {})])
+        self.assertEqual(rv, unmounted_resp)
+
+    def test_get_unmounted_all_mounted(self):
         unmounted_resp = []
         self.mockos.ls_output = ['fakeone', 'faketwo']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = True
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/fakeone',), {}),
+                          (('/srv/node/faketwo',), {})])
         self.assertEqual(rv, unmounted_resp)
 
     def test_get_unmounted_checkmount_fail(self):
         unmounted_resp = [{'device': 'fakeone', 'mounted': 'brokendrive'}]
         self.mockos.ls_output = ['fakeone']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/fakeone',), {})])
         self.assertEqual(self.mockos.ismount_calls,
                          [(('/srv/node/fakeone',), {})])
         self.assertEqual(rv, unmounted_resp)
 
-    def test_no_get_unmounted(self):
+    def test_get_unmounted_no_mounts(self):
 
         def fake_checkmount_true(*args):
             return True
 
         unmounted_resp = []
         self.mockos.ls_output = []
+        self.mockos.isdir_output = False
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls, [])
         self.assertEqual(rv, unmounted_resp)
 
     def test_get_diskusage(self):
@@ -977,20 +1011,37 @@ class TestReconSuccess(TestCase):
         du_resp = [{'device': 'canhazdrive1', 'avail': 4150685696,
                     'mounted': True, 'used': 3890520064, 'size': 8041205760}]
         self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.isdir_output = True
         self.mockos.statvfs_output = statvfs_content
         self.mockos.ismount_output = True
         rv = self.app.get_diskusage()
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/canhazdrive1',), {})])
         self.assertEqual(self.mockos.statvfs_calls,
                          [(('/srv/node/canhazdrive1',), {})])
+        self.assertEqual(rv, du_resp)
+
+    def test_get_diskusage_excludes_files(self):
+        du_resp = []
+        self.mockos.ls_output = ['somerando.log']
+        self.mockos.isdir_output = False
+        rv = self.app.get_diskusage()
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/somerando.log',), {})])
+        self.assertEqual(self.mockos.statvfs_calls, [])
         self.assertEqual(rv, du_resp)
 
     def test_get_diskusage_checkmount_fail(self):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
                     'mounted': 'brokendrive', 'used': '', 'size': ''}]
         self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.isdir_output = True
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_diskusage()
         self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.isdir_calls,
+                         [(('/srv/node/canhazdrive1',), {})])
         self.assertEqual(self.mockos.ismount_calls,
                          [(('/srv/node/canhazdrive1',), {})])
         self.assertEqual(rv, du_resp)
@@ -1000,6 +1051,7 @@ class TestReconSuccess(TestCase):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
                     'mounted': 'Input/Output Error', 'used': '', 'size': ''}]
         self.mockos.ls_output = ['canhazdrive1']
+        self.mockos.isdir_output = True
         rv = self.app.get_diskusage()
         self.assertEqual(rv, du_resp)
 
@@ -1256,9 +1308,9 @@ class TestReconMiddleware(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, get_unmounted_resp)
 
-    def test_recon_no_get_unmounted(self):
+    def test_recon_get_unmounted_empty(self):
         get_unmounted_resp = '[]'
-        self.app.get_unmounted = self.frecon.fake_no_unmounted
+        self.app.get_unmounted = self.frecon.fake_unmounted_empty
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = ''.join(self.app(req.environ, start_response))
@@ -1340,7 +1392,7 @@ class TestReconMiddleware(unittest.TestCase):
         os.listdir = fail_os_listdir
         resp = self.real_app_get_device_info()
         os.listdir = self.real_listdir
-        device_path = resp.keys()[0]
+        device_path = list(resp)[0]
         self.assertIsNone(resp[device_path])
 
     def test_get_swift_conf_md5(self):

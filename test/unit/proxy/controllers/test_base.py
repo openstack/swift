@@ -19,14 +19,12 @@ import unittest
 from mock import patch
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
-    get_container_memcache_key, get_account_info, get_account_memcache_key, \
-    get_object_env_key, get_info, get_object_info, \
-    Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache, \
-    bytes_to_skip
-from swift.common.swob import Request, HTTPException, HeaderKeyDict, \
-    RESPONSE_REASONS
+    get_cache_key, get_account_info, get_info, get_object_info, \
+    Controller, GetOrHeadHandler, bytes_to_skip
+from swift.common.swob import Request, HTTPException, RESPONSE_REASONS
 from swift.common import exceptions
 from swift.common.utils import split_path
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
@@ -120,23 +118,14 @@ class FakeApp(object):
     def __init__(self, response_factory=None, statuses=None):
         self.responses = response_factory or \
             DynamicResponseFactory(*statuses or [])
-        self.sources = []
+        self.captured_envs = []
 
     def __call__(self, environ, start_response):
-        self.sources.append(environ.get('swift.source'))
+        self.captured_envs.append(environ)
         response = self.responses.get_response(environ)
         reason = RESPONSE_REASONS[response.status_int][0]
         start_response('%d %s' % (response.status_int, reason),
                        [(k, v) for k, v in response.headers.items()])
-        # It's a bit strange, but the get_info cache stuff relies on the
-        # app setting some keys in the environment as it makes requests
-        # (in particular GETorHEAD_base) - so our fake does the same
-        _set_info_cache(self, environ, response.account,
-                        response.container, response)
-        if response.obj:
-            _set_object_info_cache(self, environ, response.account,
-                                   response.container, response.obj,
-                                   response)
         return iter(response.body)
 
 
@@ -158,41 +147,6 @@ class TestFuncs(unittest.TestCase):
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing())
 
-    def test_GETorHEAD_base(self):
-        base = Controller(self.app)
-        req = Request.blank('/v1/a/c/o/with/slashes')
-        ring = FakeRing()
-        nodes = list(ring.get_part_nodes(0)) + list(ring.get_more_nodes(0))
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'object', iter(nodes), 'part',
-                                       '/a/c/o/with/slashes')
-        self.assertTrue('swift.object/a/c/o/with/slashes' in resp.environ)
-        self.assertEqual(
-            resp.environ['swift.object/a/c/o/with/slashes']['status'], 200)
-        req = Request.blank('/v1/a/c/o')
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'object', iter(nodes), 'part',
-                                       '/a/c/o')
-        self.assertTrue('swift.object/a/c/o' in resp.environ)
-        self.assertEqual(resp.environ['swift.object/a/c/o']['status'], 200)
-        req = Request.blank('/v1/a/c')
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'container', iter(nodes), 'part',
-                                       '/a/c')
-        self.assertTrue('swift.container/a/c' in resp.environ)
-        self.assertEqual(resp.environ['swift.container/a/c']['status'], 200)
-
-        req = Request.blank('/v1/a')
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'account', iter(nodes), 'part',
-                                       '/a')
-        self.assertTrue('swift.account/a' in resp.environ)
-        self.assertEqual(resp.environ['swift.account/a']['status'], 200)
-
     def test_get_info(self):
         app = FakeApp()
         # Do a non cached call to account
@@ -202,36 +156,44 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(info_a['status'], 200)
         self.assertEqual(info_a['bytes'], 6666)
         self.assertEqual(info_a['total_object_count'], 1000)
-        # Make sure the env cache is set
-        self.assertEqual(env.get('swift.account/a'), info_a)
+
         # Make sure the app was called
         self.assertEqual(app.responses.stats['account'], 1)
 
+        # Make sure the return value matches get_account_info
+        account_info = get_account_info({'PATH_INFO': '/v1/a'}, app)
+        self.assertEqual(info_a, account_info)
+
         # Do an env cached call to account
+        app.responses.stats['account'] = 0
+        app.responses.stats['container'] = 0
+
         info_a = get_info(app, env, 'a')
         # Check that you got proper info
         self.assertEqual(info_a['status'], 200)
         self.assertEqual(info_a['bytes'], 6666)
         self.assertEqual(info_a['total_object_count'], 1000)
-        # Make sure the env cache is set
-        self.assertEqual(env.get('swift.account/a'), info_a)
+
         # Make sure the app was NOT called AGAIN
-        self.assertEqual(app.responses.stats['account'], 1)
+        self.assertEqual(app.responses.stats['account'], 0)
 
         # This time do env cached call to account and non cached to container
+        app.responses.stats['account'] = 0
+        app.responses.stats['container'] = 0
+
         info_c = get_info(app, env, 'a', 'c')
         # Check that you got proper info
         self.assertEqual(info_c['status'], 200)
         self.assertEqual(info_c['bytes'], 6666)
         self.assertEqual(info_c['object_count'], 1000)
-        # Make sure the env cache is set
-        self.assertEqual(env.get('swift.account/a'), info_a)
-        self.assertEqual(env.get('swift.container/a/c'), info_c)
-        # Make sure the app was called for container
+        # Make sure the app was called for container but not account
+        self.assertEqual(app.responses.stats['account'], 0)
         self.assertEqual(app.responses.stats['container'], 1)
 
-        # This time do a non cached call to account than non cached to
+        # This time do a non-cached call to account then non-cached to
         # container
+        app.responses.stats['account'] = 0
+        app.responses.stats['container'] = 0
         app = FakeApp()
         env = {}  # abandon previous call to env
         info_c = get_info(app, env, 'a', 'c')
@@ -239,81 +201,38 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(info_c['status'], 200)
         self.assertEqual(info_c['bytes'], 6666)
         self.assertEqual(info_c['object_count'], 1000)
-        # Make sure the env cache is set
-        self.assertEqual(env.get('swift.account/a'), info_a)
-        self.assertEqual(env.get('swift.container/a/c'), info_c)
         # check app calls both account and container
         self.assertEqual(app.responses.stats['account'], 1)
         self.assertEqual(app.responses.stats['container'], 1)
 
-        # This time do an env cached call to container while account is not
+        # This time do an env-cached call to container while account is not
         # cached
-        del(env['swift.account/a'])
+        app.responses.stats['account'] = 0
+        app.responses.stats['container'] = 0
         info_c = get_info(app, env, 'a', 'c')
         # Check that you got proper info
         self.assertEqual(info_a['status'], 200)
         self.assertEqual(info_c['bytes'], 6666)
         self.assertEqual(info_c['object_count'], 1000)
-        # Make sure the env cache is set and account still not cached
-        self.assertEqual(env.get('swift.container/a/c'), info_c)
+
         # no additional calls were made
-        self.assertEqual(app.responses.stats['account'], 1)
-        self.assertEqual(app.responses.stats['container'], 1)
-
-        # Do a non cached call to account not found with ret_not_found
-        app = FakeApp(statuses=(404,))
-        env = {}
-        info_a = get_info(app, env, 'a', ret_not_found=True)
-        # Check that you got proper info
-        self.assertEqual(info_a['status'], 404)
-        self.assertEqual(info_a['bytes'], None)
-        self.assertEqual(info_a['total_object_count'], None)
-        # Make sure the env cache is set
-        self.assertEqual(env.get('swift.account/a'), info_a)
-        # and account was called
-        self.assertEqual(app.responses.stats['account'], 1)
-
-        # Do a cached call to account not found with ret_not_found
-        info_a = get_info(app, env, 'a', ret_not_found=True)
-        # Check that you got proper info
-        self.assertEqual(info_a['status'], 404)
-        self.assertEqual(info_a['bytes'], None)
-        self.assertEqual(info_a['total_object_count'], None)
-        # Make sure the env cache is set
-        self.assertEqual(env.get('swift.account/a'), info_a)
-        # add account was NOT called AGAIN
-        self.assertEqual(app.responses.stats['account'], 1)
-
-        # Do a non cached call to account not found without ret_not_found
-        app = FakeApp(statuses=(404,))
-        env = {}
-        info_a = get_info(app, env, 'a')
-        # Check that you got proper info
-        self.assertEqual(info_a, None)
-        self.assertEqual(env['swift.account/a']['status'], 404)
-        # and account was called
-        self.assertEqual(app.responses.stats['account'], 1)
-
-        # Do a cached call to account not found without ret_not_found
-        info_a = get_info(None, env, 'a')
-        # Check that you got proper info
-        self.assertEqual(info_a, None)
-        self.assertEqual(env['swift.account/a']['status'], 404)
-        # add account was NOT called AGAIN
-        self.assertEqual(app.responses.stats['account'], 1)
+        self.assertEqual(app.responses.stats['account'], 0)
+        self.assertEqual(app.responses.stats['container'], 0)
 
     def test_get_container_info_swift_source(self):
         app = FakeApp()
         req = Request.blank("/v1/a/c", environ={'swift.cache': FakeCache()})
         get_container_info(req.environ, app, swift_source='MC')
-        self.assertEqual(app.sources, ['GET_INFO', 'MC'])
+        self.assertEqual([e['swift.source'] for e in app.captured_envs],
+                         ['MC', 'MC'])
 
     def test_get_object_info_swift_source(self):
         app = FakeApp()
         req = Request.blank("/v1/a/c/o",
                             environ={'swift.cache': FakeCache()})
         get_object_info(req.environ, app, swift_source='LU')
-        self.assertEqual(app.sources, ['LU'])
+        self.assertEqual([e['swift.source'] for e in app.captured_envs],
+                         ['LU'])
 
     def test_get_container_info_no_cache(self):
         req = Request.blank("/v1/AUTH_account/cont",
@@ -331,7 +250,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(info['status'], 0)
 
     def test_get_container_info_no_auto_account(self):
-        responses = DynamicResponseFactory(404, 200)
+        responses = DynamicResponseFactory(200)
         app = FakeApp(responses)
         req = Request.blank("/v1/.system_account/cont")
         info = get_container_info(req.environ, app)
@@ -353,11 +272,11 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['versions'], "\xe1\xbd\x8a\x39")
 
     def test_get_container_info_env(self):
-        cache_key = get_container_memcache_key("account", "cont")
-        env_key = 'swift.%s' % cache_key
-        req = Request.blank("/v1/account/cont",
-                            environ={env_key: {'bytes': 3867},
-                                     'swift.cache': FakeCache({})})
+        cache_key = get_cache_key("account", "cont")
+        req = Request.blank(
+            "/v1/account/cont",
+            environ={'swift.infocache': {cache_key: {'bytes': 3867}},
+                     'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
 
@@ -365,7 +284,25 @@ class TestFuncs(unittest.TestCase):
         app = FakeApp()
         req = Request.blank("/v1/a", environ={'swift.cache': FakeCache()})
         get_account_info(req.environ, app, swift_source='MC')
-        self.assertEqual(app.sources, ['MC'])
+        self.assertEqual([e['swift.source'] for e in app.captured_envs],
+                         ['MC'])
+
+    def test_get_account_info_swift_owner(self):
+        app = FakeApp()
+        req = Request.blank("/v1/a", environ={'swift.cache': FakeCache()})
+        get_account_info(req.environ, app)
+        self.assertEqual([e['swift_owner'] for e in app.captured_envs],
+                         [True])
+
+    def test_get_account_info_infocache(self):
+        app = FakeApp()
+        ic = {}
+        req = Request.blank("/v1/a", environ={'swift.cache': FakeCache(),
+                                              'swift.infocache': ic})
+        get_account_info(req.environ, app)
+        got_infocaches = [e['swift.infocache'] for e in app.captured_envs]
+        self.assertEqual(1, len(got_infocaches))
+        self.assertIs(ic, got_infocaches[0])
 
     def test_get_account_info_no_cache(self):
         app = FakeApp()
@@ -376,7 +313,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['total_object_count'], 1000)
 
     def test_get_account_info_cache(self):
-        # The original test that we prefer to preserve
+        # Works with fake apps that return ints in the headers
         cached = {'status': 404,
                   'bytes': 3333,
                   'total_object_count': 10}
@@ -387,7 +324,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['total_object_count'], 10)
         self.assertEqual(resp['status'], 404)
 
-        # Here is a more realistic test
+        # Works with strings too, like you get when parsing HTTP headers
+        # that came in through a socket from the account server
         cached = {'status': 404,
                   'bytes': '3333',
                   'container_count': '234',
@@ -397,17 +335,17 @@ class TestFuncs(unittest.TestCase):
                             environ={'swift.cache': FakeCache(cached)})
         resp = get_account_info(req.environ, FakeApp())
         self.assertEqual(resp['status'], 404)
-        self.assertEqual(resp['bytes'], '3333')
+        self.assertEqual(resp['bytes'], 3333)
         self.assertEqual(resp['container_count'], 234)
         self.assertEqual(resp['meta'], {})
-        self.assertEqual(resp['total_object_count'], '10')
+        self.assertEqual(resp['total_object_count'], 10)
 
     def test_get_account_info_env(self):
-        cache_key = get_account_memcache_key("account")
-        env_key = 'swift.%s' % cache_key
-        req = Request.blank("/v1/account",
-                            environ={env_key: {'bytes': 3867},
-                                     'swift.cache': FakeCache({})})
+        cache_key = get_cache_key("account")
+        req = Request.blank(
+            "/v1/account",
+            environ={'swift.infocache': {cache_key: {'bytes': 3867}},
+                     'swift.cache': FakeCache({})})
         resp = get_account_info(req.environ, 'xxx')
         self.assertEqual(resp['bytes'], 3867)
 
@@ -416,10 +354,11 @@ class TestFuncs(unittest.TestCase):
                   'length': 3333,
                   'type': 'application/json',
                   'meta': {}}
-        env_key = get_object_env_key("account", "cont", "obj")
-        req = Request.blank("/v1/account/cont/obj",
-                            environ={env_key: cached,
-                                     'swift.cache': FakeCache({})})
+        cache_key = get_cache_key("account", "cont", "obj")
+        req = Request.blank(
+            "/v1/account/cont/obj",
+            environ={'swift.infocache': {cache_key: cached},
+                     'swift.cache': FakeCache({})})
         resp = get_object_info(req.environ, 'xxx')
         self.assertEqual(resp['length'], 3333)
         self.assertEqual(resp['type'], 'application/json')
@@ -616,12 +555,15 @@ class TestFuncs(unittest.TestCase):
         base = Controller(self.app)
         # just throw a bunch of test cases at it
         self.assertEqual(base.have_quorum([201, 404], 3), False)
-        self.assertEqual(base.have_quorum([201, 201], 4), False)
-        self.assertEqual(base.have_quorum([201, 201, 404, 404], 4), False)
-        self.assertEqual(base.have_quorum([201, 503, 503, 201], 4), False)
+        self.assertEqual(base.have_quorum([201, 201], 4), True)
+        self.assertEqual(base.have_quorum([201], 4), False)
+        self.assertEqual(base.have_quorum([201, 201, 404, 404], 4), True)
+        self.assertEqual(base.have_quorum([201, 302, 418, 503], 4), False)
+        self.assertEqual(base.have_quorum([201, 503, 503, 201], 4), True)
         self.assertEqual(base.have_quorum([201, 201], 3), True)
         self.assertEqual(base.have_quorum([404, 404], 3), True)
         self.assertEqual(base.have_quorum([201, 201], 2), True)
+        self.assertEqual(base.have_quorum([201, 404], 2), True)
         self.assertEqual(base.have_quorum([404, 404], 2), True)
         self.assertEqual(base.have_quorum([201, 404, 201, 201], 4), True)
 
@@ -663,6 +605,8 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(handler.backend_headers['Range'], 'bytes=43-50')
         self.assertRaises(HTTPException,
                           handler.fast_forward, 80)
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 8)
 
         handler = GetOrHeadHandler(None, req, None, None, None, None,
                                    {'Range': 'bytes=23-'})
@@ -673,6 +617,41 @@ class TestFuncs(unittest.TestCase):
                                    {'Range': 'bytes=-100'})
         handler.fast_forward(20)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=-80')
+        self.assertRaises(HTTPException,
+                          handler.fast_forward, 100)
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 80)
+
+        handler = GetOrHeadHandler(None, req, None, None, None, None,
+                                   {'Range': 'bytes=0-0'})
+        self.assertRaises(exceptions.RangeAlreadyComplete,
+                          handler.fast_forward, 1)
+
+    def test_range_fast_forward_after_data_timeout(self):
+        req = Request.blank('/')
+
+        # We get a 200 and learn that it's a 1000-byte object, but receive 0
+        # bytes of data, so then we get a new node, fast_forward(0), and
+        # send out a new request. That new request must be for all 1000
+        # bytes.
+        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler.learn_size_from_content_range(0, 999, 1000)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-999')
+
+        # Same story as above, but a 1-byte object so we can have our byte
+        # indices be 0.
+        handler = GetOrHeadHandler(None, req, None, None, None, None, {})
+        handler.learn_size_from_content_range(0, 0, 1)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=0-0')
+
+        # last 100 bytes
+        handler = GetOrHeadHandler(None, req, None, None, None, None,
+                                   {'Range': 'bytes=-100'})
+        handler.learn_size_from_content_range(900, 999, 1000)
+        handler.fast_forward(0)
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=900-999')
 
     def test_transfer_headers_with_sysmeta(self):
         base = Controller(self.app)
@@ -786,7 +765,7 @@ class TestFuncs(unittest.TestCase):
             def getheaders(self):
                 return [('content-length', self.getheader('content-length'))]
 
-        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         source1 = TestSource(['abcd', '1234', 'abc', None])
         source2 = TestSource(['efgh5678'])
@@ -826,7 +805,7 @@ class TestFuncs(unittest.TestCase):
             def getheaders(self):
                 return self.headers
 
-        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         source1 = TestChunkedSource(['abcd', '1234', 'abc', None])
         source2 = TestChunkedSource(['efgh5678'])

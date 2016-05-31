@@ -20,7 +20,7 @@ import mock
 from swift.account import utils, backend
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import Timestamp
-from swift.common.swob import HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
 
 from test.unit import patch_policies
 

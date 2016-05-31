@@ -2,15 +2,53 @@
 Identifying issues and resolutions
 ==================================
 
+Is the system up?
+-----------------
+
+If you have a report that Swift is down, perform the following basic checks:
+
+#. Run swift functional tests.
+
+#. From a server in your data center, use ``curl`` to check ``/healthcheck``
+   (see below).
+
+#. If you have a monitoring system, check your monitoring system.
+
+#. Check your hardware load balancers infrastructure.
+
+#. Run swift-recon on a proxy node.
+
+Functional tests usage
+-----------------------
+
+We would recommend that you set up the functional tests to run against your
+production system. Run regularly this can be a useful tool to validate
+that the system is configured correctly. In addition, it can provide
+early warning about failures in your system (if the functional tests stop
+working, user applications will also probably stop working).
+
+A script for running the function tests is located in ``swift/.functests``.
+
+
+External monitoring
+-------------------
+
+We use pingdom.com to monitor the external Swift API. We suggest the
+following:
+
+   -  Do a GET on ``/healthcheck``
+
+   -  Create a container, make it public (x-container-read:
+      .r*,.rlistings), create a small file in the container; do a GET
+      on the object
+
 Diagnose: General approach
 --------------------------
 
 -  Look at service status in your monitoring system.
 
 -  In addition to system monitoring tools and issue logging by users,
-   swift errors will often result in log entries in the ``/var/log/swift``
-   files: ``proxy.log``, ``server.log`` and ``background.log`` (see:``Swift
-   logs``).
+   swift errors will often result in log entries (see :ref:`swift_logs`).
 
 -  Look at any logs your deployment tool produces.
 
@@ -33,22 +71,24 @@ Diagnose: Swift-dispersion-report
 ---------------------------------
 
 The swift-dispersion-report is a useful tool to gauge the general
-health of the system. Configure the ``swift-dispersion`` report for
-100% coverage. The dispersion report regularly monitors
-these and gives a report of the amount of objects/containers are still
-available as well as how many copies of them are also there.
+health of the system. Configure the ``swift-dispersion`` report to cover at
+a minimum every disk drive in your system (usually 1% coverage).
+See :ref:`dispersion_report` for details of how to configure and
+use the dispersion reporting tool.
 
-The dispersion-report output is logged on the first proxy of the first
-AZ or each system (proxy with the monitoring role) under
-``/var/log/swift/swift-dispersion-report.log``.
+The ``swift-dispersion-report`` tool can take a long time to run, especially
+if any servers are down. We suggest you run it regularly
+(e.g., in a cron job) and save the results. This makes it easy to refer
+to the last report without having to wait for a long-running command
+to complete.
 
-Diagnose: Is swift running?
----------------------------
+Diagnose: Is system responding to /healthcheck?
+-----------------------------------------------
 
 When you want to establish if a swift endpoint is running, run ``curl -k``
-against either: https://*[REPLACEABLE]*./healthcheck OR
-https:*[REPLACEABLE]*.crossdomain.xml
+against https://*[ENDPOINT]*/healthcheck.
 
+.. _swift_logs:
 
 Diagnose: Interpreting messages in ``/var/log/swift/`` files
 ------------------------------------------------------------
@@ -71,24 +111,19 @@ The following table lists known issues:
      - **Issue**
      - **Steps to take**
    * - /var/log/syslog
-     - kernel: [] hpsa .... .... .... has check condition: unknown type:
-       Sense: 0x5, ASC: 0x20, ASC Q: 0x0 ....
-     - An unsupported command was issued to the storage hardware
-     - Understood to be a benign monitoring issue, ignore
-   * - /var/log/syslog
      - kernel: [] sd .... [csbu:sd...] Sense Key: Medium Error
      - Suggests disk surface issues
-     - Run swift diagnostics on the target node to check for disk errors,
+     - Run ``swift-drive-audit`` on the target node to check for disk errors,
        repair disk errors
    * - /var/log/syslog
      - kernel: [] sd .... [csbu:sd...] Sense Key: Hardware Error
      - Suggests storage hardware issues
-     - Run swift diagnostics on the target node to check for disk failures,
+     - Run diagnostics on the target node to check for disk failures,
        replace failed disks
    * - /var/log/syslog
      - kernel: [] .... I/O error, dev sd.... ,sector ....
      -
-     - Run swift diagnostics on the target node to check for disk errors
+     - Run diagnostics on the target node to check for disk errors
    * - /var/log/syslog
      - pound: NULL get_thr_arg
      - Multiple threads woke up
@@ -96,58 +131,60 @@ The following table lists known issues:
    * - /var/log/swift/proxy.log
      - .... ERROR .... ConnectionTimeout ....
      - A storage node is not responding in a timely fashion
-     - Run swift diagnostics on the target node to check for node down,
-       node unconfigured, storage off-line or network issues between the
+     - Check if node is down, not running Swift,
+       unconfigured, storage off-line or for network issues between the
        proxy and non responding node
    * - /var/log/swift/proxy.log
      - proxy-server .... HTTP/1.0 500 ....
      - A proxy server has reported an internal server error
-     - Run swift diagnostics on the target node to check for issues
+     - Examine the logs for any errors at the time the error was reported to
+       attempt to understand the cause of the error.
    * - /var/log/swift/server.log
      - .... ERROR .... ConnectionTimeout ....
      - A storage server is not responding in a timely fashion
-     - Run swift diagnostics on the target node to check for a node or
-       service, down, unconfigured, storage off-line or network issues
-       between the two nodes
+     - Check if node is down, not running Swift,
+       unconfigured, storage off-line or for network issues between the
+       server and non responding node
    * - /var/log/swift/server.log
      - .... ERROR .... Remote I/O error: '/srv/node/disk....
      - A storage device is not responding as expected
-     - Run swift diagnostics and check the filesystem named in the error
-       for corruption (unmount & xfs_repair)
+     - Run ``swift-drive-audit`` and check the filesystem named in the error
+       for corruption (unmount & xfs_repair). Check if the filesystem
+       is mounted and working.
    * - /var/log/swift/background.log
      - object-server ERROR container update failed .... Connection refused
-     - Peer node is not responding
-     - Check status of the network and peer node
+     - A container server node could not be contacted
+     - Check if node is down, not running Swift,
+       unconfigured, storage off-line or for network issues between the
+       server and non responding node
    * - /var/log/swift/background.log
      - object-updater ERROR with remote .... ConnectionTimeout
-     -
-     - Check status of the network and peer node
+     - The remote container server is busy
+     - If the container is very large, some errors updating it can be
+       expected. However, this error can also occur if there is a networking
+       issue.
    * - /var/log/swift/background.log
      - account-reaper STDOUT: .... error: ECONNREFUSED
-     - Network connectivity issue
-     - Resolve network issue and re-run diagnostics
+     - Network connectivity issue or the target server is down.
+     - Resolve network issue or reboot the target server
    * - /var/log/swift/background.log
      - .... ERROR .... ConnectionTimeout
      - A storage server is not responding in a timely fashion
-     - Run swift diagnostics on the target node to check for a node
-       or service, down, unconfigured, storage off-line or network issues
-       between the two nodes
+     - The target server may be busy. However, this error can also occur if
+       there is a networking issue.
    * - /var/log/swift/background.log
      - .... ERROR syncing .... Timeout
-     - A storage server is not responding in a timely fashion
-     - Run swift diagnostics on the target node to check for a node
-       or service, down, unconfigured, storage off-line or network issues
-       between the two nodes
+     - A timeout occurred syncing data to another node.
+     - The target server may be busy. However, this error can also occur if
+       there is a networking issue.
    * - /var/log/swift/background.log
      - .... ERROR Remote drive not mounted ....
      - A storage server disk is unavailable
-     - Run swift diagnostics on the target node to check for a node or
-       service, failed or unmounted disk on the target, or a network issue
+     - Repair and remount the file system (on the remote node)
    * - /var/log/swift/background.log
      - object-replicator .... responded as unmounted
      - A storage server disk is unavailable
-     - Run swift diagnostics on the target node to check for a node or
-       service, failed or unmounted disk on the target, or a network issue
+     - Repair and remount the file system (on the remote node)
    * - /var/log/swift/\*.log
      - STDOUT: EXCEPTION IN
      - A unexpected error occurred
@@ -157,19 +194,14 @@ The following table lists known issues:
    * - /var/log/rsyncd.log
      - rsync: mkdir "/disk....failed: No such file or directory....
      - A local storage server disk is unavailable
-     - Run swift diagnostics on the node to check for a failed or
+     - Run diagnostics on the node to check for a failed or
        unmounted disk
    * - /var/log/swift*
-     - Exception: Could not bind to 0.0.0.0:600xxx
+     - Exception: Could not bind to 0.0.0.0:6xxx
      - Possible Swift process restart issue. This indicates an old swift
        process is still running.
-     - Run swift diagnostics, if some swift services are reported down,
+     - Restart Swift services. If some swift services are reported down,
        check if they left residual process behind.
-   * - /var/log/rsyncd.log
-     - rsync: recv_generator: failed to stat "/disk....." (in object)
-       failed: Not a directory (20)
-     - Swift directory structure issues
-     - Run swift diagnostics on the node to check for issues
 
 Diagnose: Parted reports the backup GPT table is corrupt
 --------------------------------------------------------
@@ -188,7 +220,7 @@ Diagnose: Parted reports the backup GPT table is corrupt
 
       OK/Cancel?
 
-To fix, go to: Fix broken GPT table (broken disk partition)
+To fix, go to :ref:`fix_broken_gpt_table`
 
 
 Diagnose: Drives diagnostic reports a FS label is not acceptable
@@ -240,9 +272,10 @@ Diagnose: Failed LUNs
 
 .. note::
 
-   The HPE Helion Public Cloud uses direct attach SmartArry
+   The HPE Helion Public Cloud uses direct attach SmartArray
    controllers/drives. The information here is specific to that
-   environment.
+   environment. The hpacucli utility mentioned here may be called
+   hpssacli in your environment.
 
 The ``swift_diagnostics`` mount checks may return a warning that a LUN has
 failed, typically accompanied by DriveAudit check failures and device
@@ -254,7 +287,7 @@ the procedure to replace the disk.
 
 Otherwise the lun can be re-enabled as follows:
 
-#. Generate a hpssacli diagnostic report. This report allows the swift
+#. Generate a hpssacli diagnostic report. This report allows the DC
    team to troubleshoot potential cabling or hardware issues so it is
    imperative that you run it immediately when troubleshooting a failed
    LUN. You will come back later and grep this file for more details, but
@@ -262,8 +295,7 @@ Otherwise the lun can be re-enabled as follows:
 
    .. code::
 
-      sudo hpssacli controller all diag file=/tmp/hpacu.diag ris=on \
-      xml=off zip=off
+      sudo hpssacli controller all diag file=/tmp/hpacu.diag ris=on xml=off zip=off
 
 Export the following variables using the below instructions before
 proceeding further.
@@ -317,8 +349,7 @@ proceeding further.
 
    .. code::
 
-      sudo hpssacli controller slot=1 ld ${LDRIVE} show detail \
-      grep -i "Disk Name"
+      sudo hpssacli controller slot=1 ld ${LDRIVE} show detail | grep -i "Disk Name"
 
 #. Export the device name variable from the preceding command (example:
    /dev/sdk):
@@ -396,6 +427,8 @@ proceeding further.
    should be checked. For example, log a DC ticket to check the sas cables
    between the drive and the expander.
 
+.. _diagnose_slow_disk_drives:
+
 Diagnose: Slow disk devices
 ---------------------------
 
@@ -404,7 +437,8 @@ Diagnose: Slow disk devices
    collectl is an open-source performance gathering/analysis tool.
 
 If the diagnostics report a message such as ``sda: drive is slow``, you
-should log onto the node and run the following comand:
+should log onto the node and run the following command (remove ``-c 1`` option to continuously monitor
+the data):
 
 .. code::
 
@@ -431,13 +465,12 @@ should log onto the node and run the following comand:
    dm-3             0      0    0    0       0      0    0    0       0     0     0      0    0
    dm-4             0      0    0    0       0      0    0    0       0     0     0      0    0
    dm-5             0      0    0    0       0      0    0    0       0     0     0      0    0
-   ...
-   (repeats -- type Ctrl/C to stop)
+
 
 Look at the ``Wait`` and ``SvcTime`` values. It is not normal for
 these values to exceed 50msec. This is known to impact customer
-performance (upload/download. For a controller problem, many/all drives
-will show how wait and service times. A reboot may correct the prblem;
+performance (upload/download). For a controller problem, many/all drives
+will show long wait and service times. A reboot may correct the problem;
 otherwise hardware replacement is needed.
 
 Another way to look at the data is as follows:
@@ -526,12 +559,12 @@ be disabled on a per-drive basis.
 Diagnose: Slow network link - Measuring network performance
 -----------------------------------------------------------
 
-Network faults can cause performance between Swift nodes to degrade. The
-following tests are recommended. Other methods (such as copying large
+Network faults can cause performance between Swift nodes to degrade. Testing
+with ``netperf`` is recommended. Other methods (such as copying large
 files) may also work, but can produce inconclusive results.
 
-Use netperf on all production systems. Install on all systems if not
-already installed. And the UFW rules for its control port are in place.
+Install ``netperf`` on all systems if not
+already installed. Check that the UFW rules for its control port are in place.
 However, there are no pre-opened ports for netperf's data connection. Pick a
 port number. In this example, 12866 is used because it is one higher
 than netperf's default control port number, 12865. If you get very
@@ -542,7 +575,7 @@ command-line wrong.
 Pick a ``source`` and ``target`` node. The source is often a proxy node
 and the target is often an object node. Using the same source proxy you
 can test communication to different object nodes in different AZs to
-identity possible bottlekecks.
+identity possible bottlenecks.
 
 Running tests
 ^^^^^^^^^^^^^
@@ -561,11 +594,11 @@ Running tests
 
 #. On the ``source`` node, run the following command to check
    throughput. Note the double-dash before the -P option.
-   The command takes 10 seconds to complete.
+   The command takes 10 seconds to complete. The ``target`` node is 192.168.245.5.
 
    .. code::
 
-      $ netperf -H <redacted>.72.4
+      $ netperf -H 192.168.245.5 -- -P 12866
       MIGRATED TCP STREAM TEST from 0.0.0.0 (0.0.0.0) port 12866 AF_INET to
       <redacted>.72.4 (<redacted>.72.4) port 12866 AF_INET : demo
       Recv   Send    Send
@@ -578,7 +611,7 @@ Running tests
 
    .. code::
 
-      $ netperf -H <redacted>.72.4 -t TCP_RR -- -P 12866
+      $ netperf -H 192.168.245.5 -t TCP_RR -- -P 12866
       MIGRATED TCP REQUEST/RESPONSE TEST from 0.0.0.0 (0.0.0.0) port 12866
       AF_INET to <redacted>.72.4 (<redacted>.72.4) port 12866 AF_INET : demo
       : first burst 0
@@ -763,7 +796,7 @@ Diagnose: High system latency
    used by the monitor program happen to live on the bad object server.
 
 -  A general network problem within the data canter. Compare the results
-   with the Pingdom monitors too see if they also have a problem.
+   with the Pingdom monitors to see if they also have a problem.
 
 Diagnose: Interface reports errors
 ----------------------------------
@@ -802,59 +835,21 @@ If the nick supports self test, this can be performed with:
 Self tests should read ``PASS`` if the nic is operating correctly.
 
 Nic module drivers can be re-initialised by carefully removing and
-re-installing the modules. Case in point being the mellanox drivers on
-Swift Proxy servers. which use a two part driver mlx4_en and
+re-installing the modules (this avoids rebooting the server).
+For example, mellanox drivers use a two part driver mlx4_en and
 mlx4_core. To reload these you must carefully remove the mlx4_en
 (ethernet) then the mlx4_core modules, and reinstall them in the
 reverse order.
 
 As the interface will be disabled while the modules are unloaded, you
-must be very careful not to lock the interface out. The following
-script can be used to reload the melanox drivers, as a side effect, this
-resets error counts on the interface.
-
-
-Diagnose: CorruptDir diagnostic reports corrupt directories
------------------------------------------------------------
-
-From time to time Swift data structures may become corrupted by
-misplaced files in filesystem locations that swift would normally place
-a directory. This causes issues for swift when directory creation is
-attempted at said location, it may fail due to the pre-existent file. If
-the CorruptDir diagnostic reports Corrupt directories, they should be
-checked to see if they exist.
-
-Checking existence of entries
------------------------------
-
-Swift data filesystems are located under the ``/srv/node/disk``
-mountpoints and contain accounts, containers and objects
-subdirectories which in turn contain partition number subdirectories.
-The partition number directories contain md5 hash subdirectories. md5
-hash directories contain md5sum subdirectories. md5sum directories
-contain the Swift data payload as either a database (.db), for
-accounts and containers, or a data file (.data) for objects.
-If the entries reported in diagnostics correspond to a partition
-number, md5 hash or md5sum directory, check the entry with ``ls
--ld *entry*``.
-If it turns out to be a file rather than a directory, it should be
-carefully removed.
-
-.. note::
-
-   Please do not ``ls`` the partition level directory contents, as
-   this *especially objects* may take a lot of time and system resources,
-   if you need to check the contents, use:
-
-   .. code::
-
-      echo /srv/node/disk#/type/partition#/
+must be very careful not to lock yourself out so it may be better
+to script this.
 
 Diagnose: Hung swift object replicator
 --------------------------------------
 
-The swift diagnostic message ``Object replicator: remaining exceeds
-100hrs:`` may indicate that the swift ``object-replicator`` is stuck and not
+A replicator reports in its log that remaining time exceeds
+100 hours. This may indicate that the swift ``object-replicator`` is stuck and not
 making progress. Another useful way to check this is with the
 'swift-recon -r' command on a swift proxy server:
 
@@ -866,42 +861,41 @@ making progress. Another useful way to check this is with the
    --> Starting reconnaissance on 384 hosts
    ===============================================================================
    [2013-07-17 12:56:19] Checking on replication
-   http://<redacted>.72.63:6000/recon/replication: <urlopen error timed out>
    [replication_time] low: 2, high: 80, avg: 28.8, total: 11037, Failed: 0.0%, no_result: 0, reported: 383
-   Oldest completion was 2013-06-12 22:46:50 (12 days ago) by <redacted>.31:6000.
-   Most recent completion was 2013-07-17 12:56:19 (5 seconds ago) by <redacted>.204.113:6000.
+   Oldest completion was 2013-06-12 22:46:50 (12 days ago) by 192.168.245.3:6200.
+   Most recent completion was 2013-07-17 12:56:19 (5 seconds ago) by 192.168.245.5:6200.
    ===============================================================================
 
 The ``Oldest completion`` line in this example indicates that the
-object-replicator on swift object server <redacted>.31 has not completed
+object-replicator on swift object server 192.168.245.3 has not completed
 the replication cycle in 12 days. This replicator is stuck. The object
 replicator cycle is generally less than 1 hour. Though an replicator
 cycle of 15-20 hours can occur if nodes are added to the system and a
 new ring has been deployed.
 
 You can further check if the object replicator is stuck by logging on
-the the object server and checking the object replicator progress with
+the object server and checking the object replicator progress with
 the following command:
 
 .. code::
 
    #  sudo grep object-rep /var/log/swift/background.log | grep -e "Starting object replication" -e "Object replication complete" -e "partitions rep"
-   Jul 16 06:25:46 <redacted> object-replicator 15344/16450 (93.28%) partitions replicated in 69018.48s (0.22/sec, 22h remaining)
-   Jul 16 06:30:46 <redacted> object-replicator 15344/16450 (93.28%) partitions replicated in 69318.58s (0.22/sec, 22h remaining)
-   Jul 16 06:35:46 <redacted> object-replicator 15344/16450 (93.28%) partitions replicated in 69618.63s (0.22/sec, 23h remaining)
-   Jul 16 06:40:46 <redacted> object-replicator 15344/16450 (93.28%) partitions replicated in 69918.73s (0.22/sec, 23h remaining)
-   Jul 16 06:45:46 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 70218.75s (0.22/sec, 24h remaining)
-   Jul 16 06:50:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 70518.85s (0.22/sec, 24h remaining)
-   Jul 16 06:55:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 70818.95s (0.22/sec, 25h remaining)
-   Jul 16 07:00:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 71119.05s (0.22/sec, 25h remaining)
-   Jul 16 07:05:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 71419.15s (0.21/sec, 26h remaining)
-   Jul 16 07:10:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 71719.25s (0.21/sec, 26h remaining)
-   Jul 16 07:15:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 72019.27s (0.21/sec, 27h remaining)
-   Jul 16 07:20:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 72319.37s (0.21/sec, 27h remaining)
-   Jul 16 07:25:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 72619.47s (0.21/sec, 28h remaining)
-   Jul 16 07:30:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 72919.56s (0.21/sec, 28h remaining)
-   Jul 16 07:35:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 73219.67s (0.21/sec, 29h remaining)
-   Jul 16 07:40:47 <redacted> object-replicator 15348/16450 (93.30%) partitions replicated in 73519.76s (0.21/sec, 29h remaining)
+   Jul 16 06:25:46 192.168.245.4 object-replicator 15344/16450 (93.28%) partitions replicated in 69018.48s (0.22/sec, 22h remaining)
+   Jul 16 06:30:46 192.168.245.4object-replicator 15344/16450 (93.28%) partitions replicated in 69318.58s (0.22/sec, 22h remaining)
+   Jul 16 06:35:46 192.168.245.4 object-replicator 15344/16450 (93.28%) partitions replicated in 69618.63s (0.22/sec, 23h remaining)
+   Jul 16 06:40:46 192.168.245.4 object-replicator 15344/16450 (93.28%) partitions replicated in 69918.73s (0.22/sec, 23h remaining)
+   Jul 16 06:45:46 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 70218.75s (0.22/sec, 24h remaining)
+   Jul 16 06:50:47 192.168.245.4object-replicator 15348/16450 (93.30%) partitions replicated in 70518.85s (0.22/sec, 24h remaining)
+   Jul 16 06:55:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 70818.95s (0.22/sec, 25h remaining)
+   Jul 16 07:00:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 71119.05s (0.22/sec, 25h remaining)
+   Jul 16 07:05:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 71419.15s (0.21/sec, 26h remaining)
+   Jul 16 07:10:47 192.168.245.4object-replicator 15348/16450 (93.30%) partitions replicated in 71719.25s (0.21/sec, 26h remaining)
+   Jul 16 07:15:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 72019.27s (0.21/sec, 27h remaining)
+   Jul 16 07:20:47 192.168.245.4object-replicator 15348/16450 (93.30%) partitions replicated in 72319.37s (0.21/sec, 27h remaining)
+   Jul 16 07:25:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 72619.47s (0.21/sec, 28h remaining)
+   Jul 16 07:30:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 72919.56s (0.21/sec, 28h remaining)
+   Jul 16 07:35:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 73219.67s (0.21/sec, 29h remaining)
+   Jul 16 07:40:47 192.168.245.4 object-replicator 15348/16450 (93.30%) partitions replicated in 73519.76s (0.21/sec, 29h remaining)
 
 The above status is output every 5 minutes to ``/var/log/swift/background.log``.
 
@@ -921,7 +915,7 @@ of a corrupted filesystem detected by the object replicator:
 .. code::
 
    # sudo bzgrep "Remote I/O error" /var/log/swift/background.log* |grep srv | - tail -1
-   Jul 12 03:33:30 <redacted> object-replicator STDOUT: ERROR:root:Error hashing suffix#012Traceback (most recent call last):#012 File
+   Jul 12 03:33:30 192.168.245.4 object-replicator STDOUT: ERROR:root:Error hashing suffix#012Traceback (most recent call last):#012 File
    "/usr/lib/python2.7/dist-packages/swift/obj/replicator.py", line 199, in get_hashes#012 hashes[suffix] = hash_suffix(suffix_dir,
    reclaim_age)#012 File "/usr/lib/python2.7/dist-packages/swift/obj/replicator.py", line 84, in hash_suffix#012 path_contents =
    sorted(os.listdir(path))#012OSError: [Errno 121] Remote I/O error: '/srv/node/disk4/objects/1643763/b51'
@@ -996,7 +990,7 @@ to repair the problem filesystem.
       # sudo xfs_repair -P /dev/sde1
 
 #. If the ``xfs_repair`` fails then it may be necessary to re-format the
-   filesystem. See Procedure: fix broken XFS filesystem. If the
+   filesystem. See :ref:`fix_broken_xfs_filesystem`. If the
    ``xfs_repair`` is successful, re-enable chef using the following command
    and replication should commence again.
 
@@ -1025,7 +1019,183 @@ load:
    $ uptime
    07:44:02 up 18:22,  1 user,  load average: 407.12, 406.36, 404.59
 
-.. toctree::
-   :maxdepth: 2
+Further issues and resolutions
+------------------------------
 
-   sec-furtherdiagnose.rst
+.. note::
+
+   The urgency levels in each **Action** column indicates whether or
+   not it is required to take immediate action, or if the problem can be worked
+   on during business hours.
+
+.. list-table::
+   :widths: 33 33 33
+   :header-rows: 1
+
+   * - **Scenario**
+     - **Description**
+     - **Action**
+   * - ``/healthcheck`` latency is high.
+     - The ``/healthcheck`` test does not tax the proxy very much so any drop in value is probably related to
+       network issues, rather than the proxies being very busy. A very slow proxy might impact the average
+       number, but it would need to be very slow to shift the number that much.
+     - Check networks. Do a ``curl https://<ip-address>:<port>/healthcheck`` where
+       ``ip-address`` is individual proxy IP address.
+       Repeat this for every proxy server to see if you can pin point the problem.
+
+       Urgency: If there are other indications that your system is slow, you should treat
+       this as an urgent problem.
+   * - Swift process is not running.
+     - You can use ``swift-init`` status to check if swift processes are running on any
+       given server.
+     - Run this command:
+
+       .. code::
+
+          sudo swift-init all start
+
+       Examine messages in the swift log files to see if there are any
+       error messages related to any of the swift processes since the time you
+       ran the ``swift-init`` command.
+
+       Take any corrective actions that seem necessary.
+
+       Urgency: If this only affects one server, and you have more than one,
+       identifying and fixing the problem can wait until business hours.
+       If this same problem affects many servers, then you need to take corrective
+       action immediately.
+   * - ntpd is not running.
+     - NTP is not running.
+     - Configure and start NTP.
+
+       Urgency: For proxy servers, this is vital.
+
+   * - Host clock is not syncd to an NTP server.
+     - Node time settings does not match NTP server time.
+       This may take some time to sync after a reboot.
+     - Assuming NTP is configured and running, you have to wait until the times sync.
+   * - A swift process has hundreds, to thousands of open file descriptors.
+     - May happen to any of the swift processes.
+       Known to have happened with a ``rsyslod`` restart and where ``/tmp`` was hanging.
+
+     - Restart the swift processes on the affected node:
+
+       .. code::
+
+          % sudo swift-init all reload
+
+       Urgency:
+                If known performance problem: Immediate
+
+                If system seems fine: Medium
+   * - A swift process is not owned by the swift user.
+     - If the UID of the swift user has changed, then the processes might not be
+       owned by that UID.
+     - Urgency: If this only affects one server, and you have more than one,
+       identifying and fixing the problem can wait until business hours.
+       If this same problem affects many servers, then you need to take corrective
+       action immediately.
+   * - Object account or container files not owned by swift.
+     - This typically happens if during a reinstall or a re-image of a server that the UID
+       of the swift user was changed. The data files in the object account and container
+       directories are owned by the original swift UID. As a result, the current swift
+       user does not own these files.
+     - Correct the UID of the swift user to reflect that of the original UID. An alternate
+       action is to change the ownership of every file on all file systems. This alternate
+       action is often impractical and will take considerable time.
+
+       Urgency: If this only affects one server, and you have more than one,
+       identifying and fixing the problem can wait until business hours.
+       If this same problem affects many servers, then you need to take corrective
+       action immediately.
+   * - A disk drive has a high IO wait or service time.
+     - If high wait IO times are seen for a single disk, then the disk drive is the problem.
+       If most/all devices are slow, the controller is probably the source of the problem.
+       The controller cache may also be miss configured – which will cause similar long
+       wait or service times.
+     - As a first step, if your controllers have a cache, check that it is enabled and their battery/capacitor
+       is working.
+
+       Second, reboot the server.
+       If problem persists, file a DC ticket to have the drive or controller replaced.
+       See :ref:`diagnose_slow_disk_drives` on how to check the drive wait or service times.
+
+       Urgency: Medium
+   * - The network interface is not up.
+     - Use the ``ifconfig`` and ``ethtool`` commands to determine the network state.
+     - You can try restarting the interface. However, generally the interface
+       (or cable) is probably broken, especially if the interface is flapping.
+
+       Urgency: If this only affects one server, and you have more than one,
+       identifying and fixing the problem can wait until business hours.
+       If this same problem affects many servers, then you need to take corrective
+       action immediately.
+   * - Network interface card (NIC) is not operating at the expected speed.
+     - The NIC is running at a slower speed than its nominal rated speed.
+       For example, it is running at 100 Mb/s and the NIC is a 1Ge NIC.
+     - 1. Try resetting the interface with:
+
+       .. code::
+
+          sudo ethtool -s eth0 speed 1000
+
+       ... and then run:
+
+       .. code::
+
+          sudo lshw -class
+
+       See if size goes to the expected speed. Failing
+       that, check hardware (NIC cable/switch port).
+
+       2. If persistent, consider shutting down the server (especially if a proxy)
+          until the problem is identified and resolved. If you leave this server
+          running it can have a large impact on overall performance.
+
+       Urgency: High
+   * - The interface RX/TX error count is non-zero.
+     - A value of 0 is typical, but counts of 1 or 2 do not indicate a problem.
+     - 1. For low numbers (For example, 1 or 2), you can simply ignore. Numbers in the range
+          3-30 probably indicate that the error count has crept up slowly over a long time.
+          Consider rebooting the server to remove the report from the noise.
+
+          Typically, when a cable or interface is bad, the error count goes to 400+. For example,
+          it stands out. There may be other symptoms such as the interface going up and down or
+          not running at correct speed. A server with a high error count should be watched.
+
+       2. If the error count continues to climb, consider taking the server down until
+          it can be properly investigated. In any case, a reboot should be done to clear
+          the error count.
+
+       Urgency: High, if the error count increasing.
+
+   * - In a swift log you see a message that a process has not replicated in over 24 hours.
+     - The replicator has not successfully completed a run in the last 24 hours.
+       This indicates that the replicator has probably hung.
+     - Use ``swift-init`` to stop and then restart the replicator process.
+
+       Urgency: Low. However if you
+       recently added or replaced disk drives then you should treat this urgently.
+   * - Container Updater has not run in 4 hour(s).
+     - The service may appear to be running however, it may be hung. Examine their swift
+       logs to see if there are any error messages relating to the container updater. This
+       may potentially explain why the container is not running.
+     - Urgency: Medium
+       This may have been triggered by a recent restart of the  rsyslog daemon.
+       Restart the service with:
+       .. code::
+
+          sudo swift-init <service> reload
+   * - Object replicator: Reports the remaining time and that time is more than 100 hours.
+     - Each replication cycle the object replicator writes a log message to its log
+       reporting statistics about the current cycle. This includes an estimate for the
+       remaining time needed to replicate all objects. If this time is longer than
+       100 hours, there is a problem with the replication process.
+     - Urgency: Medium
+       Restart the service with:
+       .. code::
+
+          sudo swift-init object-replicator reload
+
+       Check that the remaining replication time is going down.
+

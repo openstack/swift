@@ -52,11 +52,10 @@ Due to the eventual consistency further uploads might be possible until the
 account size has been updated.
 """
 
-from swift.common.constraints import check_copy_from_header
 from swift.common.swob import HTTPForbidden, HTTPBadRequest, \
     HTTPRequestEntityTooLarge, wsgify
 from swift.common.utils import register_swift_info
-from swift.proxy.controllers.base import get_account_info, get_object_info
+from swift.proxy.controllers.base import get_account_info
 
 
 class AccountQuotaMiddleware(object):
@@ -71,7 +70,7 @@ class AccountQuotaMiddleware(object):
     @wsgify
     def __call__(self, request):
 
-        if request.method not in ("POST", "PUT", "COPY"):
+        if request.method not in ("POST", "PUT"):
             return self.app
 
         try:
@@ -106,15 +105,6 @@ class AccountQuotaMiddleware(object):
         if request.method == "POST" or not obj:
             return self.app
 
-        if request.method == 'COPY':
-            copy_from = container + '/' + obj
-        else:
-            if 'x-copy-from' in request.headers:
-                src_cont, src_obj = check_copy_from_header(request)
-                copy_from = "%s/%s" % (src_cont, src_obj)
-            else:
-                copy_from = None
-
         content_length = (request.content_length or 0)
 
         account_info = get_account_info(request.environ, self.app)
@@ -126,14 +116,6 @@ class AccountQuotaMiddleware(object):
             return self.app
         if quota < 0:
             return self.app
-
-        if copy_from:
-            path = '/' + ver + '/' + account + '/' + copy_from
-            object_info = get_object_info(request.environ, self.app, path)
-            if not object_info or not object_info['length']:
-                content_length = 0
-            else:
-                content_length = int(object_info['length'])
 
         new_size = int(account_info['bytes']) + content_length
         if quota < new_size:

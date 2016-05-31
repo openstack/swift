@@ -32,7 +32,8 @@ from tempfile import mkstemp
 from eventlet import sleep, Timeout
 import sqlite3
 
-from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE
+from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
+    check_utf8
 from swift.common.utils import Timestamp, renamer, \
     mkdirs, lock_parent_directory, fallocate
 from swift.common.exceptions import LockTimeout
@@ -45,7 +46,8 @@ DB_PREALLOCATION = False
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
 PICKLE_PROTOCOL = 2
-#: Max number of pending entries
+#: Max size of .pending file in bytes. When this is exceeded, the pending
+# records will be merged.
 PENDING_CAP = 131072
 
 
@@ -349,8 +351,10 @@ class DatabaseBroker(object):
                 raise
             quar_path = "%s-%s" % (quar_path, uuid4().hex)
             renamer(self.db_dir, quar_path, fsync=False)
-        detail = _('Quarantined %s to %s due to %s database') % \
-                  (self.db_dir, quar_path, exc_hint)
+        detail = _('Quarantined %(db_dir)s to %(quar_path)s due to '
+                   '%(exc_hint)s database') % {'db_dir': self.db_dir,
+                                               'quar_path': quar_path,
+                                               'exc_hint': exc_hint}
         self.logger.error(detail)
         raise sqlite3.DatabaseError(detail)
 
@@ -628,7 +632,7 @@ class DatabaseBroker(object):
             with lock_parent_directory(self.pending_file,
                                        self.pending_timeout):
                 self._commit_puts()
-        except LockTimeout:
+        except (LockTimeout, sqlite3.OperationalError):
             if not self.stale_reads_ok:
                 raise
 
@@ -729,11 +733,11 @@ class DatabaseBroker(object):
     @staticmethod
     def validate_metadata(metadata):
         """
-        Validates that metadata_falls within acceptable limits.
+        Validates that metadata falls within acceptable limits.
 
         :param metadata: to be validated
         :raises: HTTPBadRequest if MAX_META_COUNT or MAX_META_OVERALL_SIZE
-                 is exceeded
+                 is exceeded, or if metadata contains non-UTF-8 data
         """
         meta_count = 0
         meta_size = 0
@@ -747,6 +751,10 @@ class DatabaseBroker(object):
                 key = key[len(prefix):]
                 meta_count = meta_count + 1
                 meta_size = meta_size + len(key) + len(value)
+            bad_key = key and not check_utf8(key)
+            bad_value = value and not check_utf8(value)
+            if bad_key or bad_value:
+                raise HTTPBadRequest('Metadata must be valid UTF-8')
         if meta_count > MAX_META_COUNT:
             raise HTTPBadRequest('Too many metadata items; max %d'
                                  % MAX_META_COUNT)

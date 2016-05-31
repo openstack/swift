@@ -94,7 +94,8 @@ class ObjectUpdater(Daemon):
                     pids.append(pid)
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                    patcher.monkey_patch(all=False, socket=True, thread=True)
+                    patcher.monkey_patch(all=False, socket=True, select=True,
+                                         thread=True)
                     self.successes = 0
                     self.failures = 0
                     forkbegin = time.time()
@@ -159,9 +160,9 @@ class ObjectUpdater(Daemon):
             try:
                 base, policy = split_policy_string(asyncdir)
             except PolicyError as e:
-                self.logger.warning(_('Directory %r does not map '
-                                    'to a valid policy (%s)') %
-                                    (asyncdir, e))
+                self.logger.warning(_('Directory %(directory)r does not map '
+                                      'to a valid policy (%(error)s)') % {
+                                    'directory': asyncdir, 'error': e})
                 continue
             for prefix in self._listdir(async_pending):
                 prefix_path = os.path.join(async_pending, prefix)

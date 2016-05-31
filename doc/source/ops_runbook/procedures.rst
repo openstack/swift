@@ -2,6 +2,8 @@
 Software configuration procedures
 =================================
 
+.. _fix_broken_gpt_table:
+
 Fix broken GPT table (broken disk partition)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -102,6 +104,8 @@ Fix broken GPT table (broken disk partition)
 
       $ sudo aptitude remove gdisk
 
+.. _fix_broken_xfs_filesystem:
+
 Procedure: Fix broken XFS filesystem
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -165,7 +169,7 @@ Procedure: Fix broken XFS filesystem
 
    .. code::
 
-      $ sudo dd if=/dev/zero of=/dev/sdb2 bs=$((1024\*1024)) count=1
+      $ sudo dd if=/dev/zero of=/dev/sdb2 bs=$((1024*1024)) count=1
       1+0 records in
       1+0 records out
       1048576 bytes (1.0 MB) copied, 0.00480617 s, 218 MB/s
@@ -187,129 +191,173 @@ Procedure: Fix broken XFS filesystem
 
       $ mount
 
+.. _checking_if_account_ok:
+
 Procedure: Checking if an account is okay
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
 
    ``swift-direct`` is only available in the HPE Helion Public Cloud.
-   Use ``swiftly`` as an alternate.
+   Use ``swiftly`` as an alternate (or use ``swift-get-nodes`` as explained
+   here).
 
-If you have a tenant ID you can check the account is okay as follows from a proxy.
+You must know the tenant/project ID. You can check if the account is okay as follows from a proxy.
 
 .. code::
 
-   $ sudo -u swift  /opt/hp/swift/bin/swift-direct show <Api-Auth-Hash-or-TenantId>
+   $ sudo -u swift  /opt/hp/swift/bin/swift-direct show AUTH_<project-id>
 
 The response will either be similar to a swift list of the account
 containers, or an error indicating that the resource could not be found.
 
-In the latter case you can establish if a backend database exists for
-the tenantId by running the following on a proxy:
+Alternatively, you can use ``swift-get-nodes`` to find the account database
+files. Run the following on a proxy:
 
 .. code::
 
-   $ sudo -u swift  swift-get-nodes /etc/swift/account.ring.gz  <Api-Auth-Hash-or-TenantId>
+   $ sudo swift-get-nodes /etc/swift/account.ring.gz  AUTH_<project-id>
 
-The response will list ssh commands that will list the replicated
-account databases, if they exist.
+The response will print curl/ssh commands that will list the replicated
+account databases. Use the indicated ``curl`` or ``ssh`` commands to check
+the status and existence of the account.
+
+Procedure: Getting  swift account stats
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+
+   ``swift-direct`` is specific to the HPE Helion Public Cloud. Go look at
+   ``swifty`` for an alternate or use ``swift-get-nodes`` as explained
+   in :ref:`checking_if_account_ok`.
+
+This procedure describes how you determine the swift usage for a given
+swift account, that is the number of containers, number of objects and
+total bytes used. To do this you will need the project ID.
+
+Log onto one of the swift proxy servers.
+
+Use swift-direct to show this accounts usage:
+
+.. code::
+
+   $ sudo -u swift /opt/hp/swift/bin/swift-direct show AUTH_<project-id>
+   Status: 200
+         Content-Length: 0
+         Accept-Ranges: bytes
+         X-Timestamp: 1379698586.88364
+         X-Account-Bytes-Used: 67440225625994
+         X-Account-Container-Count: 1
+         Content-Type: text/plain; charset=utf-8
+         X-Account-Object-Count: 8436776
+         Status: 200
+         name: my_container  count: 8436776  bytes: 67440225625994
+
+This account has 1 container. That container has 8436776 objects. The
+total bytes used is 67440225625994.
 
 Procedure: Revive a deleted account
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Swift accounts are normally not recreated. If a tenant unsubscribes from
-Swift, the account is deleted. To re-subscribe to Swift, you can create
-a new tenant (new tenant ID), and subscribe to Swift. This creates a
-new Swift account with the new tenant ID.
+Swift accounts are normally not recreated. If a tenant/project is deleted,
+the account can then be deleted. If the user wishes to use Swift again,
+the normal process is to create a new tenant/project -- and hence a
+new Swift account.
 
-However, until the unsubscribe/new tenant process is supported, you may
-hit a situation where a Swift account is deleted and the user is locked
-out of Swift.
+However, if the Swift account is deleted, but the tenant/project is not
+deleted from Keystone, the user can no longer access the account. This
+is because the account is marked deleted in Swift. You can revive
+the account as described in this process.
 
-Deleting the account database files
------------------------------------
+.. note::
 
-Here is one possible solution. The containers and objects may be lost
-forever. The solution is to delete the account database files and
-re-create the account. This may only be done once the containers and
-objects are completely deleted. This process is untested, but could
-work as follows:
+    The containers and objects in the "old" account cannot be listed
+    anymore. In addition, if the Account Reaper process has not
+    finished reaping the containers and objects in the "old" account, these
+    are effectively orphaned and it is virtually impossible to find and delete
+    them to free up disk space.
 
-#. Use swift-get-nodes to locate the account's database file (on three
-   servers).
+The solution is to delete the account database files and
+re-create the account as follows:
 
-#. Rename the database files (on three servers).
+#. You must know the tenant/project ID. The account name is AUTH_<project-id>.
+   In this example, the tenant/project is is ``4ebe3039674d4864a11fe0864ae4d905``
+   so the Swift account name is ``AUTH_4ebe3039674d4864a11fe0864ae4d905``.
 
-#. Use ``swiftly`` to create the account (use original name).
-
-Renaming account database so it can be revived
-----------------------------------------------
-
-Get the locations of the database files that hold the account data.
+#. Use ``swift-get-nodes`` to locate the account's database files (on three
+   servers). The output has been truncated so we can focus on the import pieces
+   of data:
 
    .. code::
 
-      sudo swift-get-nodes /etc/swift/account.ring.gz AUTH_redacted-1856-44ae-97db-31242f7ad7a1
+       $ sudo swift-get-nodes /etc/swift/account.ring.gz AUTH_4ebe3039674d4864a11fe0864ae4d905
+       ...
+       curl -I -XHEAD "http://192.168.245.5:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       curl -I -XHEAD "http://192.168.245.3:6202/disk0/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       curl -I -XHEAD "http://192.168.245.4:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       ...
+       Use your own device location of servers:
+       such as "export DEVICE=/srv/node"
+       ssh 192.168.245.5 "ls -lah ${DEVICE:-/srv/node*}/disk1/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052"
+       ssh 192.168.245.3 "ls -lah ${DEVICE:-/srv/node*}/disk0/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052"
+       ssh 192.168.245.4 "ls -lah ${DEVICE:-/srv/node*}/disk1/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052"
+       ...
+       note: `/srv/node*` is used as default value of `devices`, the real value is set in the config file on each storage node.
 
-      Account  AUTH_redacted-1856-44ae-97db-31242f7ad7a1
-      Container None
 
-      Object    None
+#. Before proceeding check that the account is really deleted by using curl. Execute the
+   commands printed by ``swift-get-nodes``. For example:
 
-      Partition 18914
+   .. code::
 
-      Hash        93c41ef56dd69173a9524193ab813e78
+       $ curl -I -XHEAD "http://192.168.245.5:6202/disk1/3934/AUTH_4ebe3039674d4864a11fe0864ae4d905"
+       HTTP/1.1 404 Not Found
+       Content-Length: 0
+       Content-Type: text/html; charset=utf-8
 
-      Server:Port Device 15.184.9.126:6002 disk7
-      Server:Port Device 15.184.9.94:6002 disk11
-      Server:Port Device 15.184.9.103:6002 disk10
-      Server:Port Device 15.184.9.80:6002 disk2  [Handoff]
-      Server:Port Device 15.184.9.120:6002 disk2  [Handoff]
-      Server:Port Device 15.184.9.98:6002 disk2  [Handoff]
+   Repeat for the other two servers (192.168.245.3 and 192.168.245.4).
+   A ``404 Not Found`` indicates that the account is deleted (or never existed).
 
-      curl -I -XHEAD "`*http://15.184.9.126:6002/disk7/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.126:6002/disk7/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_
-      curl -I -XHEAD "`*http://15.184.9.94:6002/disk11/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.94:6002/disk11/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_
+   If you get a ``204 No Content`` response, do **not** proceed.
 
-      curl -I -XHEAD "`*http://15.184.9.103:6002/disk10/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.103:6002/disk10/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_
+#. Use the ssh commands printed by ``swift-get-nodes`` to check if database
+   files exist. For example:
 
-      curl -I -XHEAD "`*http://15.184.9.80:6002/disk2/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.80:6002/disk2/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ # [Handoff]
-      curl -I -XHEAD "`*http://15.184.9.120:6002/disk2/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.120:6002/disk2/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ # [Handoff]
-      curl -I -XHEAD "`*http://15.184.9.98:6002/disk2/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.98:6002/disk2/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ # [Handoff]
+   .. code::
 
-      ssh 15.184.9.126 "ls -lah /srv/node/disk7/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"
-      ssh 15.184.9.94 "ls -lah /srv/node/disk11/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"
-      ssh 15.184.9.103 "ls -lah /srv/node/disk10/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"
-      ssh 15.184.9.80 "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/" # [Handoff]
-      ssh 15.184.9.120 "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/" # [Handoff]
-      ssh 15.184.9.98 "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/" # [Handoff]
+       $  ssh 192.168.245.5 "ls -lah ${DEVICE:-/srv/node*}/disk1/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052"
+       total 20K
+       drwxr-xr-x 2 swift swift 110 Mar  9 10:22 .
+       drwxr-xr-x 3 swift swift  45 Mar  9 10:18 ..
+       -rw------- 1 swift swift 17K Mar  9 10:22 f5ecf8b40de3e1b0adb0dbe576874052.db
+       -rw-r--r-- 1 swift swift   0 Mar  9 10:22 f5ecf8b40de3e1b0adb0dbe576874052.db.pending
+       -rwxr-xr-x 1 swift swift   0 Mar  9 10:18 .lock
 
-      $ sudo swift-get-nodes /etc/swift/account.ring.gz AUTH\_redacted-1856-44ae-97db-31242f7ad7a1Account  AUTH_redacted-1856-44ae-97db-
-      31242f7ad7a1Container  NoneObject      NonePartition   18914Hash           93c41ef56dd69173a9524193ab813e78Server:Port Device  15.184.9.126:6002 disk7Server:Port Device   15.184.9.94:6002 disk11Server:Port Device   15.184.9.103:6002 disk10Server:Port Device  15.184.9.80:6002
-      disk2   [Handoff]Server:Port Device    15.184.9.120:6002 disk2  [Handoff]Server:Port Device    15.184.9.98:6002 disk2   [Handoff]curl -I -XHEAD
-      "`*http://15.184.9.126:6002/disk7/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"*<http://15.184.9.126:6002/disk7/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ curl -I -XHEAD
+   Repeat for the other two servers (192.168.245.3 and 192.168.245.4).
 
-      "`*http://15.184.9.94:6002/disk11/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.94:6002/disk11/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ curl -I -XHEAD
+   If no files exist, no further action is needed.
 
-      "`*http://15.184.9.103:6002/disk10/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.103:6002/disk10/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ curl -I -XHEAD
+#. Stop Swift processes on all nodes listed by ``swift-get-nodes``
+   (In this example, that is 192.168.245.3, 192.168.245.4 and 192.168.245.5).
 
-      "`*http://15.184.9.80:6002/disk2/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.80:6002/disk2/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ # [Handoff]curl -I -XHEAD
+#. We recommend you make backup copies of the database files.
 
-      "`*http://15.184.9.120:6002/disk2/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.120:6002/disk2/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ # [Handoff]curl -I -XHEAD
+#. Delete the database files. For example:
 
-      "`*http://15.184.9.98:6002/disk2/18914/AUTH_redacted-1856-44ae-97db-31242f7ad7a1"* <http://15.184.9.98:6002/disk2/18914/AUTH_cc9ebdb8-1856-44ae-97db-31242f7ad7a1>`_ # [Handoff]ssh 15.184.9.126
+   .. code::
 
-      "ls -lah /srv/node/disk7/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"ssh 15.184.9.94 "ls -lah /srv/node/disk11/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"ssh 15.184.9.103
-      "ls -lah /srv/node/disk10/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"ssh 15.184.9.80 "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/" # [Handoff]ssh 15.184.9.120
-      "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/" # [Handoff]ssh 15.184.9.98 "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/" # [Handoff]
+       $ ssh 192.168.245.5
+       $ cd /srv/node/disk1/accounts/3934/052/f5ecf8b40de3e1b0adb0dbe576874052
+       $ sudo rm *
 
-Check that the handoff nodes do not have account databases:
+   Repeat for the other two servers (192.168.245.3 and 192.168.245.4).
 
-.. code::
+#. Restart Swift on all three servers
 
-   $ ssh 15.184.9.80 "ls -lah /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/"
-   ls: cannot access /srv/node/disk2/accounts/18914/e78/93c41ef56dd69173a9524193ab813e78/: No such file or directory
+At this stage, the account is fully deleted. If you enable the auto-create option, the
+next time the user attempts to access the account, the account will be created.
+You may also use swiftly to recreate the account.
 
-If the handoff node has a database, wait for rebalancing to occur.
 
 Procedure: Temporarily stop load balancers from directing traffic to a proxy server
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -319,7 +367,7 @@ follows. This can be useful when a proxy is misbehaving but you need
 Swift running to help diagnose the problem. By removing from the load
 balancers, customer's are not impacted by the misbehaving proxy.
 
-#. Ensure that in proxyserver.com the ``disable_path`` variable is set to
+#. Ensure that in /etc/swift/proxy-server.conf the ``disable_path`` variable is set to
    ``/etc/swift/disabled-by-file``.
 
 #. Log onto the proxy node.
@@ -330,9 +378,9 @@ balancers, customer's are not impacted by the misbehaving proxy.
 
       sudo swift-init proxy shutdown
 
-      .. note::
+   .. note::
 
-         Shutdown, not stop.
+      Shutdown, not stop.
 
 #. Create the ``/etc/swift/disabled-by-file`` file. For example:
 
@@ -346,12 +394,9 @@ balancers, customer's are not impacted by the misbehaving proxy.
 
       sudo swift-init proxy start
 
-It works because the healthcheck middleware looks for this file. If it
-find it, it will return 503 error instead of 200/OK. This means the load balancer
+It works because the healthcheck middleware looks for /etc/swift/disabled-by-file.
+If it exists, the middleware will return 503/error instead of 200/OK. This means the load balancer
 should stop sending traffic to the proxy.
-
-``/healthcheck`` will report
-``FAIL: disabled by file`` if the ``disabled-by-file`` file exists.
 
 Procedure: Ad-Hoc disk performance test
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -35,9 +35,9 @@ from swift.obj.diskfile import (ASYNCDIR_BASE, get_async_dir, DiskFileManager,
                                 get_tmp_dir)
 from swift.common.ring import RingData
 from swift.common import utils
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
-from swift.common import swob
 from test.unit import debug_logger, patch_policies, mocked_http_conn
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
@@ -316,7 +316,7 @@ class TestObjectUpdater(unittest.TestCase):
                     out.flush()
                     self.assertEqual(inc.readline(),
                                      'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
-                    headers = swob.HeaderKeyDict()
+                    headers = HeaderKeyDict()
                     line = inc.readline()
                     while line and line != '\r\n':
                         headers[line.split(':')[0]] = \
@@ -404,7 +404,7 @@ class TestObjectUpdater(unittest.TestCase):
             daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
             dfmanager = DiskFileManager(conf, daemon.logger)
             # don't include storage-policy-index in headers_out pickle
-            headers_out = swob.HeaderKeyDict({
+            headers_out = HeaderKeyDict({
                 'x-size': 0,
                 'x-content-type': 'text/plain',
                 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
@@ -452,7 +452,7 @@ class TestObjectUpdater(unittest.TestCase):
         dfmanager = DiskFileManager(conf, daemon.logger)
         account, container, obj = 'a', 'c', 'o'
         op = 'PUT'
-        headers_out = swob.HeaderKeyDict({
+        headers_out = HeaderKeyDict({
             'x-size': 0,
             'x-content-type': 'text/plain',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',

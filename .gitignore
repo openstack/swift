@@ -10,6 +10,7 @@ ChangeLog
 .coverage
 *.egg
 *.egg-info
+.eggs/*
 .DS_Store
 .tox
 pycscope.*

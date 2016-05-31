@@ -196,10 +196,10 @@ def get_socket(conf):
                 raise
             sleep(0.1)
     if not sock:
-        raise Exception(_('Could not bind to %s:%s '
-                          'after trying for %s seconds') % (
-                              bind_addr[0], bind_addr[1], bind_timeout))
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        raise Exception(_('Could not bind to %(addr)s:%(port)s '
+                          'after trying for %(timeout)s seconds') % {
+                              'addr': bind_addr[0], 'port': bind_addr[1],
+                              'timeout': bind_timeout})
     # in my experience, sockets can hang around forever without keepalive
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -407,8 +407,12 @@ def run_server(conf, logger, sock, global_conf=None):
     wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
 
     eventlet.hubs.use_hub(get_hub())
-    # NOTE(sileht): monkey-patching thread is required by python-keystoneclient
-    eventlet.patcher.monkey_patch(all=False, socket=True, thread=True)
+    # NOTE(sileht):
+    #     monkey-patching thread is required by python-keystoneclient;
+    #     monkey-patching select is required by oslo.messaging pika driver
+    #         if thread is monkey-patched.
+    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
+                                  thread=True)
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
     wsgi_logger = NullLogger()
@@ -893,9 +897,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     loadapp(conf_path, global_conf=global_conf)
 
     # set utils.FALLOCATE_RESERVE if desired
-    reserve = int(conf.get('fallocate_reserve', 0))
-    if reserve > 0:
-        utils.FALLOCATE_RESERVE = reserve
+    utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+        utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
+
     # redirect errors to logger and close stdio
     capture_stdio(logger)
 
@@ -1096,7 +1100,8 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id', 'swift.authorize_override',
                  'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID',
-                 'HTTP_REFERER'):
+                 'HTTP_REFERER', 'swift.orig_req_method', 'swift.log_info',
+                 'swift.infocache'):
         if name in env:
             newenv[name] = env[name]
     if method:

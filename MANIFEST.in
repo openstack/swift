@@ -1,12 +1,12 @@
 include AUTHORS LICENSE .functests .unittests .probetests test/__init__.py
-include CHANGELOG CONTRIBUTING.md README.md
+include CHANGELOG CONTRIBUTING.rst README.rst
 include babel.cfg
 include test/sample.conf
 include tox.ini
 include requirements.txt test-requirements.txt
 graft doc
 graft etc
-graft locale
+graft swift/locale
 graft test/functional
 graft test/probe
 graft test/unit

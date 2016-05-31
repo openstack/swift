@@ -55,7 +55,7 @@ WARNING_WAIT = 3  # seconds to wait after message that may just be a warning
 
 MAX_DESCRIPTORS = 32768
 MAX_MEMORY = (1024 * 1024 * 1024) * 2  # 2 GB
-MAX_PROCS = 8192  # workers * disks * threads_per_disk, can get high
+MAX_PROCS = 8192  # workers * disks, can get high
 
 
 def setup_env():
@@ -288,7 +288,8 @@ class Manager(object):
         for server, killed_pid in watch_server_pids(server_pids,
                                                     interval=kill_wait,
                                                     **kwargs):
-            print(_("%s (%s) appears to have stopped") % (server, killed_pid))
+            print(_("%(server)s (%(pid)s) appears to have stopped") %
+                  {'server': server, 'pid': killed_pid})
             killed_pids.add(killed_pid)
             if not killed_pids.symmetric_difference(signaled_pids):
                 # all processes have been stopped
@@ -300,12 +301,15 @@ class Manager(object):
             if not killed_pids.issuperset(pids):
                 # some pids of this server were not killed
                 if kill_after_timeout:
-                    print(_('Waited %s seconds for %s to die; killing') % (
-                        kill_wait, server))
+                    print(_('Waited %(kill_wait)s seconds for %(server)s '
+                            'to die; killing') %
+                          {'kill_wait': kill_wait, 'server': server})
                     # Send SIGKILL to all remaining pids
                     for pid in set(pids.keys()) - killed_pids:
-                        print(_('Signal %s  pid: %s  signal: %s') % (
-                            server, pid, signal.SIGKILL))
+                        print(_('Signal %(server)s  pid: %(pid)s  signal: '
+                                '%(signal)s') % {'server': server,
+                                                 'pid': pid,
+                                                 'signal': signal.SIGKILL})
                         # Send SIGKILL to process group
                         try:
                             kill_group(pid, signal.SIGKILL)
@@ -314,8 +318,9 @@ class Manager(object):
                             if e.errno != errno.ESRCH:
                                 raise e
                 else:
-                    print(_('Waited %s seconds for %s to die; giving up') % (
-                        kill_wait, server))
+                    print(_('Waited %(kill_wait)s seconds for %(server)s '
+                            'to die; giving up') %
+                          {'kill_wait': kill_wait, 'server': server})
         return 1
 
     @command
@@ -498,8 +503,9 @@ class Server(object):
             # maybe there's a config file(s) out there, but I couldn't find it!
             if not kwargs.get('quiet'):
                 if number:
-                    print(_('Unable to locate config number %s for %s')
-                          % (number, self.server))
+                    print(_('Unable to locate config number %(number)s for'
+                            ' %(server)s') %
+                          {'number': number, 'server': self.server})
                 else:
                     print(_('Unable to locate config for %s') % self.server)
             if kwargs.get('verbose') and not kwargs.get('quiet'):
@@ -556,13 +562,14 @@ class Server(object):
                 continue
             try:
                 if sig != signal.SIG_DFL:
-                    print(_('Signal %s  pid: %s  signal: %s') % (self.server,
-                                                                 pid, sig))
+                    print(_('Signal %(server)s  pid: %(pid)s  signal: '
+                            '%(signal)s') %
+                          {'server': self.server, 'pid': pid, 'signal': sig})
                 safe_kill(pid, sig, 'swift-%s' % self.server)
             except InvalidPidFileException as e:
                 if kwargs.get('verbose'):
-                    print(_('Removing pid file %s with wrong pid %d') % (
-                          pid_file, pid))
+                    print(_('Removing pid file %(pid_file)s with wrong pid '
+                            '%(pid)d'), {'pid_file': pid_file, 'pid': pid})
                 remove_file(pid_file)
             except OSError as e:
                 if e.errno == errno.ESRCH:
@@ -616,14 +623,16 @@ class Server(object):
                 kwargs['quiet'] = True
                 conf_files = self.conf_files(**kwargs)
                 if conf_files:
-                    print(_("%s #%d not running (%s)") % (self.server, number,
-                                                          conf_files[0]))
+                    print(_("%(server)s #%(number)d not running (%(conf)s)") %
+                          {'server': self.server, 'number': number,
+                           'conf': conf_files[0]})
             else:
                 print(_("No %s running") % self.server)
             return 1
         for pid, pid_file in pids.items():
             conf_file = self.get_conf_file_name(pid_file)
-            print(_("%s running (%s - %s)") % (self.server, pid, conf_file))
+            print(_("%(server)s running (%(pid)s - %(conf)s)") %
+                  {'server': self.server, 'pid': pid, 'conf': conf_file})
         return 0
 
     def spawn(self, conf_file, once=False, wait=True, daemon=True, **kwargs):
@@ -716,11 +725,13 @@ class Server(object):
             # any unstarted instances
             if conf_file in conf_files:
                 already_started = True
-                print(_("%s running (%s - %s)") %
-                      (self.server, pid, conf_file))
+                print(_("%(server)s running (%(pid)s - %(conf)s)") %
+                      {'server': self.server, 'pid': pid, 'conf': conf_file})
             elif not kwargs.get('number', 0):
                 already_started = True
-                print(_("%s running (%s - %s)") % (self.server, pid, pid_file))
+                print(_("%(server)s running (%(pid)s - %(pid_file)s)") %
+                      {'server': self.server, 'pid': pid,
+                       'pid_file': pid_file})
 
         if already_started:
             print(_("%s already started...") % self.server)

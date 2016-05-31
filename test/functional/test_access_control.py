@@ -91,40 +91,55 @@ TEST_CASE_FORMAT = (
 # A scenario of put for account, container and object with
 # several roles.
 RBAC_PUT = [
+    # PUT container in own account: ok
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester', 'tester', None, 201),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester', 201),
+
+    # PUT container in other users account: not allowed for role admin
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester2', 'tester', None, 403),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # PUT container in other users account: not allowed for role _member_
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester3', 'tester3', None, 403),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester2', 'tester3', None, 403),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # PUT container in other users account: allowed for role ResellerAdmin
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester6', 'tester6', None, 201),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester2', 'tester6', None, 201),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester4', 'tester6', None, 201),
+
+    # PUT object in own account: ok
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', None, 201),
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester', 201),
+
+    # PUT object in other users account: not allowed for role admin
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester', None, 403),
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester', None, 403),
+
+    # PUT object in other users account: not allowed for role _member_
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester3', 'tester3', None, 403),
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester3', None, 403),
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester3', None, 403),
+
+    # PUT object in other users account: allowed for role ResellerAdmin
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester6', 'tester6', None, 201),
     ('PUT', None, None, 'UUID', 'UUID', None,
@@ -135,8 +150,11 @@ RBAC_PUT = [
 
 
 RBAC_PUT_WITH_SERVICE_PREFIX = [
+    # PUT container in own account: ok
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester5', 201),
+
+    # PUT container in other users account: not allowed for role service
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('PUT', None, None, 'UUID', None, None,
@@ -147,8 +165,12 @@ RBAC_PUT_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('PUT', None, None, 'UUID', None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # PUT object in own account: ok
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester5', 201),
+
+    # PUT object in other users account: not allowed for role service
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('PUT', None, None, 'UUID', 'UUID', None,
@@ -159,8 +181,14 @@ RBAC_PUT_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('PUT', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester5', None, 403),
+
+    # All following actions are using SERVICE prefix
+
+    # PUT container in own account: ok
     ('PUT', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 201),
+
+    # PUT container fails if wrong user, or only one token sent
     ('PUT', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('PUT', None, None, 'UUID', None, None,
@@ -169,8 +197,12 @@ RBAC_PUT_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('PUT', None, None, 'UUID', None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # PUT object in own account: ok
     ('PUT', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester', 'tester5', 201),
+
+    # PUT object fails if wrong user, or only one token sent
     ('PUT', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('PUT', None, None, 'UUID', 'UUID', None,
@@ -185,40 +217,55 @@ RBAC_PUT_WITH_SERVICE_PREFIX = [
 # A scenario of delete for account, container and object with
 # several roles.
 RBAC_DELETE = [
+    # DELETE container in own account: ok
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester', 'tester', None, 204),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester', 204),
+
+    # DELETE container in other users account: not allowed for role admin
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester2', 'tester', None, 403),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # DELETE container in other users account: not allowed for role _member_
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester3', 'tester3', None, 403),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester2', 'tester3', None, 403),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # DELETE container in other users account: allowed for role ResellerAdmin
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester6', 'tester6', None, 204),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester2', 'tester6', None, 204),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester4', 'tester6', None, 204),
+
+    # DELETE object in own account: ok
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', None, 204),
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester', 204),
+
+    # DELETE object in other users account: not allowed for role admin
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester', None, 403),
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester', None, 403),
+
+    # DELETE object in other users account: not allowed for role _member_
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester3', 'tester3', None, 403),
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester3', None, 403),
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester3', None, 403),
+
+    # DELETE object in other users account: allowed for role ResellerAdmin
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester6', 'tester6', None, 204),
     ('DELETE', None, None, 'UUID', 'UUID', None,
@@ -229,8 +276,11 @@ RBAC_DELETE = [
 
 
 RBAC_DELETE_WITH_SERVICE_PREFIX = [
+    # DELETE container in own account: ok
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester5', 204),
+
+    # DELETE container in other users account: not allowed for role service
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('DELETE', None, None, 'UUID', None, None,
@@ -241,8 +291,12 @@ RBAC_DELETE_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('DELETE', None, None, 'UUID', None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # DELETE object in own account: ok
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester5', 204),
+
+    # DELETE object in other users account: not allowed for role service
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('DELETE', None, None, 'UUID', 'UUID', None,
@@ -253,8 +307,14 @@ RBAC_DELETE_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('DELETE', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester5', None, 403),
+
+    # All following actions are using SERVICE prefix
+
+    # DELETE container in own account: ok
     ('DELETE', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 204),
+
+    # DELETE container fails if wrong user, or only one token sent
     ('DELETE', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('DELETE', None, None, 'UUID', None, None,
@@ -263,8 +323,12 @@ RBAC_DELETE_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('DELETE', None, None, 'UUID', None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # DELETE object in own account: ok
     ('DELETE', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester', 'tester5', 204),
+
+    # DELETE object fails if wrong user, or only one token sent
     ('DELETE', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('DELETE', None, None, 'UUID', 'UUID', None,
@@ -279,60 +343,83 @@ RBAC_DELETE_WITH_SERVICE_PREFIX = [
 # A scenario of get for account, container and object with
 # several roles.
 RBAC_GET = [
+    # GET own account: ok
     ('GET', None, None, None, None, None,
      None, 'tester', 'tester', None, 200),
     ('GET', None, None, None, None, None,
      None, 'tester', 'tester', 'tester', 200),
+
+    # GET other users account: not allowed for role admin
     ('GET', None, None, None, None, None,
      None, 'tester2', 'tester', None, 403),
     ('GET', None, None, None, None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # GET other users account: not allowed for role _member_
     ('GET', None, None, None, None, None,
      None, 'tester3', 'tester3', None, 403),
     ('GET', None, None, None, None, None,
      None, 'tester2', 'tester3', None, 403),
     ('GET', None, None, None, None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # GET other users account: allowed for role ResellerAdmin
     ('GET', None, None, None, None, None,
      None, 'tester6', 'tester6', None, 200),
     ('GET', None, None, None, None, None,
      None, 'tester2', 'tester6', None, 200),
     ('GET', None, None, None, None, None,
      None, 'tester4', 'tester6', None, 200),
+
+    # GET container in own account: ok
     ('GET', None, None, 'UUID', None, None,
      None, 'tester', 'tester', None, 200),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester', 200),
+
+    # GET container in other users account: not allowed for role admin
     ('GET', None, None, 'UUID', None, None,
      None, 'tester2', 'tester', None, 403),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # GET container in other users account: not allowed for role _member_
     ('GET', None, None, 'UUID', None, None,
      None, 'tester3', 'tester3', None, 403),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester2', 'tester3', None, 403),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # GET container in other users account: allowed for role ResellerAdmin
     ('GET', None, None, 'UUID', None, None,
      None, 'tester6', 'tester6', None, 200),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester2', 'tester6', None, 200),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester4', 'tester6', None, 200),
+
+    # GET object in own account: ok
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', None, 200),
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester', 200),
+
+    # GET object in other users account: not allowed for role admin
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester', None, 403),
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester', None, 403),
+
+    # GET object in other users account: not allowed for role _member_
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester3', 'tester3', None, 403),
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester3', None, 403),
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester3', None, 403),
+
+    # GET object in other users account: allowed for role ResellerAdmin
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester6', 'tester6', None, 200),
     ('GET', None, None, 'UUID', 'UUID', None,
@@ -343,8 +430,11 @@ RBAC_GET = [
 
 
 RBAC_GET_WITH_SERVICE_PREFIX = [
+    # GET own account: ok
     ('GET', None, None, None, None, None,
      None, 'tester', 'tester', 'tester5', 200),
+
+    # GET other account: not allowed for role service
     ('GET', None, None, None, None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('GET', None, None, None, None, None,
@@ -355,8 +445,12 @@ RBAC_GET_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('GET', None, None, None, None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # GET container in own account: ok
     ('GET', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester5', 200),
+
+    # GET container in other users account: not allowed for role service
     ('GET', None, None, 'UUID', None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('GET', None, None, 'UUID', None, None,
@@ -367,8 +461,12 @@ RBAC_GET_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('GET', None, None, 'UUID', None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # GET object in own account: ok
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester5', 200),
+
+    # GET object fails if wrong user, or only one token sent
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('GET', None, None, 'UUID', 'UUID', None,
@@ -379,8 +477,14 @@ RBAC_GET_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('GET', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester5', None, 403),
+
+    # All following actions are using SERVICE prefix
+
+    # GET own account: ok
     ('GET', None, None, None, None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 200),
+
+    # GET other account: not allowed for role service
     ('GET', None, None, None, None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('GET', None, None, None, None, None,
@@ -389,8 +493,12 @@ RBAC_GET_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('GET', None, None, None, None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # GET container in own account: ok
     ('GET', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 200),
+
+    # GET container fails if wrong user, or only one token sent
     ('GET', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('GET', None, None, 'UUID', None, None,
@@ -399,8 +507,12 @@ RBAC_GET_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('GET', None, None, 'UUID', None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # GET object in own account: ok
     ('GET', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester', 'tester5', 200),
+
+    # GET object fails if wrong user, or only one token sent
     ('GET', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('GET', None, None, 'UUID', 'UUID', None,
@@ -415,60 +527,84 @@ RBAC_GET_WITH_SERVICE_PREFIX = [
 # A scenario of head for account, container and object with
 # several roles.
 RBAC_HEAD = [
+    # HEAD own account: ok
     ('HEAD', None, None, None, None, None,
      None, 'tester', 'tester', None, 204),
     ('HEAD', None, None, None, None, None,
      None, 'tester', 'tester', 'tester', 204),
+
+    # HEAD other users account: not allowed for role admin
     ('HEAD', None, None, None, None, None,
      None, 'tester2', 'tester', None, 403),
     ('HEAD', None, None, None, None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # HEAD other users account: not allowed for role _member_
     ('HEAD', None, None, None, None, None,
      None, 'tester3', 'tester3', None, 403),
     ('HEAD', None, None, None, None, None,
      None, 'tester2', 'tester3', None, 403),
     ('HEAD', None, None, None, None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # HEAD other users account: allowed for role ResellerAdmin
     ('HEAD', None, None, None, None, None,
      None, 'tester6', 'tester6', None, 204),
     ('HEAD', None, None, None, None, None,
      None, 'tester2', 'tester6', None, 204),
     ('HEAD', None, None, None, None, None,
      None, 'tester4', 'tester6', None, 204),
+
+    # HEAD container in own account: ok
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester', 'tester', None, 204),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester', 204),
+
+    # HEAD container in other users account: not allowed for role admin
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester2', 'tester', None, 403),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # HEAD container in other users account: not allowed for role _member_
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester3', 'tester3', None, 403),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester2', 'tester3', None, 403),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # HEAD container in other users account: allowed for role ResellerAdmin
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester6', 'tester6', None, 204),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester2', 'tester6', None, 204),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester4', 'tester6', None, 204),
+
+
+    # HEAD object in own account: ok
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', None, 200),
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester', 200),
+
+    # HEAD object in other users account: not allowed for role admin
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester', None, 403),
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester', None, 403),
+
+    # HEAD object in other users account: not allowed for role _member_
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester3', 'tester3', None, 403),
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester3', None, 403),
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester3', None, 403),
+
+    # HEAD object in other users account: allowed for role ResellerAdmin
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester6', 'tester6', None, 200),
     ('HEAD', None, None, 'UUID', 'UUID', None,
@@ -479,8 +615,11 @@ RBAC_HEAD = [
 
 
 RBAC_HEAD_WITH_SERVICE_PREFIX = [
+    # HEAD own account: ok
     ('HEAD', None, None, None, None, None,
      None, 'tester', 'tester', 'tester5', 204),
+
+    # HEAD other account: not allowed for role service
     ('HEAD', None, None, None, None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('HEAD', None, None, None, None, None,
@@ -491,8 +630,12 @@ RBAC_HEAD_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('HEAD', None, None, None, None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # HEAD container in own account: ok
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester5', 204),
+
+    # HEAD container in other users account: not allowed for role service
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('HEAD', None, None, 'UUID', None, None,
@@ -503,8 +646,12 @@ RBAC_HEAD_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('HEAD', None, None, 'UUID', None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # HEAD object in own account: ok
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester5', 200),
+
+    # HEAD object fails if wrong user, or only one token sent
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('HEAD', None, None, 'UUID', 'UUID', None,
@@ -515,8 +662,14 @@ RBAC_HEAD_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('HEAD', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester5', None, 403),
+
+    # All following actions are using SERVICE prefix
+
+    # HEAD own account: ok
     ('HEAD', None, None, None, None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 204),
+
+    # HEAD other account: not allowed for role service
     ('HEAD', None, None, None, None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('HEAD', None, None, None, None, None,
@@ -525,8 +678,12 @@ RBAC_HEAD_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('HEAD', None, None, None, None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # HEAD container in own account: ok
     ('HEAD', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 204),
+
+    # HEAD container in other users account: not allowed for role service
     ('HEAD', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('HEAD', None, None, 'UUID', None, None,
@@ -535,8 +692,12 @@ RBAC_HEAD_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('HEAD', None, None, 'UUID', None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # HEAD object in own account: ok
     ('HEAD', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester', 'tester5', 200),
+
+    # HEAD object fails if wrong user, or only one token sent
     ('HEAD', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('HEAD', None, None, 'UUID', 'UUID', None,
@@ -551,60 +712,83 @@ RBAC_HEAD_WITH_SERVICE_PREFIX = [
 # A scenario of post for account, container and object with
 # several roles.
 RBAC_POST = [
+    # POST own account: ok
     ('POST', None, None, None, None, None,
      None, 'tester', 'tester', None, 204),
     ('POST', None, None, None, None, None,
      None, 'tester', 'tester', 'tester', 204),
+
+    # POST other users account: not allowed for role admin
     ('POST', None, None, None, None, None,
      None, 'tester2', 'tester', None, 403),
     ('POST', None, None, None, None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # POST other users account: not allowed for role _member_
     ('POST', None, None, None, None, None,
      None, 'tester3', 'tester3', None, 403),
     ('POST', None, None, None, None, None,
      None, 'tester2', 'tester3', None, 403),
     ('POST', None, None, None, None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # POST other users account: allowed for role ResellerAdmin
     ('POST', None, None, None, None, None,
      None, 'tester6', 'tester6', None, 204),
     ('POST', None, None, None, None, None,
      None, 'tester2', 'tester6', None, 204),
     ('POST', None, None, None, None, None,
      None, 'tester4', 'tester6', None, 204),
+
+    # POST container in own account: ok
     ('POST', None, None, 'UUID', None, None,
      None, 'tester', 'tester', None, 204),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester', 204),
+
+    # POST container in other users account: not allowed for role admin
     ('POST', None, None, 'UUID', None, None,
      None, 'tester2', 'tester', None, 403),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester4', 'tester', None, 403),
+
+    # POST container in other users account: not allowed for role _member_
     ('POST', None, None, 'UUID', None, None,
      None, 'tester3', 'tester3', None, 403),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester2', 'tester3', None, 403),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester4', 'tester3', None, 403),
+
+    # POST container in other users account: allowed for role ResellerAdmin
     ('POST', None, None, 'UUID', None, None,
      None, 'tester6', 'tester6', None, 204),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester2', 'tester6', None, 204),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester4', 'tester6', None, 204),
+
+    # POST object in own account: ok
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', None, 202),
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester', 202),
+
+    # POST object in other users account: not allowed for role admin
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester', None, 403),
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester', None, 403),
+
+    # POST object in other users account: not allowed for role _member_
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester3', 'tester3', None, 403),
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester2', 'tester3', None, 403),
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester3', None, 403),
+
+    # POST object in other users account: allowed for role ResellerAdmin
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester6', 'tester6', None, 202),
     ('POST', None, None, 'UUID', 'UUID', None,
@@ -615,8 +799,11 @@ RBAC_POST = [
 
 
 RBAC_POST_WITH_SERVICE_PREFIX = [
+    # POST own account: ok
     ('POST', None, None, None, None, None,
      None, 'tester', 'tester', 'tester5', 204),
+
+    # POST own account: ok
     ('POST', None, None, None, None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('POST', None, None, None, None, None,
@@ -627,8 +814,12 @@ RBAC_POST_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('POST', None, None, None, None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # POST container in own account: ok
     ('POST', None, None, 'UUID', None, None,
      None, 'tester', 'tester', 'tester5', 204),
+
+    # POST container in other users account: not allowed for role service
     ('POST', None, None, 'UUID', None, None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('POST', None, None, 'UUID', None, None,
@@ -639,8 +830,12 @@ RBAC_POST_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('POST', None, None, 'UUID', None, None,
      None, 'tester4', 'tester5', None, 403),
+
+    # POST object in own account: ok
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester', 'tester5', 202),
+
+    # POST object fails if wrong user, or only one token sent
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester', 'tester3', 'tester5', 403),
     ('POST', None, None, 'UUID', 'UUID', None,
@@ -651,8 +846,14 @@ RBAC_POST_WITH_SERVICE_PREFIX = [
      None, 'tester2', 'tester5', None, 403),
     ('POST', None, None, 'UUID', 'UUID', None,
      None, 'tester4', 'tester5', None, 403),
+
+    # All following actions are using SERVICE prefix
+
+    # POST own account: ok
     ('POST', None, None, None, None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 204),
+
+    # POST other account: not allowed for role service
     ('POST', None, None, None, None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('POST', None, None, None, None, None,
@@ -661,8 +862,12 @@ RBAC_POST_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('POST', None, None, None, None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # POST container in own account: ok
     ('POST', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester', 'tester5', 204),
+
+    # POST container in other users account: not allowed for role service
     ('POST', None, None, 'UUID', None, None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('POST', None, None, 'UUID', None, None,
@@ -671,8 +876,12 @@ RBAC_POST_WITH_SERVICE_PREFIX = [
      'SERVICE', 'tester', 'tester', 'tester', 403),
     ('POST', None, None, 'UUID', None, None,
      'SERVICE', 'tester', None, 'tester5', 401),
+
+    # POST object in own account: ok
     ('POST', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester', 'tester5', 202),
+
+    # POST object fails if wrong user, or only one token sent
     ('POST', None, None, 'UUID', 'UUID', None,
      'SERVICE', 'tester', 'tester3', 'tester5', 403),
     ('POST', None, None, 'UUID', 'UUID', None,
@@ -687,6 +896,8 @@ RBAC_POST_WITH_SERVICE_PREFIX = [
 # A scenario of options for account, container and object with
 # several roles.
 RBAC_OPTIONS = [
+    # OPTIONS request is always ok
+
     ('OPTIONS', None, None, None, None, None,
      None, 'tester', 'tester', None, 200),
     ('OPTIONS', None, None, None, None, None,
@@ -786,11 +997,15 @@ RBAC_OPTIONS = [
      None, 'UUID', None,
      {"X-Container-Meta-Access-Control-Allow-Origin": "*"},
      None, 'tester', 'tester', None, 200),
+
+    # Not OK for container: wrong origin
     ('OPTIONS',
      {"Origin": "http://localhost", "Access-Control-Request-Method": "GET"},
      None, 'UUID', None,
      {"X-Container-Meta-Access-Control-Allow-Origin": "http://invalid.com"},
      None, 'tester', 'tester', None, 401),
+
+    # Not OK for object: missing X-Container-Meta-Access-Control-Allow-Origin
     ('OPTIONS',
      {"Origin": "http://localhost", "Access-Control-Request-Method": "GET"},
      None, 'UUID', 'UUID', None, None, 'tester', 'tester', None, 401),
@@ -799,6 +1014,8 @@ RBAC_OPTIONS = [
      None, 'UUID', 'UUID',
      {"X-Container-Meta-Access-Control-Allow-Origin": "*"},
      None, 'tester', None, None, 200),
+
+    # Not OK for object: wrong origin
     ('OPTIONS',
      {"Origin": "http://localhost", "Access-Control-Request-Method": "GET"},
      None, 'UUID', 'UUID',
@@ -808,6 +1025,8 @@ RBAC_OPTIONS = [
 
 
 RBAC_OPTIONS_WITH_SERVICE_PREFIX = [
+    # OPTIONS request is always ok
+
     ('OPTIONS', None, None, None, None, None,
      None, 'tester', 'tester', 'tester5', 200),
     ('OPTIONS', None, None, None, None, None,

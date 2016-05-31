@@ -103,6 +103,7 @@ LE                      :ref:`list_endpoints`
 KS                      :ref:`keystoneauth`
 RL                      :ref:`ratelimit`
 VW                      :ref:`versioned_writes`
+SSC                     :ref:`copy`
 ======================= =============================
 
 

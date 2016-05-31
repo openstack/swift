@@ -75,12 +75,6 @@ class KeystoneAuth(object):
     id.. For example, if the project id is ``1234``, the path is
     ``/v1/AUTH_1234``.
 
-    If the ``is_admin`` option is ``true``, a user whose username is the same
-    as the project name and who has any role on the project will have access
-    rights elevated to be the same as if the user had one of the
-    ``operator_roles``. Note that the condition compares names rather than
-    UUIDs. This option is deprecated. It is ``false`` by default.
-
     If you need to have a different reseller_prefix to be able to
     mix different auth servers you can configure the option
     ``reseller_prefix`` in your keystoneauth entry like this::
@@ -188,7 +182,11 @@ class KeystoneAuth(object):
         self.reseller_admin_role = conf.get('reseller_admin_role',
                                             'ResellerAdmin').lower()
         config_is_admin = conf.get('is_admin', "false").lower()
-        self.is_admin = swift_utils.config_true_value(config_is_admin)
+        if swift_utils.config_true_value(config_is_admin):
+            self.logger.warning("The 'is_admin' option for keystoneauth is no "
+                                "longer supported. Remove the 'is_admin' "
+                                "option from your keystoneauth config")
+
         config_overrides = conf.get('allow_overrides', 't').lower()
         self.allow_overrides = swift_utils.config_true_value(config_overrides)
         self.default_domain_id = conf.get('default_domain_id', 'default')
@@ -289,7 +287,8 @@ class KeystoneAuth(object):
     def _get_project_domain_id(self, environ):
         info = get_account_info(environ, self.app, 'KS')
         domain_id = info.get('sysmeta', {}).get('project-domain-id')
-        exists = is_success(info.get('status', 0))
+        exists = (is_success(info.get('status', 0))
+                  and info.get('account_really_exists', True))
         return exists, domain_id
 
     def _set_project_domain_id(self, req, path_parts, env_identity):
@@ -481,14 +480,6 @@ class KeystoneAuth(object):
             log_msg = 'allow user with role(s) %s as account admin'
             self.logger.debug(log_msg, ','.join(have_operator_role.union(
                                                 have_service_role)))
-            req.environ['swift_owner'] = True
-            return
-
-        # If user is of the same name of the tenant then make owner of it.
-        if self.is_admin and user_name == tenant_name:
-            self.logger.warning("the is_admin feature has been deprecated "
-                                "and will be removed in the future "
-                                "update your config file")
             req.environ['swift_owner'] = True
             return
 

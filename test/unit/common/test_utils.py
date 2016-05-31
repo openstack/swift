@@ -18,6 +18,7 @@ from __future__ import print_function
 from test.unit import temptree
 
 import ctypes
+import contextlib
 import errno
 import eventlet
 import eventlet.event
@@ -29,7 +30,6 @@ import mock
 import random
 import re
 import socket
-import stat
 import sys
 import json
 import math
@@ -42,7 +42,6 @@ from textwrap import dedent
 
 import tempfile
 import time
-import traceback
 import unittest
 import fcntl
 import shutil
@@ -57,10 +56,11 @@ from six.moves.configparser import NoSectionError, NoOptionError
 
 from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
-    MimeInvalid, ThreadPoolDead
+    MimeInvalid
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
-from swift.common.swob import Request, Response, HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import Request, Response
 from test.unit import FakeLogger
 
 threading = eventlet.patcher.original('threading')
@@ -1262,6 +1262,48 @@ class TestUtils(unittest.TestCase):
             self.assertRaises(IOError, lfo.readline, 1024)
             lfo.tell()
 
+    def test_LoggerFileObject_recursion(self):
+        crashy_calls = [0]
+
+        class CrashyLogger(logging.Handler):
+            def emit(self, record):
+                crashy_calls[0] += 1
+                try:
+                    # Pretend to be trying to send to syslog, but syslogd is
+                    # dead. We need the raise here to set sys.exc_info.
+                    raise socket.error(errno.ENOTCONN, "This is an ex-syslog")
+                except socket.error:
+                    self.handleError(record)
+
+        logger = logging.getLogger()
+        logger.addHandler(CrashyLogger())
+
+        # Set up some real file descriptors for stdio. If you run
+        # nosetests with "-s", you already have real files there, but
+        # otherwise they're StringIO objects.
+        #
+        # In any case, since capture_stdio() closes sys.stdin and friends,
+        # we'd want to set up some sacrificial files so as to not goof up
+        # the testrunner.
+        new_stdin = open(os.devnull, 'r+b')
+        new_stdout = open(os.devnull, 'w+b')
+        new_stderr = open(os.devnull, 'w+b')
+
+        with contextlib.closing(new_stdin), contextlib.closing(new_stdout), \
+                contextlib.closing(new_stderr):
+            # logging.raiseExceptions is set to False in test/__init__.py, but
+            # is True in Swift daemons, and the error doesn't manifest without
+            # it.
+            with mock.patch('sys.stdin', new_stdin), \
+                    mock.patch('sys.stdout', new_stdout), \
+                    mock.patch('sys.stderr', new_stderr), \
+                    mock.patch.object(logging, 'raiseExceptions', True):
+                # Note: since stdio is hooked up to /dev/null in here, using
+                # pdb is basically impossible. Sorry about that.
+                utils.capture_stdio(logger)
+                logger.info("I like ham")
+                self.assertTrue(crashy_calls[0], 1)
+
     def test_parse_options(self):
         # Get a file that is definitely on disk
         with NamedTemporaryFile() as f:
@@ -1623,12 +1665,12 @@ class TestUtils(unittest.TestCase):
             log_msg = strip_value(sio)
             self.assertTrue('txn' in log_msg)
             self.assertTrue('12345' in log_msg)
-            # test no txn on info message
+            # test txn in info message
             self.assertEqual(logger.txn_id, '12345')
             logger.info('test')
             log_msg = strip_value(sio)
-            self.assertTrue('txn' not in log_msg)
-            self.assertTrue('12345' not in log_msg)
+            self.assertTrue('txn' in log_msg)
+            self.assertTrue('12345' in log_msg)
             # test txn already in message
             self.assertEqual(logger.txn_id, '12345')
             logger.warning('test 12345 test')
@@ -2460,13 +2502,23 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))
         self.assertFalse(utils.streq_const_time('ABC123', 'abc123'))
 
-    def test_replication_quorum_size(self):
+    def test_quorum_size(self):
+        expected_sizes = {1: 1,
+                          2: 1,
+                          3: 2,
+                          4: 2,
+                          5: 3}
+        got_sizes = dict([(n, utils.quorum_size(n))
+                          for n in expected_sizes])
+        self.assertEqual(expected_sizes, got_sizes)
+
+    def test_majority_size(self):
         expected_sizes = {1: 1,
                           2: 2,
                           3: 2,
                           4: 3,
                           5: 3}
-        got_sizes = dict([(n, utils.quorum_size(n))
+        got_sizes = dict([(n, utils.majority_size(n))
                           for n in expected_sizes])
         self.assertEqual(expected_sizes, got_sizes)
 
@@ -2539,6 +2591,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         class StatVFS(object):
             f_frsize = 1024
             f_bavail = 1
+            f_blocks = 100
 
         def fstatvfs(fd):
             return StatVFS()
@@ -2548,90 +2601,192 @@ cluster_dfw1 = http://dfw1.host/v1/
         try:
             fallocate = utils.FallocateWrapper(noop=True)
             utils.os.fstatvfs = fstatvfs
+
+            # Make sure setting noop, which disables fallocate, also stops the
+            # fallocate_reserve check.
+            # Set the fallocate_reserve to 99% and request an object that is
+            # about 50% the size. With fallocate_reserve off this will succeed.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('99%')
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(500)), 0)
+
+            # Setting noop to False after the constructor allows us to use
+            # a noop fallocate syscall and still test fallocate_reserve.
+            fallocate.noop = False
+
             # Want 1023 reserved, have 1024 * 1 free, so succeeds
-            utils.FALLOCATE_RESERVE = 1023
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1023')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
             # Want 1023 reserved, have 512 * 2 free, so succeeds
-            utils.FALLOCATE_RESERVE = 1023
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1023')
             StatVFS.f_frsize = 512
             StatVFS.f_bavail = 2
             self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
             # Want 1024 reserved, have 1024 * 1 free, so fails
-            utils.FALLOCATE_RESERVE = 1024
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1024')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
-            exc = None
-            try:
+
+            with self.assertRaises(OSError) as catcher:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError as err:
-                exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 1024 <= 1024'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
             # Want 1024 reserved, have 512 * 2 free, so fails
-            utils.FALLOCATE_RESERVE = 1024
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1024')
             StatVFS.f_frsize = 512
             StatVFS.f_bavail = 2
-            exc = None
-            try:
+            with self.assertRaises(OSError) as catcher:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError as err:
-                exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 1024 <= 1024'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
             # Want 2048 reserved, have 1024 * 1 free, so fails
-            utils.FALLOCATE_RESERVE = 2048
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2048')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
-            exc = None
-            try:
+            with self.assertRaises(OSError) as catcher:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError as err:
-                exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 1024 <= 2048'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
             # Want 2048 reserved, have 512 * 2 free, so fails
-            utils.FALLOCATE_RESERVE = 2048
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2048')
             StatVFS.f_frsize = 512
             StatVFS.f_bavail = 2
-            exc = None
-            try:
+            with self.assertRaises(OSError) as catcher:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError as err:
-                exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 2048')
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 1024 <= 2048'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
             # Want 1023 reserved, have 1024 * 1 free, but file size is 1, so
             # fails
-            utils.FALLOCATE_RESERVE = 1023
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1023')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
-            exc = None
-            try:
+            with self.assertRaises(OSError) as catcher:
                 fallocate(0, 1, 0, ctypes.c_uint64(1))
-            except OSError as err:
-                exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1023 <= 1023')
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 1023 <= 1023'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
             # Want 1022 reserved, have 1024 * 1 free, and file size is 1, so
             # succeeds
-            utils.FALLOCATE_RESERVE = 1022
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1022')
             StatVFS.f_frsize = 1024
             StatVFS.f_bavail = 1
             self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(1)), 0)
-            # Want 1023 reserved, have 1024 * 1 free, and file size is 0, so
-            # succeeds
-            utils.FALLOCATE_RESERVE = 1023
-            StatVFS.f_frsize = 1024
-            StatVFS.f_bavail = 1
-            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(0)), 0)
-            # Want 1024 reserved, have 1024 * 1 free, and even though
-            # file size is 0, since we're under the reserve, fails
-            utils.FALLOCATE_RESERVE = 1024
-            StatVFS.f_frsize = 1024
-            StatVFS.f_bavail = 1
-            exc = None
-            try:
+
+            # Want 1% reserved, have 100 bytes * 2/100 free, and file size is
+            # 99, so succeeds
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 2
+            StatVFS.f_blocks = 100
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(99)), 0)
+
+            # Want 2% reserved, have 50 bytes * 2/50 free, and file size is 49,
+            # so succeeds
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2%')
+            StatVFS.f_frsize = 50
+            StatVFS.f_bavail = 2
+            StatVFS.f_blocks = 50
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(49)), 0)
+
+            # Want 100% reserved, have  100 * 100/100 free, and file size is 0,
+            # so fails.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('100%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 100
+            StatVFS.f_blocks = 100
+            with self.assertRaises(OSError) as catcher:
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
-            except OSError as err:
-                exc = err
-            self.assertEqual(str(exc), 'FALLOCATE_RESERVE fail 1024 <= 1024')
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 100.0 <= 100.0'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
+            # Want 1% reserved, have 100 * 2/100 free, and file size is 101,
+            # so fails.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('1%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 2
+            StatVFS.f_blocks = 100
+            with self.assertRaises(OSError) as catcher:
+                fallocate(0, 1, 0, ctypes.c_uint64(101))
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 0.99 <= 1.0'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
+            # is 100, so fails
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('98%')
+            StatVFS.f_frsize = 100
+            StatVFS.f_bavail = 99
+            StatVFS.f_blocks = 100
+            with self.assertRaises(OSError) as catcher:
+                fallocate(0, 1, 0, ctypes.c_uint64(100))
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 98.0 <= 98.0'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
+            # Want 2% reserved, have 1000 bytes * 21/1000 free, and file size
+            # is 999, so succeeds.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2%')
+            StatVFS.f_frsize = 1000
+            StatVFS.f_bavail = 21
+            StatVFS.f_blocks = 1000
+            self.assertEqual(fallocate(0, 1, 0, ctypes.c_uint64(999)), 0)
+
+            # Want 2% resereved, have 1000 bytes * 21/1000 free, and file size
+            # is 1000, so fails.
+            utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
+                utils.config_fallocate_value('2%')
+            StatVFS.f_frsize = 1000
+            StatVFS.f_bavail = 21
+            StatVFS.f_blocks = 1000
+            with self.assertRaises(OSError) as catcher:
+                fallocate(0, 1, 0, ctypes.c_uint64(1000))
+            self.assertEqual(
+                str(catcher.exception),
+                '[Errno %d] FALLOCATE_RESERVE fail 2.0 <= 2.0'
+                % errno.ENOSPC)
+            self.assertEqual(catcher.exception.errno, errno.ENOSPC)
+
         finally:
             utils.FALLOCATE_RESERVE = orig_FALLOCATE_RESERVE
             utils.os.fstatvfs = orig_fstatvfs
@@ -2710,6 +2865,44 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(ts, None)
         ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-almostright')
         self.assertEqual(ts, None)
+
+    def test_config_fallocate_value(self):
+        fallocate_value, is_percent = utils.config_fallocate_value('10%')
+        self.assertEqual(fallocate_value, 10)
+        self.assertTrue(is_percent)
+        fallocate_value, is_percent = utils.config_fallocate_value('10')
+        self.assertEqual(fallocate_value, 10)
+        self.assertFalse(is_percent)
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('ab%')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: ab% is an invalid value for '
+                                   'fallocate_reserve.')
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('ab')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: ab is an invalid value for '
+                                   'fallocate_reserve.')
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('1%%')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: 1%% is an invalid value for '
+                                   'fallocate_reserve.')
+        try:
+            fallocate_value, is_percent = utils.config_fallocate_value('10.0')
+        except ValueError as err:
+            exc = err
+        self.assertEqual(str(exc), 'Error: 10.0 is an invalid value for '
+                                   'fallocate_reserve.')
+        fallocate_value, is_percent = utils.config_fallocate_value('10.5%')
+        self.assertEqual(fallocate_value, 10.5)
+        self.assertTrue(is_percent)
+        fallocate_value, is_percent = utils.config_fallocate_value('10.000%')
+        self.assertEqual(fallocate_value, 10.000)
+        self.assertTrue(is_percent)
 
     def test_tpool_reraise(self):
         with patch.object(utils.tpool, 'execute', lambda f: f()):
@@ -3419,6 +3612,86 @@ class ResellerConfReader(unittest.TestCase):
                          options['AUTH_'].get('require_group'))
         self.assertEqual('auth_blank_group', options[''].get('require_group'))
         self.assertEqual('pre2_group', options['PRE2_'].get('require_group'))
+
+
+class TestUnlinkOlder(unittest.TestCase):
+
+    def setUp(self):
+        self.tempdir = mkdtemp()
+        self.mtime = {}
+
+    def tearDown(self):
+        rmtree(self.tempdir, ignore_errors=True)
+
+    def touch(self, fpath, mtime=None):
+        self.mtime[fpath] = mtime or time.time()
+        open(fpath, 'w')
+
+    @contextlib.contextmanager
+    def high_resolution_getmtime(self):
+        orig_getmtime = os.path.getmtime
+
+        def mock_getmtime(fpath):
+            mtime = self.mtime.get(fpath)
+            if mtime is None:
+                mtime = orig_getmtime(fpath)
+            return mtime
+
+        with mock.patch('os.path.getmtime', mock_getmtime):
+            yield
+
+    def test_unlink_older_than_path_not_exists(self):
+        path = os.path.join(self.tempdir, 'does-not-exist')
+        # just make sure it doesn't blow up
+        utils.unlink_older_than(path, time.time())
+
+    def test_unlink_older_than_file(self):
+        path = os.path.join(self.tempdir, 'some-file')
+        self.touch(path)
+        with self.assertRaises(OSError) as ctx:
+            utils.unlink_older_than(path, time.time())
+        self.assertEqual(ctx.exception.errno, errno.ENOTDIR)
+
+    def test_unlink_older_than_now(self):
+        self.touch(os.path.join(self.tempdir, 'test'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, time.time())
+        self.assertEqual([], os.listdir(self.tempdir))
+
+    def test_unlink_not_old_enough(self):
+        start = time.time()
+        self.touch(os.path.join(self.tempdir, 'test'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, start)
+        self.assertEqual(['test'], os.listdir(self.tempdir))
+
+    def test_unlink_mixed(self):
+        self.touch(os.path.join(self.tempdir, 'first'))
+        cutoff = time.time()
+        self.touch(os.path.join(self.tempdir, 'second'))
+        with self.high_resolution_getmtime():
+            utils.unlink_older_than(self.tempdir, cutoff)
+        self.assertEqual(['second'], os.listdir(self.tempdir))
+
+    def test_unlink_paths(self):
+        paths = []
+        for item in ('first', 'second', 'third'):
+            path = os.path.join(self.tempdir, item)
+            self.touch(path)
+            paths.append(path)
+        # don't unlink everyone
+        with self.high_resolution_getmtime():
+            utils.unlink_paths_older_than(paths[:2], time.time())
+        self.assertEqual(['third'], os.listdir(self.tempdir))
+
+    def test_unlink_empty_paths(self):
+        # just make sure it doesn't blow up
+        utils.unlink_paths_older_than([], time.time())
+
+    def test_unlink_not_exists_paths(self):
+        path = os.path.join(self.tempdir, 'does-not-exist')
+        # just make sure it doesn't blow up
+        utils.unlink_paths_older_than([path], time.time())
 
 
 class TestSwiftInfo(unittest.TestCase):
@@ -4581,165 +4854,6 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
                 self.assertEqual(called, [12345])
 
 
-class TestThreadPool(unittest.TestCase):
-
-    def setUp(self):
-        self.tp = None
-
-    def tearDown(self):
-        if self.tp:
-            self.tp.terminate()
-
-    def _pipe_count(self):
-        # Counts the number of pipes that this process owns.
-        fd_dir = "/proc/%d/fd" % os.getpid()
-
-        def is_pipe(path):
-            try:
-                stat_result = os.stat(path)
-                return stat.S_ISFIFO(stat_result.st_mode)
-            except OSError:
-                return False
-
-        return len([fd for fd in os.listdir(fd_dir)
-                    if is_pipe(os.path.join(fd_dir, fd))])
-
-    def _thread_id(self):
-        return threading.current_thread().ident
-
-    def _capture_args(self, *args, **kwargs):
-        return {'args': args, 'kwargs': kwargs}
-
-    def _raise_valueerror(self):
-        return int('fishcakes')
-
-    def test_run_in_thread_with_threads(self):
-        tp = self.tp = utils.ThreadPool(1)
-
-        my_id = self._thread_id()
-        other_id = tp.run_in_thread(self._thread_id)
-        self.assertNotEqual(my_id, other_id)
-
-        result = tp.run_in_thread(self._capture_args, 1, 2, bert='ernie')
-        self.assertEqual(result, {'args': (1, 2),
-                                  'kwargs': {'bert': 'ernie'}})
-
-        caught = False
-        try:
-            tp.run_in_thread(self._raise_valueerror)
-        except ValueError:
-            caught = True
-        self.assertTrue(caught)
-
-    def test_force_run_in_thread_with_threads(self):
-        # with nthreads > 0, force_run_in_thread looks just like run_in_thread
-        tp = self.tp = utils.ThreadPool(1)
-
-        my_id = self._thread_id()
-        other_id = tp.force_run_in_thread(self._thread_id)
-        self.assertNotEqual(my_id, other_id)
-
-        result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
-        self.assertEqual(result, {'args': (1, 2),
-                                  'kwargs': {'bert': 'ernie'}})
-        self.assertRaises(ValueError, tp.force_run_in_thread,
-                          self._raise_valueerror)
-
-    def test_run_in_thread_without_threads(self):
-        # with zero threads, run_in_thread doesn't actually do so
-        tp = utils.ThreadPool(0)
-
-        my_id = self._thread_id()
-        other_id = tp.run_in_thread(self._thread_id)
-        self.assertEqual(my_id, other_id)
-
-        result = tp.run_in_thread(self._capture_args, 1, 2, bert='ernie')
-        self.assertEqual(result, {'args': (1, 2),
-                                  'kwargs': {'bert': 'ernie'}})
-        self.assertRaises(ValueError, tp.run_in_thread,
-                          self._raise_valueerror)
-
-    def test_force_run_in_thread_without_threads(self):
-        # with zero threads, force_run_in_thread uses eventlet.tpool
-        tp = utils.ThreadPool(0)
-
-        my_id = self._thread_id()
-        other_id = tp.force_run_in_thread(self._thread_id)
-        self.assertNotEqual(my_id, other_id)
-
-        result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
-        self.assertEqual(result, {'args': (1, 2),
-                                  'kwargs': {'bert': 'ernie'}})
-        self.assertRaises(ValueError, tp.force_run_in_thread,
-                          self._raise_valueerror)
-
-    def test_preserving_stack_trace_from_thread(self):
-        def gamma():
-            return 1 / 0  # ZeroDivisionError
-
-        def beta():
-            return gamma()
-
-        def alpha():
-            return beta()
-
-        tp = self.tp = utils.ThreadPool(1)
-        try:
-            tp.run_in_thread(alpha)
-        except ZeroDivisionError:
-            # NB: format is (filename, line number, function name, text)
-            tb_func = [elem[2] for elem
-                       in traceback.extract_tb(sys.exc_info()[2])]
-        else:
-            self.fail("Expected ZeroDivisionError")
-
-        self.assertEqual(tb_func[-1], "gamma")
-        self.assertEqual(tb_func[-2], "beta")
-        self.assertEqual(tb_func[-3], "alpha")
-        # omit the middle; what's important is that the start and end are
-        # included, not the exact names of helper methods
-        self.assertEqual(tb_func[1], "run_in_thread")
-        self.assertEqual(tb_func[0], "test_preserving_stack_trace_from_thread")
-
-    def test_terminate(self):
-        initial_thread_count = threading.activeCount()
-        initial_pipe_count = self._pipe_count()
-
-        tp = utils.ThreadPool(4)
-        # do some work to ensure any lazy initialization happens
-        tp.run_in_thread(os.path.join, 'foo', 'bar')
-        tp.run_in_thread(os.path.join, 'baz', 'quux')
-
-        # 4 threads in the ThreadPool, plus one pipe for IPC; this also
-        # serves as a sanity check that we're actually allocating some
-        # resources to free later
-        self.assertEqual(initial_thread_count, threading.activeCount() - 4)
-        self.assertEqual(initial_pipe_count, self._pipe_count() - 2)
-
-        tp.terminate()
-        self.assertEqual(initial_thread_count, threading.activeCount())
-        self.assertEqual(initial_pipe_count, self._pipe_count())
-
-    def test_cant_run_after_terminate(self):
-        tp = utils.ThreadPool(0)
-        tp.terminate()
-        self.assertRaises(ThreadPoolDead, tp.run_in_thread, lambda: 1)
-        self.assertRaises(ThreadPoolDead, tp.force_run_in_thread, lambda: 1)
-
-    def test_double_terminate_doesnt_crash(self):
-        tp = utils.ThreadPool(0)
-        tp.terminate()
-        tp.terminate()
-
-        tp = utils.ThreadPool(1)
-        tp.terminate()
-        tp.terminate()
-
-    def test_terminate_no_threads_doesnt_crash(self):
-        tp = utils.ThreadPool(0)
-        tp.terminate()
-
-
 class TestAuditLocationGenerator(unittest.TestCase):
 
     def test_drive_tree_access(self):
@@ -4986,6 +5100,37 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(run_test, 0.1)
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
+
+    def test_waitfirst_only_returns_first(self):
+        def run_test(name):
+            eventlet.sleep(0)
+            completed.append(name)
+            return name
+
+        completed = []
+        pile = utils.GreenAsyncPile(3)
+        pile.spawn(run_test, 'first')
+        pile.spawn(run_test, 'second')
+        pile.spawn(run_test, 'third')
+        self.assertEqual(pile.waitfirst(0.5), completed[0])
+        # 3 still completed, but only the first was returned.
+        self.assertEqual(3, len(completed))
+
+    def test_wait_with_firstn(self):
+        def run_test(name):
+            eventlet.sleep(0)
+            completed.append(name)
+            return name
+
+        for first_n in [None] + list(range(6)):
+            completed = []
+            pile = utils.GreenAsyncPile(10)
+            for i in range(10):
+                pile.spawn(run_test, i)
+            actual = pile._wait(1, first_n)
+            expected_n = first_n if first_n else 10
+            self.assertEqual(completed[:expected_n], actual)
+            self.assertEqual(10, len(completed))
 
     def test_pending(self):
         pile = utils.GreenAsyncPile(3)

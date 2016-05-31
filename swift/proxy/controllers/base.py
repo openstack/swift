@@ -32,6 +32,7 @@ import functools
 import inspect
 import itertools
 import operator
+from copy import deepcopy
 from sys import exc_info
 from swift import gettext_ as _
 
@@ -47,17 +48,22 @@ from swift.common.utils import Timestamp, config_true_value, \
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
-from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
+    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE
+from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters
 from swift.common.storage_policy import POLICIES
+
+
+DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
+DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
 
 
 def update_headers(response, headers):
@@ -101,18 +107,6 @@ def delay_denial(func):
     return func
 
 
-def get_account_memcache_key(account):
-    cache_key, env_key = _get_cache_key(account, None)
-    return cache_key
-
-
-def get_container_memcache_key(account, container):
-    if not container:
-        raise ValueError("container not provided")
-    cache_key, env_key = _get_cache_key(account, container)
-    return cache_key
-
-
 def _prep_headers_to_info(headers, server_type):
     """
     Helper method that iterates once over a dict of headers,
@@ -139,7 +133,7 @@ def headers_to_account_info(headers, status_int=HTTP_OK):
     Construct a cacheable dict of account info based on response headers.
     """
     headers, meta, sysmeta = _prep_headers_to_info(headers, 'account')
-    return {
+    account_info = {
         'status': status_int,
         # 'container_count' anomaly:
         # Previous code sometimes expects an int sometimes a string
@@ -149,8 +143,12 @@ def headers_to_account_info(headers, status_int=HTTP_OK):
         'total_object_count': headers.get('x-account-object-count'),
         'bytes': headers.get('x-account-bytes-used'),
         'meta': meta,
-        'sysmeta': sysmeta
+        'sysmeta': sysmeta,
     }
+    if is_success(status_int):
+        account_info['account_really_exists'] = not config_true_value(
+            headers.get('x-backend-fake-account-listing'))
+    return account_info
 
 
 def headers_to_container_info(headers, status_int=HTTP_OK):
@@ -173,7 +171,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
             'max_age': meta.get('access-control-max-age')
         },
         'meta': meta,
-        'sysmeta': sysmeta
+        'sysmeta': sysmeta,
     }
 
 
@@ -187,7 +185,7 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
             'type': headers.get('content-type'),
             'etag': headers.get('etag'),
             'meta': meta,
-            'sysmeta': sysmeta
+            'sysmeta': sysmeta,
             }
     return info
 
@@ -279,8 +277,17 @@ def get_object_info(env, app, path=None, swift_source=None):
         split_path(path or env['PATH_INFO'], 4, 4, True)
     info = _get_object_info(app, env, account, container, obj,
                             swift_source=swift_source)
-    if not info:
+    if info:
+        info = deepcopy(info)
+    else:
         info = headers_to_object_info({}, 0)
+
+    for field in ('length',):
+        if info.get(field) is None:
+            info[field] = 0
+        else:
+            info[field] = int(info[field])
+
     return info
 
 
@@ -296,11 +303,55 @@ def get_container_info(env, app, swift_source=None):
     """
     (version, account, container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
-    info = get_info(app, env, account, container, ret_not_found=True,
-                    swift_source=swift_source)
+
+    # Check in environment cache and in memcache (in that order)
+    info = _get_info_from_caches(app, env, account, container)
+
     if not info:
+        # Cache miss; go HEAD the container and populate the caches
+        env.setdefault('swift.infocache', {})
+        # Before checking the container, make sure the account exists.
+        #
+        # If it is an autocreateable account, just assume it exists; don't
+        # HEAD the account, as a GET or HEAD response for an autocreateable
+        # account is successful whether the account actually has .db files
+        # on disk or not.
+        is_autocreate_account = account.startswith(
+            getattr(app, 'auto_create_account_prefix', '.'))
+        if not is_autocreate_account:
+            account_info = get_account_info(env, app, swift_source)
+            if not account_info or not is_success(account_info['status']):
+                return headers_to_container_info({}, 0)
+
+        req = _prepare_pre_auth_info_request(
+            env, ("/%s/%s/%s" % (version, account, container)),
+            (swift_source or 'GET_CONTAINER_INFO'))
+        resp = req.get_response(app)
+        # Check in infocache to see if the proxy (or anyone else) already
+        # populated the cache for us. If they did, just use what's there.
+        #
+        # See similar comment in get_account_info() for justification.
+        info = _get_info_from_infocache(env, account, container)
+        if info is None:
+            info = set_info_cache(app, env, account, container, resp)
+
+    if info:
+        info = deepcopy(info)  # avoid mutating what's in swift.infocache
+    else:
         info = headers_to_container_info({}, 0)
+
+    # Old data format in memcache immediately after a Swift upgrade; clean
+    # it up so consumers of get_container_info() aren't exposed to it.
     info.setdefault('storage_policy', '0')
+    if 'object_count' not in info and 'container_size' in info:
+        info['object_count'] = info.pop('container_size')
+
+    for field in ('bytes', 'object_count'):
+        if info.get(field) is None:
+            info[field] = 0
+        else:
+            info[field] = int(info[field])
+
     return info
 
 
@@ -314,32 +365,71 @@ def get_account_info(env, app, swift_source=None):
         This call bypasses auth. Success does not imply that the request has
         authorization to the account.
 
-    :raises ValueError: when path can't be split(path, 2, 4)
+    :raises ValueError: when path doesn't contain an account
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
-    info = get_info(app, env, account, ret_not_found=True,
-                    swift_source=swift_source)
+
+    # Check in environment cache and in memcache (in that order)
+    info = _get_info_from_caches(app, env, account)
+
+    # Cache miss; go HEAD the account and populate the caches
     if not info:
-        info = headers_to_account_info({}, 0)
-    if info.get('container_count') is None:
-        info['container_count'] = 0
+        env.setdefault('swift.infocache', {})
+        req = _prepare_pre_auth_info_request(
+            env, "/%s/%s" % (version, account),
+            (swift_source or 'GET_ACCOUNT_INFO'))
+        resp = req.get_response(app)
+        # Check in infocache to see if the proxy (or anyone else) already
+        # populated the cache for us. If they did, just use what's there.
+        #
+        # The point of this is to avoid setting the value in memcached
+        # twice. Otherwise, we're needlessly sending requests across the
+        # network.
+        #
+        # If the info didn't make it into the cache, we'll compute it from
+        # the response and populate the cache ourselves.
+        #
+        # Note that this is taking "exists in infocache" to imply "exists in
+        # memcache". That's because we're trying to avoid superfluous
+        # network traffic, and checking in memcache prior to setting in
+        # memcache would defeat the purpose.
+        info = _get_info_from_infocache(env, account)
+        if info is None:
+            info = set_info_cache(app, env, account, None, resp)
+
+    if info:
+        info = info.copy()  # avoid mutating what's in swift.infocache
     else:
-        info['container_count'] = int(info['container_count'])
+        info = headers_to_account_info({}, 0)
+
+    for field in ('container_count', 'bytes', 'total_object_count'):
+        if info.get(field) is None:
+            info[field] = 0
+        else:
+            info[field] = int(info[field])
+
     return info
 
 
-def _get_cache_key(account, container):
+def get_cache_key(account, container=None, obj=None):
     """
-    Get the keys for both memcache (cache_key) and env (env_key)
-    where info about accounts and containers is cached
+    Get the keys for both memcache and env['swift.infocache'] (cache_key)
+    where info about accounts, containers, and objects is cached
 
-    :param   account: The name of the account
+    :param account: The name of the account
     :param container: The name of the container (or None if account)
-    :returns: a tuple of (cache_key, env_key)
+    :param obj: The name of the object (or None if account or container)
+    :returns: a string cache_key
     """
 
-    if container:
+    if obj:
+        if not (account and container):
+            raise ValueError('Object cache key requires account and container')
+        cache_key = 'object/%s/%s/%s' % (account, container, obj)
+    elif container:
+        if not account:
+            raise ValueError('Container cache key requires account')
         cache_key = 'container/%s/%s' % (account, container)
     else:
         cache_key = 'account/%s' % account
@@ -347,58 +437,44 @@ def _get_cache_key(account, container):
     # This allows caching both account and container and ensures that when we
     # copy this env to form a new request, it won't accidentally reuse the
     # old container or account info
-    env_key = 'swift.%s' % cache_key
-    return cache_key, env_key
+    return cache_key
 
 
-def get_object_env_key(account, container, obj):
-    """
-    Get the keys for env (env_key) where info about object is cached
-
-    :param   account: The name of the account
-    :param container: The name of the container
-    :param obj: The name of the object
-    :returns: a string env_key
-    """
-    env_key = 'swift.object/%s/%s/%s' % (account,
-                                         container, obj)
-    return env_key
-
-
-def _set_info_cache(app, env, account, container, resp):
+def set_info_cache(app, env, account, container, resp):
     """
     Cache info in both memcache and env.
-
-    Caching is used to avoid unnecessary calls to account & container servers.
-    This is a private function that is being called by GETorHEAD_base and
-    by clear_info_cache.
-    Any attempt to GET or HEAD from the container/account server should use
-    the GETorHEAD_base interface which would than set the cache.
 
     :param  app: the application object
     :param  account: the unquoted account name
     :param  container: the unquoted container name or None
-    :param resp: the response received or None if info cache should be cleared
-    """
+    :param  resp: the response received or None if info cache should be cleared
 
-    if container:
-        cache_time = app.recheck_container_existence
-    else:
-        cache_time = app.recheck_account_existence
-    cache_key, env_key = _get_cache_key(account, container)
+    :returns: the info that was placed into the cache, or None if the
+              request status was not in (404, 410, 2xx).
+    """
+    infocache = env.setdefault('swift.infocache', {})
+
+    cache_time = None
+    if container and resp:
+        cache_time = int(resp.headers.get(
+            'X-Backend-Recheck-Container-Existence',
+            DEFAULT_RECHECK_CONTAINER_EXISTENCE))
+    elif resp:
+        cache_time = int(resp.headers.get(
+            'X-Backend-Recheck-Account-Existence',
+            DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
+    cache_key = get_cache_key(account, container)
 
     if resp:
-        if resp.status_int == HTTP_NOT_FOUND:
+        if resp.status_int in (HTTP_NOT_FOUND, HTTP_GONE):
             cache_time *= 0.1
         elif not is_success(resp.status_int):
             cache_time = None
-    else:
-        cache_time = None
 
     # Next actually set both memcache and the env cache
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if not cache_time:
-        env.pop(env_key, None)
+        infocache.pop(cache_key, None)
         if memcache:
             memcache.delete(cache_key)
         return
@@ -409,35 +485,35 @@ def _set_info_cache(app, env, account, container, resp):
         info = headers_to_account_info(resp.headers, resp.status_int)
     if memcache:
         memcache.set(cache_key, info, time=cache_time)
-    env[env_key] = info
+    infocache[cache_key] = info
+    return info
 
 
-def _set_object_info_cache(app, env, account, container, obj, resp):
+def set_object_info_cache(app, env, account, container, obj, resp):
     """
-    Cache object info env. Do not cache object information in
-    memcache. This is an intentional omission as it would lead
-    to cache pressure. This is a per-request cache.
-
-    Caching is used to avoid unnecessary calls to object servers.
-    This is a private function that is being called by GETorHEAD_base.
-    Any attempt to GET or HEAD from the object server should use
-    the GETorHEAD_base interface which would then set the cache.
+    Cache object info in the WSGI environment, but not in memcache. Caching
+    in memcache would lead to cache pressure and mass evictions due to the
+    large number of objects in a typical Swift cluster. This is a
+    per-request cache only.
 
     :param  app: the application object
     :param  account: the unquoted account name
-    :param  container: the unquoted container name or None
-    :param  object: the unquoted object name or None
-    :param resp: the response received or None if info cache should be cleared
+    :param  container: the unquoted container name
+    :param  object: the unquoted object name
+    :param  resp: a GET or HEAD response received from an object server, or
+              None if info cache should be cleared
+    :returns: the object info
     """
 
-    env_key = get_object_env_key(account, container, obj)
+    cache_key = get_cache_key(account, container, obj)
 
-    if not resp:
-        env.pop(env_key, None)
+    if 'swift.infocache' in env and not resp:
+        env['swift.infocache'].pop(cache_key, None)
         return
 
     info = headers_to_object_info(resp.headers, resp.status_int)
-    env[env_key] = info
+    env.setdefault('swift.infocache', {})[cache_key] = info
+    return info
 
 
 def clear_info_cache(app, env, account, container=None):
@@ -445,26 +521,43 @@ def clear_info_cache(app, env, account, container=None):
     Clear the cached info in both memcache and env
 
     :param  app: the application object
+    :param  env: the WSGI environment
     :param  account: the account name
     :param  container: the containr name or None if setting info for containers
     """
-    _set_info_cache(app, env, account, container, None)
+    set_info_cache(app, env, account, container, None)
 
 
-def _get_info_cache(app, env, account, container=None):
+def _get_info_from_infocache(env, account, container=None):
     """
-    Get the cached info from env or memcache (if used) in that order
-    Used for both account and container info
-    A private function used by get_info
+    Get cached account or container information from request-environment
+    cache (swift.infocache).
+
+    :param  env: the environment used by the current request
+    :param  account: the account name
+    :param  container: the container name
+
+    :returns: a dictionary of cached info on cache hit, None on miss
+    """
+    cache_key = get_cache_key(account, container)
+    if 'swift.infocache' in env and cache_key in env['swift.infocache']:
+        return env['swift.infocache'][cache_key]
+    return None
+
+
+def _get_info_from_memcache(app, env, account, container=None):
+    """
+    Get cached account or container information from memcache
 
     :param  app: the application object
     :param  env: the environment used by the current request
-    :returns: the cached info or None if not cached
-    """
+    :param  account: the account name
+    :param  container: the container name
 
-    cache_key, env_key = _get_cache_key(account, container)
-    if env_key in env:
-        return env[env_key]
+    :returns: a dictionary of cached info on cache hit, None on miss. Also
+      returns None if memcache is not in use.
+    """
+    cache_key = get_cache_key(account, container)
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if memcache:
         info = memcache.get(cache_key)
@@ -472,13 +565,29 @@ def _get_info_cache(app, env, account, container=None):
             for key in info:
                 if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
-                if isinstance(info[key], dict):
+                elif isinstance(info[key], dict):
                     for subkey, value in info[key].items():
                         if isinstance(value, six.text_type):
                             info[key][subkey] = value.encode("utf-8")
-            env[env_key] = info
+            env.setdefault('swift.infocache', {})[cache_key] = info
         return info
     return None
+
+
+def _get_info_from_caches(app, env, account, container=None):
+    """
+    Get the cached info from env or memcache (if used) in that order.
+    Used for both account and container info.
+
+    :param  app: the application object
+    :param  env: the environment used by the current request
+    :returns: the cached info or None if not cached
+    """
+
+    info = _get_info_from_infocache(env, account, container)
+    if info is None:
+        info = _get_info_from_memcache(app, env, account, container)
+    return info
 
 
 def _prepare_pre_auth_info_request(env, path, swift_source):
@@ -496,14 +605,18 @@ def _prepare_pre_auth_info_request(env, path, swift_source):
     # This is a sub request for container metadata- drop the Origin header from
     # the request so the it is not treated as a CORS request.
     newenv.pop('HTTP_ORIGIN', None)
+
+    # ACLs are only shown to account owners, so let's make sure this request
+    # looks like it came from the account owner.
+    newenv['swift_owner'] = True
+
     # Note that Request.blank expects quoted path
     return Request.blank(quote(path), environ=newenv)
 
 
-def get_info(app, env, account, container=None, ret_not_found=False,
-             swift_source=None):
+def get_info(app, env, account, container=None, swift_source=None):
     """
-    Get the info about accounts or containers
+    Get info about accounts or containers
 
     Note: This call bypasses auth. Success does not imply that the
           request has authorization to the info.
@@ -512,37 +625,25 @@ def get_info(app, env, account, container=None, ret_not_found=False,
     :param env: the environment used by the current request
     :param account: The unquoted name of the account
     :param container: The unquoted name of the container (or None if account)
-    :returns: the cached info or None if cannot be retrieved
+    :param swift_source: swift source logged for any subrequests made while
+                         retrieving the account or container info
+    :returns: information about the specified entity in a dictionary. See
+      get_account_info and get_container_info for details on what's in the
+      dictionary.
     """
-    info = _get_info_cache(app, env, account, container)
-    if info:
-        if ret_not_found or is_success(info['status']):
-            return info
-        return None
-    # Not in cache, let's try the account servers
-    path = '/v1/%s' % account
-    if container:
-        # Stop and check if we have an account?
-        if not get_info(app, env, account) and not account.startswith(
-                getattr(app, 'auto_create_account_prefix', '.')):
-            return None
-        path += '/' + container
+    env.setdefault('swift.infocache', {})
 
-    req = _prepare_pre_auth_info_request(
-        env, path, (swift_source or 'GET_INFO'))
-    # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
-    # the environment under environ[env_key] and in memcache. We will
-    # pick the one from environ[env_key] and use it to set the caller env
-    resp = req.get_response(app)
-    cache_key, env_key = _get_cache_key(account, container)
-    try:
-        info = resp.environ[env_key]
-        env[env_key] = info
-        if ret_not_found or is_success(info['status']):
-            return info
-    except (KeyError, AttributeError):
-        pass
-    return None
+    if container:
+        path = '/v1/%s/%s' % (account, container)
+        path_env = env.copy()
+        path_env['PATH_INFO'] = path
+        return get_container_info(path_env, app, swift_source=swift_source)
+    else:
+        # account info
+        path = '/v1/%s' % (account,)
+        path_env = env.copy()
+        path_env['PATH_INFO'] = path
+        return get_account_info(path_env, app, swift_source=swift_source)
 
 
 def _get_object_info(app, env, account, container, obj, swift_source=None):
@@ -559,24 +660,22 @@ def _get_object_info(app, env, account, container, obj, swift_source=None):
     :param obj: The unquoted name of the object
     :returns: the cached info or None if cannot be retrieved
     """
-    env_key = get_object_env_key(account, container, obj)
-    info = env.get(env_key)
+    cache_key = get_cache_key(account, container, obj)
+    info = env.get('swift.infocache', {}).get(cache_key)
     if info:
         return info
-    # Not in cached, let's try the object servers
+    # Not in cache, let's try the object servers
     path = '/v1/%s/%s/%s' % (account, container, obj)
     req = _prepare_pre_auth_info_request(env, path, swift_source)
-    # Whenever we do a GET/HEAD, the GETorHEAD_base will set the info in
-    # the environment under environ[env_key]. We will
-    # pick the one from environ[env_key] and use it to set the caller env
     resp = req.get_response(app)
-    try:
-        info = resp.environ[env_key]
-        env[env_key] = info
-        return info
-    except (KeyError, AttributeError):
-        pass
-    return None
+    # Unlike get_account_info() and get_container_info(), we don't save
+    # things in memcache, so we can store the info without network traffic,
+    # *and* the proxy doesn't cache object info for us, so there's no chance
+    # that the object info would be in the environment. Thus, we just
+    # compute the object info based on the response and stash it in
+    # swift.infocache.
+    info = set_object_info_cache(app, env, account, container, obj, resp)
+    return info
 
 
 def close_swift_conn(src):
@@ -622,7 +721,8 @@ def bytes_to_skip(record_size, range_start):
 
 class ResumingGetter(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
-                 backend_headers, client_chunk_size=None, newest=None):
+                 backend_headers, concurrency=1, client_chunk_size=None,
+                 newest=None):
         self.app = app
         self.node_iter = node_iter
         self.server_type = server_type
@@ -633,6 +733,7 @@ class ResumingGetter(object):
         self.skip_bytes = 0
         self.used_nodes = []
         self.used_source_etag = ''
+        self.concurrency = concurrency
 
         # stuff from request
         self.req_method = req.method
@@ -648,6 +749,7 @@ class ResumingGetter(object):
         self.reasons = []
         self.bodies = []
         self.source_headers = []
+        self.sources = []
 
         # populated from response headers
         self.start_byte = self.end_byte = self.length = None
@@ -672,21 +774,21 @@ class ResumingGetter(object):
             if begin is None:
                 # this is a -50 range req (last 50 bytes of file)
                 end -= num_bytes
+                if end == 0:
+                    # we sent out exactly the first range's worth of bytes, so
+                    # we're done with it
+                    raise RangeAlreadyComplete()
             else:
                 begin += num_bytes
-            if end and begin == end + 1:
-                # we sent out exactly the first range's worth of bytes, so
-                # we're done with it
-                raise RangeAlreadyComplete()
-            elif end and begin > end:
-                raise HTTPRequestedRangeNotSatisfiable()
-            elif end and begin:
-                req_range.ranges = [(begin, end)] + req_range.ranges[1:]
-            elif end:
-                req_range.ranges = [(None, end)] + req_range.ranges[1:]
-            else:
-                req_range.ranges = [(begin, None)] + req_range.ranges[1:]
+                if end is not None and begin == end + 1:
+                    # we sent out exactly the first range's worth of bytes, so
+                    # we're done with it
+                    raise RangeAlreadyComplete()
 
+            if end is not None and (begin > end or end < 0):
+                raise HTTPRequestedRangeNotSatisfiable()
+
+            req_range.ranges = [(begin, end)] + req_range.ranges[1:]
             self.backend_headers['Range'] = str(req_range)
         else:
             self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
@@ -922,6 +1024,7 @@ class ResumingGetter(object):
                         if nchunks % 5 == 0:
                             sleep()
 
+            part_iter = None
             try:
                 while True:
                     start_byte, end_byte, length, headers, part = \
@@ -935,6 +1038,9 @@ class ResumingGetter(object):
                     self.pop_range()
             except StopIteration:
                 req.environ['swift.non_client_disconnect'] = True
+            finally:
+                if part_iter:
+                    part_iter.close()
 
         except ChunkReadTimeout:
             self.app.exception_occurred(node[0], _('Object'),
@@ -970,93 +1076,111 @@ class ResumingGetter(object):
         else:
             return None
 
+    def _make_node_request(self, node, node_timeout, logger_thread_locals):
+        self.app.logger.thread_locals = logger_thread_locals
+        if node in self.used_nodes:
+            return False
+        start_node_timing = time.time()
+        try:
+            with ConnectionTimeout(self.app.conn_timeout):
+                conn = http_connect(
+                    node['ip'], node['port'], node['device'],
+                    self.partition, self.req_method, self.path,
+                    headers=self.backend_headers,
+                    query_string=self.req_query_string)
+            self.app.set_node_timing(node, time.time() - start_node_timing)
+
+            with Timeout(node_timeout):
+                possible_source = conn.getresponse()
+                # See NOTE: swift_conn at top of file about this.
+                possible_source.swift_conn = conn
+        except (Exception, Timeout):
+            self.app.exception_occurred(
+                node, self.server_type,
+                _('Trying to %(method)s %(path)s') %
+                {'method': self.req_method, 'path': self.req_path})
+            return False
+        if self.is_good_source(possible_source):
+            # 404 if we know we don't have a synced copy
+            if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
+                self.statuses.append(HTTP_NOT_FOUND)
+                self.reasons.append('')
+                self.bodies.append('')
+                self.source_headers.append([])
+                close_swift_conn(possible_source)
+            else:
+                if self.used_source_etag:
+                    src_headers = dict(
+                        (k.lower(), v) for k, v in
+                        possible_source.getheaders())
+
+                    if self.used_source_etag != src_headers.get(
+                            'x-object-sysmeta-ec-etag',
+                            src_headers.get('etag', '')).strip('"'):
+                        self.statuses.append(HTTP_NOT_FOUND)
+                        self.reasons.append('')
+                        self.bodies.append('')
+                        self.source_headers.append([])
+                        return False
+
+                self.statuses.append(possible_source.status)
+                self.reasons.append(possible_source.reason)
+                self.bodies.append(None)
+                self.source_headers.append(possible_source.getheaders())
+                self.sources.append((possible_source, node))
+                if not self.newest:  # one good source is enough
+                    return True
+        else:
+            self.statuses.append(possible_source.status)
+            self.reasons.append(possible_source.reason)
+            self.bodies.append(possible_source.read())
+            self.source_headers.append(possible_source.getheaders())
+            if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
+                self.app.error_limit(node, _('ERROR Insufficient Storage'))
+            elif is_server_error(possible_source.status):
+                self.app.error_occurred(
+                    node, _('ERROR %(status)d %(body)s '
+                            'From %(type)s Server') %
+                    {'status': possible_source.status,
+                     'body': self.bodies[-1][:1024],
+                     'type': self.server_type})
+        return False
+
     def _get_source_and_node(self):
         self.statuses = []
         self.reasons = []
         self.bodies = []
         self.source_headers = []
-        sources = []
+        self.sources = []
+
+        nodes = GreenthreadSafeIterator(self.node_iter)
 
         node_timeout = self.app.node_timeout
         if self.server_type == 'Object' and not self.newest:
             node_timeout = self.app.recoverable_node_timeout
-        for node in self.node_iter:
-            if node in self.used_nodes:
-                continue
-            start_node_timing = time.time()
-            try:
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(
-                        node['ip'], node['port'], node['device'],
-                        self.partition, self.req_method, self.path,
-                        headers=self.backend_headers,
-                        query_string=self.req_query_string)
-                self.app.set_node_timing(node, time.time() - start_node_timing)
 
-                with Timeout(node_timeout):
-                    possible_source = conn.getresponse()
-                    # See NOTE: swift_conn at top of file about this.
-                    possible_source.swift_conn = conn
-            except (Exception, Timeout):
-                self.app.exception_occurred(
-                    node, self.server_type,
-                    _('Trying to %(method)s %(path)s') %
-                    {'method': self.req_method, 'path': self.req_path})
-                continue
-            if self.is_good_source(possible_source):
-                # 404 if we know we don't have a synced copy
-                if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                    self.statuses.append(HTTP_NOT_FOUND)
-                    self.reasons.append('')
-                    self.bodies.append('')
-                    self.source_headers.append([])
-                    close_swift_conn(possible_source)
-                else:
-                    if self.used_source_etag:
-                        src_headers = dict(
-                            (k.lower(), v) for k, v in
-                            possible_source.getheaders())
+        pile = GreenAsyncPile(self.concurrency)
 
-                        if self.used_source_etag != src_headers.get(
-                                'x-object-sysmeta-ec-etag',
-                                src_headers.get('etag', '')).strip('"'):
-                            self.statuses.append(HTTP_NOT_FOUND)
-                            self.reasons.append('')
-                            self.bodies.append('')
-                            self.source_headers.append([])
-                            continue
+        for node in nodes:
+            pile.spawn(self._make_node_request, node, node_timeout,
+                       self.app.logger.thread_locals)
+            _timeout = self.app.concurrency_timeout \
+                if pile.inflight < self.concurrency else None
+            if pile.waitfirst(_timeout):
+                break
+        else:
+            # ran out of nodes, see if any stragglers will finish
+            any(pile)
 
-                    self.statuses.append(possible_source.status)
-                    self.reasons.append(possible_source.reason)
-                    self.bodies.append(None)
-                    self.source_headers.append(possible_source.getheaders())
-                    sources.append((possible_source, node))
-                    if not self.newest:  # one good source is enough
-                        break
-            else:
-                self.statuses.append(possible_source.status)
-                self.reasons.append(possible_source.reason)
-                self.bodies.append(possible_source.read())
-                self.source_headers.append(possible_source.getheaders())
-                if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
-                elif is_server_error(possible_source.status):
-                    self.app.error_occurred(
-                        node, _('ERROR %(status)d %(body)s '
-                                'From %(type)s Server') %
-                        {'status': possible_source.status,
-                         'body': self.bodies[-1][:1024],
-                         'type': self.server_type})
-
-        if sources:
-            sources.sort(key=lambda s: source_key(s[0]))
-            source, node = sources.pop()
-            for src, _junk in sources:
+        if self.sources:
+            self.sources.sort(key=lambda s: source_key(s[0]))
+            source, node = self.sources.pop()
+            for src, _junk in self.sources:
                 close_swift_conn(src)
             self.used_nodes.append(node)
             src_headers = dict(
                 (k.lower(), v) for k, v in
-                possible_source.getheaders())
+                source.getheaders())
 
             # Save off the source etag so that, if we lose the connection
             # and have to resume from a different node, we can be sure that
@@ -1322,8 +1446,14 @@ class Controller(object):
             env = getattr(req, 'environ', {})
         else:
             env = {}
-        info = get_info(self.app, env, account)
-        if not info:
+        env.setdefault('swift.infocache', {})
+        path_env = env.copy()
+        path_env['PATH_INFO'] = "/v1/%s" % (account,)
+
+        info = get_account_info(path_env, self.app)
+        if (not info
+                or not is_success(info['status'])
+                or not info.get('account_really_exists', True)):
             return None, None, None
         if info.get('container_count') is None:
             container_count = 0
@@ -1350,8 +1480,11 @@ class Controller(object):
             env = getattr(req, 'environ', {})
         else:
             env = {}
-        info = get_info(self.app, env, account, container)
-        if not info:
+        env.setdefault('swift.infocache', {})
+        path_env = env.copy()
+        path_env['PATH_INFO'] = "/v1/%s/%s" % (account, container)
+        info = get_container_info(path_env, self.app)
+        if not info or not is_success(info.get('status')):
             info = headers_to_container_info({}, 0)
             info['partition'] = None
             info['nodes'] = None
@@ -1612,7 +1745,7 @@ class Controller(object):
             self.app.logger.warning('Could not autocreate account %r' % path)
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
-                       client_chunk_size=None):
+                       concurrency=1, client_chunk_size=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
@@ -1621,6 +1754,7 @@ class Controller(object):
         :param node_iter: an iterator to obtain nodes from
         :param partition: partition
         :param path: path for the request
+        :param concurrency: number of requests to run concurrently
         :param client_chunk_size: chunk size for response body iterator
         :returns: swob.Response object
         """
@@ -1629,6 +1763,7 @@ class Controller(object):
 
         handler = GetOrHeadHandler(self.app, req, self.server_type, node_iter,
                                    partition, path, backend_headers,
+                                   concurrency,
                                    client_chunk_size=client_chunk_size)
         res = handler.get_working_response(req)
 
@@ -1637,17 +1772,7 @@ class Controller(object):
                 req, handler.statuses, handler.reasons, handler.bodies,
                 '%s %s' % (server_type, req.method),
                 headers=handler.source_headers)
-        try:
-            (vrs, account, container) = req.split_path(2, 3)
-            _set_info_cache(self.app, req.environ, account, container, res)
-        except ValueError:
-            pass
-        try:
-            (vrs, account, container, obj) = req.split_path(4, 4, True)
-            _set_object_info_cache(self.app, req.environ, account,
-                                   container, obj, res)
-        except ValueError:
-            pass
+
         # if a backend policy index is present in resp headers, translate it
         # here with the friendly policy name
         if 'X-Backend-Storage-Policy-Index' in res.headers and \
@@ -1662,6 +1787,7 @@ class Controller(object):
                     'Could not translate %s (%r) from %r to policy',
                     'X-Backend-Storage-Policy-Index',
                     res.headers['X-Backend-Storage-Policy-Index'], path)
+
         return res
 
     def is_origin_allowed(self, cors_info, origin):

@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import Counter
 import numbers
 from six.moves import urllib
 import unittest
@@ -29,9 +30,10 @@ from eventlet import sleep
 from mock import patch, call
 from test.unit.common.middleware.helpers import FakeSwift
 from swift.common import utils, constraints
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import bulk
 from swift.common.swob import Request, Response, HTTPException, \
-    HTTPNoContent, HTTPCreated, HeaderKeyDict
+    HTTPNoContent, HTTPCreated
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 
 
@@ -610,10 +612,11 @@ class TestUntar(unittest.TestCase):
 
 
 class TestDelete(unittest.TestCase):
+    conf = {'delete_concurrency': 1}  # default to old single-threaded behavior
 
     def setUp(self):
         self.app = FakeApp()
-        self.bulk = bulk.filter_factory({})(self.app)
+        self.bulk = bulk.filter_factory(self.conf)(self.app)
 
     def tearDown(self):
         self.app.calls = 0
@@ -728,10 +731,10 @@ class TestDelete(unittest.TestCase):
         req.method = 'POST'
         resp_body = self.handle_delete_and_iter(req)
         self.assertEqual(
-            self.app.delete_paths,
-            ['/delete_works/AUTH_Acc/c/f',
-             '/delete_works/AUTH_Acc/c/f404',
-             '/delete_works/AUTH_Acc/c/%25'])
+            Counter(self.app.delete_paths),
+            Counter(['/delete_works/AUTH_Acc/c/f',
+                     '/delete_works/AUTH_Acc/c/f404',
+                     '/delete_works/AUTH_Acc/c/%25']))
         self.assertEqual(self.app.calls, 3)
         resp_data = utils.json.loads(resp_body)
         self.assertEqual(resp_data['Number Deleted'], 2)
@@ -755,19 +758,20 @@ class TestDelete(unittest.TestCase):
         req.method = 'POST'
         resp_body = self.handle_delete_and_iter(req)
         self.assertEqual(
-            self.app.delete_paths,
-            ['/delete_works/AUTH_Acc/c/ obj \xe2\x99\xa1',
-             '/delete_works/AUTH_Acc/c/ objbadutf8'])
+            Counter(self.app.delete_paths),
+            Counter(['/delete_works/AUTH_Acc/c/ obj \xe2\x99\xa1',
+                     '/delete_works/AUTH_Acc/c/ objbadutf8']))
 
         self.assertEqual(self.app.calls, 2)
         resp_data = utils.json.loads(resp_body)
         self.assertEqual(resp_data['Number Deleted'], 1)
         self.assertEqual(len(resp_data['Errors']), 2)
-        self.assertEqual(resp_data['Errors'],
-                         [[urllib.parse.quote('c/ objbadutf8'),
-                           '412 Precondition Failed'],
-                          [urllib.parse.quote('/c/f\xdebadutf8'),
-                           '412 Precondition Failed']])
+        self.assertEqual(
+            Counter(map(tuple, resp_data['Errors'])),
+            Counter([(urllib.parse.quote('c/ objbadutf8'),
+                      '412 Precondition Failed'),
+                     (urllib.parse.quote('/c/f\xdebadutf8'),
+                      '412 Precondition Failed')]))
 
     def test_bulk_delete_no_body(self):
         req = Request.blank('/unauth/AUTH_acc/')
@@ -797,8 +801,9 @@ class TestDelete(unittest.TestCase):
         resp_body = self.handle_delete_and_iter(req)
         resp_data = utils.json.loads(resp_body)
         self.assertEqual(
-            resp_data['Errors'],
-            [['/c/f', '500 Internal Error'], ['c/f2', '500 Internal Error']])
+            Counter(map(tuple, resp_data['Errors'])),
+            Counter([('/c/f', '500 Internal Error'),
+                     ('c/f2', '500 Internal Error')]))
         self.assertEqual(resp_data['Response Status'], '502 Bad Gateway')
 
     def test_bulk_delete_bad_path(self):
@@ -878,19 +883,91 @@ class TestDelete(unittest.TestCase):
         self.assertTrue('400 Bad Request' in resp_body)
 
     def test_bulk_delete_max_failures(self):
-        req = Request.blank('/unauth/AUTH_Acc', body='/c/f1\n/c/f2\n/c/f3',
+        body = '\n'.join([
+            '/c/f1', '/c/f2', '/c/f3', '/c/f4', '/c/f5', '/c/f6',
+        ])
+        req = Request.blank('/unauth/AUTH_Acc', body=body,
                             headers={'Accept': 'application/json'})
         req.method = 'POST'
         with patch.object(self.bulk, 'max_failed_deletes', 2):
             resp_body = self.handle_delete_and_iter(req)
-            self.assertEqual(self.app.calls, 2)
+            # We know there should be at least max_failed_deletes, but there
+            # may be more as we clean up in-progress requests.
+            self.assertGreaterEqual(self.app.calls,
+                                    self.bulk.max_failed_deletes)
+            # As we're pulling things off the pile, we:
+            #   - get delete result,
+            #   - process the result,
+            #   - check max_failed_deletes,
+            #   - spawn another delete, repeat.
+            # As a result, we know our app calls should be *strictly* less.
+            # Note this means that when delete_concurrency is one,
+            # self.app.calls will exactly equal self.bulk.max_failed_deletes.
+            self.assertLess(self.app.calls,
+                            self.bulk.max_failed_deletes +
+                            self.bulk.delete_concurrency)
             resp_data = utils.json.loads(resp_body)
             self.assertEqual(resp_data['Response Status'], '400 Bad Request')
             self.assertEqual(resp_data['Response Body'],
                              'Max delete failures exceeded')
-            self.assertEqual(resp_data['Errors'],
-                             [['/c/f1', '401 Unauthorized'],
-                              ['/c/f2', '401 Unauthorized']])
+            self.assertIn(['/c/f1', '401 Unauthorized'], resp_data['Errors'])
+            self.assertIn(['/c/f2', '401 Unauthorized'], resp_data['Errors'])
+
+
+class TestConcurrentDelete(TestDelete):
+    conf = {'delete_concurrency': 3}
+
+    def test_concurrency_set(self):
+        self.assertEqual(self.bulk.delete_concurrency, 3)
+
+
+class TestConfig(unittest.TestCase):
+    def test_defaults(self):
+        expected_defaults = {
+            'delete_concurrency': 2,
+            'max_containers': 10000,
+            'max_deletes_per_request': 10000,
+            'max_failed_deletes': 1000,
+            'max_failed_extractions': 1000,
+            'retry_count': 0,
+            'retry_interval': 1.5,
+            'yield_frequency': 10,
+        }
+
+        filter_app = bulk.filter_factory({})(FakeApp())
+        self.assertEqual(expected_defaults, {k: getattr(filter_app, k)
+                                             for k in expected_defaults})
+
+        filter_app = bulk.Bulk(FakeApp(), None)
+        self.assertEqual(expected_defaults, {k: getattr(filter_app, k)
+                                             for k in expected_defaults})
+
+    def test_delete_concurrency(self):
+        # Must be an integer
+        conf = {'delete_concurrency': '1.5'}
+        self.assertRaises(ValueError, bulk.filter_factory, conf)
+
+        conf = {'delete_concurrency': 'asdf'}
+        self.assertRaises(ValueError, bulk.filter_factory, conf)
+
+        # Will be at least one
+        conf = {'delete_concurrency': '-1'}
+        filter_app = bulk.filter_factory(conf)(FakeApp())
+        self.assertEqual(1, filter_app.delete_concurrency)
+
+        conf = {'delete_concurrency': '0'}
+        filter_app = bulk.filter_factory(conf)(FakeApp())
+        self.assertEqual(1, filter_app.delete_concurrency)
+
+        # But if you want to set it stupid-high, we won't stop you
+        conf = {'delete_concurrency': '1000'}
+        filter_app = bulk.filter_factory(conf)(FakeApp())
+        self.assertEqual(1000, filter_app.delete_concurrency)
+
+        # ...unless it's extra-stupid-high, in which case we cap it
+        conf = {'delete_concurrency': '1001'}
+        filter_app = bulk.filter_factory(conf)(FakeApp())
+        self.assertEqual(1000, filter_app.delete_concurrency)
 
 
 class TestSwiftInfo(unittest.TestCase):

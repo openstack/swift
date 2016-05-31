@@ -79,12 +79,12 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
 # covered further below in the filter sections for authtoken and keystoneauth.
-#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -129,12 +129,6 @@ use = egg:swift#proxy
 # 'false' no one, even authorized, can.
 # allow_account_management = false
 #
-# Set object_post_as_copy = false to turn on fast posts where only the metadata
-# changes are stored anew and the original data file is kept in place. This
-# makes for quicker posts; but since the container metadata isn't updated in
-# this mode, features like container sync won't be able to sync posts.
-# object_post_as_copy = true
-#
 # If set to 'true' authorized accounts that do not yet exist within the Swift
 # cluster will be automatically created.
 # account_autocreate = false
@@ -164,12 +158,27 @@ use = egg:swift#proxy
 # using affinity allows for finer control. In both the timing and
 # affinity cases, equally-sorting nodes are still randomly chosen to
 # spread load.
-# The valid values for sorting_method are "affinity", "shuffle", and "timing".
+# The valid values for sorting_method are "affinity", "shuffle", or "timing".
 # sorting_method = shuffle
 #
 # If the "timing" sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
+#
+# By default on a GET/HEAD swift will connect to a storage node one at a time
+# in a single thread. There is smarts in the order they are hit however. If you
+# turn on concurrent_gets below, then replica count threads will be used.
+# With addition of the concurrency_timeout option this will allow swift to send
+# out GET/HEAD requests to the storage nodes concurrently and answer with the
+# first to respond. With an EC policy the parameter only affects HEAD requests.
+# concurrent_gets = off
+#
+# This parameter controls how long to wait before firing off the next
+# concurrent_get thread. A value of 0 would be fully concurrent, any other
+# number will stagger the firing of the threads. This number should be
+# between 0 and node_timeout. The default is what ever you set for the
+# conn_timeout parameter.
+# concurrency_timeout = 0.5
 #
 # Set to the number of nodes to contact for a normal request. You can use
 # '* replicas' at the end to have it use the number given times the number of
@@ -341,12 +350,6 @@ user_test5_tester5 = testing5 service
 # you're not going to use such middleware and you want a bit of extra security,
 # you can set this to false.
 # allow_overrides = true
-#
-# If is_admin is true, a user whose username is the same as the project name
-# and who has any role on the project will have access rights elevated to be
-# the same as if the user had an operator role. Note that the condition
-# compares names rather than UUIDs. This option is deprecated.
-# is_admin = false
 #
 # If the service_roles parameter is present, an X-Service-Token must be
 # present in the request that when validated, grants at least one role listed
@@ -615,19 +618,23 @@ use = egg:swift#bulk
 # max_failed_extractions = 1000
 # max_deletes_per_request = 10000
 # max_failed_deletes = 1000
-
+#
 # In order to keep a connection active during a potentially long bulk request,
 # Swift may return whitespace prepended to the actual response body. This
 # whitespace will be yielded no more than every yield_frequency seconds.
 # yield_frequency = 10
-
+#
 # Note: The following parameter is used during a bulk delete of objects and
 # their container. This would frequently fail because it is very likely
 # that all replicated objects have not been deleted by the time the middleware got a
 # successful response. It can be configured the number of retries. And the
 # number of seconds to wait between each retry will be 1.5**retry
-
 # delete_container_retry_count = 0
+#
+# To speed up the bulk delete process, multiple deletes may be executed in
+# parallel. Avoid setting this too high, as it gives clients a force multiplier
+# which may be used in DoS attacks. The suggested range is between 2 and 10.
+# delete_concurrency = 2
 
 # Note: Put after auth and staticweb in the pipeline.
 [filter:slo]
@@ -648,6 +655,12 @@ use = egg:swift#slo
 #
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
+#
+# When deleting with ?multipart-manifest=delete, multiple deletes may be
+# executed in parallel. Avoid setting this too high, as it gives clients a
+# force multiplier which may be used in DoS attacks. The suggested range is
+# between 2 and 10.
+# delete_concurrency = 2
 
 # Note: Put after auth and staticweb in the pipeline.
 # If you don't put it in the pipeline, it will be inserted for you.
@@ -674,6 +687,12 @@ use = egg:swift#account_quotas
 
 [filter:gatekeeper]
 use = egg:swift#gatekeeper
+# Set this to false if you want to allow clients to set arbitrary X-Timestamps
+# on uploaded objects. This may be used to preserve timestamps when migrating
+# from a previous storage system, but risks allowing users to upload
+# difficult-to-delete data.
+# shunt_inbound_x_timestamp = true
+#
 # You can override the default log routing for this filter here:
 # set log_name = gatekeeper
 # set log_facility = LOG_LOCAL0
@@ -735,3 +754,14 @@ use = egg:swift#versioned_writes
 # in the container configuration file, which will be eventually
 # deprecated. See documentation for more details.
 # allow_versioned_writes = false
+
+# Note: Put after auth and before dlo and slo middlewares.
+# If you don't put it in the pipeline, it will be inserted for you.
+[filter:copy]
+use = egg:swift#copy
+# Set object_post_as_copy = false to turn on fast posts where only the metadata
+# changes are stored anew and the original data file is kept in place. This
+# makes for quicker posts.
+# When object_post_as_copy is set to True, a POST request will be transformed
+# into a COPY request where source and destination objects are the same.
+# object_post_as_copy = true

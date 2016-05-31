@@ -50,6 +50,7 @@ from six import BytesIO
 from six import StringIO
 from six.moves import urllib
 
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
     close_if_possible
 from swift.common.exceptions import InvalidTimestamp
@@ -271,53 +272,6 @@ class HeaderEnvironProxy(MutableMapping):
         return keys
 
 
-class HeaderKeyDict(dict):
-    """
-    A dict that title-cases all keys on the way in, so as to be
-    case-insensitive.
-    """
-    def __init__(self, base_headers=None, **kwargs):
-        if base_headers:
-            self.update(base_headers)
-        self.update(kwargs)
-
-    def update(self, other):
-        if hasattr(other, 'keys'):
-            for key in other.keys():
-                self[key.title()] = other[key]
-        else:
-            for key, value in other:
-                self[key.title()] = value
-
-    def __getitem__(self, key):
-        return dict.get(self, key.title())
-
-    def __setitem__(self, key, value):
-        if value is None:
-            self.pop(key.title(), None)
-        elif isinstance(value, six.text_type):
-            return dict.__setitem__(self, key.title(), value.encode('utf-8'))
-        else:
-            return dict.__setitem__(self, key.title(), str(value))
-
-    def __contains__(self, key):
-        return dict.__contains__(self, key.title())
-
-    def __delitem__(self, key):
-        return dict.__delitem__(self, key.title())
-
-    def get(self, key, default=None):
-        return dict.get(self, key.title(), default)
-
-    def setdefault(self, key, value=None):
-        if key not in self:
-            self[key] = value
-        return self[key]
-
-    def pop(self, key, default=None):
-        return dict.pop(self, key.title(), default)
-
-
 def _resp_status_property():
     """
     Set and retrieve the value of Response.status
@@ -532,7 +486,9 @@ class Range(object):
                 # when end contains non numeric value, this also causes
                 # ValueError
                 end = int(end)
-                if start is not None and end < start:
+                if end < 0:
+                    raise ValueError('Invalid Range header: %s' % headerval)
+                elif start is not None and end < start:
                     raise ValueError('Invalid Range header: %s' % headerval)
             else:
                 end = None
@@ -932,6 +888,11 @@ class Request(object):
         return self._params_cache
     str_params = params
 
+    @params.setter
+    def params(self, param_pairs):
+        self._params_cache = None
+        self.query_string = urllib.parse.urlencode(param_pairs)
+
     @property
     def timestamp(self):
         """
@@ -1125,6 +1086,7 @@ class Response(object):
     content_range = _header_property('content-range')
     etag = _resp_etag_property()
     status = _resp_status_property()
+    status_int = None
     body = _resp_body_property()
     host_url = _host_url_property()
     last_modified = _datetime_property('last-modified')
@@ -1345,7 +1307,7 @@ class Response(object):
         object length and body or app_iter to reset the content_length
         properties on the request.
 
-        It is ok to not call this method, the conditional resposne will be
+        It is ok to not call this method, the conditional response will be
         maintained for you when you __call__ the response.
         """
         self.response_iter = self._response_iter(self.app_iter, self._body)

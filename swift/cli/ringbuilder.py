@@ -722,7 +722,7 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
 
 or
 
-swift-ring-builder <builder_file> search
+swift-ring-builder <builder_file> remove
     --region <region> --zone <zone> --ip <ip or hostname> --port <port>
     --replication-ip <r_ip or r_hostname> --replication-port <r_port>
     --device <device_name> --meta <meta> --weight <weight>
@@ -1183,7 +1183,7 @@ swift-ring-builder <builder_file> set_overload <overload>[%]
 
 def main(arguments=None):
     global argv, backup_dir, builder, builder_file, ring_file
-    if arguments:
+    if arguments is not None:
         argv = arguments
     else:
         argv = sys_argv

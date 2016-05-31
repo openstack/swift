@@ -187,6 +187,15 @@ Recon
     :members:
     :show-inheritance:
 
+.. _copy:
+
+Server Side Copy
+================
+
+.. automodule:: swift.common.middleware.copy
+    :members:
+    :show-inheritance:
+
 Static Large Objects
 ====================
 
