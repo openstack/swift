@@ -64,7 +64,7 @@ needs to interact with the rings manually.
 .IP "\fB<search-value>\fR"
 .RS 5
 .IP "Can be of the form:"
-.IP "d<device_id>z<zone>-<ip>:<port>/<device_name>_<meta>"
+.IP "d<device_id>r<region>z<zone>-<ip>:<port>/<device_name>_<meta>"
 
 .IP "Any part is optional, but you must include at least one, examples:"
 
@@ -73,6 +73,7 @@ needs to interact with the rings manually.
 .IP "z1               Matches devices in zone 1"
 .IP "z1-1.2.3.4       Matches devices in zone 1 with the ip 1.2.3.4"
 .IP "1.2.3.4          Matches devices in any zone with the ip 1.2.3.4"
+.IP "r1z1:5678        Matches devices in zone 1 present in region 1 using port 5678"
 .IP "z1:5678          Matches devices in zone 1 using port 5678"
 .IP ":5678            Matches devices that use port 5678"
 .IP "/sdb1            Matches devices with the device name sdb1"
