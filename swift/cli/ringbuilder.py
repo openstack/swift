@@ -181,7 +181,7 @@ def _parse_add_values(argvish):
     return parsed_devs
 
 
-def _set_weight_values(devs, weight):
+def _set_weight_values(devs, weight, opts):
     if not devs:
         print('Search value matched 0 devices.\n'
               'The on-disk ring builder is unchanged.')
@@ -191,8 +191,9 @@ def _set_weight_values(devs, weight):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if input('Are you sure you want to update the weight for '
-                 'these %s devices? (y/N) ' % len(devs)) != 'y':
+        if not opts.yes and \
+                input('Are you sure you want to update the weight for '
+                      'these %s devices? (y/N) ' % len(devs)) != 'y':
             print('Aborting device modifications')
             exit(EXIT_ERROR)
 
@@ -222,7 +223,7 @@ def _parse_set_weight_values(argvish):
                 devs.extend(builder.search_devs(
                     parse_search_value(devstr)) or [])
                 weight = float(weightstr)
-                _set_weight_values(devs, weight)
+                _set_weight_values(devs, weight, opts)
         else:
             if len(args) != 1:
                 print(Commands.set_weight.__doc__.strip())
@@ -231,13 +232,13 @@ def _parse_set_weight_values(argvish):
             devs.extend(builder.search_devs(
                 parse_search_values_from_opts(opts)) or [])
             weight = float(args[0])
-            _set_weight_values(devs, weight)
+            _set_weight_values(devs, weight, opts)
     except ValueError as e:
         print(e)
         exit(EXIT_ERROR)
 
 
-def _set_info_values(devs, change):
+def _set_info_values(devs, change, opts):
 
     if not devs:
         print("Search value matched 0 devices.\n"
@@ -248,8 +249,9 @@ def _set_info_values(devs, change):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if input('Are you sure you want to update the info for '
-                 'these %s devices? (y/N) ' % len(devs)) != 'y':
+        if not opts.yes and \
+                input('Are you sure you want to update the info for '
+                      'these %s devices? (y/N) ' % len(devs)) != 'y':
             print('Aborting device modifications')
             exit(EXIT_ERROR)
 
@@ -354,11 +356,11 @@ def _parse_set_info_values(argvish):
             if change_value or not change:
                 raise ValueError('Invalid set info change value: %s' %
                                  repr(argvish[1]))
-            _set_info_values(devs, change)
+            _set_info_values(devs, change, opts)
     else:
         devs = builder.search_devs(parse_search_values_from_opts(opts))
         change = parse_change_values_from_opts(opts)
-        _set_info_values(devs, change)
+        _set_info_values(devs, change, opts)
 
 
 def _parse_remove_values(argvish):
@@ -382,7 +384,7 @@ def _parse_remove_values(argvish):
             devs.extend(builder.search_devs(
                 parse_search_values_from_opts(opts)))
 
-        return devs
+        return (devs, opts)
     except ValueError as e:
         print(e)
         exit(EXIT_ERROR)
@@ -641,6 +643,7 @@ swift-ring-builder <builder_file> add
         """
 swift-ring-builder <builder_file> set_weight <search-value> <weight>
     [<search-value> <weight] ...
+    [--yes]
 
 or
 
@@ -648,6 +651,7 @@ swift-ring-builder <builder_file> set_weight
     --region <region> --zone <zone> --ip <ip or hostname> --port <port>
     --replication-ip <r_ip or r_hostname> --replication-port <r_port>
     --device <device_name> --meta <meta> --weight <weight>
+    [--yes]
 
     Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
     and port.
@@ -656,6 +660,8 @@ swift-ring-builder <builder_file> set_weight
     Resets the devices' weights. No partitions will be reassigned to or from
     the device until after running 'rebalance'. This is so you can make
     multiple device changes and rebalance them all just once.
+
+    Option --yes assume a yes response to all questions.
         """
         # if len(argv) < 5 or len(argv) % 2 != 1:
         if len(argv) < 5:
@@ -675,6 +681,7 @@ swift-ring-builder <builder_file> set_weight
 swift-ring-builder <builder_file> set_info
     <search-value> <ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>
     [<search-value> <ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>] ...
+    [--yes]
 
 or
 
@@ -687,6 +694,7 @@ swift-ring-builder <builder_file> set_info
     --change-replication-port <r_port>
     --change-device <device_name>
     --change-meta <meta>
+    [--yes]
 
     Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
     and port.
@@ -699,6 +707,8 @@ swift-ring-builder <builder_file> set_info
     <ip>:<port>/<device_name>_<meta> parameter; just give what you
     want to change. For instance set_info d74 _"snet: 5.6.7.8" would
     just update the meta data for device id 74.
+
+    Option --yes assume a yes response to all questions.
         """
         if len(argv) < 5:
             print(Commands.set_info.__doc__.strip())
@@ -719,6 +729,7 @@ swift-ring-builder <builder_file> set_info
     def remove():
         """
 swift-ring-builder <builder_file> remove <search-value> [search-value ...]
+    [--yes]
 
 or
 
@@ -726,6 +737,7 @@ swift-ring-builder <builder_file> remove
     --region <region> --zone <zone> --ip <ip or hostname> --port <port>
     --replication-ip <r_ip or r_hostname> --replication-port <r_port>
     --device <device_name> --meta <meta> --weight <weight>
+    [--yes]
 
     Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
     and port.
@@ -737,6 +749,8 @@ swift-ring-builder <builder_file> remove
     remove command. This will not take effect until after running 'rebalance'.
     This is so you can make multiple device changes and rebalance them all just
     once.
+
+    Option --yes assume a yes response to all questions.
         """
         if len(argv) < 4:
             print(Commands.remove.__doc__.strip())
@@ -744,7 +758,7 @@ swift-ring-builder <builder_file> remove
             print(parse_search_value.__doc__.strip())
             exit(EXIT_ERROR)
 
-        devs = _parse_remove_values(argv[3:])
+        devs, opts = _parse_remove_values(argv[3:])
 
         if not devs:
             print('Search value matched 0 devices.\n'
@@ -755,8 +769,9 @@ swift-ring-builder <builder_file> remove
             print('Matched more than one device:')
             for dev in devs:
                 print('    %s' % format_device(dev))
-            if input('Are you sure you want to remove these %s '
-                     'devices? (y/N) ' % len(devs)) != 'y':
+            if not opts.yes and \
+                    input('Are you sure you want to remove these %s '
+                          'devices? (y/N) ' % len(devs)) != 'y':
                 print('Aborting device removals')
                 exit(EXIT_ERROR)
 
