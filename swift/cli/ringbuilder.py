@@ -722,7 +722,7 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
 
 or
 
-swift-ring-builder <builder_file> search
+swift-ring-builder <builder_file> remove
     --region <region> --zone <zone> --ip <ip or hostname> --port <port>
     --replication-ip <r_ip or r_hostname> --replication-port <r_port>
     --device <device_name> --meta <meta> --weight <weight>
