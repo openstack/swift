@@ -142,7 +142,7 @@ class EncInputWrapper(object):
                 # crypto parameters appended.
                 val = append_crypto_meta(*encrypt_header_val(
                     self.crypto, container_listing_etag,
-                    self.keys['container']))
+                    self.keys['container'], iv_base=self.path))
                 footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
                     val
 

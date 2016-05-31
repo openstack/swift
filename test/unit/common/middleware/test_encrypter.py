@@ -105,7 +105,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(2, len(parts))
         cont_key = fetch_crypto_keys()['container']
         actual = base64.b64decode(parts[0])
-        self.assertEqual(encrypt(plaintext_etag, cont_key, FAKE_IV), actual)
+        self.assertEqual(encrypt(plaintext_etag, cont_key, etag_iv), actual)
 
         # extract crypto_meta from end of etag for container update
         param = parts[1].strip()
@@ -113,7 +113,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
-        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
         # content-type is not encrypted
         self.assertEqual('text/plain', req_hdrs['Content-Type'])
@@ -272,7 +272,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(2, len(parts))
         cont_key = fetch_crypto_keys()['container']
         actual = base64.b64decode(parts[0])
-        self.assertEqual(encrypt('final etag', cont_key, FAKE_IV), actual)
+        self.assertEqual(encrypt('final etag', cont_key, etag_iv), actual)
 
         # extract crypto_meta from end of etag for container update
         param = parts[1].strip()
@@ -280,7 +280,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
-        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
         # verify body crypto meta
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta']
@@ -324,7 +324,8 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(2, len(parts))
         cont_key = fetch_crypto_keys()['container']
         actual = base64.b64decode(parts[0])
-        self.assertEqual(encrypt('final etag', cont_key, FAKE_IV), actual)
+        etag_iv = Crypto().create_iv(iv_base=req.path)
+        self.assertEqual(encrypt('final etag', cont_key, etag_iv), actual)
 
         # extract crypto_meta from end of etag for container update
         param = parts[1].strip()
@@ -332,7 +333,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertTrue(param.startswith(crypto_meta_tag), param)
         actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
-        self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
 
     def test_PUT_with_bad_etag_in_other_footers(self):
         # verify that etag supplied in footers from other middleware overrides
