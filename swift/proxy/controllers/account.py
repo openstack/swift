@@ -24,7 +24,8 @@ from swift.common.utils import public
 from swift.common.constraints import check_metadata
 from swift.common import constraints
 from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
-from swift.proxy.controllers.base import Controller, clear_info_cache
+from swift.proxy.controllers.base import Controller, clear_info_cache, \
+    set_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 from swift.common.request_helpers import get_sys_meta_prefix
 
@@ -57,19 +58,44 @@ class AccountController(Controller):
             resp.body = 'Account name length of %d longer than %d' % \
                         (len(self.account_name),
                          constraints.MAX_ACCOUNT_NAME_LENGTH)
+            # Don't cache this. We know the account doesn't exist because
+            # the name is bad; we don't need to cache that because it's
+            # really cheap to recompute.
             return resp
 
         partition = self.app.account_ring.get_part(self.account_name)
+        concurrency = self.app.account_ring.replica_count \
+            if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.account_ring, partition)
         resp = self.GETorHEAD_base(
             req, _('Account'), node_iter, partition,
-            req.swift_entity_path.rstrip('/'))
+            req.swift_entity_path.rstrip('/'), concurrency)
         if resp.status_int == HTTP_NOT_FOUND:
             if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
                 resp.status = HTTP_GONE
             elif self.app.account_autocreate:
+                # This is kind of a lie; we pretend like the account is
+                # there, but it's not. We'll create it as soon as something
+                # tries to write to it, but we don't need databases on disk
+                # to tell us that nothing's there.
+                #
+                # We set a header so that certain consumers can tell it's a
+                # fake listing. The important one is the PUT of a container
+                # to an autocreate account; the proxy checks to see if the
+                # account exists before actually performing the PUT and
+                # creates the account if necessary. If we feed it a perfect
+                # lie, it'll just try to create the container without
+                # creating the account, and that'll fail.
                 resp = account_listing_response(self.account_name, req,
                                                 get_listing_content_type(req))
+                resp.headers['X-Backend-Fake-Account-Listing'] = 'yes'
+
+        # Cache this. We just made a request to a storage node and got
+        # up-to-date information for the account.
+        resp.headers['X-Backend-Recheck-Account-Existence'] = str(
+            self.app.recheck_account_existence)
+        set_info_cache(self.app, req.environ, self.account_name, None, resp)
+
         if req.environ.get('swift_owner'):
             self.add_acls_from_sys_metadata(resp)
         else:

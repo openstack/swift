@@ -33,19 +33,22 @@ from swift.common.exceptions import ClientException
 from swift.common.utils import Timestamp, FileLikeIter
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
-from swift.common.swob import HeaderKeyDict
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import quote
 
 
 class DirectClientException(ClientException):
 
-    def __init__(self, stype, method, node, part, path, resp):
+    def __init__(self, stype, method, node, part, path, resp, host=None):
+        # host can be used to override the node ip and port reported in
+        # the exception
+        host = host if host is not None else node
         full_path = quote('/%s/%s%s' % (node['device'], part, path))
         msg = '%s server %s:%s direct %s %r gave status %s' % (
-            stype, node['ip'], node['port'], method, full_path, resp.status)
+            stype, host['ip'], host['port'], method, full_path, resp.status)
         headers = HeaderKeyDict(resp.getheaders())
         super(DirectClientException, self).__init__(
-            msg, http_host=node['ip'], http_port=node['port'],
+            msg, http_host=host['ip'], http_port=host['port'],
             http_device=node['device'], http_status=resp.status,
             http_reason=resp.reason, http_headers=headers)
 
@@ -482,13 +485,17 @@ def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
 
     path = '/%s' % '-'.join(suffixes)
     with Timeout(conn_timeout):
-        conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'REPLICATE', path, headers=gen_headers(headers))
+        conn = http_connect(node['replication_ip'], node['replication_port'],
+                            node['device'], part, 'REPLICATE', path,
+                            headers=gen_headers(headers))
     with Timeout(response_timeout):
         resp = conn.getresponse()
     if not is_success(resp.status):
         raise DirectClientException('Object', 'REPLICATE',
-                                    node, part, path, resp)
+                                    node, part, path, resp,
+                                    host={'ip': node['replication_ip'],
+                                          'port': node['replication_port']}
+                                    )
     return pickle.loads(resp.read())
 
 

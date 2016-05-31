@@ -51,13 +51,11 @@ For example::
     [filter:container_quotas]
     use = egg:swift#container_quotas
 """
-from swift.common.constraints import check_copy_from_header, \
-    check_account_format, check_destination_header
 from swift.common.http import is_success
 from swift.common.swob import HTTPRequestEntityTooLarge, HTTPBadRequest, \
     wsgify
 from swift.common.utils import register_swift_info
-from swift.proxy.controllers.base import get_container_info, get_object_info
+from swift.proxy.controllers.base import get_container_info
 
 
 class ContainerQuotaMiddleware(object):
@@ -91,25 +89,9 @@ class ContainerQuotaMiddleware(object):
                 return HTTPBadRequest(body='Invalid count quota.')
 
         # check user uploads against quotas
-        elif obj and req.method in ('PUT', 'COPY'):
-            container_info = None
-            if req.method == 'PUT':
-                container_info = get_container_info(
-                    req.environ, self.app, swift_source='CQ')
-            if req.method == 'COPY' and 'Destination' in req.headers:
-                dest_account = account
-                if 'Destination-Account' in req.headers:
-                    dest_account = req.headers.get('Destination-Account')
-                    dest_account = check_account_format(req, dest_account)
-                dest_container, dest_object = check_destination_header(req)
-                path_info = req.environ['PATH_INFO']
-                req.environ['PATH_INFO'] = "/%s/%s/%s/%s" % (
-                    version, dest_account, dest_container, dest_object)
-                try:
-                    container_info = get_container_info(
-                        req.environ, self.app, swift_source='CQ')
-                finally:
-                    req.environ['PATH_INFO'] = path_info
+        elif obj and req.method in ('PUT'):
+            container_info = get_container_info(
+                req.environ, self.app, swift_source='CQ')
             if not container_info or not is_success(container_info['status']):
                 # this will hopefully 404 later
                 return self.app
@@ -118,16 +100,6 @@ class ContainerQuotaMiddleware(object):
                     'bytes' in container_info and \
                     container_info['meta']['quota-bytes'].isdigit():
                 content_length = (req.content_length or 0)
-                if 'x-copy-from' in req.headers or req.method == 'COPY':
-                    if 'x-copy-from' in req.headers:
-                        container, obj = check_copy_from_header(req)
-                    path = '/%s/%s/%s/%s' % (version, account,
-                                             container, obj)
-                    object_info = get_object_info(req.environ, self.app, path)
-                    if not object_info or not object_info['length']:
-                        content_length = 0
-                    else:
-                        content_length = int(object_info['length'])
                 new_size = int(container_info['bytes']) + content_length
                 if int(container_info['meta']['quota-bytes']) < new_size:
                     return self.bad_response(req, container_info)

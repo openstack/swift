@@ -25,7 +25,7 @@
 # collected. We've seen objects hang around forever otherwise.
 
 import six
-from six.moves.urllib.parse import unquote, quote
+from six.moves.urllib.parse import unquote
 
 import collections
 import itertools
@@ -49,43 +49,28 @@ from swift.common.utils import (
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible)
 from swift.common.bufferedhttp import http_connect
-from swift.common.constraints import check_metadata, check_object_creation, \
-    check_copy_from_header, check_destination_header, \
-    check_account_format
+from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ResponseTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
     PutterConnectError, ChunkReadError
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
-    HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
-    HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT,
-    HTTP_UNPROCESSABLE_ENTITY)
+    is_redirection, HTTP_CONTINUE, HTTP_INTERNAL_SERVER_ERROR,
+    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
+    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY,
+    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, ResumingGetter
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
-    HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
+    HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
+    HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
-from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    remove_items, copy_header_subset
-
-
-def copy_headers_into(from_r, to_r):
-    """
-    Will copy desired headers from from_r to to_r
-    :params from_r: a swob Request or Response
-    :params to_r: a swob Request or Response
-    """
-    pass_headers = ['x-delete-at']
-    for k, v in from_r.headers.items():
-        if is_sys_or_user_meta('object', k) or k.lower() in pass_headers:
-            to_r.headers[k] = v
 
 
 def check_content_type(req):
@@ -199,8 +184,7 @@ class BaseObjectController(Controller):
             self.account_name, self.container_name, self.object_name)
         node_iter = self.app.iter_nodes(obj_ring, partition)
 
-        resp = self._reroute(policy)._get_or_head_response(
-            req, node_iter, partition, policy)
+        resp = self._get_or_head_response(req, node_iter, partition, policy)
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(
@@ -226,55 +210,38 @@ class BaseObjectController(Controller):
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
-        if self.app.object_post_as_copy:
-            req.method = 'PUT'
-            req.path_info = '/v1/%s/%s/%s' % (
-                self.account_name, self.container_name, self.object_name)
-            req.headers['Content-Length'] = 0
-            req.headers['X-Copy-From'] = quote('/%s/%s' % (self.container_name,
-                                               self.object_name))
-            req.environ['swift.post_as_copy'] = True
-            req.environ['swift_versioned_copy'] = True
-            resp = self.PUT(req)
-            # Older editions returned 202 Accepted on object POSTs, so we'll
-            # convert any 201 Created responses to that for compatibility with
-            # picky clients.
-            if resp.status_int != HTTP_CREATED:
-                return resp
-            return HTTPAccepted(request=req)
-        else:
-            error_response = check_metadata(req, 'object')
-            if error_response:
-                return error_response
-            container_info = self.container_info(
-                self.account_name, self.container_name, req)
-            container_partition = container_info['partition']
-            containers = container_info['nodes']
-            req.acl = container_info['write_acl']
-            if 'swift.authorize' in req.environ:
-                aresp = req.environ['swift.authorize'](req)
-                if aresp:
-                    return aresp
-            if not containers:
-                return HTTPNotFound(request=req)
+        error_response = check_metadata(req, 'object')
+        if error_response:
+            return error_response
+        container_info = self.container_info(
+            self.account_name, self.container_name, req)
+        container_partition = container_info['partition']
+        containers = container_info['nodes']
+        req.acl = container_info['write_acl']
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
+        if not containers:
+            return HTTPNotFound(request=req)
 
-            req, delete_at_container, delete_at_part, \
-                delete_at_nodes = self._config_obj_expiration(req)
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
 
-            # pass the policy index to storage nodes via req header
-            policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                           container_info['storage_policy'])
-            obj_ring = self.app.get_object_ring(policy_index)
-            req.headers['X-Backend-Storage-Policy-Index'] = policy_index
-            partition, nodes = obj_ring.get_nodes(
-                self.account_name, self.container_name, self.object_name)
+        # pass the policy index to storage nodes via req header
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        partition, nodes = obj_ring.get_nodes(
+            self.account_name, self.container_name, self.object_name)
 
-            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
+        req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
-            headers = self._backend_requests(
-                req, len(nodes), container_partition, containers,
-                delete_at_container, delete_at_part, delete_at_nodes)
-            return self._post_object(req, obj_ring, partition, headers)
+        headers = self._backend_requests(
+            req, len(nodes), container_partition, containers,
+            delete_at_container, delete_at_part, delete_at_nodes)
+        return self._post_object(req, obj_ring, partition, headers)
 
     def _backend_requests(self, req, n_outgoing,
                           container_partition, containers,
@@ -413,133 +380,8 @@ class BaseObjectController(Controller):
 
         return req, delete_at_container, delete_at_part, delete_at_nodes
 
-    def _handle_copy_request(self, req):
-        """
-        This method handles copying objects based on values set in the headers
-        'X-Copy-From' and 'X-Copy-From-Account'
-
-        Note that if the incomming request has some conditional headers (e.g.
-        'Range', 'If-Match'), *source* object will be evaluated for these
-        headers. i.e. if PUT with both 'X-Copy-From' and 'Range', Swift will
-        make a partial copy as a new object.
-
-        This method was added as part of the refactoring of the PUT method and
-        the functionality is expected to be moved to middleware
-        """
-        if req.environ.get('swift.orig_req_method', req.method) != 'POST':
-            req.environ.setdefault('swift.log_info', []).append(
-                'x-copy-from:%s' % req.headers['X-Copy-From'])
-        ver, acct, _rest = req.split_path(2, 3, True)
-        src_account_name = req.headers.get('X-Copy-From-Account', None)
-        if src_account_name:
-            src_account_name = check_account_format(req, src_account_name)
-        else:
-            src_account_name = acct
-        src_container_name, src_obj_name = check_copy_from_header(req)
-        source_header = '/%s/%s/%s/%s' % (
-            ver, src_account_name, src_container_name, src_obj_name)
-        source_req = req.copy_get()
-
-        # make sure the source request uses it's container_info
-        source_req.headers.pop('X-Backend-Storage-Policy-Index', None)
-        source_req.path_info = source_header
-        source_req.headers['X-Newest'] = 'true'
-        if 'swift.post_as_copy' in req.environ:
-            # We're COPYing one object over itself because of a POST; rely on
-            # the PUT for write authorization, don't require read authorization
-            source_req.environ['swift.authorize'] = lambda req: None
-            source_req.environ['swift.authorize_override'] = True
-
-        orig_obj_name = self.object_name
-        orig_container_name = self.container_name
-        orig_account_name = self.account_name
-        sink_req = Request.blank(req.path_info,
-                                 environ=req.environ, headers=req.headers)
-
-        self.object_name = src_obj_name
-        self.container_name = src_container_name
-        self.account_name = src_account_name
-
-        source_resp = self.GET(source_req)
-
-        # This gives middlewares a way to change the source; for example,
-        # this lets you COPY a SLO manifest and have the new object be the
-        # concatenation of the segments (like what a GET request gives
-        # the client), not a copy of the manifest file.
-        hook = req.environ.get(
-            'swift.copy_hook',
-            (lambda source_req, source_resp, sink_req: source_resp))
-        source_resp = hook(source_req, source_resp, sink_req)
-
-        # reset names
-        self.object_name = orig_obj_name
-        self.container_name = orig_container_name
-        self.account_name = orig_account_name
-
-        if source_resp.status_int >= HTTP_MULTIPLE_CHOICES:
-            # this is a bit of ugly code, but I'm willing to live with it
-            # until copy request handling moves to middleware
-            return source_resp, None, None, None
-        if source_resp.content_length is None:
-            # This indicates a transfer-encoding: chunked source object,
-            # which currently only happens because there are more than
-            # CONTAINER_LISTING_LIMIT segments in a segmented object. In
-            # this case, we're going to refuse to do the server-side copy.
-            raise HTTPRequestEntityTooLarge(request=req)
-        if source_resp.content_length > constraints.MAX_FILE_SIZE:
-            raise HTTPRequestEntityTooLarge(request=req)
-
-        data_source = iter(source_resp.app_iter)
-        sink_req.content_length = source_resp.content_length
-        sink_req.etag = source_resp.etag
-
-        # we no longer need the X-Copy-From header
-        del sink_req.headers['X-Copy-From']
-        if 'X-Copy-From-Account' in sink_req.headers:
-            del sink_req.headers['X-Copy-From-Account']
-        if not req.content_type_manually_set:
-            sink_req.headers['Content-Type'] = \
-                source_resp.headers['Content-Type']
-
-        fresh_meta_flag = config_true_value(
-            sink_req.headers.get('x-fresh-metadata', 'false'))
-
-        if fresh_meta_flag or 'swift.post_as_copy' in sink_req.environ:
-            # post-as-copy: ignore new sysmeta, copy existing sysmeta
-            condition = lambda k: is_sys_meta('object', k)
-            remove_items(sink_req.headers, condition)
-            copy_header_subset(source_resp, sink_req, condition)
-        else:
-            # copy/update existing sysmeta and user meta
-            copy_headers_into(source_resp, sink_req)
-            copy_headers_into(req, sink_req)
-
-        # copy over x-static-large-object for POSTs and manifest copies
-        if 'X-Static-Large-Object' in source_resp.headers and \
-                (req.params.get('multipart-manifest') == 'get' or
-                 'swift.post_as_copy' in req.environ):
-            sink_req.headers['X-Static-Large-Object'] = \
-                source_resp.headers['X-Static-Large-Object']
-
-        req = sink_req
-
-        def update_response(req, resp):
-            acct, path = source_resp.environ['PATH_INFO'].split('/', 3)[2:4]
-            resp.headers['X-Copied-From-Account'] = quote(acct)
-            resp.headers['X-Copied-From'] = quote(path)
-            if 'last-modified' in source_resp.headers:
-                resp.headers['X-Copied-From-Last-Modified'] = \
-                    source_resp.headers['last-modified']
-            copy_headers_into(req, resp)
-            return resp
-
-        # this is a bit of ugly code, but I'm willing to live with it
-        # until copy request handling moves to middleware
-        return None, req, data_source, update_response
-
     def _update_content_type(self, req):
         # Sometimes the 'content-type' header exists, but is set to None.
-        req.content_type_manually_set = True
         detect_content_type = \
             config_true_value(req.headers.get('x-detect-content-type'))
         if detect_content_type or not req.headers.get('content-type'):
@@ -548,8 +390,6 @@ class BaseObjectController(Controller):
                 'application/octet-stream'
             if detect_content_type:
                 req.headers.pop('x-detect-content-type')
-            else:
-                req.content_type_manually_set = False
 
     def _update_x_timestamp(self, req):
         # Used by container sync feature
@@ -743,22 +583,13 @@ class BaseObjectController(Controller):
 
         self._update_x_timestamp(req)
 
-        # check if request is a COPY of an existing object
-        source_header = req.headers.get('X-Copy-From')
-        if source_header:
-            error_response, req, data_source, update_response = \
-                self._handle_copy_request(req)
-            if error_response:
-                return error_response
-        else:
-            def reader():
-                try:
-                    return req.environ['wsgi.input'].read(
-                        self.app.client_chunk_size)
-                except (ValueError, IOError) as e:
-                    raise ChunkReadError(str(e))
-            data_source = iter(reader, '')
-            update_response = lambda req, resp: resp
+        def reader():
+            try:
+                return req.environ['wsgi.input'].read(
+                    self.app.client_chunk_size)
+            except (ValueError, IOError) as e:
+                raise ChunkReadError(str(e))
+        data_source = iter(reader, '')
 
         # check if object is set to be automatically deleted (i.e. expired)
         req, delete_at_container, delete_at_part, \
@@ -772,7 +603,7 @@ class BaseObjectController(Controller):
         # send object to storage nodes
         resp = self._store_object(
             req, data_source, nodes, partition, outgoing_headers)
-        return update_response(req, resp)
+        return resp
 
     @public
     @cors_validation
@@ -816,71 +647,16 @@ class BaseObjectController(Controller):
             req, len(nodes), container_partition, containers)
         return self._delete_object(req, obj_ring, partition, headers)
 
-    def _reroute(self, policy):
-        """
-        For COPY requests we need to make sure the controller instance the
-        request is routed through is the correct type for the policy.
-        """
-        if not policy:
-            raise HTTPServiceUnavailable('Unknown Storage Policy')
-        if policy.policy_type != self.policy_type:
-            controller = self.app.obj_controller_router[policy](
-                self.app, self.account_name, self.container_name,
-                self.object_name)
-        else:
-            controller = self
-        return controller
-
-    @public
-    @cors_validation
-    @delay_denial
-    def COPY(self, req):
-        """HTTP COPY request handler."""
-        if not req.headers.get('Destination'):
-            return HTTPPreconditionFailed(request=req,
-                                          body='Destination header required')
-        dest_account = self.account_name
-        if 'Destination-Account' in req.headers:
-            dest_account = req.headers.get('Destination-Account')
-            dest_account = check_account_format(req, dest_account)
-            req.headers['X-Copy-From-Account'] = self.account_name
-            self.account_name = dest_account
-            del req.headers['Destination-Account']
-        dest_container, dest_object = check_destination_header(req)
-
-        source = '/%s/%s' % (self.container_name, self.object_name)
-        self.container_name = dest_container
-        self.object_name = dest_object
-        # re-write the existing request as a PUT instead of creating a new one
-        # since this one is already attached to the posthooklogger
-        # TODO: Swift now has proxy-logging middleware instead of
-        #       posthooklogger used in before. i.e. we don't have to
-        #       keep the code depends on evnetlet.posthooks sequence, IMHO.
-        #       However, creating a new sub request might
-        #       cause the possibility to hide some bugs behindes the request
-        #       so that we should discuss whichi is suitable (new-sub-request
-        #       vs re-write-existing-request) for Swift. [kota_]
-        req.method = 'PUT'
-        req.path_info = '/v1/%s/%s/%s' % \
-                        (dest_account, dest_container, dest_object)
-        req.headers['Content-Length'] = 0
-        req.headers['X-Copy-From'] = quote(source)
-        del req.headers['Destination']
-
-        container_info = self.container_info(
-            dest_account, dest_container, req)
-        dest_policy = POLICIES.get_by_index(container_info['storage_policy'])
-
-        return self._reroute(dest_policy).PUT(req)
-
 
 @ObjectControllerRouter.register(REPL_POLICY)
 class ReplicatedObjectController(BaseObjectController):
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
+        concurrency = self.app.get_object_ring(policy.idx).replica_count \
+            if self.app.concurrent_gets else 1
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
-            req.swift_entity_path)
+            req.swift_entity_path, concurrency)
         return resp
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -1115,6 +891,11 @@ class ECAppIter(object):
         self.stashed_iter = None
 
     def close(self):
+        # close down the stashed iter first so the ContextPool can
+        # cleanup the frag queue feeding coros that may be currently
+        # executing the internal_parts_iters.
+        if self.stashed_iter:
+            self.stashed_iter.close()
         for it in self.internal_parts_iters:
             close_if_possible(it)
 
@@ -1627,16 +1408,6 @@ class ECPutter(object):
         self.queue = None
         self.state = NO_DATA_SENT
 
-    def current_status(self):
-        """
-        Returns the current status of the response.
-
-        A response starts off with no current status, then may or may not have
-        a status of 100 for some time, and then ultimately has a final status
-        like 200, 404, et cetera.
-        """
-        return self.resp.status
-
     def await_response(self, timeout, informational=False):
         """
         Get 100-continue response indicating the end of 1st phase of a 2-phase
@@ -1769,7 +1540,7 @@ class ECPutter(object):
 
     @classmethod
     def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
-                chunked=False):
+                chunked=False, expected_frag_archive_size=None):
         """
         Connect to a backend node and send the headers.
 
@@ -1791,9 +1562,10 @@ class ECPutter(object):
         # we must use chunked encoding.
         headers['Transfer-Encoding'] = 'chunked'
         headers['Expect'] = '100-continue'
-        if 'Content-Length' in headers:
-            headers['X-Backend-Obj-Content-Length'] = \
-                headers.pop('Content-Length')
+
+        # make sure this isn't there
+        headers.pop('Content-Length')
+        headers['X-Backend-Obj-Content-Length'] = expected_frag_archive_size
 
         headers['X-Backend-Obj-Multipart-Mime-Boundary'] = mime_boundary
 
@@ -1999,9 +1771,10 @@ class ECObjectController(BaseObjectController):
             # no fancy EC decoding here, just one plain old HEAD request to
             # one object server because all fragments hold all metadata
             # information about the object.
+            concurrency = policy.ec_ndata if self.app.concurrent_gets else 1
             resp = self.GETorHEAD_base(
                 req, _('Object'), node_iter, partition,
-                req.swift_entity_path)
+                req.swift_entity_path, concurrency)
         else:  # GET request
             orig_range = None
             range_specs = []
@@ -2010,6 +1783,12 @@ class ECObjectController(BaseObjectController):
                 range_specs = self._convert_range(req, policy)
 
             safe_iter = GreenthreadSafeIterator(node_iter)
+            # Sending the request concurrently to all nodes, and responding
+            # with the first response isn't something useful for EC as all
+            # nodes contain different fragments. Also EC has implemented it's
+            # own specific implementation of concurrent gets to ec_ndata nodes.
+            # So we don't need to  worry about plumbing and sending a
+            # concurrency value to ResumingGetter.
             with ContextPool(policy.ec_ndata) as pool:
                 pile = GreenAsyncPile(pool)
                 for _junk in range(policy.ec_ndata):
@@ -2064,8 +1843,12 @@ class ECObjectController(BaseObjectController):
                     headers=resp_headers,
                     conditional_response=True,
                     app_iter=app_iter)
-                resp.accept_ranges = 'bytes'
-                app_iter.kickoff(req, resp)
+                try:
+                    app_iter.kickoff(req, resp)
+                except HTTPException as err_resp:
+                    # catch any HTTPException response here so that we can
+                    # process response headers uniformly in _fix_response
+                    resp = err_resp
             else:
                 statuses = []
                 reasons = []
@@ -2085,10 +1868,12 @@ class ECObjectController(BaseObjectController):
     def _fix_response(self, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
-        # sysmeta, so we copy that here so the client gets it.
+        # sysmeta, so we copy that here (if it exists) so the client gets it.
+        resp.headers['Etag'] = resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+        if (is_success(resp.status_int) or is_redirection(resp.status_int) or
+                resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE):
+            resp.accept_ranges = 'bytes'
         if is_success(resp.status_int):
-            resp.headers['Etag'] = resp.headers.get(
-                'X-Object-Sysmeta-Ec-Etag')
             resp.headers['Content-Length'] = resp.headers.get(
                 'X-Object-Sysmeta-Ec-Content-Length')
             resp.fix_conditional_response()
@@ -2105,8 +1890,32 @@ class ECObjectController(BaseObjectController):
         # the object server will get different bytes, so these
         # values do not apply (Content-Length might, in general, but
         # in the specific case of replication vs. EC, it doesn't).
-        headers.pop('Content-Length', None)
+        client_cl = headers.pop('Content-Length', None)
         headers.pop('Etag', None)
+
+        expected_frag_size = None
+        if client_cl:
+            policy_index = int(headers.get('X-Backend-Storage-Policy-Index'))
+            policy = POLICIES.get_by_index(policy_index)
+            # TODO: PyECLib <= 1.2.0 looks to return the segment info
+            # different from the input for aligned data efficiency but
+            # Swift never does. So calculate the fragment length Swift
+            # will actually send to object sever by making two different
+            # get_segment_info calls (until PyECLib fixed).
+            # policy.fragment_size makes the call using segment size,
+            # and the next call is to get info for the last segment
+
+            # get number of fragments except the tail - use truncation //
+            num_fragments = int(client_cl) // policy.ec_segment_size
+            expected_frag_size = policy.fragment_size * num_fragments
+
+            # calculate the tail fragment_size by hand and add it to
+            # expected_frag_size
+            last_segment_size = int(client_cl) % policy.ec_segment_size
+            if last_segment_size:
+                last_info = policy.pyeclib_driver.get_segment_info(
+                    last_segment_size, policy.ec_segment_size)
+                expected_frag_size += last_info['fragment_size']
 
         self.app.logger.thread_locals = logger_thread_locals
         for node in node_iter:
@@ -2114,7 +1923,8 @@ class ECObjectController(BaseObjectController):
                 putter = ECPutter.connect(
                     node, part, path, headers,
                     conn_timeout=self.app.conn_timeout,
-                    node_timeout=self.app.node_timeout)
+                    node_timeout=self.app.node_timeout,
+                    expected_frag_archive_size=expected_frag_size)
                 self.app.set_node_timing(node, putter.connect_duration)
                 return putter
             except InsufficientStorage:
@@ -2361,8 +2171,8 @@ class ECObjectController(BaseObjectController):
                 status_type = 'commit'
             self.app.exception_occurred(
                 conn.node, _('Object'),
-                _('Trying to get %s status of PUT to %s') % (
-                    status_type, req.path))
+                _('Trying to get %(status_type)s status of PUT to %(path)s') %
+                {'status_type': status_type, 'path': req.path})
         return (conn, resp)
 
     def _get_put_responses(self, req, putters, num_nodes, final_phase,

@@ -23,7 +23,7 @@ import mock
 
 from swift.common import swob
 from swift.common.middleware import container_sync
-from swift.proxy.controllers.base import _get_cache_key
+from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.info import InfoController
 
 from test.unit import FakeLogger
@@ -42,7 +42,10 @@ class FakeApp(object):
             body = 'Response to Authorized Request'
         else:
             body = 'Pass-Through Response'
-        start_response('200 OK', [('Content-Length', str(len(body)))])
+        headers = [('Content-Length', str(len(body)))]
+        if 'HTTP_X_TIMESTAMP' in env:
+            headers.append(('X-Timestamp', env['HTTP_X_TIMESTAMP']))
+        start_response('200 OK', headers)
         return body
 
 
@@ -202,7 +205,8 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_invalid_sig(self):
         req = swob.Request.blank(
             '/v1/a/c', headers={'x-container-sync-auth': 'US nonce sig'})
-        req.environ[_get_cache_key('a', 'c')[1]] = {'sync_key': 'abc'}
+        infocache = req.environ.setdefault('swift.infocache', {})
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '401 Unauthorized')
         self.assertEqual(
@@ -214,18 +218,21 @@ cluster_dfw1 = http://dfw1.host/v1/
             req.environ.get('swift.log_info'))
 
     def test_valid_sig(self):
+        ts = '1455221706.726999_0123456789abcdef'
         sig = self.sync.realms_conf.get_sig(
-            'GET', '/v1/a/c', '0', 'nonce',
+            'GET', '/v1/a/c', ts, 'nonce',
             self.sync.realms_conf.key('US'), 'abc')
-        req = swob.Request.blank(
-            '/v1/a/c', headers={'x-container-sync-auth': 'US nonce ' + sig})
-        req.environ[_get_cache_key('a', 'c')[1]] = {'sync_key': 'abc'}
+        req = swob.Request.blank('/v1/a/c', headers={
+            'x-container-sync-auth': 'US nonce ' + sig,
+            'x-backend-inbound-x-timestamp': ts})
+        infocache = req.environ.setdefault('swift.infocache', {})
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '200 OK')
         self.assertEqual(resp.body, 'Response to Authorized Request')
-        self.assertTrue(
-            'cs:valid' in req.environ.get('swift.log_info'),
-            req.environ.get('swift.log_info'))
+        self.assertIn('cs:valid', req.environ.get('swift.log_info'))
+        self.assertIn('X-Timestamp', resp.headers)
+        self.assertEqual(ts, resp.headers['X-Timestamp'])
 
     def test_valid_sig2(self):
         sig = self.sync.realms_conf.get_sig(
@@ -233,7 +240,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.sync.realms_conf.key2('US'), 'abc')
         req = swob.Request.blank(
             '/v1/a/c', headers={'x-container-sync-auth': 'US nonce ' + sig})
-        req.environ[_get_cache_key('a', 'c')[1]] = {'sync_key': 'abc'}
+        infocache = req.environ.setdefault('swift.infocache', {})
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '200 OK')
         self.assertEqual(resp.body, 'Response to Authorized Request')

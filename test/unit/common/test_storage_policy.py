@@ -374,6 +374,15 @@ class TestStoragePolicies(unittest.TestCase):
         # but only because automated testing requires it.
         policies = parse_storage_policies(name_repeat_conf)
 
+        extra_commas_conf = self._conf("""
+        [storage-policy:0]
+        name = one
+        aliases = ,,one, ,
+        default = yes
+        """)
+        # Extra blank entries should be silently dropped
+        policies = parse_storage_policies(extra_commas_conf)
+
         bad_conf = self._conf("""
         [storage-policy:0]
         name = one
@@ -498,6 +507,9 @@ class TestStoragePolicies(unittest.TestCase):
 
         self.assertRaisesWithMessage(PolicyError, 'Invalid name',
                                      policies.add_policy_alias, 2, 'double\n')
+
+        self.assertRaisesWithMessage(PolicyError, 'Invalid name',
+                                     policies.add_policy_alias, 2, '')
 
         # try to add existing name
         self.assertRaisesWithMessage(PolicyError, 'Duplicate name',
@@ -1107,9 +1119,9 @@ class TestStoragePolicies(unittest.TestCase):
 
     def test_quorum_size_replication(self):
         expected_sizes = {1: 1,
-                          2: 2,
+                          2: 1,
                           3: 2,
-                          4: 3,
+                          4: 2,
                           5: 3}
         for n, expected in expected_sizes.items():
             policy = StoragePolicy(0, 'zero',

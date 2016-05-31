@@ -19,15 +19,18 @@ import os
 from contextlib import contextmanager
 from hashlib import md5
 import time
+import pickle
 
 import mock
 import six
 from six.moves import urllib
 
 from swift.common import direct_client
+from swift.common.direct_client import DirectClientException
 from swift.common.exceptions import ClientException
-from swift.common.utils import Timestamp
-from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
+from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.utils import Timestamp, quote
+from swift.common.swob import RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 from six.moves.http_client import HTTPException
 
@@ -96,7 +99,8 @@ def mocked_http_conn(*args, **kwargs):
 class TestDirectClient(unittest.TestCase):
 
     def setUp(self):
-        self.node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        self.node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda',
+                     'replication_ip': '1.2.3.5', 'replication_port': '7000'}
         self.part = '0'
 
         self.account = u'\u062a account'
@@ -240,7 +244,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('GET' in str(err))
 
     def test_direct_delete_account(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
@@ -257,7 +261,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertTrue('X-Timestamp' in headers)
 
     def test_direct_delete_account_failure(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
@@ -616,6 +620,40 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(err.http_status, 503)
         self.assertTrue('DELETE' in str(err))
 
+    def test_direct_get_suffix_hashes(self):
+        data = {'a83': 'c130a2c17ed45102aada0f4eee69494ff'}
+        body = pickle.dumps(data)
+        with mocked_http_conn(200, {}, body) as conn:
+            resp = direct_client.direct_get_suffix_hashes(self.node,
+                                                          self.part, ['a83'])
+            self.assertEqual(conn.method, 'REPLICATE')
+            self.assertEqual(conn.path, '/sda/0/a83')
+            self.assertEqual(conn.host, '1.2.3.5')
+            self.assertEqual(conn.port, '7000')
+            self.assertEqual(data, resp)
+
+    def _test_direct_get_suffix_hashes_fail(self, status_code):
+        with mocked_http_conn(status_code):
+            with self.assertRaises(DirectClientException) as cm:
+                direct_client.direct_get_suffix_hashes(
+                    self.node, self.part, ['a83', 'b52'])
+        self.assertIn('REPLICATE', cm.exception.message)
+        self.assertIn(quote('/%s/%s/a83-b52'
+                            % (self.node['device'], self.part)),
+                      cm.exception.message)
+        self.assertIn(self.node['replication_ip'], cm.exception.message)
+        self.assertIn(self.node['replication_port'], cm.exception.message)
+        self.assertEqual(self.node['replication_ip'], cm.exception.http_host)
+        self.assertEqual(self.node['replication_port'], cm.exception.http_port)
+        self.assertEqual(self.node['device'], cm.exception.http_device)
+        self.assertEqual(status_code, cm.exception.http_status)
+
+    def test_direct_get_suffix_hashes_503(self):
+        self._test_direct_get_suffix_hashes_fail(503)
+
+    def test_direct_get_suffix_hashes_507(self):
+        self._test_direct_get_suffix_hashes_fail(507)
+
     def test_direct_put_object_with_content_length(self):
         contents = six.StringIO('123456')
 
@@ -705,6 +743,17 @@ class TestDirectClient(unittest.TestCase):
                                     retries=2, error_log=logger.error)
         self.assertEqual('DELETE', conn.method)
         self.assertEqual(err_ctx.exception.http_status, 500)
+        self.assertIn('DELETE', err_ctx.exception.message)
+        self.assertIn(quote('/%s/%s/%s/%s/%s'
+                            % (self.node['device'], self.part, self.account,
+                               self.container, self.obj)),
+                      err_ctx.exception.message)
+        self.assertIn(self.node['ip'], err_ctx.exception.message)
+        self.assertIn(self.node['port'], err_ctx.exception.message)
+        self.assertEqual(self.node['ip'], err_ctx.exception.http_host)
+        self.assertEqual(self.node['port'], err_ctx.exception.http_port)
+        self.assertEqual(self.node['device'], err_ctx.exception.http_device)
+        self.assertEqual(500, err_ctx.exception.http_status)
         self.assertEqual([mock.call(1), mock.call(2)],
                          mock_sleep.call_args_list)
         error_lines = logger.get_lines_for_level('error')

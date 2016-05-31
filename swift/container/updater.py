@@ -31,7 +31,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, ismount, \
-    dump_recon_cache, quorum_size, Timestamp
+    dump_recon_cache, majority_size, Timestamp
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -143,7 +143,8 @@ class ContainerUpdater(Daemon):
                     pid2filename[pid] = tmpfilename
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                    patcher.monkey_patch(all=False, socket=True, thread=True)
+                    patcher.monkey_patch(all=False, socket=True, select=True,
+                                         thread=True)
                     self.no_changes = 0
                     self.successes = 0
                     self.failures = 0
@@ -177,7 +178,7 @@ class ContainerUpdater(Daemon):
         """
         Run the updater once.
         """
-        patcher.monkey_patch(all=False, socket=True, thread=True)
+        patcher.monkey_patch(all=False, socket=True, select=True, thread=True)
         self.logger.info(_('Begin container update single threaded sweep'))
         begin = time.time()
         self.no_changes = 0
@@ -237,7 +238,7 @@ class ContainerUpdater(Daemon):
             for event in events:
                 if is_success(event.wait()):
                     successes += 1
-            if successes >= quorum_size(len(events)):
+            if successes >= majority_size(len(events)):
                 self.logger.increment('successes')
                 self.successes += 1
                 self.logger.debug(

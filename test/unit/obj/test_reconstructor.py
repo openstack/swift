@@ -30,8 +30,8 @@ from contextlib import closing, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 from swift.common import utils
-from swift.common.swob import HeaderKeyDict
 from swift.common.exceptions import DiskFileError
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -90,13 +90,13 @@ def _create_test_rings(path):
 
     intended_devs = [
         {'id': 0, 'device': 'sda1', 'zone': 0, 'ip': '127.0.0.0',
-         'port': 6000},
+         'port': 6200},
         {'id': 1, 'device': 'sda1', 'zone': 1, 'ip': '127.0.0.1',
-         'port': 6000},
+         'port': 6200},
         {'id': 2, 'device': 'sda1', 'zone': 2, 'ip': '127.0.0.2',
-         'port': 6000},
+         'port': 6200},
         {'id': 3, 'device': 'sda1', 'zone': 4, 'ip': '127.0.0.3',
-         'port': 6000}
+         'port': 6200}
     ]
     intended_part_shift = 30
     with closing(GzipFile(testgz, 'wb')) as f:
@@ -313,11 +313,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             [{
                 'sync_to': [{
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -328,13 +328,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 2,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
-                    'device': 'sda1', 'port': 6000,
+                    'device': 'sda1', 'port': 6200,
                 },
                 'hashes': {
                     '061': {
@@ -350,20 +350,20 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             }, {
                 'sync_to': [{
                     'index': 0,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 0,
                     'ip': '127.0.0.0',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.0',
                     'device': 'sda1', 'id': 0,
                 }, {
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -375,14 +375,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 1,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes':
                 {
@@ -403,11 +403,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             [{
                 'sync_to': [{
                     'index': 1,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -418,14 +418,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 1,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes':
                 {
@@ -442,20 +442,20 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             }, {
                 'sync_to': [{
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 4,
                     'ip': '127.0.0.3',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.3',
                     'device': 'sda1', 'id': 3,
                 }, {
                     'index': 1,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1',
                     'id': 2,
@@ -467,14 +467,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 0,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes': {
                     '061': {
@@ -494,11 +494,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             [{
                 'sync_to': [{
                     'index': 0,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 2,
                     'ip': '127.0.0.2',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.2',
                     'device': 'sda1', 'id': 2,
                 }],
@@ -508,14 +508,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 0,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000,
+                    'port': 6200,
                 },
                 'hashes': {
                     '061': {
@@ -530,11 +530,11 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             }, {
                 'sync_to': [{
                     'index': 2,
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 0,
                     'ip': '127.0.0.0',
                     'region': 1,
-                    'port': 6000,
+                    'port': 6200,
                     'replication_ip': '127.0.0.0',
                     'device': 'sda1',
                     'id': 0,
@@ -545,14 +545,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'frag_index': 2,
                 'device': 'sda1',
                 'local_dev': {
-                    'replication_port': 6000,
+                    'replication_port': 6200,
                     'zone': 1,
                     'ip': '127.0.0.1',
                     'region': 1,
                     'id': 1,
                     'replication_ip': '127.0.0.1',
                     'device': 'sda1',
-                    'port': 6000
+                    'port': 6200
                 },
                 'hashes': {
                     '061': {
@@ -823,8 +823,43 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertFalse(os.path.exists(pol_1_part_1_path))
         warnings = self.reconstructor.logger.get_lines_for_level('warning')
         self.assertEqual(1, len(warnings))
-        self.assertTrue('Unexpected entity in data dir:' in warnings[0],
-                        'Warning not found in %s' % warnings)
+        self.assertIn('Unexpected entity in data dir:', warnings[0])
+
+    def test_ignores_status_file(self):
+        # Following fd86d5a, the auditor will leave status files on each device
+        # until an audit can complete. The reconstructor should ignore these
+
+        @contextmanager
+        def status_files(*auditor_types):
+            status_paths = [os.path.join(self.objects_1,
+                                         'auditor_status_%s.json' % typ)
+                            for typ in auditor_types]
+            for status_path in status_paths:
+                self.assertFalse(os.path.exists(status_path))  # sanity check
+                with open(status_path, 'w'):
+                    pass
+                self.assertTrue(os.path.isfile(status_path))  # sanity check
+            try:
+                yield status_paths
+            finally:
+                for status_path in status_paths:
+                    try:
+                        os.unlink(status_path)
+                    except OSError as e:
+                        if e.errno != 2:
+                            raise
+
+        # since our collect_parts job is a generator, that yields directly
+        # into build_jobs and then spawns it's safe to do the remove_files
+        # without making reconstructor startup slow
+        with status_files('ALL', 'ZBF') as status_paths:
+            self.reconstructor._reset_stats()
+            for part_info in self.reconstructor.collect_parts():
+                self.assertNotIn(part_info['part_path'], status_paths)
+            warnings = self.reconstructor.logger.get_lines_for_level('warning')
+            self.assertEqual(0, len(warnings))
+            for status_path in status_paths:
+                self.assertTrue(os.path.exists(status_path))
 
     def _make_fake_ssync(self, ssync_calls):
         class _fake_ssync(object):

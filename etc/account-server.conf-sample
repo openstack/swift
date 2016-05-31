@@ -1,6 +1,6 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
-bind_port = 6002
+bind_port = 6202
 # bind_timeout = 30
 # backlog = 4096
 # user = swift
@@ -47,9 +47,10 @@ bind_port = 6002
 #
 # eventlet_debug = false
 #
-# You can set fallocate_reserve to the number of bytes you'd like fallocate to
-# reserve, whether there is space for the given file size or not.
-# fallocate_reserve = 0
+# You can set fallocate_reserve to the number of bytes or percentage of disk
+# space you'd like fallocate to reserve, whether there is space for the given
+# file size or not. Percentage will be used if the value ends with a '%'.
+# fallocate_reserve = 1%
 
 [pipeline:main]
 pipeline = healthcheck recon account-server

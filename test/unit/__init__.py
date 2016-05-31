@@ -34,7 +34,8 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from swift.common.utils import Timestamp, NOTICE
 from test import get_config
-from swift.common import swob, utils
+from swift.common import utils
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.ring import Ring, RingData
 from hashlib import md5
 import logging.handlers
@@ -255,9 +256,9 @@ def write_fake_ring(path, *devs):
     Pretty much just a two node, two replica, 2 part power ring...
     """
     dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-            'port': 6000}
+            'port': 6200}
     dev2 = {'id': 0, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
-            'port': 6000}
+            'port': 6200}
 
     dev1_updates, dev2_updates = devs or ({}, {})
 
@@ -277,7 +278,7 @@ class FabricatedRing(Ring):
     your tests needs.
     """
 
-    def __init__(self, replicas=6, devices=8, nodes=4, port=6000,
+    def __init__(self, replicas=6, devices=8, nodes=4, port=6200,
                  part_power=4):
         self.devices = devices
         self.nodes = nodes
@@ -901,7 +902,7 @@ def fake_http_connect(*code_iter, **kwargs):
                 else:
                     etag = '"68b329da9893e34099c7d8ad5cb9c940"'
 
-            headers = swob.HeaderKeyDict({
+            headers = HeaderKeyDict({
                 'content-length': len(self.body),
                 'content-type': 'x-application/test',
                 'x-timestamp': self.timestamp,
@@ -960,7 +961,7 @@ def fake_http_connect(*code_iter, **kwargs):
                     eventlet.sleep(value)
 
         def getheader(self, name, default=None):
-            return swob.HeaderKeyDict(self.getheaders()).get(name, default)
+            return HeaderKeyDict(self.getheaders()).get(name, default)
 
         def close(self):
             pass

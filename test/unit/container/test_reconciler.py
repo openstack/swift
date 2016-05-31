@@ -31,6 +31,7 @@ from swift.container import reconciler
 from swift.container.server import gen_resp_headers
 from swift.common.direct_client import ClientException
 from swift.common import swob
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import split_path, Timestamp, encode_timestamps
 
 from test.unit import debug_logger, FakeRing, fake_http_connect
@@ -43,7 +44,7 @@ def timestamp_to_last_modified(timestamp):
 
 
 def container_resp_headers(**kwargs):
-    return swob.HeaderKeyDict(gen_resp_headers(kwargs))
+    return HeaderKeyDict(gen_resp_headers(kwargs))
 
 
 class FakeStoragePolicySwift(object):
@@ -586,7 +587,7 @@ class TestReconcilerUtils(unittest.TestCase):
             socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
             ClientException(
                 'Container Server blew up',
-                '10.0.0.12', 6001, 'sdj', 404, 'Not Found'
+                '10.0.0.12', 6201, 'sdj', 404, 'Not Found'
             ),
         ]
         mock_direct_delete = mock.MagicMock()

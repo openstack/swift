@@ -18,16 +18,14 @@ files. For example:
 
 .. code::
 
-   $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh
-
-    -w <redacted>.68.[4-11,132-139 4-11,132-139],<redacted>.132.[4-11,132-139
-    4-11,132-139] 'sudo bzgrep -w AUTH_redacted-4962-4692-98fb-52ddda82a5af /var/log/swift/proxy.log\*' 
-    dshbak -c
+   $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh \
+     -w <redacted>.68.[4-11,132-139 4-11,132-139],<redacted>.132.[4-11,132-139] \
+     'sudo bzgrep -w AUTH_redacted-4962-4692-98fb-52ddda82a5af /var/log/swift/proxy.log*' |  dshbak -c
     .
     .
-    \---------------\-
+    ----------------
     <redacted>.132.6
-    \---------------\-
+    ----------------
     Feb 29 08:51:57 sw-aw2az2-proxy011 proxy-server <redacted>.16.132
     <redacted>.66.8 29/Feb/2012/08/51/57 GET /v1.0/AUTH_redacted-4962-4692-98fb-52ddda82a5af
     /%3Fformat%3Djson HTTP/1.0 404 - - <REDACTED>_4f4d50c5e4b064d88bd7ab82 - - -
@@ -37,52 +35,49 @@ This shows a ``GET`` operation on the users account.
 
 .. note::
 
-   The HTTP status returned is 404, not found, rather than 500 as reported by the user.
+   The HTTP status returned is 404, Not found, rather than 500 as reported by the user.
 
 Using the transaction ID, ``tx429fc3be354f434ab7f9c6c4206c1dc3`` you can
 search the swift object servers log files for this transaction ID:
 
 .. code::
 
-   $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername>
-
-   -R ssh
-   -w <redacted>.72.[4-67|4-67],<redacted>.[4-67|4-67],<redacted>.[4-67|4-67],<redacted>.204.[4-131| 4-131]
-   'sudo bzgrep tx429fc3be354f434ab7f9c6c4206c1dc3 /var/log/swift/server.log*'
-      | dshbak -c
+   $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh \
+     -w <redacted>.72.[4-67|4-67],<redacted>.[4-67|4-67],<redacted>.[4-67|4-67],<redacted>.204.[4-131] \
+     'sudo bzgrep tx429fc3be354f434ab7f9c6c4206c1dc3 /var/log/swift/server.log*' | dshbak -c
    .
    .
-   \---------------\-
+   ----------------
    <redacted>.72.16
-   \---------------\-
+   ----------------
    Feb 29 08:51:57 sw-aw2az1-object013 account-server <redacted>.132.6 - -
 
    [29/Feb/2012:08:51:57 +0000|] "GET /disk9/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
    404 - "tx429fc3be354f434ab7f9c6c4206c1dc3" "-" "-"
 
    0.0016 ""
-    \---------------\-
-    <redacted>.31
-    \---------------\-
-    Feb 29 08:51:57 node-az2-object060 account-server <redacted>.132.6 - -
-    [29/Feb/2012:08:51:57 +0000|] "GET /disk6/198875/AUTH_redacted-4962-
-    4692-98fb-52ddda82a5af" 404 - "tx429fc3be354f434ab7f9c6c4206c1dc3" "-" "-" 0.0011 ""
-    \---------------\-
-    <redacted>.204.70
-    \---------------\-
+   ----------------
+   <redacted>.31
+   ----------------
+   Feb 29 08:51:57 node-az2-object060 account-server <redacted>.132.6 - -
+   [29/Feb/2012:08:51:57 +0000|] "GET /disk6/198875/AUTH_redacted-4962-
+   4692-98fb-52ddda82a5af" 404 - "tx429fc3be354f434ab7f9c6c4206c1dc3" "-" "-" 0.0011 ""
+   ----------------
+   <redacted>.204.70
+   ----------------
 
-    Feb 29 08:51:57 sw-aw2az3-object0067 account-server <redacted>.132.6 - -
-    [29/Feb/2012:08:51:57 +0000|] "GET /disk6/198875/AUTH_redacted-4962-
-    4692-98fb-52ddda82a5af" 404 - "tx429fc3be354f434ab7f9c6c4206c1dc3" "-" "-" 0.0014 ""
+   Feb 29 08:51:57 sw-aw2az3-object0067 account-server <redacted>.132.6 - -
+   [29/Feb/2012:08:51:57 +0000|] "GET /disk6/198875/AUTH_redacted-4962-
+   4692-98fb-52ddda82a5af" 404 - "tx429fc3be354f434ab7f9c6c4206c1dc3" "-" "-" 0.0014 ""
 
 .. note::
 
    The 3 GET operations to 3 different object servers that hold the 3
    replicas of this users account. Each ``GET`` returns a HTTP status of 404,
-   not found.
+   Not found.
 
 Next, use the ``swift-get-nodes`` command to determine exactly where the
-users account data is stored:
+user's account data is stored:
 
 .. code::
 
@@ -94,43 +89,43 @@ users account data is stored:
    Partition 198875
    Hash 1846d99185f8a0edaf65cfbf37439696
 
-   Server:Port Device <redacted>.31:6002 disk6
-   Server:Port Device <redacted>.204.70:6002 disk6
-   Server:Port Device <redacted>.72.16:6002 disk9
-   Server:Port Device <redacted>.204.64:6002 disk11 [Handoff]
-   Server:Port Device <redacted>.26:6002 disk11 [Handoff]
-   Server:Port Device <redacted>.72.27:6002 disk11 [Handoff]
+   Server:Port Device <redacted>.31:6202 disk6
+   Server:Port Device <redacted>.204.70:6202 disk6
+   Server:Port Device <redacted>.72.16:6202 disk9
+   Server:Port Device <redacted>.204.64:6202 disk11 [Handoff]
+   Server:Port Device <redacted>.26:6202 disk11 [Handoff]
+   Server:Port Device <redacted>.72.27:6202 disk11 [Handoff]
 
-   curl -I -XHEAD "`http://<redacted>.31:6002/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.138.31:6002/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
-   curl -I -XHEAD "`http://<redacted>.204.70:6002/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.204.70:6002/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
-   curl -I -XHEAD "`http://<redacted>.72.16:6002/disk9/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.72.16:6002/disk9/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
-   curl -I -XHEAD "`http://<redacted>.204.64:6002/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.204.64:6002/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
-   curl -I -XHEAD "`http://<redacted>.26:6002/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.136.26:6002/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
-   curl -I -XHEAD "`http://<redacted>.72.27:6002/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
-   <http://15.185.72.27:6002/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
+   curl -I -XHEAD "`http://<redacted>.31:6202/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.138.31:6202/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
+   curl -I -XHEAD "`http://<redacted>.204.70:6202/disk6/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.204.70:6202/disk6/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
+   curl -I -XHEAD "`http://<redacted>.72.16:6202/disk9/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.72.16:6202/disk9/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_
+   curl -I -XHEAD "`http://<redacted>.204.64:6202/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.204.64:6202/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
+   curl -I -XHEAD "`http://<redacted>.26:6202/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.136.26:6202/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
+   curl -I -XHEAD "`http://<redacted>.72.27:6202/disk11/198875/AUTH_redacted-4962-4692-98fb-52ddda82a5af"
+   <http://15.185.72.27:6202/disk11/198875/AUTH_db0050ad-4962-4692-98fb-52ddda82a5af>`_ # [Handoff]
 
-   ssh <redacted>.31 "ls \-lah /srv/node/disk6/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
-   ssh <redacted>.204.70 "ls \-lah /srv/node/disk6/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
-   ssh <redacted>.72.16 "ls \-lah /srv/node/disk9/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
-   ssh <redacted>.204.64 "ls \-lah /srv/node/disk11/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/" # [Handoff]
-   ssh <redacted>.26 "ls \-lah /srv/node/disk11/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/" # [Handoff]
-   ssh <redacted>.72.27 "ls \-lah /srv/node/disk11/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/" # [Handoff]
+   ssh <redacted>.31 "ls -lah /srv/node/disk6/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
+   ssh <redacted>.204.70 "ls -lah /srv/node/disk6/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
+   ssh <redacted>.72.16 "ls -lah /srv/node/disk9/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/"
+   ssh <redacted>.204.64 "ls -lah /srv/node/disk11/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/" # [Handoff]
+   ssh <redacted>.26 "ls -lah /srv/node/disk11/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/" # [Handoff]
+   ssh <redacted>.72.27 "ls -lah /srv/node/disk11/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/" # [Handoff]
 
 Check each of the primary servers, <redacted>.31, <redacted>.204.70  and <redacted>.72.16, for
 this users account. For example on <redacted>.72.16:
 
 .. code::
 
-   $ ls \\-lah /srv/node/disk9/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/
+   $ ls -lah /srv/node/disk9/accounts/198875/696/1846d99185f8a0edaf65cfbf37439696/
    total 1.0M
    drwxrwxrwx 2 swift swift 98 2012-02-23 14:49 .
    drwxrwxrwx 3 swift swift 45 2012-02-03 23:28 ..
-   -rw-\\-----\\- 1 swift swift 15K 2012-02-23 14:49 1846d99185f8a0edaf65cfbf37439696.db
+   -rw------- 1 swift swift 15K 2012-02-23 14:49 1846d99185f8a0edaf65cfbf37439696.db
    -rw-rw-rw- 1 swift swift 0 2012-02-23 14:49 1846d99185f8a0edaf65cfbf37439696.db.pending
 
 So this users account db, an sqlite db is present. Use sqlite to
@@ -155,7 +150,7 @@ checkout the account:
    status_changed_at = 1330001026.00514
    metadata =
 
-.. note::
+.. note:
 
    The status is ``DELETED``. So this account was deleted. This explains
    why the GET operations are returning 404, not found. Check the account
@@ -174,14 +169,14 @@ server logs:
 
 .. code::
 
-   $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh -w <redacted>.68.[4-11,132-139 4-11,132-
-   139],<redacted>.132.[4-11,132-139|4-11,132-139] 'sudo bzgrep AUTH_redacted-4962-4692-98fb-52ddda82a5af /var/log/swift/proxy.log\* | grep -w
-   DELETE |awk "{print \\$3,\\$10,\\$12}"' |- dshbak -c
+   $ PDSH_SSH_ARGS_APPEND="-o StrictHostKeyChecking=no" pdsh -l <yourusername> -R ssh \
+     -w <redacted>.68.[4-11,132-139 4-11,132-139],<redacted>.132.[4-11,132-139|4-11,132-139] \
+     'sudo bzgrep AUTH_redacted-4962-4692-98fb-52ddda82a5af /var/log/swift/proxy.log* \
+     | grep -w DELETE | awk "{print $3,$10,$12}"' |- dshbak -c
    .
    .
-   Feb 23 12:43:46 sw-aw2az2-proxy001 proxy-server 15.203.233.76 <redacted>.66.7 23/Feb/2012/12/43/46 DELETE /v1.0/AUTH_redacted-4962-4692-98fb-
+   Feb 23 12:43:46 sw-aw2az2-proxy001 proxy-server <redacted> <redacted>.66.7 23/Feb/2012/12/43/46 DELETE /v1.0/AUTH_redacted-4962-4692-98fb-
    52ddda82a5af/ HTTP/1.0 204 - Apache-HttpClient/4.1.2%20%28java%201.5%29 <REDACTED>_4f458ee4e4b02a869c3aad02 - - -
-
    tx4471188b0b87406899973d297c55ab53 - 0.0086
 
 From this you can see the operation that resulted in the account being deleted.
@@ -252,8 +247,8 @@ Finally, use ``swift-direct`` to delete the container.
 Procedure: Decommissioning swift nodes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Should Swift nodes need to be decommissioned. For example, where they are being
-re-purposed, it is very important to follow the following steps.
+Should Swift nodes need to be decommissioned (e.g.,, where they are being
+re-purposed), it is very important to follow the following steps.
 
 #. In the case of object servers, follow the procedure for removing
    the node from the rings.

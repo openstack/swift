@@ -47,8 +47,7 @@ import datetime
 
 import eventlet
 import eventlet.semaphore
-from eventlet import GreenPool, sleep, Timeout, tpool, greenthread, \
-    greenio, event
+from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
 import eventlet.queue
 import netifaces
@@ -68,6 +67,7 @@ from swift import gettext_ as _
 import swift.common.exceptions
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+from swift.common.header_key_dict import HeaderKeyDict
 
 if six.PY3:
     stdlib_queue = eventlet.patcher.original('queue')
@@ -96,6 +96,9 @@ _libc_accept = None
 # If set to non-zero, fallocate routines will fail based on free space
 # available being at or below this amount, in bytes.
 FALLOCATE_RESERVE = 0
+# Indicates if FALLOCATE_RESERVE is the percentage of free space (True) or
+# the number of bytes (False).
+FALLOCATE_IS_PERCENT = False
 
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
@@ -452,6 +455,25 @@ def get_trans_id_time(trans_id):
     return None
 
 
+def config_fallocate_value(reserve_value):
+    """
+    Returns fallocate reserve_value as an int or float.
+    Returns is_percent as a boolean.
+    Returns a ValueError on invalid fallocate value.
+    """
+    try:
+        if str(reserve_value[-1:]) == '%':
+            reserve_value = float(reserve_value[:-1])
+            is_percent = True
+        else:
+            reserve_value = int(reserve_value)
+            is_percent = False
+    except ValueError:
+        raise ValueError('Error: %s is an invalid value for fallocate'
+                         '_reserve.' % reserve_value)
+    return reserve_value, is_percent
+
+
 class FileLikeIter(object):
 
     def __init__(self, iterable):
@@ -574,7 +596,8 @@ class FileLikeIter(object):
 class FallocateWrapper(object):
 
     def __init__(self, noop=False):
-        if noop:
+        self.noop = noop
+        if self.noop:
             self.func_name = 'posix_fallocate'
             self.fallocate = noop_libc_function
             return
@@ -592,12 +615,18 @@ class FallocateWrapper(object):
 
     def __call__(self, fd, mode, offset, length):
         """The length parameter must be a ctypes.c_uint64."""
-        if FALLOCATE_RESERVE > 0:
-            st = os.fstatvfs(fd)
-            free = st.f_frsize * st.f_bavail - length.value
-            if free <= FALLOCATE_RESERVE:
-                raise OSError('FALLOCATE_RESERVE fail %s <= %s' % (
-                    free, FALLOCATE_RESERVE))
+        if not self.noop:
+            if FALLOCATE_RESERVE > 0:
+                st = os.fstatvfs(fd)
+                free = st.f_frsize * st.f_bavail - length.value
+                if FALLOCATE_IS_PERCENT:
+                    free = \
+                        (float(free) / float(st.f_frsize * st.f_blocks)) * 100
+                if float(free) <= float(FALLOCATE_RESERVE):
+                    raise OSError(
+                        errno.ENOSPC,
+                        'FALLOCATE_RESERVE fail %s <= %s' %
+                        (free, FALLOCATE_RESERVE))
         args = {
             'fallocate': (fd, mode, offset, length),
             'posix_fallocate': (fd, offset, length)
@@ -671,8 +700,9 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warning(_("Unable to perform fsync() on directory %s: %s"),
-                        dirpath, os.strerror(err.errno))
+        logging.warning(_('Unable to perform fsync() on directory %(dir)s:'
+                          ' %(err)s'),
+                        {'dir': dirpath, 'err': os.strerror(err.errno)})
     finally:
         if dirfd:
             os.close(dirfd)
@@ -1231,21 +1261,59 @@ class NullLogger(object):
 
 class LoggerFileObject(object):
 
+    # Note: this is greenthread-local storage
+    _cls_thread_local = threading.local()
+
     def __init__(self, logger, log_type='STDOUT'):
         self.logger = logger
         self.log_type = log_type
 
     def write(self, value):
-        value = value.strip()
-        if value:
-            if 'Connection reset by peer' in value:
-                self.logger.error(
-                    _('%s: Connection reset by peer'), self.log_type)
-            else:
-                self.logger.error(_('%s: %s'), self.log_type, value)
+        # We can get into a nasty situation when logs are going to syslog
+        # and syslog dies.
+        #
+        # It's something like this:
+        #
+        # (A) someone logs something
+        #
+        # (B) there's an exception in sending to /dev/log since syslog is
+        #     not working
+        #
+        # (C) logging takes that exception and writes it to stderr (see
+        #     logging.Handler.handleError)
+        #
+        # (D) stderr was replaced with a LoggerFileObject at process start,
+        #     so the LoggerFileObject takes the provided string and tells
+        #     its logger to log it (to syslog, naturally).
+        #
+        # Then, steps B through D repeat until we run out of stack.
+        if getattr(self._cls_thread_local, 'already_called_write', False):
+            return
+
+        self._cls_thread_local.already_called_write = True
+        try:
+            value = value.strip()
+            if value:
+                if 'Connection reset by peer' in value:
+                    self.logger.error(
+                        _('%s: Connection reset by peer'), self.log_type)
+                else:
+                    self.logger.error(_('%(type)s: %(value)s'),
+                                      {'type': self.log_type, 'value': value})
+        finally:
+            self._cls_thread_local.already_called_write = False
 
     def writelines(self, values):
-        self.logger.error(_('%s: %s'), self.log_type, '#012'.join(values))
+        if getattr(self._cls_thread_local, 'already_called_writelines', False):
+            return
+
+        self._cls_thread_local.already_called_writelines = True
+        try:
+            self.logger.error(_('%(type)s: %(value)s'),
+                              {'type': self.log_type,
+                               'value': '#012'.join(values)})
+        finally:
+            self._cls_thread_local.already_called_writelines = False
 
     def close(self):
         pass
@@ -1583,7 +1651,6 @@ class SwiftLogFormatter(logging.Formatter):
             msg = msg + record.exc_text
 
         if (hasattr(record, 'txn_id') and record.txn_id and
-                record.levelno != logging.INFO and
                 record.txn_id not in msg):
             msg = "%s (txn: %s)" % (msg, record.txn_id)
         if (hasattr(record, 'client_ip') and record.client_ip and
@@ -2121,10 +2188,21 @@ def unlink_older_than(path, mtime):
     Remove any file in a given path that that was last modified before mtime.
 
     :param path: path to remove file from
-    :mtime: timestamp of oldest file to keep
+    :param mtime: timestamp of oldest file to keep
     """
-    for fname in listdir(path):
-        fpath = os.path.join(path, fname)
+    filepaths = map(functools.partial(os.path.join, path), listdir(path))
+    return unlink_paths_older_than(filepaths, mtime)
+
+
+def unlink_paths_older_than(filepaths, mtime):
+    """
+    Remove any files from the given list that that were
+    last modified before mtime.
+
+    :param filepaths: a list of strings, the full paths of files to check
+    :param mtime: timestamp of oldest file to keep
+    """
+    for fpath in filepaths:
         try:
             if os.path.getmtime(fpath) < mtime:
                 os.unlink(fpath)
@@ -2202,8 +2280,8 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print(_("Unable to find %s config section in %s") %
-                  (section_name, conf_path))
+            print(_("Unable to find %(section)s config section in %(conf)s") %
+                  {'section': section_name, 'conf': conf_path})
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
@@ -2470,6 +2548,10 @@ class GreenAsyncPile(object):
         finally:
             self._inflight -= 1
 
+    @property
+    def inflight(self):
+        return self._inflight
+
     def spawn(self, func, *args, **kwargs):
         """
         Spawn a job in a green thread on the pile.
@@ -2478,6 +2560,16 @@ class GreenAsyncPile(object):
         self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
+    def waitfirst(self, timeout):
+        """
+        Wait up to timeout seconds for first result to come in.
+
+        :param timeout: seconds to wait for results
+        :returns: first item to come back, or None
+        """
+        for result in self._wait(timeout, first_n=1):
+            return result
+
     def waitall(self, timeout):
         """
         Wait timeout seconds for any results to come in.
@@ -2485,11 +2577,16 @@ class GreenAsyncPile(object):
         :param timeout: seconds to wait for results
         :returns: list of results accrued in that time
         """
+        return self._wait(timeout)
+
+    def _wait(self, timeout, first_n=None):
         results = []
         try:
             with GreenAsyncPileWaitallTimeout(timeout):
                 while True:
                     results.append(next(self))
+                    if first_n and len(results) >= first_n:
+                        break
         except (GreenAsyncPileWaitallTimeout, StopIteration):
             pass
         return results
@@ -2507,6 +2604,48 @@ class GreenAsyncPile(object):
         self._pending -= 1
         return rv
     __next__ = next
+
+
+class StreamingPile(GreenAsyncPile):
+    """
+    Runs jobs in a pool of green threads, spawning more jobs as results are
+    retrieved and worker threads become available.
+
+    When used as a context manager, has the same worker-killing properties as
+    :class:`ContextPool`.
+    """
+    def __init__(self, size):
+        """:param size: number of worker threads to use"""
+        self.pool = ContextPool(size)
+        super(StreamingPile, self).__init__(self.pool)
+
+    def asyncstarmap(self, func, args_iter):
+        """
+        This is the same as :func:`itertools.starmap`, except that *func* is
+        executed in a separate green thread for each item, and results won't
+        necessarily have the same order as inputs.
+        """
+        args_iter = iter(args_iter)
+
+        # Initialize the pile
+        for args in itertools.islice(args_iter, self.pool.size):
+            self.spawn(func, *args)
+
+        # Keep populating the pile as greenthreads become available
+        for args in args_iter:
+            yield next(self)
+            self.spawn(func, *args)
+
+        # Drain the pile
+        for result in self:
+            yield result
+
+    def __enter__(self):
+        self.pool.__enter__()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.pool.__exit__(type, value, traceback)
 
 
 class ModifiedParseResult(ParseResult):
@@ -2577,7 +2716,8 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
         endpoint = realms_conf.endpoint(realm, cluster)
         if not endpoint:
             return (
-                _('No cluster endpoint for %r %r') % (realm, cluster),
+                _('No cluster endpoint for %(realm)r %(cluster)r')
+                % {'realm': realm, 'cluster': cluster},
                 None, None, None)
         return (
             None,
@@ -2865,6 +3005,10 @@ def public(func):
     return func
 
 
+def majority_size(n):
+    return (n // 2) + 1
+
+
 def quorum_size(n):
     """
     quorum size as it applies to services that use 'replication' for data
@@ -2874,7 +3018,7 @@ def quorum_size(n):
     Number of successful backend requests needed for the proxy to consider
     the client request successful.
     """
-    return (n // 2) + 1
+    return (n + 1) // 2
 
 
 def rsync_ip(ip):
@@ -3136,205 +3280,6 @@ def tpool_reraise(func, *args, **kwargs):
     if isinstance(resp, BaseException):
         raise resp
     return resp
-
-
-class ThreadPool(object):
-    """
-    Perform blocking operations in background threads.
-
-    Call its methods from within greenlets to green-wait for results without
-    blocking the eventlet reactor (hopefully).
-    """
-
-    BYTE = 'a'.encode('utf-8')
-
-    def __init__(self, nthreads=2):
-        self.nthreads = nthreads
-        self._run_queue = stdlib_queue.Queue()
-        self._result_queue = stdlib_queue.Queue()
-        self._threads = []
-        self._alive = True
-
-        if nthreads <= 0:
-            return
-
-        # We spawn a greenthread whose job it is to pull results from the
-        # worker threads via a real Queue and send them to eventlet Events so
-        # that the calling greenthreads can be awoken.
-        #
-        # Since each OS thread has its own collection of greenthreads, it
-        # doesn't work to have the worker thread send stuff to the event, as
-        # it then notifies its own thread-local eventlet hub to wake up, which
-        # doesn't do anything to help out the actual calling greenthread over
-        # in the main thread.
-        #
-        # Thus, each worker sticks its results into a result queue and then
-        # writes a byte to a pipe, signaling the result-consuming greenlet (in
-        # the main thread) to wake up and consume results.
-        #
-        # This is all stuff that eventlet.tpool does, but that code can't have
-        # multiple instances instantiated. Since the object server uses one
-        # pool per disk, we have to reimplement this stuff.
-        _raw_rpipe, self.wpipe = os.pipe()
-        self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb')
-
-        for _junk in range(nthreads):
-            thr = stdlib_threading.Thread(
-                target=self._worker,
-                args=(self._run_queue, self._result_queue))
-            thr.daemon = True
-            thr.start()
-            self._threads.append(thr)
-
-        # This is the result-consuming greenthread that runs in the main OS
-        # thread, as described above.
-        self._consumer_coro = greenthread.spawn_n(self._consume_results,
-                                                  self._result_queue)
-
-    def _worker(self, work_queue, result_queue):
-        """
-        Pulls an item from the queue and runs it, then puts the result into
-        the result queue. Repeats forever.
-
-        :param work_queue: queue from which to pull work
-        :param result_queue: queue into which to place results
-        """
-        while True:
-            item = work_queue.get()
-            if item is None:
-                break
-            ev, func, args, kwargs = item
-            try:
-                result = func(*args, **kwargs)
-                result_queue.put((ev, True, result))
-            except BaseException:
-                result_queue.put((ev, False, sys.exc_info()))
-            finally:
-                work_queue.task_done()
-                os.write(self.wpipe, self.BYTE)
-
-    def _consume_results(self, queue):
-        """
-        Runs as a greenthread in the same OS thread as callers of
-        run_in_thread().
-
-        Takes results from the worker OS threads and sends them to the waiting
-        greenthreads.
-        """
-        while True:
-            try:
-                self.rpipe.read(1)
-            except ValueError:
-                # can happen at process shutdown when pipe is closed
-                break
-
-            while True:
-                try:
-                    ev, success, result = queue.get(block=False)
-                except stdlib_queue.Empty:
-                    break
-
-                try:
-                    if success:
-                        ev.send(result)
-                    else:
-                        ev.send_exception(*result)
-                finally:
-                    queue.task_done()
-
-    def run_in_thread(self, func, *args, **kwargs):
-        """
-        Runs ``func(*args, **kwargs)`` in a thread. Blocks the current greenlet
-        until results are available.
-
-        Exceptions thrown will be reraised in the calling thread.
-
-        If the threadpool was initialized with nthreads=0, it invokes
-        ``func(*args, **kwargs)`` directly, followed by eventlet.sleep() to
-        ensure the eventlet hub has a chance to execute. It is more likely the
-        hub will be invoked when queuing operations to an external thread.
-
-        :returns: result of calling func
-        :raises: whatever func raises
-        """
-        if not self._alive:
-            raise swift.common.exceptions.ThreadPoolDead()
-
-        if self.nthreads <= 0:
-            result = func(*args, **kwargs)
-            sleep()
-            return result
-
-        ev = event.Event()
-        self._run_queue.put((ev, func, args, kwargs), block=False)
-
-        # blocks this greenlet (and only *this* greenlet) until the real
-        # thread calls ev.send().
-        result = ev.wait()
-        return result
-
-    def _run_in_eventlet_tpool(self, func, *args, **kwargs):
-        """
-        Really run something in an external thread, even if we haven't got any
-        threads of our own.
-        """
-        def inner():
-            try:
-                return (True, func(*args, **kwargs))
-            except (Timeout, BaseException) as err:
-                return (False, err)
-
-        success, result = tpool.execute(inner)
-        if success:
-            return result
-        else:
-            raise result
-
-    def force_run_in_thread(self, func, *args, **kwargs):
-        """
-        Runs ``func(*args, **kwargs)`` in a thread. Blocks the current greenlet
-        until results are available.
-
-        Exceptions thrown will be reraised in the calling thread.
-
-        If the threadpool was initialized with nthreads=0, uses eventlet.tpool
-        to run the function. This is in contrast to run_in_thread(), which
-        will (in that case) simply execute func in the calling thread.
-
-        :returns: result of calling func
-        :raises: whatever func raises
-        """
-        if not self._alive:
-            raise swift.common.exceptions.ThreadPoolDead()
-
-        if self.nthreads <= 0:
-            return self._run_in_eventlet_tpool(func, *args, **kwargs)
-        else:
-            return self.run_in_thread(func, *args, **kwargs)
-
-    def terminate(self):
-        """
-        Releases the threadpool's resources (OS threads, greenthreads, pipes,
-        etc.) and renders it unusable.
-
-        Don't call run_in_thread() or force_run_in_thread() after calling
-        terminate().
-        """
-        self._alive = False
-        if self.nthreads <= 0:
-            return
-
-        for _junk in range(self.nthreads):
-            self._run_queue.put(None)
-        for thr in self._threads:
-            thr.join()
-        self._threads = []
-        self.nthreads = 0
-
-        greenthread.kill(self._consumer_coro)
-
-        self.rpipe.close()
-        os.close(self.wpipe)
 
 
 def ismount(path):
@@ -3648,7 +3593,6 @@ def parse_mime_headers(doc_file):
     :param doc_file: binary file-like object containing a MIME document
     :returns: a swift.common.swob.HeaderKeyDict containing the headers
     """
-    from swift.common.swob import HeaderKeyDict  # avoid circular import
     headers = []
     while True:
         line = doc_file.readline()

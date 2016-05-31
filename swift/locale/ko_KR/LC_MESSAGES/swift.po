@@ -5,19 +5,17 @@
 # Translators:
 # Mario Cho <hephaex@gmail.com>, 2014
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
-# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.6.1.dev176\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-08 04:09+0000\n"
+"Project-Id-Version: swift 2.7.1.dev50\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-17 21:20+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-01-30 06:54+0000\n"
-"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
+"PO-Revision-Date: 2016-03-29 02:16+0000\n"
+"Last-Translator: SeYeon Lee <sy_lee@kr.ibm.com>\n"
 "Language: ko-KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -56,6 +54,16 @@ msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
 
 #, python-format
 msgid ""
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
+"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
+"(%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"%(device)d/%(dtotal)d (%(dpercentage).2f%%) 장치 중 %(reconstructed)d/"
+"%(total)d (%(percentage).2f%%)개의 파티션이 %(time).2fs (%(rate).2f/sec, "
+"%(remaining)s 남음)에 재구성됨"
+
+#, python-format
+msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
 "%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
@@ -71,14 +79,6 @@ msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s에서 %(statuses)s에 대해 503을 리턴함"
 
 #, python-format
-msgid "%s #%d not running (%s)"
-msgstr "%s #%d이(가) 실행되지 않음(%s)"
-
-#, python-format
-msgid "%s (%s) appears to have stopped"
-msgstr "%s(%s)이(가) 중지됨"
-
-#, python-format
 msgid "%s already started..."
 msgstr "%s이(가) 이미 시작되었음..."
 
@@ -91,12 +91,8 @@ msgid "%s is not mounted"
 msgstr "%s이(가) 마운트되지 않음"
 
 #, python-format
-msgid "%s running (%s - %s)"
-msgstr "%s 실행 중(%s - %s)"
-
-#, python-format
-msgid "%s: %s"
-msgstr "%s: %s"
+msgid "%s responded as unmounted"
+msgstr "%s이(가) 마운트 해제된 것으로 응답"
 
 #, python-format
 msgid "%s: Connection reset by peer"
@@ -137,10 +133,6 @@ msgid "Account"
 msgstr "계정"
 
 #, python-format
-msgid "Account %s has not been reaped since %s"
-msgstr "계정 %s을(를) %s 이후에 얻지 못함"
-
-#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "계정 감사 \"한 번\"모드가 완료: %.02fs"
 
@@ -153,10 +145,6 @@ msgid ""
 "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 "%(time).5f초(%(rate).5f/s)에 %(count)d개의 데이터베이스를 복제하려고 함"
-
-#, python-format
-msgid "Audit Failed for %s: %s"
-msgstr "검사 중 오류 %s: %s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -182,10 +170,6 @@ msgstr "컨테이너 업데이트 단일 스레드 스윕 시작"
 
 msgid "Begin container update sweep"
 msgstr "컨테이너 업데이트 스윕 시작"
-
-#, python-format
-msgid "Begin object audit \"%s\" mode (%s%s)"
-msgstr "오브젝트 감사 \"%s\" 모드(%s%s) 시작"
 
 msgid "Begin object update single threaded sweep"
 msgstr "오브젝트 업데이트 단일 스레드 스윕 시작"
@@ -221,12 +205,22 @@ msgstr "읽기 시 클라이언트 연결이 끊어짐"
 msgid "Client disconnected without sending enough data"
 msgstr "데이터를 모두 전송하기 전에 클라이언트 연결이 끊어짐"
 
+msgid "Client disconnected without sending last chunk"
+msgstr "마지막 청크를 전송하기 전에 클라이언트 연결이 끊어짐"
+
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
 msgstr ""
 "클라이언트 경로 %(client)s이(가) 오브젝트 메타데이터 %(meta)s에 저장된 경로"
 "와 일치하지 않음"
+
+msgid ""
+"Configuration option internal_client_conf_path not defined. Using default "
+"configuration, See internal-client.conf-sample for options"
+msgstr ""
+"구성 옵션 internal_client_conf_path가 정의되지 않았습니다. 기본 구성 사용 시 "
+"internal-client.conf-sample에서 옵션을 참조하십시오."
 
 msgid "Connection refused"
 msgstr "연결이 거부됨"
@@ -284,6 +278,10 @@ msgstr "데이터 다운로드 오류: %s"
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "장치 패스 완료 : %.02fs"
+
+#, python-format
+msgid "Directory %r does not map to a valid policy (%s)"
+msgstr "%r 디렉토리가 올바른 정책(%s)에 맵핑되지 않음"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -359,6 +357,10 @@ msgstr "오류. 디스크 파일 %(data_file)s 닫기 실패: %(exc)s : %(stack)
 
 msgid "ERROR Exception causing client disconnect"
 msgstr "오류. 예외로 인해 클라이언트 연결이 끊어짐"
+
+#, python-format
+msgid "ERROR Exception transferring data to object servers %s"
+msgstr "ERROR 오브젝트 서버 %s에 데이터를 전송하는 중에 예외 발생"
 
 msgid "ERROR Failed to get my own IPs?"
 msgstr "오류. 자체 IP를 가져오는 중 오류 발생 여부"
@@ -531,6 +533,12 @@ msgstr "파티션 동기 오류 "
 msgid "Error syncing with node: %s"
 msgstr "노드 동기 오류: %s"
 
+#, python-format
+msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
+msgstr ""
+"%(path)s policy#%(policy)d frag#%(frag_index)s을(를) 다시 빌드하려는 중 오류 "
+"발생"
+
 msgid "Error: An error occurred"
 msgstr "오류: 오류 발생"
 
@@ -550,13 +558,8 @@ msgstr "최상위 계정 루프의 예외 "
 msgid "Exception in top-level replication loop"
 msgstr "최상위 레벨 복제 루프에서 예외 발생"
 
-#, python-format
-msgid "Exception while deleting container %s %s"
-msgstr "컨테이너 %s %s 삭제 중 예외 발생"
-
-#, python-format
-msgid "Exception while deleting object %s %s %s"
-msgstr "오브젝트 %s %s %s 삭제 중 예외 발생"
+msgid "Exception in top-levelreconstruction loop"
+msgstr "최상위 레벨 재구성 루프에서 예외 발생"
 
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
@@ -586,6 +589,13 @@ msgstr "%(given_domain)s에서 %(found_domain)s(으)로의 다음 CNAME 체인"
 msgid "Found configs:"
 msgstr "구성 발견:"
 
+msgid ""
+"Handoffs first mode still has handoffs remaining.  Aborting current "
+"replication pass."
+msgstr ""
+"핸드오프 첫 모드에 여전히 핸드오프가 남아 있습니다. 현재 복제 전달을 중단합니"
+"다."
+
 msgid "Host unreachable"
 msgstr "호스트 도달 불가능"
 
@@ -604,6 +614,10 @@ msgstr "X-Container-Sync-To에 올바르지 않은 호스트 %r이(가) 있음"
 #, python-format
 msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr "올바르지 않은 보류 항목 %(file)s: %(entry)s"
+
+#, python-format
+msgid "Invalid response %(resp)s from %(full_path)s"
+msgstr "%(full_path)s에서 올바르지 않은 응답 %(resp)s"
 
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
@@ -641,6 +655,10 @@ msgid "No permission to signal PID %d"
 msgstr "PID %d을(를) 표시할 권한이 없음"
 
 #, python-format
+msgid "No policy with index %s"
+msgstr "인덱스가 %s인 정책이 없음"
+
+#, python-format
 msgid "No realm key for %r"
 msgstr "%r에 대한 영역 키가 없음"
 
@@ -649,12 +667,20 @@ msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "노드 오류로 %(ip)s:%(port)s(%(device)s)이(가) 제한됨"
 
 #, python-format
+msgid "Not enough object servers ack'ed (got %d)"
+msgstr "승인된 오브젝트 서버가 부족함(%d을(를) 받음)"
+
+#, python-format
 msgid ""
 "Not found %(sync_from)r => %(sync_to)r                       - object "
 "%(obj_name)r"
 msgstr ""
 "찾을 수 없음 %(sync_from)r => %(sync_to)r                       - 오브젝"
 "트%(obj_name)r"
+
+#, python-format
+msgid "Nothing reconstructed for %s seconds."
+msgstr "%s초 동안 재구성된 것이 없습니다."
 
 #, python-format
 msgid "Nothing replicated for %s seconds."
@@ -687,8 +713,28 @@ msgstr ""
 "초: %(brate).2f, 감사 시간: %(audit).2f, 속도: %(audit_rate).2f"
 
 #, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors, files/sec: %(frate).2f, bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"오브젝트 감사(%(type)s). %(start_time)s 이후: 로컬: %(passes)d개 통과, "
+"%(quars)d개 격리, %(errors)d개 오류, 파일/초: %(frate).2f, 바이트/초: "
+"%(brate).2f, 총 시간: %(total).2f, 감사 시간: %(audit).2f, 속도: "
+"%(audit_rate).2f"
+
+#, python-format
 msgid "Object audit stats: %s"
 msgstr "오브젝트 감사 통계: %s"
+
+#, python-format
+msgid "Object reconstruction complete (once). (%.02f minutes)"
+msgstr "오브젝트 재구성 완료(일 회). (%.02f분)"
+
+#, python-format
+msgid "Object reconstruction complete. (%.02f minutes)"
+msgstr "오브젝트 재구성 완료. (%.02f분)"
 
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
@@ -762,10 +808,6 @@ msgid ""
 msgstr "디렉토리가 아니어서 %(object_path)s을(를) %(quar_path)s에 격리함"
 
 #, python-format
-msgid "Quarantined %s to %s due to %s database"
-msgstr "%s을(를) %s에 격리. 원인: %s 데이터베이스"
-
-#, python-format
 msgid "Quarantining DB %s"
 msgstr "데이터베이스 %s 격리"
 
@@ -787,6 +829,14 @@ msgid "Removing partition: %s"
 msgstr "파티션 제거: %s"
 
 #, python-format
+msgid "Removing pid file %(pid_file)s with wrong pid %(pid)d"
+msgstr "잘못된 pid %(pid)d의 pid 파일 %(pid_file)s 제거"
+
+#, python-format
+msgid "Removing pid file %s with invalid pid"
+msgstr "pid가 올바르지 않은 pid 파일 %s 제거"
+
+#, python-format
 msgid "Removing stale pid file %s"
 msgstr "시간이 경과된 pid 파일 %s을(를) 제거하는 중 "
 
@@ -805,6 +855,9 @@ msgstr ""
 "%(acc)s/%(cont)s/%(obj)s(으)로 %(meth)s에 대한 498을 리턴합니다. 전송률 제한"
 "(최대 휴면) %(e)s"
 
+msgid "Ring change detected. Aborting current reconstruction pass."
+msgstr "링 변경이 발견되었습니다. 현재 재구성 전달을 중단합니다."
+
 msgid "Ring change detected. Aborting current replication pass."
 msgstr "링 변경이 발견되었습니다. 현재 복제 전달을 중단합니다."
 
@@ -812,12 +865,11 @@ msgstr "링 변경이 발견되었습니다. 현재 복제 전달을 중단합�
 msgid "Running %s once"
 msgstr "%s을(를) 한 번 실행"
 
+msgid "Running object reconstructor in script mode."
+msgstr "오브젝트 재구성자를 스크립트 모드로 실행 중입니다."
+
 msgid "Running object replicator in script mode."
 msgstr "오브젝트 복제자를 스크립트 모드로 실행 중입니다."
-
-#, python-format
-msgid "Signal %s  pid: %s  signal: %s"
-msgstr "신호 %s  pid: %s  신호: %s"
 
 #, python-format
 msgid ""
@@ -851,6 +903,12 @@ msgstr "마운트되지 않는 %s를 건너 뛰기"
 msgid "Starting %s"
 msgstr "%s 시작 중"
 
+msgid "Starting object reconstruction pass."
+msgstr "오브젝트 재구성 전달을 시작합니다."
+
+msgid "Starting object reconstructor in daemon mode."
+msgstr "오브젝트 재구성자를 디먼 모드로 시작합니다."
+
 msgid "Starting object replication pass."
 msgstr "오브젝트 복제 전달을 시작합니다."
 
@@ -877,8 +935,16 @@ msgid "Timeout %(action)s to memcached: %(server)s"
 msgstr "memcached에 대한 %(action)s 제한시간 초과: %(server)s"
 
 #, python-format
+msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "%(ip)s:%(port)s/%(device)s에서 제한시간 초과 예외 발생"
+
+#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "%(method)s %(path)s 시도 중"
+
+#, python-format
+msgid "Trying to GET %(full_path)s"
+msgstr "GET %(full_path)s 시도 중"
 
 #, python-format
 msgid "Trying to get final status of PUT to %s"
@@ -894,6 +960,10 @@ msgid "Trying to send to client"
 msgstr "클라이언트로 전송 시도 중"
 
 #, python-format
+msgid "Trying to sync suffixes with %s"
+msgstr "%s과(와) 접미사를 동기화하려고 시도"
+
+#, python-format
 msgid "Trying to write to %s"
 msgstr "%s에 쓰기 시도 중"
 
@@ -901,21 +971,21 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "미발견 예외"
 
 #, python-format
-msgid "Unable to find %s config section in %s"
-msgstr "%s 구성 섹션을 %s에서 찾을 수 없음"
+msgid "Unable to load internal client from config: %r (%s)"
+msgstr "구성에서 내부 클라이언트를 로드할 수 없음: %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "libc에서 %s을(를) 찾을 수 없습니다. no-op로 남겨 둡니다."
 
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr "%s의 구성을 찾을 수 없음"
+
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "libc에서 fallocate, posix_fallocate를 찾을 수 없습니다. no-op로 남겨 둡니다."
-
-#, python-format
-msgid "Unable to perform fsync() on directory %s: %s"
-msgstr "%s 디렉토리에서 fsync()를 수행할 수 없음: %s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -931,6 +1001,11 @@ msgstr "예상치 않은 응답: %s"
 
 msgid "Unhandled exception"
 msgstr "처리되지 않은 예외"
+
+#, python-format
+msgid "Unknown exception trying to GET: %(account)r %(container)r %(object)r"
+msgstr ""
+"GET을 시도하는 중 알 수 없는 예외 발생: %(account)r %(container)r %(object)r"
 
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
@@ -960,10 +1035,6 @@ msgstr ""
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "경고: 메모리 한계를 수정할 수 없습니다. 비루트로 실행 중인지 확인하십시오."
-
-#, python-format
-msgid "Waited %s seconds for %s to die; giving up"
-msgstr "%s초 동안 %s의 종료를 대기함, 포기하는 중"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "경고: memcached 클라이언트 없이 전송률을 제한할 수 없음"

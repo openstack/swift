@@ -36,7 +36,8 @@ from swift.common.utils import cache_from_env, get_logger, \
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
-from swift.proxy.controllers.base import get_container_info, NodeIter
+from swift.proxy.controllers.base import get_container_info, NodeIter, \
+    DEFAULT_RECHECK_CONTAINER_EXISTENCE, DEFAULT_RECHECK_ACCOUNT_EXISTENCE
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
@@ -64,10 +65,14 @@ required_filters = [
                                if pipe.startswith('catch_errors')
                                else [])},
     {'name': 'dlo', 'after_fn': lambda _junk: [
-        'staticweb', 'tempauth', 'keystoneauth',
+        'copy', 'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']},
     {'name': 'versioned_writes', 'after_fn': lambda _junk: [
-        'slo', 'dlo', 'staticweb', 'tempauth', 'keystoneauth',
+        'slo', 'dlo', 'copy', 'staticweb', 'tempauth',
+        'keystoneauth', 'catch_errors', 'gatekeeper', 'proxy_logging']},
+    # Put copy before dlo, slo and versioned_writes
+    {'name': 'copy', 'after_fn': lambda _junk: [
+        'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']}]
 
 
@@ -102,13 +107,13 @@ class Application(object):
         self.error_suppression_limit = \
             int(conf.get('error_suppression_limit', 10))
         self.recheck_container_existence = \
-            int(conf.get('recheck_container_existence', 60))
+            int(conf.get('recheck_container_existence',
+                         DEFAULT_RECHECK_CONTAINER_EXISTENCE))
         self.recheck_account_existence = \
-            int(conf.get('recheck_account_existence', 60))
+            int(conf.get('recheck_account_existence',
+                         DEFAULT_RECHECK_ACCOUNT_EXISTENCE))
         self.allow_account_management = \
             config_true_value(conf.get('allow_account_management', 'no'))
-        self.object_post_as_copy = \
-            config_true_value(conf.get('object_post_as_copy', 'true'))
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,
@@ -147,6 +152,10 @@ class Application(object):
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
         self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
+        self.concurrent_gets = \
+            config_true_value(conf.get('concurrent_gets'))
+        self.concurrency_timeout = float(conf.get('concurrency_timeout',
+                                                  self.conn_timeout))
         value = conf.get('request_node_count', '2 * replicas').lower().split()
         if len(value) == 1:
             rnc_value = int(value[0])
@@ -388,8 +397,7 @@ class Application(object):
                 # controller's method indicates it'd like to gather more
                 # information and try again later.
                 resp = req.environ['swift.authorize'](req)
-                if not resp and not req.headers.get('X-Copy-From-Account') \
-                        and not req.headers.get('Destination-Account'):
+                if not resp:
                     # No resp means authorized, no delayed recheck required.
                     old_authorize = req.environ['swift.authorize']
                 else:
@@ -400,7 +408,7 @@ class Application(object):
             # Save off original request method (GET, POST, etc.) in case it
             # gets mutated during handling.  This way logging can display the
             # method the client actually sent.
-            req.environ['swift.orig_req_method'] = req.method
+            req.environ.setdefault('swift.orig_req_method', req.method)
             try:
                 if old_authorize:
                     req.environ.pop('swift.authorize', None)

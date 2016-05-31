@@ -117,9 +117,9 @@ The Swift default value for max_file_size (when not present) is 5368709122.
 For example an Apache2 serving as a web front end of a storage node::
 
     #Object Service
-    NameVirtualHost *:6000
-    Listen 6000
-    <VirtualHost *:6000>
+    NameVirtualHost *:6200
+    Listen 6200
+    <VirtualHost *:6200>
         ServerName object-server
         WSGIDaemonProcess object-server processes=5 threads=1
         WSGIProcessGroup object-server
@@ -131,9 +131,9 @@ For example an Apache2 serving as a web front end of a storage node::
     </VirtualHost>
 
     #Container Service
-    NameVirtualHost *:6001
-    Listen 6001
-    <VirtualHost *:6001>
+    NameVirtualHost *:6201
+    Listen 6201
+    <VirtualHost *:6201>
         ServerName container-server
         WSGIDaemonProcess container-server processes=5 threads=1
         WSGIProcessGroup container-server
@@ -145,9 +145,9 @@ For example an Apache2 serving as a web front end of a storage node::
     </VirtualHost>
 
     #Account Service
-    NameVirtualHost *:6002
-    Listen 6002
-    <VirtualHost *:6002>
+    NameVirtualHost *:6202
+    Listen 6202
+    <VirtualHost *:6202>
         ServerName account-server
         WSGIDaemonProcess account-server processes=5 threads=1
         WSGIProcessGroup account-server

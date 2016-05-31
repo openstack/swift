@@ -117,16 +117,17 @@ Disable versioning from a container (x is any value except empty)::
 
 import calendar
 import json
-import six
 from six.moves.urllib.parse import quote, unquote
 import time
+
 from swift.common.utils import get_logger, Timestamp, \
-    register_swift_info, config_true_value
-from swift.common.request_helpers import get_sys_meta_prefix
+    register_swift_info, config_true_value, close_if_possible, FileLikeIter
+from swift.common.request_helpers import get_sys_meta_prefix, \
+    copy_header_subset
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
-from swift.common.swob import Request, HTTPException
-from swift.common.constraints import (
-    check_account_format, check_container_format, check_destination_header)
+from swift.common.swob import (
+    Request, HTTPException, HTTPRequestEntityTooLarge)
+from swift.common.constraints import check_container_format, MAX_FILE_SIZE
 from swift.proxy.controllers.base import get_container_info
 from swift.common.http import (
     is_success, is_client_error, HTTP_NOT_FOUND)
@@ -155,15 +156,74 @@ class VersionedWritesContext(WSGIContext):
         except ListingIterError:
             raise HTTPServerError(request=req)
 
-    def _listing_pages_iter(self, account_name, lcontainer, lprefix, env):
-        marker = ''
+    def _in_proxy_reverse_listing(self, account_name, lcontainer, lprefix,
+                                  env, failed_marker, failed_listing):
+        '''Get the complete prefix listing and reverse it on the proxy.
+
+        This is only necessary if we encounter a response from a
+        container-server that does not respect the ``reverse`` param
+        included by default in ``_listing_pages_iter``. This may happen
+        during rolling upgrades from pre-2.6.0 swift.
+
+        :param failed_marker: the marker that was used when we encountered
+                              the non-reversed listing
+        :param failed_listing: the non-reversed listing that was encountered.
+                               If ``failed_marker`` is blank, we can use this
+                               to save ourselves a request
+        :returns: an iterator over all objects starting with ``lprefix`` (up
+                  to but not including the failed marker) in reverse order
+        '''
+        complete_listing = []
+        if not failed_marker:
+            # We've never gotten a reversed listing. So save a request and
+            # use the failed listing.
+            complete_listing.extend(failed_listing)
+            marker = complete_listing[-1]['name'].encode('utf8')
+        else:
+            # We've gotten at least one reversed listing. Have to start at
+            # the beginning.
+            marker = ''
+
+        # First, take the *entire* prefix listing into memory
+        try:
+            for page in self._listing_pages_iter(
+                    account_name, lcontainer, lprefix,
+                    env, marker, end_marker=failed_marker, reverse=False):
+                complete_listing.extend(page)
+        except ListingIterNotFound:
+            pass
+
+        # Now that we've got everything, return the whole listing as one giant
+        # reversed page
+        return reversed(complete_listing)
+
+    def _listing_pages_iter(self, account_name, lcontainer, lprefix,
+                            env, marker='', end_marker='', reverse=True):
+        '''Get "pages" worth of objects that start with a prefix.
+
+        The optional keyword arguments ``marker``, ``end_marker``, and
+        ``reverse`` are used similar to how they are for containers. We're
+        either coming:
+
+           - directly from ``_listing_iter``, in which case none of the
+             optional args are specified, or
+
+           - from ``_in_proxy_reverse_listing``, in which case ``reverse``
+             is ``False`` and both ``marker`` and ``end_marker`` are specified
+             (although they may still be blank).
+        '''
         while True:
             lreq = make_pre_authed_request(
                 env, method='GET', swift_source='VW',
                 path='/v1/%s/%s' % (account_name, lcontainer))
             lreq.environ['QUERY_STRING'] = \
-                'format=json&prefix=%s&reverse=on&marker=%s' % (
+                'format=json&prefix=%s&marker=%s' % (
                     quote(lprefix), quote(marker))
+            if end_marker:
+                lreq.environ['QUERY_STRING'] += '&end_marker=%s' % (
+                    quote(end_marker))
+            if reverse:
+                lreq.environ['QUERY_STRING'] += '&reverse=on'
             lresp = lreq.get_response(self.app)
             if not is_success(lresp.status_int):
                 if lresp.status_int == HTTP_NOT_FOUND:
@@ -179,90 +239,138 @@ class VersionedWritesContext(WSGIContext):
             sublisting = json.loads(lresp.body)
             if not sublisting:
                 break
-            marker = sublisting[-1]['name'].encode('utf-8')
+
+            # When using the ``reverse`` param, check that the listing is
+            # actually reversed
+            first_item = sublisting[0]['name'].encode('utf-8')
+            last_item = sublisting[-1]['name'].encode('utf-8')
+            page_is_after_marker = marker and first_item > marker
+            if reverse and (first_item < last_item or page_is_after_marker):
+                # Apparently there's at least one pre-2.6.0 container server
+                yield self._in_proxy_reverse_listing(
+                    account_name, lcontainer, lprefix,
+                    env, marker, sublisting)
+                return
+
+            marker = last_item
             yield sublisting
 
-    def handle_obj_versions_put(self, req, object_versions,
-                                object_name, policy_index):
-        ret = None
-
-        # do a HEAD request to check object versions
+    def _get_source_object(self, req, path_info):
+        # make a GET request to check object versions
         _headers = {'X-Newest': 'True',
-                    'X-Backend-Storage-Policy-Index': policy_index,
                     'x-auth-token': req.headers.get('x-auth-token')}
 
         # make a pre_auth request in case the user has write access
         # to container, but not READ. This was allowed in previous version
         # (i.e., before middleware) so keeping the same behavior here
-        head_req = make_pre_authed_request(
-            req.environ, path=req.path_info,
-            headers=_headers, method='HEAD', swift_source='VW')
-        hresp = head_req.get_response(self.app)
+        get_req = make_pre_authed_request(
+            req.environ, path=path_info,
+            headers=_headers, method='GET', swift_source='VW')
+        source_resp = get_req.get_response(self.app)
 
-        is_dlo_manifest = 'X-Object-Manifest' in req.headers or \
-                          'X-Object-Manifest' in hresp.headers
+        if source_resp.content_length is None or \
+                source_resp.content_length > MAX_FILE_SIZE:
+            return HTTPRequestEntityTooLarge(request=req)
+
+        return source_resp
+
+    def _put_versioned_obj(self, req, put_path_info, source_resp):
+        # Create a new Request object to PUT to the versions container, copying
+        # all headers from the source object apart from x-timestamp.
+        put_req = make_pre_authed_request(
+            req.environ, path=put_path_info, method='PUT',
+            swift_source='VW')
+        copy_header_subset(source_resp, put_req,
+                           lambda k: k.lower() != 'x-timestamp')
+        put_req.headers['x-auth-token'] = req.headers.get('x-auth-token')
+        put_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
+        return put_req.get_response(self.app)
+
+    def _check_response_error(self, req, resp):
+        """
+        Raise Error Response in case of error
+        """
+        if is_success(resp.status_int):
+            return
+        if is_client_error(resp.status_int):
+            # missing container or bad permissions
+            raise HTTPPreconditionFailed(request=req)
+        # could not version the data, bail
+        raise HTTPServiceUnavailable(request=req)
+
+    def handle_obj_versions_put(self, req, versions_cont, api_version,
+                                account_name, object_name):
+        """
+        Copy current version of object to versions_container before proceding
+        with original request.
+
+        :param req: original request.
+        :param versions_cont: container where previous versions of the object
+                              are stored.
+        :param api_version: api version.
+        :param account_name: account name.
+        :param object_name: name of object of original request
+        """
+        if 'X-Object-Manifest' in req.headers:
+            # do not version DLO manifest, proceed with original request
+            return self.app
+
+        get_resp = self._get_source_object(req, req.path_info)
+
+        if 'X-Object-Manifest' in get_resp.headers:
+            # do not version DLO manifest, proceed with original request
+            close_if_possible(get_resp.app_iter)
+            return self.app
+        if get_resp.status_int == HTTP_NOT_FOUND:
+            # nothing to version, proceed with original request
+            close_if_possible(get_resp.app_iter)
+            return self.app
+
+        # check for any other errors
+        self._check_response_error(req, get_resp)
 
         # if there's an existing object, then copy it to
         # X-Versions-Location
-        if is_success(hresp.status_int) and not is_dlo_manifest:
-            lcontainer = object_versions.split('/')[0]
-            prefix_len = '%03x' % len(object_name)
-            lprefix = prefix_len + object_name + '/'
-            ts_source = hresp.environ.get('swift_x_timestamp')
-            if ts_source is None:
-                ts_source = calendar.timegm(time.strptime(
-                                            hresp.headers['last-modified'],
-                                            '%a, %d %b %Y %H:%M:%S GMT'))
-            new_ts = Timestamp(ts_source).internal
-            vers_obj_name = lprefix + new_ts
-            copy_headers = {
-                'Destination': '%s/%s' % (lcontainer, vers_obj_name),
-                'x-auth-token': req.headers.get('x-auth-token')}
+        prefix_len = '%03x' % len(object_name)
+        lprefix = prefix_len + object_name + '/'
+        ts_source = get_resp.headers.get(
+            'x-timestamp',
+            calendar.timegm(time.strptime(
+                get_resp.headers['last-modified'],
+                '%a, %d %b %Y %H:%M:%S GMT')))
+        vers_obj_name = lprefix + Timestamp(ts_source).internal
 
-            # COPY implementation sets X-Newest to True when it internally
-            # does a GET on source object. So, we don't have to explicity
-            # set it in request headers here.
-            copy_req = make_pre_authed_request(
-                req.environ, path=req.path_info,
-                headers=copy_headers, method='COPY', swift_source='VW')
-            copy_resp = copy_req.get_response(self.app)
+        put_path_info = "/%s/%s/%s/%s" % (
+            api_version, account_name, versions_cont, vers_obj_name)
+        put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
 
-            if is_success(copy_resp.status_int):
-                # success versioning previous existing object
-                # return None and handle original request
-                ret = None
-            else:
-                if is_client_error(copy_resp.status_int):
-                    # missing container or bad permissions
-                    ret = HTTPPreconditionFailed(request=req)
-                else:
-                    # could not copy the data, bail
-                    ret = HTTPServiceUnavailable(request=req)
+        self._check_response_error(req, put_resp)
+        return self.app
 
-        else:
-            if hresp.status_int == HTTP_NOT_FOUND or is_dlo_manifest:
-                # nothing to version
-                # return None and handle original request
-                ret = None
-            else:
-                # if not HTTP_NOT_FOUND, return error immediately
-                ret = hresp
-
-        return ret
-
-    def handle_obj_versions_delete(self, req, object_versions,
+    def handle_obj_versions_delete(self, req, versions_cont, api_version,
                                    account_name, container_name, object_name):
-        lcontainer = object_versions.split('/')[0]
+        """
+        Delete current version of object and pop previous version in its place.
+
+        :param req: original request.
+        :param versions_cont: container where previous versions of the object
+                              are stored.
+        :param api_version: api version.
+        :param account_name: account name.
+        :param container_name: container name.
+        :param object_name: object name.
+        """
         prefix_len = '%03x' % len(object_name)
         lprefix = prefix_len + object_name + '/'
 
-        item_iter = self._listing_iter(account_name, lcontainer, lprefix, req)
+        item_iter = self._listing_iter(account_name, versions_cont, lprefix,
+                                       req)
 
         authed = False
         for previous_version in item_iter:
             if not authed:
-                # we're about to start making COPY requests - need to
-                # validate the write access to the versioned container
+                # validate the write access to the versioned container before
+                # making any backend requests
                 if 'swift.authorize' in req.environ:
                     container_info = get_container_info(
                         req.environ, self.app)
@@ -276,35 +384,29 @@ class VersionedWritesContext(WSGIContext):
             # current object and delete the previous version
             prev_obj_name = previous_version['name'].encode('utf-8')
 
-            copy_path = '/v1/' + account_name + '/' + \
-                        lcontainer + '/' + prev_obj_name
+            get_path = "/%s/%s/%s/%s" % (
+                api_version, account_name, versions_cont, prev_obj_name)
 
-            copy_headers = {'X-Newest': 'True',
-                            'Destination': container_name + '/' + object_name,
-                            'x-auth-token': req.headers.get('x-auth-token')}
-
-            copy_req = make_pre_authed_request(
-                req.environ, path=copy_path,
-                headers=copy_headers, method='COPY', swift_source='VW')
-            copy_resp = copy_req.get_response(self.app)
+            get_resp = self._get_source_object(req, get_path)
 
             # if the version isn't there, keep trying with previous version
-            if copy_resp.status_int == HTTP_NOT_FOUND:
+            if get_resp.status_int == HTTP_NOT_FOUND:
                 continue
 
-            if not is_success(copy_resp.status_int):
-                if is_client_error(copy_resp.status_int):
-                    # some user error, maybe permissions
-                    return HTTPPreconditionFailed(request=req)
-                else:
-                    # could not copy the data, bail
-                    return HTTPServiceUnavailable(request=req)
+            self._check_response_error(req, get_resp)
 
-            # reset these because the COPY changed them
-            new_del_req = make_pre_authed_request(
-                req.environ, path=copy_path, method='DELETE',
+            put_path_info = "/%s/%s/%s/%s" % (
+                api_version, account_name, container_name, object_name)
+            put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
+
+            self._check_response_error(req, put_resp)
+
+            # redirect the original DELETE to the source of the reinstated
+            # version object - we already auth'd original req so make a
+            # pre-authed request
+            req = make_pre_authed_request(
+                req.environ, path=get_path, method='DELETE',
                 swift_source='VW')
-            req = new_del_req
 
             # remove 'X-If-Delete-At', since it is not for the older copy
             if 'X-If-Delete-At' in req.headers:
@@ -366,7 +468,7 @@ class VersionedWritesMiddleware(object):
                 req.headers['X-Versions-Location'] = ''
 
                 # if both headers are in the same request
-                # adding location takes precendence over removing
+                # adding location takes precedence over removing
                 if 'X-Remove-Versions-Location' in req.headers:
                     del req.headers['X-Remove-Versions-Location']
             else:
@@ -384,59 +486,41 @@ class VersionedWritesMiddleware(object):
         vw_ctx = VersionedWritesContext(self.app, self.logger)
         return vw_ctx.handle_container_request(req.environ, start_response)
 
-    def object_request(self, req, version, account, container, obj,
+    def object_request(self, req, api_version, account, container, obj,
                        allow_versioned_writes):
         account_name = unquote(account)
         container_name = unquote(container)
         object_name = unquote(obj)
-        container_info = None
         resp = None
         is_enabled = config_true_value(allow_versioned_writes)
-        if req.method in ('PUT', 'DELETE'):
-            container_info = get_container_info(
-                req.environ, self.app)
-        elif req.method == 'COPY' and 'Destination' in req.headers:
-            if 'Destination-Account' in req.headers:
-                account_name = req.headers.get('Destination-Account')
-                account_name = check_account_format(req, account_name)
-            container_name, object_name = check_destination_header(req)
-            req.environ['PATH_INFO'] = "/%s/%s/%s/%s" % (
-                version, account_name, container_name, object_name)
-            container_info = get_container_info(
-                req.environ, self.app)
-
-        if not container_info:
-            return self.app
+        container_info = get_container_info(
+            req.environ, self.app)
 
         # To maintain backwards compatibility, container version
         # location could be stored as sysmeta or not, need to check both.
         # If stored as sysmeta, check if middleware is enabled. If sysmeta
         # is not set, but versions property is set in container_info, then
         # for backwards compatibility feature is enabled.
-        object_versions = container_info.get(
+        versions_cont = container_info.get(
             'sysmeta', {}).get('versions-location')
-        if object_versions and isinstance(object_versions, six.text_type):
-            object_versions = object_versions.encode('utf-8')
-        elif not object_versions:
-            object_versions = container_info.get('versions')
+        if not versions_cont:
+            versions_cont = container_info.get('versions')
             # if allow_versioned_writes is not set in the configuration files
             # but 'versions' is configured, enable feature to maintain
             # backwards compatibility
-            if not allow_versioned_writes and object_versions:
+            if not allow_versioned_writes and versions_cont:
                 is_enabled = True
 
-        if is_enabled and object_versions:
-            object_versions = unquote(object_versions)
+        if is_enabled and versions_cont:
+            versions_cont = unquote(versions_cont).split('/')[0]
             vw_ctx = VersionedWritesContext(self.app, self.logger)
-            if req.method in ('PUT', 'COPY'):
-                policy_idx = req.headers.get(
-                    'X-Backend-Storage-Policy-Index',
-                    container_info['storage_policy'])
+            if req.method == 'PUT':
                 resp = vw_ctx.handle_obj_versions_put(
-                    req, object_versions, object_name, policy_idx)
+                    req, versions_cont, api_version, account_name,
+                    object_name)
             else:  # handle DELETE
                 resp = vw_ctx.handle_obj_versions_delete(
-                    req, object_versions, account_name,
+                    req, versions_cont, api_version, account_name,
                     container_name, object_name)
 
         if resp:
@@ -445,12 +529,9 @@ class VersionedWritesMiddleware(object):
             return self.app
 
     def __call__(self, env, start_response):
-        # making a duplicate, because if this is a COPY request, we will
-        # modify the PATH_INFO to find out if the 'Destination' is in a
-        # versioned container
-        req = Request(env.copy())
+        req = Request(env)
         try:
-            (version, account, container, obj) = req.split_path(3, 4, True)
+            (api_version, account, container, obj) = req.split_path(3, 4, True)
         except ValueError:
             return self.app(env, start_response)
 
@@ -476,10 +557,11 @@ class VersionedWritesMiddleware(object):
                                               allow_versioned_writes)
             except HTTPException as error_response:
                 return error_response(env, start_response)
-        elif obj and req.method in ('PUT', 'COPY', 'DELETE'):
+        elif (obj and req.method in ('PUT', 'DELETE') and
+                not req.environ.get('swift.post_as_copy')):
             try:
                 return self.object_request(
-                    req, version, account, container, obj,
+                    req, api_version, account, container, obj,
                     allow_versioned_writes)(env, start_response)
             except HTTPException as error_response:
                 return error_response(env, start_response)

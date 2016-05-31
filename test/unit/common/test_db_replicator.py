@@ -72,8 +72,8 @@ class FakeRing(object):
 class FakeRingWithSingleNode(object):
     class Ring(object):
         devs = [dict(
-            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.1', replication_port=6000
+            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.1', replication_port=6200, region=1
         )]
 
         def __init__(self, path, reload_time=15, ring_name=None):
@@ -92,23 +92,23 @@ class FakeRingWithSingleNode(object):
 class FakeRingWithNodes(object):
     class Ring(object):
         devs = [dict(
-            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.1', replication_port=6000, region=1
+            id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.1', replication_port=6200, region=1
         ), dict(
-            id=2, weight=10.0, zone=2, ip='1.1.1.2', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.2', replication_port=6000, region=2
+            id=2, weight=10.0, zone=2, ip='1.1.1.2', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.2', replication_port=6200, region=2
         ), dict(
-            id=3, weight=10.0, zone=3, ip='1.1.1.3', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.3', replication_port=6000, region=1
+            id=3, weight=10.0, zone=3, ip='1.1.1.3', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.3', replication_port=6200, region=1
         ), dict(
-            id=4, weight=10.0, zone=4, ip='1.1.1.4', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.4', replication_port=6000, region=2
+            id=4, weight=10.0, zone=4, ip='1.1.1.4', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.4', replication_port=6200, region=2
         ), dict(
-            id=5, weight=10.0, zone=5, ip='1.1.1.5', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.5', replication_port=6000, region=1
+            id=5, weight=10.0, zone=5, ip='1.1.1.5', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.5', replication_port=6200, region=1
         ), dict(
-            id=6, weight=10.0, zone=6, ip='1.1.1.6', port=6000, device='sdb',
-            meta='', replication_ip='1.1.1.6', replication_port=6000, region=2
+            id=6, weight=10.0, zone=6, ip='1.1.1.6', port=6200, device='sdb',
+            meta='', replication_ip='1.1.1.6', replication_port=6200, region=2
         )]
 
         def __init__(self, path, reload_time=15, ring_name=None):
@@ -486,7 +486,7 @@ class TestDBReplicator(unittest.TestCase):
         base = 'swift.common.db_replicator.'
         with patch(base + 'whataremyips', return_value=['1.1.1.1']), \
                 patch(base + 'ring', FakeRingWithNodes()):
-            replicator = TestReplicator({'bind_port': 6000,
+            replicator = TestReplicator({'bind_port': 6200,
                                          'recon_cache_path': self.recon_cache},
                                         logger=logger)
             replicator.run_once()
@@ -507,10 +507,11 @@ class TestDBReplicator(unittest.TestCase):
         db_replicator.ring = FakeRingWithSingleNode()
         # If a bind_ip is specified, it's plumbed into whataremyips() and
         # returned by itself.
-        conf = {'mount_check': 'true', 'bind_ip': '1.1.1.1', 'bind_port': 6000}
+        conf = {'mount_check': 'true', 'bind_ip': '1.1.1.1',
+                'bind_port': 6200}
         replicator = TestReplicator(conf, logger=unit.FakeLogger())
         self.assertEqual(replicator.mount_check, True)
-        self.assertEqual(replicator.port, 6000)
+        self.assertEqual(replicator.port, 6200)
 
         def mock_ismount(path):
             self.assertEqual(path,
@@ -528,10 +529,10 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_run_once_node_is_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
-        conf = {'mount_check': 'true', 'bind_port': 6000}
+        conf = {'mount_check': 'true', 'bind_port': 6200}
         replicator = TestReplicator(conf, logger=unit.FakeLogger())
         self.assertEqual(replicator.mount_check, True)
-        self.assertEqual(replicator.port, 6000)
+        self.assertEqual(replicator.port, 6200)
 
         def mock_unlink_older_than(path, mtime):
             self.assertEqual(path,
@@ -632,6 +633,9 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_replicate_object_delete_because_not_shouldbehere(self):
         replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        replicator.brokerclass = FakeAccountBroker
+        replicator._repl_to_node = lambda *args: True
         replicator.delete_db = self.stub_delete_db
         replicator._replicate_object('0', '/path/to/file', 'node_id')
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
@@ -667,6 +671,30 @@ class TestDBReplicator(unittest.TestCase):
             replicator.logger.log_dict['error'],
             [(('Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
                'be on partition 0; will replicate out and remove.',), {})])
+
+    def test_replicate_container_out_of_place_no_node(self):
+        replicator = TestReplicator({}, logger=unit.FakeLogger())
+        replicator.ring = FakeRingWithSingleNode().Ring('path')
+        replicator._repl_to_node = lambda *args: True
+
+        replicator.delete_db = self.stub_delete_db
+        # Correct node_id, wrong part
+        part = replicator.ring.get_part(
+            TEST_ACCOUNT_NAME, TEST_CONTAINER_NAME) + 1
+        node_id = replicator.ring.get_part_nodes(part)[0]['id']
+        replicator._replicate_object(str(part), '/path/to/file', node_id)
+        self.assertEqual(['/path/to/file'], self.delete_db_calls)
+
+        self.delete_db_calls = []
+
+        # No nodes this time
+        replicator.ring.get_part_nodes = lambda *args: []
+        replicator.delete_db = self.stub_delete_db
+        # Correct node_id, wrong part
+        part = replicator.ring.get_part(
+            TEST_ACCOUNT_NAME, TEST_CONTAINER_NAME) + 1
+        replicator._replicate_object(str(part), '/path/to/file', node_id)
+        self.assertEqual([], self.delete_db_calls)
 
     def test_replicate_object_different_region(self):
         db_replicator.ring = FakeRingWithNodes()

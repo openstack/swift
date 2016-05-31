@@ -1539,6 +1539,9 @@ class TestContainerBroker(unittest.TestCase):
         listing = broker.list_objects_iter(100, None, None, '/pets/fish/', '/')
         self.assertEqual([row[0] for row in listing],
                          ['/pets/fish/a', '/pets/fish/b'])
+        listing = broker.list_objects_iter(100, None, None, None, '/')
+        self.assertEqual([row[0] for row in listing],
+                         ['/'])
 
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter
@@ -2030,6 +2033,63 @@ class TestContainerBroker(unittest.TestCase):
             1: {'object_count': 10, 'bytes_used': 20},
         }
         self.assertEqual(broker.get_policy_stats(), expected)
+
+    @with_tempdir
+    def test_get_info_no_stale_reads(self, tempdir):
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time())))
+        db_path = os.path.join(tempdir, 'container.db')
+
+        def mock_commit_puts():
+            raise sqlite3.OperationalError('unable to open database file')
+
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 stale_reads_ok=False)
+        broker.initialize(next(ts), 1)
+
+        # manually make some pending entries
+        with open(broker.pending_file, 'a+b') as fp:
+            for i in range(10):
+                name, timestamp, size, content_type, etag, deleted = (
+                    'o%s' % i, next(ts), 0, 'c', 'e', 0)
+                fp.write(':')
+                fp.write(pickle.dumps(
+                    (name, timestamp, size, content_type, etag, deleted),
+                    protocol=2).encode('base64'))
+                fp.flush()
+
+        broker._commit_puts = mock_commit_puts
+        with self.assertRaises(sqlite3.OperationalError) as exc_context:
+            broker.get_info()
+        self.assertIn('unable to open database file',
+                      str(exc_context.exception))
+
+    @with_tempdir
+    def test_get_info_stale_read_ok(self, tempdir):
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time())))
+        db_path = os.path.join(tempdir, 'container.db')
+
+        def mock_commit_puts():
+            raise sqlite3.OperationalError('unable to open database file')
+
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 stale_reads_ok=True)
+        broker.initialize(next(ts), 1)
+
+        # manually make some pending entries
+        with open(broker.pending_file, 'a+b') as fp:
+            for i in range(10):
+                name, timestamp, size, content_type, etag, deleted = (
+                    'o%s' % i, next(ts), 0, 'c', 'e', 0)
+                fp.write(':')
+                fp.write(pickle.dumps(
+                    (name, timestamp, size, content_type, etag, deleted),
+                    protocol=2).encode('base64'))
+                fp.flush()
+
+        broker._commit_puts = mock_commit_puts
+        broker.get_info()
 
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):

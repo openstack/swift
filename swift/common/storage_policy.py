@@ -170,16 +170,13 @@ class BaseStoragePolicy(object):
         if self.idx < 0:
             raise PolicyError('Invalid index', idx)
         self.alias_list = []
-        if not name or not self._validate_policy_name(name):
-            raise PolicyError('Invalid name %r' % name, idx)
-        self.alias_list.append(name)
+        self.add_name(name)
         if aliases:
             names_list = list_from_csv(aliases)
             for alias in names_list:
                 if alias == name:
                     continue
-                self._validate_policy_name(alias)
-                self.alias_list.append(alias)
+                self.add_name(alias)
         self.is_deprecated = config_true_value(is_deprecated)
         self.is_default = config_true_value(is_default)
         if self.policy_type not in BaseStoragePolicy.policy_type_to_policy_cls:
@@ -288,14 +285,16 @@ class BaseStoragePolicy(object):
         to check policy names before setting them.
 
         :param name: a name string for a single policy name.
-        :returns: true if the name is valid.
         :raises: PolicyError if the policy name is invalid.
         """
+        if not name:
+            raise PolicyError('Invalid name %r' % name, self.idx)
         # this is defensively restrictive, but could be expanded in the future
         if not all(c in VALID_CHARS for c in name):
-            raise PolicyError('Names are used as HTTP headers, and can not '
-                              'reliably contain any characters not in %r. '
-                              'Invalid name %r' % (VALID_CHARS, name))
+            msg = 'Names are used as HTTP headers, and can not ' \
+                  'reliably contain any characters not in %r. ' \
+                  'Invalid name %r' % (VALID_CHARS, name)
+            raise PolicyError(msg, self.idx)
         if name.upper() == LEGACY_POLICY_NAME.upper() and self.idx != 0:
             msg = 'The name %s is reserved for policy index 0. ' \
                   'Invalid name %r' % (LEGACY_POLICY_NAME, name)
@@ -304,8 +303,6 @@ class BaseStoragePolicy(object):
                             in self.alias_list):
             msg = 'The name %s is already assigned to this policy.' % name
             raise PolicyError(msg, self.idx)
-
-        return True
 
     def add_name(self, name):
         """
@@ -316,8 +313,8 @@ class BaseStoragePolicy(object):
 
         :param name: a new alias for the storage policy
         """
-        if self._validate_policy_name(name):
-            self.alias_list.append(name)
+        self._validate_policy_name(name)
+        self.alias_list.append(name)
 
     def remove_name(self, name):
         """

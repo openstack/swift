@@ -41,6 +41,7 @@ from swift.obj import ssync_sender
 from swift.obj.diskfile import DiskFileManager, get_data_dir, get_tmp_dir
 from swift.common.storage_policy import POLICIES, REPL_POLICY
 
+DEFAULT_RSYNC_TIMEOUT = 900
 
 hubs.use_hub(get_hub())
 
@@ -67,7 +68,7 @@ class ObjectReplicator(Daemon):
         self.bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
         self.port = None if self.servers_per_port else \
-            int(conf.get('bind_port', 6000))
+            int(conf.get('bind_port', 6200))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
@@ -76,7 +77,8 @@ class ObjectReplicator(Daemon):
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.rsync_timeout = int(conf.get('rsync_timeout', 900))
+        self.rsync_timeout = int(conf.get('rsync_timeout',
+                                          DEFAULT_RSYNC_TIMEOUT))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
         self.rsync_compress = config_true_value(
@@ -227,6 +229,7 @@ class ObjectReplicator(Daemon):
             '--timeout=%s' % self.rsync_io_timeout,
             '--contimeout=%s' % self.rsync_io_timeout,
             '--bwlimit=%s' % self.rsync_bwlimit,
+            '--exclude=.*.%s' % ''.join('[0-9a-zA-Z]' for i in range(6))
         ]
         if self.rsync_compress and \
                 job['region'] != node['region']:
@@ -639,9 +642,10 @@ class ObjectReplicator(Daemon):
                              if failure_dev])
                     continue
         if not found_local:
-            self.logger.error("Can't find itself %s with port %s in ring "
-                              "file, not replicating",
-                              ", ".join(ips), self.port)
+            self.logger.error("Can't find itself in policy with index %d with"
+                              " ips %s and with port %s in ring file, not"
+                              " replicating",
+                              int(policy), ", ".join(ips), self.port)
         return jobs
 
     def collect_jobs(self, override_devices=None, override_partitions=None,

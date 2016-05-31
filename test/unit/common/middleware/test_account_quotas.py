@@ -13,13 +13,13 @@
 
 import unittest
 
-from swift.common.swob import Request, wsgify, HTTPForbidden
+from swift.common.swob import Request, wsgify, HTTPForbidden, \
+    HTTPException
 
-from swift.common.middleware import account_quotas
+from swift.common.middleware import account_quotas, copy
 
-from swift.proxy.controllers.base import _get_cache_key, \
-    headers_to_account_info, get_object_env_key, \
-    headers_to_object_info
+from swift.proxy.controllers.base import get_cache_key, \
+    headers_to_account_info, headers_to_object_info
 
 
 class FakeCache(object):
@@ -57,16 +57,18 @@ class FakeApp(object):
                 return aresp(env, start_response)
         if env['REQUEST_METHOD'] == "HEAD" and \
                 env['PATH_INFO'] == '/v1/a/c2/o2':
-            env_key = get_object_env_key('a', 'c2', 'o2')
-            env[env_key] = headers_to_object_info(self.headers, 200)
+            cache_key = get_cache_key('a', 'c2', 'o2')
+            env.setdefault('swift.infocache', {})[cache_key] = \
+                headers_to_object_info(self.headers, 200)
             start_response('200 OK', self.headers)
         elif env['REQUEST_METHOD'] == "HEAD" and \
                 env['PATH_INFO'] == '/v1/a/c2/o3':
             start_response('404 Not Found', [])
         else:
             # Cache the account_info (same as a real application)
-            cache_key, env_key = _get_cache_key('a', None)
-            env[env_key] = headers_to_account_info(self.headers, 200)
+            cache_key = get_cache_key('a')
+            env.setdefault('swift.infocache', {})[cache_key] = \
+                headers_to_account_info(self.headers, 200)
             start_response('200 OK', self.headers)
         return []
 
@@ -245,84 +247,6 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEqual(res.status_int, 200)
 
-    def test_exceed_bytes_quota_copy_from(self):
-        headers = [('x-account-bytes-used', '500'),
-                   ('x-account-meta-quota-bytes', '1000'),
-                   ('content-length', '1000')]
-        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        cache = FakeCache(None)
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'PUT',
-                                     'swift.cache': cache},
-                            headers={'x-copy-from': '/c2/o2'})
-        res = req.get_response(app)
-        self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
-
-    def test_exceed_bytes_quota_copy_verb(self):
-        headers = [('x-account-bytes-used', '500'),
-                   ('x-account-meta-quota-bytes', '1000'),
-                   ('content-length', '1000')]
-        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        cache = FakeCache(None)
-        req = Request.blank('/v1/a/c2/o2',
-                            environ={'REQUEST_METHOD': 'COPY',
-                                     'swift.cache': cache},
-                            headers={'Destination': '/c/o'})
-        res = req.get_response(app)
-        self.assertEqual(res.status_int, 413)
-        self.assertEqual(res.body, 'Upload exceeds quota.')
-
-    def test_not_exceed_bytes_quota_copy_from(self):
-        headers = [('x-account-bytes-used', '0'),
-                   ('x-account-meta-quota-bytes', '1000'),
-                   ('content-length', '1000')]
-        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        cache = FakeCache(None)
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'PUT',
-                                     'swift.cache': cache},
-                            headers={'x-copy-from': '/c2/o2'})
-        res = req.get_response(app)
-        self.assertEqual(res.status_int, 200)
-
-    def test_not_exceed_bytes_quota_copy_verb(self):
-        headers = [('x-account-bytes-used', '0'),
-                   ('x-account-meta-quota-bytes', '1000'),
-                   ('content-length', '1000')]
-        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        cache = FakeCache(None)
-        req = Request.blank('/v1/a/c2/o2',
-                            environ={'REQUEST_METHOD': 'COPY',
-                                     'swift.cache': cache},
-                            headers={'Destination': '/c/o'})
-        res = req.get_response(app)
-        self.assertEqual(res.status_int, 200)
-
-    def test_quota_copy_from_no_src(self):
-        headers = [('x-account-bytes-used', '0'),
-                   ('x-account-meta-quota-bytes', '1000')]
-        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        cache = FakeCache(None)
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'PUT',
-                                     'swift.cache': cache},
-                            headers={'x-copy-from': '/c2/o3'})
-        res = req.get_response(app)
-        self.assertEqual(res.status_int, 200)
-
-    def test_quota_copy_from_bad_src(self):
-        headers = [('x-account-bytes-used', '0'),
-                   ('x-account-meta-quota-bytes', '1000')]
-        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
-        cache = FakeCache(None)
-        req = Request.blank('/v1/a/c/o',
-                            environ={'REQUEST_METHOD': 'PUT',
-                                     'swift.cache': cache},
-                            headers={'x-copy-from': 'bad_path'})
-        res = req.get_response(app)
-        self.assertEqual(res.status_int, 412)
-
     def test_exceed_bytes_quota_reseller(self):
         headers = [('x-account-bytes-used', '1000'),
                    ('x-account-meta-quota-bytes', '0')]
@@ -484,6 +408,92 @@ class TestAccountQuota(unittest.TestCase):
         # Response code of 200 because authentication itself is not done here
         self.assertEqual(res.status_int, 200)
 
+
+class AccountQuotaCopyingTestCases(unittest.TestCase):
+
+    def setUp(self):
+        self.app = FakeApp()
+        self.aq_filter = account_quotas.filter_factory({})(self.app)
+        self.copy_filter = copy.filter_factory({})(self.aq_filter)
+
+    def test_exceed_bytes_quota_copy_from(self):
+        headers = [('x-account-bytes-used', '500'),
+                   ('x-account-meta-quota-bytes', '1000'),
+                   ('content-length', '1000')]
+        self.app.headers = headers
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, 'Upload exceeds quota.')
+
+    def test_exceed_bytes_quota_copy_verb(self):
+        headers = [('x-account-bytes-used', '500'),
+                   ('x-account-meta-quota-bytes', '1000'),
+                   ('content-length', '1000')]
+        self.app.headers = headers
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c2/o2',
+                            environ={'REQUEST_METHOD': 'COPY',
+                                     'swift.cache': cache},
+                            headers={'Destination': '/c/o'})
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, 'Upload exceeds quota.')
+
+    def test_not_exceed_bytes_quota_copy_from(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000'),
+                   ('content-length', '1000')]
+        self.app.headers = headers
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o2'})
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 200)
+
+    def test_not_exceed_bytes_quota_copy_verb(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000'),
+                   ('content-length', '1000')]
+        self.app.headers = headers
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c2/o2',
+                            environ={'REQUEST_METHOD': 'COPY',
+                                     'swift.cache': cache},
+                            headers={'Destination': '/c/o'})
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 200)
+
+    def test_quota_copy_from_no_src(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        self.app.headers = headers
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache},
+                            headers={'x-copy-from': '/c2/o3'})
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 200)
+
+    def test_quota_copy_from_bad_src(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        self.app.headers = headers
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.cache': cache},
+                            headers={'x-copy-from': 'bad_path'})
+        with self.assertRaises(HTTPException) as catcher:
+            req.get_response(self.copy_filter)
+        self.assertEqual(412, catcher.exception.status_int)
 
 if __name__ == '__main__':
     unittest.main()

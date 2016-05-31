@@ -25,6 +25,7 @@ from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
+from swift.proxy.controllers.base import get_account_info
 
 from test.unit import patch_policies
 
@@ -68,9 +69,10 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/v1/AUTH_bob', {'PATH_INFO': '/v1/AUTH_bob'})
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
-        self.assertTrue('swift.account/AUTH_bob' in resp.environ)
-        self.assertEqual(headers_to_account_info(resp.headers),
-                         resp.environ['swift.account/AUTH_bob'])
+        self.assertIn('account/AUTH_bob', resp.environ['swift.infocache'])
+        self.assertEqual(
+            headers_to_account_info(resp.headers),
+            resp.environ['swift.infocache']['account/AUTH_bob'])
 
     def test_swift_owner(self):
         owner_headers = {
@@ -225,13 +227,20 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(1, len(resp.headers))  # we always get Content-Type
         self.assertEqual(2, len(resp.environ))
 
-    def test_memcache_key_impossible_cases(self):
+    def test_cache_key_impossible_cases(self):
         # For test coverage: verify that defensive coding does defend, in cases
         # that shouldn't arise naturally
-        self.assertRaises(
-            ValueError,
-            lambda: swift.proxy.controllers.base.get_container_memcache_key(
-                '/a', None))
+        with self.assertRaises(ValueError):
+            # Container needs account
+            swift.proxy.controllers.base.get_cache_key(None, 'c')
+
+        with self.assertRaises(ValueError):
+            # Object needs account
+            swift.proxy.controllers.base.get_cache_key(None, 'c', 'o')
+
+        with self.assertRaises(ValueError):
+            # Object needs container
+            swift.proxy.controllers.base.get_cache_key('a', None, 'o')
 
     def test_stripping_swift_admin_headers(self):
         # Verify that a GET/HEAD which receives privileged headers from the
@@ -320,16 +329,16 @@ class TestAccountController4Replicas(TestAccountController):
             ((201, 201, 201, 201), 201),
             ((201, 201, 201, 404), 201),
             ((201, 201, 201, 503), 201),
-            ((201, 201, 404, 404), 503),
-            ((201, 201, 404, 503), 503),
-            ((201, 201, 503, 503), 503),
+            ((201, 201, 404, 404), 201),
+            ((201, 201, 404, 503), 201),
+            ((201, 201, 503, 503), 201),
             ((201, 404, 404, 404), 404),
-            ((201, 404, 404, 503), 503),
+            ((201, 404, 404, 503), 404),
             ((201, 404, 503, 503), 503),
             ((201, 503, 503, 503), 503),
             ((404, 404, 404, 404), 404),
             ((404, 404, 404, 503), 404),
-            ((404, 404, 503, 503), 503),
+            ((404, 404, 503, 503), 404),
             ((404, 503, 503, 503), 503),
             ((503, 503, 503, 503), 503)
         ]
@@ -340,16 +349,16 @@ class TestAccountController4Replicas(TestAccountController):
             ((204, 204, 204, 204), 204),
             ((204, 204, 204, 404), 204),
             ((204, 204, 204, 503), 204),
-            ((204, 204, 404, 404), 503),
-            ((204, 204, 404, 503), 503),
-            ((204, 204, 503, 503), 503),
+            ((204, 204, 404, 404), 204),
+            ((204, 204, 404, 503), 204),
+            ((204, 204, 503, 503), 204),
             ((204, 404, 404, 404), 404),
-            ((204, 404, 404, 503), 503),
+            ((204, 404, 404, 503), 404),
             ((204, 404, 503, 503), 503),
             ((204, 503, 503, 503), 503),
             ((404, 404, 404, 404), 404),
             ((404, 404, 404, 503), 404),
-            ((404, 404, 503, 503), 503),
+            ((404, 404, 503, 503), 404),
             ((404, 503, 503, 503), 503),
             ((503, 503, 503, 503), 503)
         ]
@@ -360,20 +369,37 @@ class TestAccountController4Replicas(TestAccountController):
             ((204, 204, 204, 204), 204),
             ((204, 204, 204, 404), 204),
             ((204, 204, 204, 503), 204),
-            ((204, 204, 404, 404), 503),
-            ((204, 204, 404, 503), 503),
-            ((204, 204, 503, 503), 503),
+            ((204, 204, 404, 404), 204),
+            ((204, 204, 404, 503), 204),
+            ((204, 204, 503, 503), 204),
             ((204, 404, 404, 404), 404),
-            ((204, 404, 404, 503), 503),
+            ((204, 404, 404, 503), 404),
             ((204, 404, 503, 503), 503),
             ((204, 503, 503, 503), 503),
             ((404, 404, 404, 404), 404),
             ((404, 404, 404, 503), 404),
-            ((404, 404, 503, 503), 503),
+            ((404, 404, 503, 503), 404),
             ((404, 503, 503, 503), 503),
             ((503, 503, 503, 503), 503)
         ]
         self._assert_responses('POST', POST_TEST_CASES)
+
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+class TestGetAccountInfo(unittest.TestCase):
+    def setUp(self):
+        self.app = proxy_server.Application(
+            None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing())
+
+    def test_get_deleted_account_410(self):
+        resp_headers = {'x-account-status': 'deleted'}
+
+        req = Request.blank('/v1/a')
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(404, headers=resp_headers)):
+            info = get_account_info(req.environ, self.app)
+        self.assertEqual(410, info.get('status'))
 
 
 if __name__ == '__main__':

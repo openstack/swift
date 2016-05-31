@@ -22,7 +22,7 @@ from six.moves import range
 from test import safe_repr
 from test.unit import MockTrue
 
-from swift.common.swob import HTTPBadRequest, Request, HTTPException
+from swift.common.swob import Request, HTTPException
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
     HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED, HTTP_NOT_IMPLEMENTED
 from swift.common import constraints, utils
@@ -49,8 +49,20 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_empty_name(self):
         headers = {'X-Object-Meta-': 'Value'}
-        self.assertTrue(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), HTTPBadRequest)
+        self.assertEqual(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
+
+    def test_check_metadata_non_utf8(self):
+        headers = {'X-Account-Meta-Foo': b'\xff'}
+        self.assertEqual(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'account').status_int, HTTP_BAD_REQUEST)
+        headers = {b'X-Container-Meta-\xff': 'foo'}
+        self.assertEqual(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'container').status_int, HTTP_BAD_REQUEST)
+        # Object's OK; its metadata isn't serialized as JSON
+        headers = {'X-Object-Meta-Foo': b'\xff'}
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
     def test_check_metadata_name_length(self):
         name = 'a' * constraints.MAX_META_NAME_LENGTH
@@ -160,33 +172,6 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name').status_int,
             HTTP_NOT_IMPLEMENTED)
-
-    def test_check_object_creation_copy(self):
-        headers = {'Content-Length': '0',
-                   'X-Copy-From': 'c/o2',
-                   'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name'), None)
-
-        headers = {'Content-Length': '1',
-                   'X-Copy-From': 'c/o2',
-                   'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name').status_int,
-            HTTP_BAD_REQUEST)
-
-        headers = {'Transfer-Encoding': 'chunked',
-                   'X-Copy-From': 'c/o2',
-                   'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name'), None)
-
-        # a content-length header is always required
-        headers = {'X-Copy-From': 'c/o2',
-                   'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name').status_int,
-            HTTP_LENGTH_REQUIRED)
 
     def test_check_object_creation_name_length(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -446,60 +431,6 @@ class TestConstraints(unittest.TestCase):
         self.assertTrue(c.MAX_META_OVERALL_SIZE > c.MAX_META_VALUE_LENGTH)
         self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_NAME_LENGTH)
         self.assertTrue(c.MAX_HEADER_SIZE > c.MAX_META_VALUE_LENGTH)
-
-    def test_validate_copy_from(self):
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'x-copy-from': 'c/o2'})
-        src_cont, src_obj = constraints.check_copy_from_header(req)
-        self.assertEqual(src_cont, 'c')
-        self.assertEqual(src_obj, 'o2')
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'x-copy-from': 'c/subdir/o2'})
-        src_cont, src_obj = constraints.check_copy_from_header(req)
-        self.assertEqual(src_cont, 'c')
-        self.assertEqual(src_obj, 'subdir/o2')
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'x-copy-from': '/c/o2'})
-        src_cont, src_obj = constraints.check_copy_from_header(req)
-        self.assertEqual(src_cont, 'c')
-        self.assertEqual(src_obj, 'o2')
-
-    def test_validate_bad_copy_from(self):
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'x-copy-from': 'bad_object'})
-        self.assertRaises(HTTPException,
-                          constraints.check_copy_from_header, req)
-
-    def test_validate_destination(self):
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'destination': 'c/o2'})
-        src_cont, src_obj = constraints.check_destination_header(req)
-        self.assertEqual(src_cont, 'c')
-        self.assertEqual(src_obj, 'o2')
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'destination': 'c/subdir/o2'})
-        src_cont, src_obj = constraints.check_destination_header(req)
-        self.assertEqual(src_cont, 'c')
-        self.assertEqual(src_obj, 'subdir/o2')
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'destination': '/c/o2'})
-        src_cont, src_obj = constraints.check_destination_header(req)
-        self.assertEqual(src_cont, 'c')
-        self.assertEqual(src_obj, 'o2')
-
-    def test_validate_bad_destination(self):
-        req = Request.blank(
-            '/v/a/c/o',
-            headers={'destination': 'bad_object'})
-        self.assertRaises(HTTPException,
-                          constraints.check_destination_header, req)
 
     def test_check_account_format(self):
         req = Request.blank(

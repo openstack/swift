@@ -11,11 +11,27 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import sqlite3
 import sys
 from optparse import OptionParser
 
 from swift.cli.info import print_info, InfoSystemExit
 
+
+def run_print_info(args, opts):
+    try:
+        print_info('container', *args, **opts)
+    except InfoSystemExit:
+        sys.exit(1)
+    except sqlite3.OperationalError as e:
+        if not opts.get('stale_reads_ok'):
+            opts['stale_reads_ok'] = True
+            print('Warning: Possibly Stale Data')
+            run_print_info(args, opts)
+            sys.exit(2)
+        else:
+            print('Container info failed: %s' % e)
+            sys.exit(1)
 
 if __name__ == '__main__':
     parser = OptionParser('%prog [options] CONTAINER_DB_FILE')
@@ -28,7 +44,4 @@ if __name__ == '__main__':
     if len(args) != 1:
         sys.exit(parser.print_help())
 
-    try:
-        print_info('container', *args, **vars(options))
-    except InfoSystemExit:
-        sys.exit(1)
+    run_print_info(args, vars(options))

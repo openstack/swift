@@ -145,7 +145,8 @@ class AccountAuditor(Daemon):
             self.logger.increment('failures')
             self.account_failures += 1
             self.logger.error(
-                _('Audit Failed for %s: %s'), path, str(e))
+                _('Audit Failed for %(path)s: %(err)s'),
+                {'path': path, 'err': str(e)})
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.account_failures += 1

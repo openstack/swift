@@ -22,7 +22,7 @@ from swift.common.constraints import check_metadata
 from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation, clear_info_cache
+    cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
@@ -85,22 +85,37 @@ class ContainerController(Controller):
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
-        if not self.account_info(self.account_name, req)[1]:
+        ai = self.account_info(self.account_name, req)
+        if not ai[1]:
             if 'swift.authorize' in req.environ:
                 aresp = req.environ['swift.authorize'](req)
                 if aresp:
+                    # Don't cache this. It doesn't reflect the state of the
+                    # container, just that the user can't access it.
                     return aresp
+            # Don't cache this. The lack of account will be cached, and that
+            # is sufficient.
             return HTTPNotFound(request=req)
         part = self.app.container_ring.get_part(
             self.account_name, self.container_name)
+        concurrency = self.app.container_ring.replica_count \
+            if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
-            req.swift_entity_path)
+            req.swift_entity_path, concurrency)
+        # Cache this. We just made a request to a storage node and got
+        # up-to-date information for the container.
+        resp.headers['X-Backend-Recheck-Container-Existence'] = str(
+            self.app.recheck_container_existence)
+        set_info_cache(self.app, req.environ, self.account_name,
+                       self.container_name, resp)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
             if aresp:
+                # Don't cache this. It doesn't reflect the state of the
+                # container, just that the user can't access it.
                 return aresp
         if not req.environ.get('swift_owner', False):
             for key in self.app.swift_owner_headers:

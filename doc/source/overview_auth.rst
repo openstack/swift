@@ -154,11 +154,14 @@ add the configuration for the authtoken middleware::
 
   [filter:authtoken]
   paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-  identity_uri = http://keystonehost:35357/
-  admin_tenant_name = service
-  admin_user = swift
-  admin_password = password
   auth_uri = http://keystonehost:5000/
+  auth_url = http://keystonehost:35357/
+  auth_plugin = password
+  project_domain_id = default
+  user_domain_id = default
+  project_name = service
+  username = swift
+  password = password
   cache = swift.cache
   include_service_catalog = False
   delay_auth_decision = True
@@ -166,16 +169,17 @@ add the configuration for the authtoken middleware::
 The actual values for these variables will need to be set depending on
 your situation, but in short:
 
-* ``identity_uri`` points to the Keystone Admin service. This information is
-  used by the middleware to actually query Keystone about the validity of the
-  authentication tokens. It is not necessary to append any Keystone API version
-  number to this URI.
-* The admin auth credentials (``admin_user``, ``admin_tenant_name``,
-  ``admin_password``) will be used to retrieve an admin token. That
-  token will be used to authorize user tokens behind the scenes.
 * ``auth_uri`` should point to a Keystone service from which users may
   retrieve tokens. This value is used in the `WWW-Authenticate` header that
   auth_token sends with any denial response.
+* ``auth_url`` points to the Keystone Admin service. This information is
+  used by the middleware to actually query Keystone about the validity of the
+  authentication tokens. It is not necessary to append any Keystone API version
+  number to this URI.
+* The auth credentials (``project_domain_id``, ``user_domain_id``,
+  ``username``, ``project_name``, ``password``) will be used to retrieve an
+  admin token. That token will be used to authorize user tokens behind the
+  scenes.
 * ``cache`` is set to ``swift.cache``. This means that the middleware
   will get the Swift memcache from the request environment.
 * ``include_service_catalog`` defaults to ``True`` if not set. This means

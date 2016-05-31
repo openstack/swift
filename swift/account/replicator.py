@@ -21,4 +21,4 @@ class AccountReplicator(db_replicator.Replicator):
     server_type = 'account'
     brokerclass = AccountBroker
     datadir = DATADIR
-    default_port = 6002
+    default_port = 6202

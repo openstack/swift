@@ -73,7 +73,7 @@ class AccountReaper(Daemon):
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.myips = whataremyips(conf.get('bind_ip', '0.0.0.0'))
-        self.bind_port = int(conf.get('bind_port', 6002))
+        self.bind_port = int(conf.get('bind_port', 6202))
         self.concurrency = int(conf.get('concurrency', 25))
         self.container_concurrency = self.object_concurrency = \
             sqrt(self.concurrency)
@@ -171,7 +171,9 @@ class AccountReaper(Daemon):
             container_shard = None
             for container_shard, node in enumerate(nodes):
                 if is_local_device(self.myips, None, node['ip'], None) and \
-                        (not self.bind_port or self.bind_port == node['port']):
+                        (not self.bind_port or
+                         self.bind_port == node['port']) and \
+                        (device == node['device']):
                     break
             else:
                 continue
@@ -311,8 +313,9 @@ class AccountReaper(Daemon):
         delete_timestamp = Timestamp(info['delete_timestamp'])
         if self.stats_containers_remaining and \
            begin - float(delete_timestamp) >= self.reap_not_done_after:
-            self.logger.warning(_('Account %s has not been reaped since %s') %
-                                (account, delete_timestamp.isoformat))
+            self.logger.warning(
+                _('Account %(account)s has not been reaped since %(time)s') %
+                {'account': account, 'time': delete_timestamp.isoformat})
         return True
 
     def reap_container(self, account, account_partition, account_nodes,
