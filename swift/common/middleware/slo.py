@@ -582,14 +582,15 @@ class SloGetContext(WSGIContext):
             if req.params.get('format') == 'raw':
                 resp_iter = self.convert_segment_listing(
                     self._response_headers, resp_iter)
-            new_headers = []
-            for header, value in self._response_headers:
-                if header.lower() == 'content-type':
-                    new_headers.append(('Content-Type',
-                                        'application/json; charset=utf-8'))
-                else:
-                    new_headers.append((header, value))
-            self._response_headers = new_headers
+            else:
+                new_headers = []
+                for header, value in self._response_headers:
+                    if header.lower() == 'content-type':
+                        new_headers.append(('Content-Type',
+                                            'application/json; charset=utf-8'))
+                    else:
+                        new_headers.append((header, value))
+                self._response_headers = new_headers
             start_response(self._response_status,
                            self._response_headers,
                            self._response_exc_info)
@@ -784,7 +785,9 @@ class StaticLargeObject(object):
             'rate_limit_after_segment', '10'))
         self.rate_limit_segments_per_sec = int(self.conf.get(
             'rate_limit_segments_per_sec', '1'))
-        self.bulk_deleter = Bulk(app, {}, logger=self.logger)
+        delete_concurrency = int(self.conf.get('delete_concurrency', '2'))
+        self.bulk_deleter = Bulk(
+            app, {}, delete_concurrency=delete_concurrency, logger=self.logger)
 
     def handle_multipart_get_or_head(self, req, start_response):
         """

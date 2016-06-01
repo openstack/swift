@@ -926,6 +926,20 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['Transfer-Encoding'], 'chunked')
 
+    def _test_removes_swift_bytes(self, method):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method=method)
+        with set_http_connect(
+                200, headers={'content-type': 'image/jpeg; swift_bytes=99'}):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['Content-Type'], 'image/jpeg')
+
+    def test_GET_removes_swift_bytes(self):
+        self._test_removes_swift_bytes('GET')
+
+    def test_HEAD_removes_swift_bytes(self):
+        self._test_removes_swift_bytes('HEAD')
+
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         self.app.logger.txn_id = req.environ['swift.trans_id'] = 'my-txn-id'
