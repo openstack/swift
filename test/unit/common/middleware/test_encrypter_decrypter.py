@@ -17,7 +17,9 @@ import json
 import unittest
 import uuid
 
+from swift.common import storage_policy
 from swift.common.middleware import encrypter, decrypter, keymaster, crypto
+from swift.common.ring import Ring
 from swift.common.swob import Request
 from swift.common.crypto_utils import load_crypto_meta
 
@@ -75,7 +77,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self.assertEqual(policy_name, resp.headers['X-Storage-Policy'])
 
     def _put_object(self, app, body):
-        req = Request.blank(self.object_path, method='PUT', body=body)
+        req = Request.blank(self.object_path, method='PUT', body=body,
+                            headers={'Content-Type': 'application/test'})
         resp = req.get_response(app)
         self.assertEqual('201 Created', resp.status)
         self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
@@ -83,7 +86,8 @@ class TestCryptoPipelineChanges(unittest.TestCase):
 
     def _post_object(self, app):
         req = Request.blank(self.object_path, method='POST',
-                            headers={'X-Object-Meta-Fruit': 'Kiwi'})
+                            headers={'Content-Type': 'application/test',
+                                     'X-Object-Meta-Fruit': 'Kiwi'})
         resp = req.get_response(app)
         self.assertEqual('202 Accepted', resp.status)
         return resp
@@ -279,16 +283,47 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self._check_match_requests('GET', crypto_app)
         self._check_match_requests('HEAD', crypto_app)
 
-    def test_ondisk_data_after_write_with_crypto(self):
-        self._create_container(self.proxy_app, policy_name='one')
+    def _test_ondisk_data_after_write_with_crypto(self, policy_name):
+        policy = storage_policy.POLICIES.get_by_name(policy_name)
+        self._create_container(self.proxy_app, policy_name=policy_name)
         self._put_object(self.crypto_app, self.plaintext)
         self._post_object(self.crypto_app)
-        ring_object = self.proxy_app.get_object_ring(1)
+
+        # Verify container listing etag is encrypted by direct GET to container
+        # server. We can use any server for all nodes since they all share same
+        # devices dir.
+        cont_server = self._test_context['test_servers'][3]
+        cont_ring = Ring(self._test_context['testdir'], ring_name='container')
+        part, nodes = cont_ring.get_nodes('a', self.container_name)
+        for node in nodes:
+            req = Request.blank('/%s/%s/a/%s'
+                                % (node['device'], part, self.container_name),
+                                method='GET', query_string='format=json')
+            resp = req.get_response(cont_server)
+            listing = json.loads(resp.body)
+            # sanity checks...
+            self.assertEqual(1, len(listing))
+            self.assertEqual('o', listing[0]['name'])
+            self.assertEqual('application/test', listing[0]['content_type'])
+            # verify encrypted etag value
+            parts = listing[0]['hash'].rsplit(';', 1)
+            crypto_meta_param = parts[1].strip()
+            crypto_meta = crypto_meta_param[len('swift_meta='):]
+            listing_etag_iv = load_crypto_meta(crypto_meta)['iv']
+            exp_enc_listing_etag = base64.b64encode(
+                encrypt(self.plaintext_etag,
+                        self.km.create_key('/a/%s' % self.container_name),
+                        listing_etag_iv))
+            self.assertEqual(exp_enc_listing_etag, parts[0])
+
+        # Verify diskfile data and metadata is encrypted
+        ring_object = self.proxy_app.get_object_ring(int(policy))
         partition, nodes = ring_object.get_nodes('a', self.container_name, 'o')
-        policy = self._test_context["test_POLICIES"][1]
         conf = {'devices': self._test_context["testdir"],
                 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[policy]
+        ondisk_data = []
+        exp_enc_body = None
         for node_index, node in enumerate(nodes):
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', self.container_name, 'o',
@@ -305,7 +340,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                 obj_key = self.km.create_key('/a/%s/o' % self.container_name)
                 body_key = crypto.Crypto({}).unwrap_key(obj_key, body_key_meta)
                 exp_enc_body = encrypt(self.plaintext, body_key, body_iv)
-                self.assertEqual(exp_enc_body, contents)
+                ondisk_data.append((node, contents))
                 # verify on disk user metadata
                 metadata_iv = load_crypto_meta(
                     metadata['x-object-transient-sysmeta-crypto-meta-fruit']
@@ -333,6 +368,21 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                 self.assertEqual(exp_enc_listing_etag, parts[0])
 
         self._check_GET_and_HEAD(self.crypto_app)
+        return exp_enc_body, ondisk_data
+
+    def test_ondisk_data_after_write_with_crypto(self):
+        exp_body, ondisk_data = self._test_ondisk_data_after_write_with_crypto(
+            policy_name='one')
+        for node, body in ondisk_data:
+            self.assertEqual(exp_body, body)
+
+    def test_ondisk_data_after_write_with_crypto_ec(self):
+        exp_body, ondisk_data = self._test_ondisk_data_after_write_with_crypto(
+            policy_name='ec')
+        policy = storage_policy.POLICIES.get_by_name('ec')
+        for frag_selection in (ondisk_data[:2], ondisk_data[1:]):
+            frags = [frag for node, frag in frag_selection]
+            self.assertEqual(exp_body, policy.pyeclib_driver.decode(frags))
 
 
 class TestCryptoPipelineChangesFastPost(TestCryptoPipelineChanges):
