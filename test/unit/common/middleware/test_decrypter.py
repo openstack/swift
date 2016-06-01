@@ -12,16 +12,17 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import base64
+import json
 import os
 import unittest
 from xml.dom import minidom
-import mock
-import base64
-import json
 
-from swift.common.middleware.crypto import Crypto
-from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK, dump_crypto_meta
+import mock
+
 from swift.common.middleware import decrypter
+from swift.common.middleware.crypto_utils import CRYPTO_KEY_CALLBACK, \
+    dump_crypto_meta, Crypto
 from swift.common.swob import Request, HTTPException, HTTPOk, \
     HTTPPreconditionFailed, HTTPNotFound, HTTPPartialContent
 
@@ -43,8 +44,6 @@ def encrypt_and_append_meta(value, key, crypto_meta=None):
         get_crypto_meta_header(crypto_meta))
 
 
-@mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
-            lambda *args: FAKE_IV)
 class TestDecrypterObjectRequests(unittest.TestCase):
     def setUp(self):
         self.app = FakeSwift()
@@ -871,8 +870,6 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                          resp.headers['x-object-sysmeta-test'])
 
 
-@mock.patch('swift.common.middleware.crypto.Crypto.create_iv',
-            lambda *args: FAKE_IV)
 class TestDecrypterContainerRequests(unittest.TestCase):
     def setUp(self):
         self.app = FakeSwift()

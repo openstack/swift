@@ -15,25 +15,24 @@
 import base64
 import json
 import os
+import unittest
 import urllib
 
-import unittest
 import mock
 
 from swift.common.middleware import encrypter
+from swift.common.middleware.crypto_utils import CRYPTO_KEY_CALLBACK, Crypto
 from swift.common.swob import (
     Request, HTTPException, HTTPCreated, HTTPAccepted, HTTPOk, HTTPBadRequest)
 from swift.common.utils import FileLikeIter
-from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
-from swift.common.middleware.crypto import Crypto
-from test.unit import FakeLogger, EMPTY_ETAG
 
+from test.unit import FakeLogger, EMPTY_ETAG
 from test.unit.common.middleware.crypto_helpers import fetch_crypto_keys, \
     md5hex, FAKE_IV, encrypt
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 
 
-@mock.patch('swift.common.middleware.crypto.Crypto._get_random_iv',
+@mock.patch('swift.common.middleware.crypto_utils.Crypto._get_random_iv',
             lambda *args: FAKE_IV)
 class TestEncrypter(unittest.TestCase):
     def setUp(self):
@@ -61,7 +60,7 @@ class TestEncrypter(unittest.TestCase):
             '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         with mock.patch(
-                'swift.common.middleware.crypto.Crypto.create_random_key',
+            'swift.common.middleware.crypto_utils.Crypto.create_random_key',
                 return_value=body_key):
             resp = req.get_response(self.encrypter)
         self.assertEqual('201 Created', resp.status)
@@ -240,7 +239,7 @@ class TestEncrypter(unittest.TestCase):
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
 
         with mock.patch(
-                'swift.common.middleware.crypto.Crypto.create_random_key',
+            'swift.common.middleware.crypto_utils.Crypto.create_random_key',
                 lambda *args: body_key):
             resp = req.get_response(self.encrypter)
 
@@ -597,7 +596,7 @@ class TestEncrypter(unittest.TestCase):
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
 
         with mock.patch(
-                'swift.common.middleware.crypto.Crypto.create_random_key',
+            'swift.common.middleware.crypto_utils.Crypto.create_random_key',
                 lambda *args: body_key):
             resp = req.get_response(self.encrypter)
 
@@ -622,7 +621,7 @@ class TestEncrypter(unittest.TestCase):
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
 
         with mock.patch(
-                'swift.common.middleware.crypto.Crypto.create_random_key',
+            'swift.common.middleware.crypto_utils.Crypto.create_random_key',
                 lambda *args: body_key):
             resp = req.get_response(self.encrypter)
 

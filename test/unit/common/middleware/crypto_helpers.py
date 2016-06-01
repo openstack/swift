@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import hashlib
-from swift.common.middleware.crypto import Crypto
+
+from swift.common.middleware.crypto_utils import Crypto
 
 
 def fetch_crypto_keys():

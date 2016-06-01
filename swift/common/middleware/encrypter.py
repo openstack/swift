@@ -12,20 +12,19 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import base64
 from contextlib import contextmanager
 from hashlib import md5
-import base64
 import os
 
-from swift.common.crypto_utils import CryptoWSGIContext, dump_crypto_meta, \
-    append_crypto_meta
-from swift.common.utils import get_logger, config_true_value
+from swift.common.constraints import check_metadata
+from swift.common.middleware.crypto_utils import CryptoWSGIContext, \
+    dump_crypto_meta, append_crypto_meta, Crypto
 from swift.common.request_helpers import get_object_transient_sysmeta, \
     strip_user_meta_prefix, is_user_meta, update_etag_is_at_header
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity
-from swift.common.middleware.crypto import Crypto
-from swift.common.constraints import check_metadata
+from swift.common.utils import get_logger, config_true_value
 
 
 def encrypt_header_val(crypto, value, key, iv_base=None):

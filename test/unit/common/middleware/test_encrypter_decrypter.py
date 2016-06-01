@@ -18,15 +18,15 @@ import unittest
 import uuid
 
 from swift.common import storage_policy
-from swift.common.middleware import encrypter, decrypter, keymaster, crypto
+from swift.common.middleware import encrypter, decrypter, keymaster
+from swift.common.middleware.crypto_utils import load_crypto_meta, Crypto
 from swift.common.ring import Ring
 from swift.common.swob import Request
-from swift.common.crypto_utils import load_crypto_meta
+from swift.obj import diskfile
 
+from test.unit import FakeLogger
 from test.unit.common.middleware.crypto_helpers import md5hex, encrypt
 from test.unit.helpers import setup_servers, teardown_servers
-from swift.obj import diskfile
-from test.unit import FakeLogger
 
 
 class TestCryptoPipelineChanges(unittest.TestCase):
@@ -338,7 +338,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
                 body_key_meta = load_crypto_meta(
                     metadata['x-object-sysmeta-crypto-meta'])['body_key']
                 obj_key = self.km.create_key('/a/%s/o' % self.container_name)
-                body_key = crypto.Crypto({}).unwrap_key(obj_key, body_key_meta)
+                body_key = Crypto().unwrap_key(obj_key, body_key_meta)
                 exp_enc_body = encrypt(self.plaintext, body_key, body_iv)
                 ondisk_data.append((node, contents))
                 # verify on disk user metadata

@@ -28,11 +28,12 @@ import hashlib
 import hmac
 import os
 
-from swift.common.utils import get_logger, split_path
-from swift.common.crypto_utils import is_crypto_meta, CRYPTO_KEY_CALLBACK
+from swift.common.middleware.crypto_utils import (
+    is_crypto_meta, CRYPTO_KEY_CALLBACK)
 from swift.common.request_helpers import get_sys_meta_prefix
-from swift.common.wsgi import WSGIContext
 from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
+from swift.common.utils import get_logger, split_path
+from swift.common.wsgi import WSGIContext
 
 
 class KeyMasterContext(WSGIContext):

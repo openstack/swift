@@ -13,14 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import base64
-
 import unittest
 
-from swift.common.middleware import keymaster
 from swift.common import swob
+from swift.common.middleware import keymaster
+from swift.common.middleware.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request
-from swift.common.crypto_utils import CRYPTO_KEY_CALLBACK
-
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 
 

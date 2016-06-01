@@ -21,10 +21,9 @@ except ImportError:
     import xml.etree.ElementTree as ElementTree
 
 from swift.common.http import is_success
-from swift.common.crypto_utils import CryptoWSGIContext, load_crypto_meta, \
-    extract_crypto_meta
+from swift.common.middleware.crypto_utils import CryptoWSGIContext, \
+    load_crypto_meta, extract_crypto_meta, Crypto
 from swift.common.exceptions import EncryptionException
-from swift.common.middleware.crypto import Crypto
 from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
     get_object_transient_sysmeta, get_listing_content_type
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
