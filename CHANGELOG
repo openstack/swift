@@ -1,3 +1,96 @@
+swift (2.8.0)
+
+    * Allow concurrent bulk deletes for server-side deletes of static
+      large objects. Previously this would be single-threaded and each
+      DELETE executed serially. The new `delete_concurrency` value
+      (default value is 2) in the `[filter:slo]` and `[filter:bulk]`
+      sections of the proxy server config controls the concurrency
+      used to perform the DELETE requests for referenced segments. The
+      default value is recommended, but setting the value to 1
+      restores previous behavior.
+
+    * Refactor server-side copy as middleware
+
+      The COPY verb is now implemented in the `copy` middleware instead
+      of in the proxy server code. If not explicitly added, the server
+      side copy middleware is auto-inserted to the left of `dlo`, `slo`
+      and `versioned_writes` middlewares in the proxy server pipeline.
+      As a result, dlo and slo `copy_hooks` are no longer required. SLO
+      manifests are now validated when copied so when copying a
+      manifest to another account the referenced segments must be
+      readable in that account for the manifest copy to succeed
+      (previously this validation was not made, meaning the manifest
+      was copied but could be unusable if the segments were not
+      readable).
+
+      With this change, there should be no change in functionality or
+      existing behavior.
+
+    * `fallocate_reserve` can now be a percentage (a value ending in "%"),
+      and the default has been adjusted to "1%".
+
+    * Now properly require account/container metadata be valid UTF-8
+
+    * TempURL responses now include an `Expires` header with the
+      expiration time embedded in the URL.
+
+    * Non-Python dependencies are now listed in other-requirements.txt.
+
+    * `swift-ring-builder` now supports a `--yes` option to assume a
+      yes response to all questions. This is useful for scripts.
+
+    * Write requests to a replicated storage policy with an even number
+      of replicas now have a quorum size of half the replica count
+      instead of half-plus-one.
+
+    * Container sync now logs per-container stat information so operators
+      can track progress. This is logged at INFO level.
+
+    * `swift-dispersion-*` now allows region to be specified when there
+      are multiple Swift regions served by the same Keystone instance
+
+    * Fix infinite recursion during logging when syslog is down.
+
+    * Fixed a bug where a backend failure during a read could result in
+      a missing byte in the response body.
+
+    * Stop `staticweb` revealing container existence to unauth'd requests.
+
+    * Reclaim isolated .meta files if they are older than the `reclaim_age`.
+
+    * Make `rsync` ignore its own temporary files instead of spreading
+      them around the cluster, wasting space.
+
+    * The object auditor now ignores files in the devices directory when
+      auditing objects.
+
+    * The deprecated `threads_per_disk` setting has been removed. Deployers
+      are encouraged to use `servers_per_port` instead.
+
+    * Fixed an issue where a single-replica configuration for account or
+      container DBs could result in the DB being inadvertently deleted if
+      it was placed on a handoff node.
+
+    * `disable_fallocate` now also correctly disables `fallocate_reserve`.
+
+    * Fixed a bug where the account-reaper did not delete all containers
+      in a reaped account.
+
+    * Correctly handle delimiter queries where results start with the
+      delimiter and no prefix is given.
+
+    * Changed the recommended ports for Swift services from ports
+      6000-6002 to unused ports 6200-6202 so they do not conflict with
+      X-Windows or other services. Since these config values must be
+      explicitly set in the config file, this doesn't impact existing
+      deployments.
+
+    * Fixed an instance where REPLICATE requests would not use
+      `replication_ip`.
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.7.0, OpenStack Mitaka)
 
     * Bump PyECLib requirement to >= 1.2.0
