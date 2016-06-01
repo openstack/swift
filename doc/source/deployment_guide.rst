@@ -47,6 +47,11 @@ If you need more throughput to either Account or Container Services, they may
 each be deployed to their own servers. For example you might use faster (but
 more expensive) SAS or even SSD drives to get faster disk I/O to the databases.
 
+A high-availability (HA) deployment of Swift requires that multiple proxy
+servers are deployed and requests are load-balanced between them. Each proxy
+server instance is stateless and able to respond to requests for the entire
+cluster.
+
 Load balancing and network design is left as an exercise to the reader,
 but this is a very important part of the cluster, so time should be spent
 designing the network for a Swift cluster.

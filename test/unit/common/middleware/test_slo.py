@@ -349,7 +349,7 @@ class TestSloPutManifest(SloTestCase):
             'GET', '/v1/AUTH_test/checktest/slob',
             swob.HTTPOk,
             {'X-Static-Large-Object': 'true', 'Etag': 'slob-etag',
-             'Content-Type': 'cat/picture;swift_bytes=12345',
+             'Content-Type': 'cat/picture',
              'Content-Length': len(_manifest_json)},
             _manifest_json)
 
@@ -917,15 +917,17 @@ class TestSloDeleteManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         resp_data = json.loads(body)
         self.assertEqual(
-            self.app.calls,
-            [('GET', '/v1/AUTH_test/deltest/' +
-              'manifest-missing-submanifest?multipart-manifest=get'),
-             ('DELETE', '/v1/AUTH_test/deltest/a_1?multipart-manifest=delete'),
-             ('GET', '/v1/AUTH_test/deltest/' +
-              'missing-submanifest?multipart-manifest=get'),
-             ('DELETE', '/v1/AUTH_test/deltest/d_3?multipart-manifest=delete'),
-             ('DELETE', '/v1/AUTH_test/deltest/' +
-              'manifest-missing-submanifest?multipart-manifest=delete')])
+            set(self.app.calls),
+            set([('GET', '/v1/AUTH_test/deltest/' +
+                  'manifest-missing-submanifest?multipart-manifest=get'),
+                 ('DELETE', '/v1/AUTH_test/deltest/' +
+                  'a_1?multipart-manifest=delete'),
+                 ('GET', '/v1/AUTH_test/deltest/' +
+                  'missing-submanifest?multipart-manifest=get'),
+                 ('DELETE', '/v1/AUTH_test/deltest/' +
+                  'd_3?multipart-manifest=delete'),
+                 ('DELETE', '/v1/AUTH_test/deltest/' +
+                  'manifest-missing-submanifest?multipart-manifest=delete')]))
         self.assertEqual(resp_data['Response Status'], '200 OK')
         self.assertEqual(resp_data['Response Body'], '')
         self.assertEqual(resp_data['Number Deleted'], 3)
@@ -1106,13 +1108,14 @@ class TestSloGetRawManifest(SloTestCase):
               'last_modified': '1970-01-01T00:00:00.000000'},
              {'name': '/gettest/d_10',
               'hash': md5hex(md5hex("e" * 5) + md5hex("f" * 5)), 'bytes': '10',
-              'content_type': 'application/json;swift_bytes=10',
+              'content_type': 'application/json',
               'sub_slo': True,
               'last_modified': '1970-01-01T00:00:00.000000'}])
         self.bc_etag = md5hex(_bc_manifest_json)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=35',
+            # proxy obj controller removes swift_bytes from content-type
+            swob.HTTPOk, {'Content-Type': 'text/plain',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
                           'Etag': md5hex(_bc_manifest_json)},
@@ -1127,7 +1130,8 @@ class TestSloGetRawManifest(SloTestCase):
               'content_type': 'text/plain', 'range': '100-200'}])
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc-r',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
+            # proxy obj controller removes swift_bytes from content-type
+            swob.HTTPOk, {'Content-Type': 'text/plain',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
                           'Etag': md5hex(_bc_manifest_json_ranges)},
@@ -1144,9 +1148,8 @@ class TestSloGetRawManifest(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertTrue(('Etag', self.bc_etag) in headers, headers)
         self.assertTrue(('X-Static-Large-Object', 'true') in headers, headers)
-        self.assertTrue(
-            ('Content-Type', 'application/json; charset=utf-8') in headers,
-            headers)
+        # raw format should return the actual manifest object content-type
+        self.assertIn(('Content-Type', 'text/plain'), headers)
 
         try:
             resp_data = json.loads(body)
@@ -1172,9 +1175,8 @@ class TestSloGetRawManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual(status, '200 OK')
-        self.assertTrue(
-            ('Content-Type', 'application/json; charset=utf-8') in headers,
-            headers)
+        # raw format should return the actual manifest object content-type
+        self.assertIn(('Content-Type', 'text/plain'), headers)
         try:
             resp_data = json.loads(body)
         except ValueError:
@@ -1262,7 +1264,7 @@ class TestSloGetManifest(SloTestCase):
               'content_type': 'text/plain'}])
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
+            swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
                           'Etag': md5hex(_bc_manifest_json)},
@@ -1272,9 +1274,9 @@ class TestSloGetManifest(SloTestCase):
             [{'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
               'content_type': 'text/plain', 'bytes': '5'},
              {'name': '/gettest/manifest-bc', 'sub_slo': True,
-              'content_type': 'application/json;swift_bytes=25',
+              'content_type': 'application/json',
               'hash': md5hex(md5hex("b" * 10) + md5hex("c" * 15)),
-              'bytes': len(_bc_manifest_json)},
+              'bytes': 25},
              {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
               'content_type': 'text/plain', 'bytes': '20'}])
         self.app.register(
@@ -1283,6 +1285,34 @@ class TestSloGetManifest(SloTestCase):
                           'X-Static-Large-Object': 'true',
                           'Etag': md5(_abcd_manifest_json).hexdigest()},
             _abcd_manifest_json)
+
+        # A submanifest segment is created using the response headers from a
+        # HEAD on the submanifest. That HEAD is passed through SLO which will
+        # modify the response content-length to be equal to the size of the
+        # submanifest's large object. The swift_bytes value appended to the
+        # submanifest's content-type will have been removed. So the sub-slo
+        # segment dict that is written to the parent manifest should have the
+        # correct bytes and content-type values. However, if somehow the
+        # submanifest HEAD response wasn't modified by SLO (maybe
+        # historically?) and we ended up with the parent manifest sub-slo entry
+        # having swift_bytes appended to it's content-type and the actual
+        # submanifest size in its bytes field, then SLO can cope, so we create
+        # a deviant manifest to verify that SLO can deal with it.
+        _abcd_manifest_json_alt = json.dumps(
+            [{'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
+              'content_type': 'text/plain', 'bytes': '5'},
+             {'name': '/gettest/manifest-bc', 'sub_slo': True,
+              'content_type': 'application/json; swift_bytes=25',
+              'hash': md5hex(md5hex("b" * 10) + md5hex("c" * 15)),
+              'bytes': len(_bc_manifest_json)},
+             {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
+              'content_type': 'text/plain', 'bytes': '20'}])
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/manifest-abcd-alt',
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true',
+                          'Etag': md5(_abcd_manifest_json_alt).hexdigest()},
+            _abcd_manifest_json_alt)
 
         _abcdefghijkl_manifest_json = json.dumps(
             [{'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
@@ -1337,7 +1367,7 @@ class TestSloGetManifest(SloTestCase):
         self.bc_ranges_etag = md5hex(_bc_ranges_manifest_json)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc-ranges',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=16',
+            swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
                           'Etag': self.bc_ranges_etag},
@@ -1351,12 +1381,12 @@ class TestSloGetManifest(SloTestCase):
               'content_type': 'text/plain', 'bytes': '5',
               'range': '1-4'},
              {'name': '/gettest/manifest-bc-ranges', 'sub_slo': True,
-              'content_type': 'application/json;swift_bytes=16',
+              'content_type': 'application/json',
               'hash': self.bc_ranges_etag,
-              'bytes': len(_bc_ranges_manifest_json),
+              'bytes': 16,
               'range': '8-15'},
              {'name': '/gettest/manifest-bc-ranges', 'sub_slo': True,
-              'content_type': 'application/json;swift_bytes=16',
+              'content_type': 'application/json',
               'hash': self.bc_ranges_etag,
               'bytes': len(_bc_ranges_manifest_json),
               'range': '0-7'},
@@ -1645,6 +1675,22 @@ class TestSloGetManifest(SloTestCase):
     def test_get_manifest_with_submanifest(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+        headers = HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Content-Length'], '50')
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+    def test_get_manifest_with_submanifest_bytes_in_content_type(self):
+        # verify correct content-length when the sub-slo segment in the
+        # manifest has its actual object content-length appended as swift_bytes
+        # to the content-type, and the submanifest length in the bytes field.
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd-alt',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_slo(req)
         headers = HeaderKeyDict(headers)
@@ -2274,8 +2320,7 @@ class TestSloGetManifest(SloTestCase):
                  'hash': 'man%d' % (i + 1),
                  'sub_slo': True,
                  'bytes': len(manifest_json),
-                 'content_type':
-                 'application/json;swift_bytes=%d' % ((21 - i) * 6)}]
+                 'content_type': 'application/json'}]
 
             manifest_json = json.dumps(manifest_data)
             self.app.register(
@@ -2330,9 +2375,8 @@ class TestSloGetManifest(SloTestCase):
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),
                  'sub_slo': True,
-                 'bytes': len(manifest_json),
-                 'content_type':
-                 'application/json;swift_bytes=%d' % ((10 - i) * 6)},
+                 'bytes': (10 - i) * 6,
+                 'content_type': 'application/json'},
                 {'name': '/gettest/obj%d' % i,
                  'hash': md5hex('body%02d' % i),
                  'bytes': '6',
@@ -2387,9 +2431,8 @@ class TestSloGetManifest(SloTestCase):
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),
                  'sub_slo': True,
-                 'bytes': len(manifest_json),
-                 'content_type':
-                 'application/json;swift_bytes=%d' % ((12 - i) * 6)},
+                 'bytes': (12 - i) * 6,
+                 'content_type': 'application/json'},
                 {'name': '/gettest/obj%d' % i,
                  'hash': md5hex('body%02d' % i),
                  'bytes': '6',
@@ -2479,7 +2522,7 @@ class TestSloGetManifest(SloTestCase):
             swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true'},
             json.dumps([{'name': '/gettest/manifest-a', 'sub_slo': True,
-                         'content_type': 'application/json;swift_bytes=5',
+                         'content_type': 'application/json',
                          'hash': 'manifest-a',
                          'bytes': '12345'}]))
 
@@ -2497,7 +2540,7 @@ class TestSloGetManifest(SloTestCase):
     def test_invalid_json_submanifest(self):
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-bc',
-            swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
+            swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus'},
             "[this {isn't (JSON")
@@ -2651,6 +2694,10 @@ class TestSloBulkLogger(unittest.TestCase):
     def test_reused_logger(self):
         slo_mware = slo.filter_factory({})('fake app')
         self.assertTrue(slo_mware.logger is slo_mware.bulk_deleter.logger)
+
+    def test_passes_through_concurrency(self):
+        slo_mware = slo.filter_factory({'delete_concurrency': 5})('fake app')
+        self.assertEqual(5, slo_mware.bulk_deleter.delete_concurrency)
 
 
 class TestSwiftInfo(unittest.TestCase):
