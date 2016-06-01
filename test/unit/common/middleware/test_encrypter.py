@@ -90,7 +90,7 @@ class TestEncrypter(unittest.TestCase):
 
         # verify encrypted version of plaintext etag
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
-        etag_iv = Crypto().create_iv(iv_base=req.path)
+        etag_iv = Crypto().create_iv(iv_base='/a/c/o')
         enc_etag = encrypt(plaintext_etag, cont_key, etag_iv)
         self.assertEqual(enc_etag, actual)
         # verify crypto_meta was not appended to this etag
@@ -262,7 +262,7 @@ class TestEncrypter(unittest.TestCase):
         # verify encryption footers are ok
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
-        etag_iv = Crypto().create_iv(iv_base=req.path)
+        etag_iv = Crypto().create_iv(iv_base='/a/c/o')
         self.assertEqual(encrypt(plaintext_etag, cont_key, etag_iv), actual)
         actual = json.loads(urllib.unquote_plus(
             req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
@@ -334,7 +334,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(2, len(parts))
         cont_key = fetch_crypto_keys()['container']
         actual = base64.b64decode(parts[0])
-        etag_iv = Crypto().create_iv(iv_base=req.path)
+        etag_iv = Crypto().create_iv(iv_base='/a/c/o')
         self.assertEqual(encrypt('final etag', cont_key, etag_iv), actual)
 
         # extract crypto_meta from end of etag for container update
@@ -501,7 +501,7 @@ class TestEncrypter(unittest.TestCase):
             self.assertIn(match_header_name, actual_headers)
             actual_etags = set(actual_headers[match_header_name].split(', '))
             key = fetch_crypto_keys()['container']
-            iv = Crypto().create_iv(iv_base=req.path)
+            iv = Crypto().create_iv(iv_base='/a/c/o')
             encrypted_etags = [
                 '"%s"' % base64.b64encode(encrypt(etag.strip('"'), key, iv))
                 for etag in plain_etags if etag not in ('*', '')]
