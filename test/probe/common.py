@@ -443,10 +443,13 @@ class ProbeTest(unittest.TestCase):
             swift_dir = /etc/swift
 
             [pipeline:main]
-            pipeline = catch_errors cache proxy-server
+            pipeline = catch_errors cache copy proxy-server
 
             [app:proxy-server]
             use = egg:swift#proxy
+
+            [filter:copy]
+            use = egg:swift#copy
             object_post_as_copy = %s
 
             [filter:cache]
