@@ -15,6 +15,7 @@
 from contextlib import contextmanager
 from hashlib import md5
 import base64
+import os
 
 from swift.common.crypto_utils import CryptoWSGIContext, dump_crypto_meta, \
     append_crypto_meta
@@ -87,6 +88,8 @@ class EncInputWrapper(object):
         client_etag = req.headers.pop('etag', None)
         container_listing_etag_header = req.headers.get(
             'X-Object-Sysmeta-Container-Update-Override-Etag')
+        # Don't include version in the iv_base
+        path_ver, path_for_base = req.split_path(1, 2, True)
 
         def footers_callback(footers):
             plaintext_etag = None
@@ -95,9 +98,11 @@ class EncInputWrapper(object):
                 # Encrypt the plaintext etag using the container key and
                 # persist as sysmeta along with the crypto parameters
                 # that were used.
+
                 val, etag_crypto_meta = encrypt_header_val(
                     self.crypto, plaintext_etag,
-                    self.keys['container'], iv_base=self.path)
+                    self.keys['container'],
+                    iv_base=os.path.join(os.sep, path_for_base))
                 footers['X-Object-Sysmeta-Crypto-Etag'] = val
                 footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = \
                     dump_crypto_meta(etag_crypto_meta)
@@ -141,9 +146,11 @@ class EncInputWrapper(object):
                 # Encrypt the container-listing etag using the container key
                 # and use it to override the container update value, with the
                 # crypto parameters appended.
+
                 val = append_crypto_meta(*encrypt_header_val(
                     self.crypto, container_listing_etag,
-                    self.keys['container'], iv_base=self.path))
+                    self.keys['container'],
+                    iv_base=os.path.join(os.sep, path_for_base)))
                 footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
                     val
 
@@ -250,9 +257,10 @@ class EncrypterObjContext(CryptoWSGIContext):
                 if etag == '*':
                     new_etags.append(etag)
                     continue
-                crypto_etag, meta = encrypt_header_val(self.crypto, etag,
-                                                       keys['container'],
-                                                       iv_base=req.path)
+                path_ver, path_for_base = req.split_path(1, 2, True)
+                crypto_etag, meta = encrypt_header_val(
+                    self.crypto, etag, keys['container'],
+                    iv_base=os.path.join(os.sep, path_for_base))
                 new_etags.extend(('"%s"' % etag, '"%s"' % crypto_etag))
 
             req.headers[header_name] = ', '.join(new_etags)
