@@ -9,14 +9,14 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev50\n"
+"Project-Id-Version: swift 2.7.1.dev169\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-04-17 21:20+0000\n"
+"POT-Creation-Date: 2016-06-02 04:58+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-24 03:15+0000\n"
-"Last-Translator: Monika Wolf <vcomas3@de.ibm.com>\n"
+"PO-Revision-Date: 2016-06-01 09:32+0000\n"
+"Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
@@ -134,6 +134,10 @@ msgid "Account"
 msgstr "Konto"
 
 #, python-format
+msgid "Account %(account)s has not been reaped since %(time)s"
+msgstr "Konto %(account)s wurde nicht aufgeräumt seit %(time)s"
+
+#, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr "Kontoprüfungsmodus \"once\" abgeschlossen: %.02fs"
 
@@ -147,6 +151,10 @@ msgid ""
 msgstr ""
 "Versuch, %(count)d Datenbanken in %(time).5f Sekunden zu replizieren "
 "(%(rate).5f/s)"
+
+#, python-format
+msgid "Audit Failed for %(path)s: %(err)s"
+msgstr "Prüfung fehlgeschlagen für %(path)s: %(err)s"
 
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
@@ -198,6 +206,14 @@ msgstr "Kann nicht auf die Datei %s zugreifen."
 #, python-format
 msgid "Can not load profile data from %s."
 msgstr "Die Profildaten von %s können nicht geladen werden."
+
+#, python-format
+msgid "Cannot read %(auditor_status)s (%(err)s)"
+msgstr "%(auditor_status)s (%(err)s) kann nicht gelesen werden."
+
+#, python-format
+msgid "Cannot write %(auditor_status)s (%(err)s)"
+msgstr "Schreiben von %(auditor_status)s (%(err)s) nicht möglich."
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -273,12 +289,8 @@ msgstr ""
 "Änderungen"
 
 #, python-format
-msgid "Could not bind to %s:%s after trying for %s seconds"
-msgstr "Keine Bindung an %s:%s möglich nach Versuch über %s Sekunden"
-
-#, python-format
-msgid "Could not load %r: %s"
-msgstr "Konnte %r nicht laden: %s"
+msgid "Could not load %(conf)r: %(error)s"
+msgstr "%(conf)r konnte nicht geladen werden: %(error)s"
 
 #, python-format
 msgid "Data download error: %s"
@@ -289,9 +301,10 @@ msgid "Devices pass completed: %.02fs"
 msgstr "Gerätedurchgang abgeschlossen: %.02fs"
 
 #, python-format
-msgid "Directory %r does not map to a valid policy (%s)"
+msgid "Directory %(directory)r does not map to a valid policy (%(error)s)"
 msgstr ""
-"Das Verzeichnis %r kann keiner gültigen Richtlinie (%s) zugeordnet werden."
+"Das Verzeichnis %(directory)r kann keiner gültigen Richtlinie (%(error)s) "
+"zugeordnet werden."
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -323,14 +336,6 @@ msgstr ""
 "%(reason)s"
 
 #, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"FEHLER Kontoaktualisierung fehlgeschlagen: Unterschiedliche Anzahl von Hosts "
-"und Einheiten in der Anforderung: \"%s\" contra \"%s\""
-
-#, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "FEHLER Falsche Rückmeldung %(status)s von %(host)s"
 
@@ -346,14 +351,6 @@ msgstr ""
 "FEHLER Containeraktualisierung fehlgeschlagen (wird für asynchrone "
 "Aktualisierung zu einem späteren Zeitpunkt gespeichert): %(status)d Antwort "
 "von %(ip)s:%(port)s/%(dev)s"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"FEHLER Containeraktualisierung fehlgeschlagen: Unterschiedliche Anzahl von "
-"Hosts und Einheiten in der Anforderung: \"%s\" contra \"%s\""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -514,10 +511,6 @@ msgid "Error hashing suffix"
 msgstr "Fehler beim Hashing des Suffix"
 
 #, python-format
-msgid "Error in %r with mtime_check_interval: %s"
-msgstr "Fehler in %r mit mtime_check_interval: %s"
-
-#, python-format
 msgid "Error limiting server %s"
 msgstr "Fehler beim Begrenzen des Servers %s"
 
@@ -656,6 +649,10 @@ msgstr ""
 msgid "Killing long-running rsync: %s"
 msgstr "Lange laufendes rsync wird gekillt: %s"
 
+#, python-format
+msgid "Loading JSON from %(auditor_status)s failed (%(err)s)"
+msgstr "Laden von JSON aus %(auditor_status)s fehlgeschlagen: (%(err)s)"
+
 msgid "Lockup detected.. killing live coros."
 msgstr "Suche erkannt. Live-Coros werden gelöscht."
 
@@ -668,10 +665,6 @@ msgid "No %s running"
 msgstr "Kein %s läuft"
 
 #, python-format
-msgid "No cluster endpoint for %r %r"
-msgstr "Kein Cluster-Endpunkt für %r %r"
-
-#, python-format
 msgid "No permission to signal PID %d"
 msgstr "Keine Berechtigung zu Signal-Programmkennung %d"
 
@@ -682,6 +675,10 @@ msgstr "Keine Richtlinie mit Index %s"
 #, python-format
 msgid "No realm key for %r"
 msgstr "Kein Bereichsschlüssel für %r"
+
+#, python-format
+msgid "No space left on device for %(file)s (%(err)s)"
+msgstr "Kein freier Speicherplatz im Gerät für %(file)s (%(err)s) vorhanden."
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
@@ -800,20 +797,12 @@ msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 "Partitionszeiten: max. %(max).4fs, min. %(min).4fs, durchschnittl. %(med).4fs"
 
-#, python-format
-msgid "Pass beginning; %s possible containers; %s possible objects"
-msgstr "Durchlauf wird gestartet; %s mögliche Container; %s mögliche Objekte"
-
-#, python-format
-msgid "Pass completed in %ds; %d objects expired"
-msgstr "Durchgang abgeschlossen in %ds; %d Objekte abgelaufen"
-
-#, python-format
-msgid "Pass so far %ds; %d objects expired"
-msgstr "Bisherige Durchgänge %ds; %d Objekte abgelaufen"
-
 msgid "Path required in X-Container-Sync-To"
 msgstr "Pfad in X-Container-Sync-To ist erforderlich"
+
+#, python-format
+msgid "Problem cleaning up %(datadir)s (%(err)s)"
+msgstr "Problem bei der Bereinigung von %(datadir)s (%(err)s)"
 
 #, python-format
 msgid "Problem cleaning up %s"
@@ -1005,11 +994,6 @@ msgstr "Versuch, an %s zu schreiben"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "NICHT ABGEFANGENE AUSNAHME"
-
-#, python-format
-msgid "Unable to load internal client from config: %r (%s)"
-msgstr ""
-"Interner Client konnte nicht aus der Konfiguration geladen werden:  %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."

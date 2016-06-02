@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev50\n"
+"Project-Id-Version: swift 2.7.1.dev169\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-04-17 21:20+0000\n"
+"POT-Creation-Date: 2016-06-02 04:58+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -260,24 +260,12 @@ msgstr ""
 "%(success)s başarılı, %(fail)s başarısız, %(no_change)s değişiklik yok"
 
 #, python-format
-msgid "Could not bind to %s:%s after trying for %s seconds"
-msgstr "%s:%s'e bağlanılamadı, %s saniye beklendi"
-
-#, python-format
-msgid "Could not load %r: %s"
-msgstr "%r yüklenemedi: %s"
-
-#, python-format
 msgid "Data download error: %s"
 msgstr "Veri indirme hatası: %s"
 
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "Aygıtlar geçişi tamamlandı: %.02fs"
-
-#, python-format
-msgid "Directory %r does not map to a valid policy (%s)"
-msgstr "Dizin %r geçerli bir ilkeye eşleştirilmemiş (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -308,14 +296,6 @@ msgstr ""
 "denenecek): Yanıt %(status)s %(reason)s"
 
 #, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"HATA Hesap güncelleme başarısız: istekte farklı sayıda  istemci ve aygıt "
-"var: \"%s\" \"%s\""
-
-#, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "HATA %(host)s dan kötü yanıt %(status)s"
 
@@ -330,14 +310,6 @@ msgid ""
 msgstr ""
 "HATA Kap güncelleme başarısız (daha sonraki async güncellemesi için "
 "kaydediliyor): %(ip)s:%(port)s/%(dev)s den %(status)d yanıtı"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"HATA Kap güncelleme başarısız: istekte farklı sayıda istemci ve aygıt var: "
-"\"%s\" e karşı \"%s\""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -489,10 +461,6 @@ msgid "Error hashing suffix"
 msgstr "Sonek özetini çıkarmada hata"
 
 #, python-format
-msgid "Error in %r with mtime_check_interval: %s"
-msgstr "mtime_check_interval ile %r de hata: %s"
-
-#, python-format
 msgid "Error limiting server %s"
 msgstr "%s sunucusu sınırlandırılırken hata"
 
@@ -634,10 +602,6 @@ msgid "No %s running"
 msgstr "Çalışan %s yok"
 
 #, python-format
-msgid "No cluster endpoint for %r %r"
-msgstr "%r %r için küme uç noktası yok"
-
-#, python-format
 msgid "No permission to signal PID %d"
 msgstr "%d PID'ine sinyalleme izni yok"
 
@@ -749,18 +713,6 @@ msgstr "X-Container-Sync-To'da parametre, sorgular, ve parçalara izin verilmez"
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 "Bölüm zamanları: azami %(max).4fs, asgari %(min).4fs, ortalama %(med).4fs"
-
-#, python-format
-msgid "Pass beginning; %s possible containers; %s possible objects"
-msgstr "Geçiş başlıyor; %s olası kap; %s olası nesne"
-
-#, python-format
-msgid "Pass completed in %ds; %d objects expired"
-msgstr "Geçiş %ds de tamamlandı; %d nesnenin süresi doldu"
-
-#, python-format
-msgid "Pass so far %ds; %d objects expired"
-msgstr "Şimdiye kadarki geçiş %ds; %d nesnenin süresi doldu"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "X-Container-Sync-To'de yol gerekli"
@@ -946,10 +898,6 @@ msgstr "%s'e yazmaya çalışılıyor"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "YAKALANMAYAN İSTİSNA"
-
-#, python-format
-msgid "Unable to load internal client from config: %r (%s)"
-msgstr "Yapılandırmadan dahili istemci yüklenemedi: %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
