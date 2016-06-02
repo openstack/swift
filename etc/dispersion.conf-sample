@@ -24,6 +24,10 @@ auth_key = testing
 # user_domain_name = user_domain
 #
 # endpoint_type = publicURL
+#
+# NOTE: If you have only 1 region with a swift endpoint, no need to specify it
+# region_name =
+#
 # keystone_api_insecure = no
 #
 # swift_dir = /etc/swift
