@@ -51,7 +51,8 @@ class TestEncrypter(unittest.TestCase):
 
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
-        hdrs = {'content-type': 'text/plain',
+        hdrs = {'etag': plaintext_etag,
+                'content-type': 'text/plain',
                 'content-length': str(len(plaintext)),
                 'x-object-meta-etag': 'not to be confused with the Etag!',
                 'x-object-meta-test': 'encrypt me',
@@ -156,7 +157,8 @@ class TestEncrypter(unittest.TestCase):
 
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
-        hdrs = {'content-type': 'text/plain',
+        hdrs = {'etag': EMPTY_ETAG,
+                'content-type': 'text/plain',
                 'content-length': '0',
                 'x-object-meta-etag': 'not to be confused with the Etag!',
                 'x-object-meta-test': 'encrypt me',

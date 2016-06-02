@@ -175,6 +175,60 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         else:
             self.assertEqual(self.plaintext_etag, listing[0]['hash'])
 
+    def test_write_with_crypto_and_override_headers(self):
+        self._create_container(self.proxy_app, policy_name='one')
+
+        def verify_overrides():
+            # verify object sysmeta
+            req = Request.blank(
+                self.object_path, method='GET')
+            resp = req.get_response(self.crypto_app)
+            for k, v in overrides.items():
+                self.assertIn(k, resp.headers)
+                self.assertEqual(overrides[k], resp.headers[k])
+
+            # check container listing
+            req = Request.blank(
+                self.container_path, method='GET', query_string='format=json')
+            resp = req.get_response(self.crypto_app)
+            self.assertEqual('200 OK', resp.status)
+            listing = json.loads(resp.body)
+            self.assertEqual(1, len(listing))
+            self.assertEqual('o', listing[0]['name'])
+            self.assertEqual(
+                overrides['x-object-sysmeta-container-update-override-size'],
+                str(listing[0]['bytes']))
+            self.assertEqual(
+                overrides['x-object-sysmeta-container-update-override-etag'],
+                listing[0]['hash'])
+
+        # include overrides in headers
+        overrides = {'x-object-sysmeta-container-update-override-etag': 'foo',
+                     'x-object-sysmeta-container-update-override-size':
+                         str(len(self.plaintext) + 1)}
+        req = Request.blank(self.object_path, method='PUT',
+                            body=self.plaintext, headers=overrides.copy())
+        resp = req.get_response(self.crypto_app)
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
+        verify_overrides()
+
+        # include overrides in footers
+        overrides = {'x-object-sysmeta-container-update-override-etag': 'bar',
+                     'x-object-sysmeta-container-update-override-size':
+                         str(len(self.plaintext) + 2)}
+
+        def callback(footers):
+            footers.update(overrides)
+
+        req = Request.blank(
+            self.object_path, method='PUT', body=self.plaintext)
+        req.environ['swift.callback.update_footers'] = callback
+        resp = req.get_response(self.crypto_app)
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual(self.plaintext_etag, resp.headers['Etag'])
+        verify_overrides()
+
     def test_write_with_crypto_read_with_crypto(self):
         self._create_container(self.proxy_app, policy_name='one')
         self._put_object(self.crypto_app, self.plaintext)

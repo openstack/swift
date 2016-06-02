@@ -145,8 +145,9 @@ class DecrypterObjContext(BaseDecrypterContext):
                          header cannot be decrypted due to missing crypto meta.
         :return: a decrypted header value or None if the header value was not
                  decrypted and was not required to be decrypted.
-        :raises HTTPInternalServerError: if the header value was required to be
-                                         decrypted but crypto meta was not
+        :raises HTTPInternalServerError: if an error occurred during decryption
+                                         or if the header value was required to
+                                         be decrypted but crypto meta was not
                                          found.
         """
         try:
