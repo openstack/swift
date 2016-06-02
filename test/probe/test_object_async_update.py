@@ -36,17 +36,15 @@ class TestObjectAsyncUpdate(ReplProbeTest):
         # Kill container servers excepting two of the primaries
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         cnode = cnodes[0]
-        kill_nonprimary_server(cnodes, self.ipport2server, self.pids)
-        kill_server((cnode['ip'], cnode['port']),
-                    self.ipport2server, self.pids)
+        kill_nonprimary_server(cnodes, self.ipport2server)
+        kill_server((cnode['ip'], cnode['port']), self.ipport2server)
 
         # Create container/obj
         obj = 'object-%s' % uuid4()
         client.put_object(self.url, self.token, container, obj, '')
 
         # Restart other primary server
-        start_server((cnode['ip'], cnode['port']),
-                     self.ipport2server, self.pids)
+        start_server((cnode['ip'], cnode['port']), self.ipport2server)
 
         # Assert it does not know about container/obj
         self.assertFalse(direct_client.direct_get_container(
@@ -117,16 +115,14 @@ class TestUpdateOverridesEC(ECProbeTest):
 
         # put an object while one container server is stopped so that we force
         # an async update to it
-        kill_server((cnodes[0]['ip'], cnodes[0]['port']),
-                    self.ipport2server, self.pids)
+        kill_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         content = u'stuff'
         client.put_object(self.url, self.token, 'c1', 'o1', contents=content)
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
 
         # re-start the container server and assert that it does not yet know
         # about the object
-        start_server((cnodes[0]['ip'], cnodes[0]['port']),
-                     self.ipport2server, self.pids)
+        start_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         self.assertFalse(direct_client.direct_get_container(
             cnodes[0], cpart, self.account, 'c1')[1])
 
@@ -149,16 +145,14 @@ class TestUpdateOverridesEC(ECProbeTest):
 
         # put an object while one container server is stopped so that we force
         # an async update to it
-        kill_server((cnodes[0]['ip'], cnodes[0]['port']),
-                    self.ipport2server, self.pids)
+        kill_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         content = u'stuff'
         client.put_object(self.url, self.token, 'c1', 'o1', contents=content)
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
 
         # re-start the container server and assert that it does not yet know
         # about the object
-        start_server((cnodes[0]['ip'], cnodes[0]['port']),
-                     self.ipport2server, self.pids)
+        start_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         self.assertFalse(direct_client.direct_get_container(
             cnodes[0], cpart, self.account, 'c1')[1])
 
@@ -196,8 +190,7 @@ class TestUpdateOverridesEC(ECProbeTest):
 
         # PUT and POST to object while one container server is stopped so that
         # we force async updates to it
-        kill_server((cnodes[0]['ip'], cnodes[0]['port']),
-                    self.ipport2server, self.pids)
+        kill_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         content = u'stuff'
         client.put_object(self.url, self.token, 'c1', 'o1', contents=content)
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
@@ -213,8 +206,7 @@ class TestUpdateOverridesEC(ECProbeTest):
 
         # re-start the container server and assert that it does not yet know
         # about the object
-        start_server((cnodes[0]['ip'], cnodes[0]['port']),
-                     self.ipport2server, self.pids)
+        start_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         self.assertFalse(direct_client.direct_get_container(
             cnodes[0], cpart, self.account, 'c1')[1])
 

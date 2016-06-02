@@ -58,18 +58,18 @@ def get_server_number(ipport, ipport2server):
     return server, number
 
 
-def start_server(ipport, ipport2server, pids, check=True):
+def start_server(ipport, ipport2server, check=True):
     server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).start(number=number, wait=False)
     if err:
         raise Exception('unable to start %s' % (
             server if not number else '%s%s' % (server, number)))
     if check:
-        return check_server(ipport, ipport2server, pids)
+        return check_server(ipport, ipport2server)
     return None
 
 
-def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
+def check_server(ipport, ipport2server, timeout=CHECK_SERVER_TIMEOUT):
     server = ipport2server[ipport]
     if server[:-1] in ('account', 'container', 'object'):
         if int(server[-1]) > 4:
@@ -116,7 +116,7 @@ def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
     return None
 
 
-def kill_server(ipport, ipport2server, pids):
+def kill_server(ipport, ipport2server):
     server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).kill(number=number)
     if err:
@@ -136,7 +136,7 @@ def kill_server(ipport, ipport2server, pids):
         sleep(0.1)
 
 
-def kill_nonprimary_server(primary_nodes, ipport2server, pids):
+def kill_nonprimary_server(primary_nodes, ipport2server):
     primary_ipports = [(n['ip'], n['port']) for n in primary_nodes]
     for ipport, server in ipport2server.items():
         if ipport in primary_ipports:
@@ -146,7 +146,7 @@ def kill_nonprimary_server(primary_nodes, ipport2server, pids):
         raise Exception('Cannot figure out server type for %r' % primary_nodes)
     for ipport, server in list(ipport2server.items()):
         if server[:-1] == server_type and ipport not in primary_ipports:
-            kill_server(ipport, ipport2server, pids)
+            kill_server(ipport, ipport2server)
             return ipport
 
 
@@ -322,7 +322,6 @@ class ProbeTest(unittest.TestCase):
 
     def setUp(self):
         resetswift()
-        self.pids = {}
         try:
             self.ipport2server = {}
             self.configs = defaultdict(dict)
@@ -354,11 +353,11 @@ class ProbeTest(unittest.TestCase):
 
             Manager(['main']).start(wait=False)
             for ipport in self.ipport2server:
-                check_server(ipport, self.ipport2server, self.pids)
+                check_server(ipport, self.ipport2server)
             proxy_ipport = ('127.0.0.1', 8080)
             self.ipport2server[proxy_ipport] = 'proxy'
             self.url, self.token, self.account = check_server(
-                proxy_ipport, self.ipport2server, self.pids)
+                proxy_ipport, self.ipport2server)
             self.replicators = Manager(
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])
