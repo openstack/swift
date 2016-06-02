@@ -97,9 +97,8 @@ class TestAccountFailures(ReplProbeTest):
         self.assertTrue(found2)
 
         apart, anodes = self.account_ring.get_nodes(self.account)
-        kill_nonprimary_server(anodes, self.ipport2server, self.pids)
-        kill_server((anodes[0]['ip'], anodes[0]['port']),
-                    self.ipport2server, self.pids)
+        kill_nonprimary_server(anodes, self.ipport2server)
+        kill_server((anodes[0]['ip'], anodes[0]['port']), self.ipport2server)
         # Kill account servers excepting two of the primaries
 
         # Delete container1
@@ -147,8 +146,7 @@ class TestAccountFailures(ReplProbeTest):
         self.assertTrue(found2)
 
         # Restart other primary account server
-        start_server((anodes[0]['ip'], anodes[0]['port']),
-                     self.ipport2server, self.pids)
+        start_server((anodes[0]['ip'], anodes[0]['port']), self.ipport2server)
 
         # Assert that server doesn't know about container1's deletion or the
         #   new container2/object2 yet
