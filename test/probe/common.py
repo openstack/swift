@@ -58,18 +58,16 @@ def get_server_number(ipport, ipport2server):
     return server, number
 
 
-def start_server(ipport, ipport2server, check=True):
+def start_server(ipport, ipport2server):
     server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).start(number=number, wait=False)
     if err:
         raise Exception('unable to start %s' % (
             server if not number else '%s%s' % (server, number)))
-    if check:
-        return check_server(ipport, ipport2server)
-    return None
+    return check_server(ipport, ipport2server)
 
 
-def check_server(ipport, ipport2server, timeout=CHECK_SERVER_TIMEOUT):
+def check_server(ipport, ipport2server):
     server = ipport2server[ipport]
     if server[:-1] in ('account', 'container', 'object'):
         if int(server[-1]) > 4:
@@ -79,7 +77,7 @@ def check_server(ipport, ipport2server, timeout=CHECK_SERVER_TIMEOUT):
             path += '/3'
         elif server[:-1] == 'object':
             path += '/3/4'
-        try_until = time() + timeout
+        try_until = time() + CHECK_SERVER_TIMEOUT
         while True:
             try:
                 conn = HTTPConnection(*ipport)
@@ -95,11 +93,11 @@ def check_server(ipport, ipport2server, timeout=CHECK_SERVER_TIMEOUT):
                 if time() > try_until:
                     print(err)
                     print('Giving up on %s:%s after %s seconds.' % (
-                        server, ipport, timeout))
+                        server, ipport, CHECK_SERVER_TIMEOUT))
                     raise err
                 sleep(0.1)
     else:
-        try_until = time() + timeout
+        try_until = time() + CHECK_SERVER_TIMEOUT
         while True:
             try:
                 url, token = get_auth('http://%s:%d/auth/v1.0' % ipport,
