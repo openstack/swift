@@ -96,7 +96,7 @@ advantage of many well-known C libraries such as:
 PyECLib uses a C based library called liberasurecode to implement the plug in
 infrastructure; liberasure code is available at:
 
-* liberasurecode: https://bitbucket.org/tsg-/liberasurecode
+* liberasurecode: https://github.com/openstack/liberasurecode
 
 PyECLib itself therefore allows for not only choice but further extensibility as
 well. PyECLib also comes with a handy utility to help determine the best
@@ -105,7 +105,7 @@ configurations may vary in performance per algorithm).  More on this will be
 covered in the configuration section.  PyECLib is included as a Swift
 requirement.
 
-For complete details see `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_
+For complete details see `PyECLib <https://github.com/openstack/pyeclib>`_
 
 ------------------------------
 Storing and Retrieving Objects
@@ -215,7 +215,7 @@ Let's take a closer look at each configuration parameter:
   PyECLib back-end. This specifies the EC scheme that is to be used.  For
   example the option shown here selects Vandermonde Reed-Solomon encoding while
   an option of ``flat_xor_hd_3`` would select Flat-XOR based HD combination
-  codes. See the `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ page for
+  codes. See the `PyECLib <https://github.com/openstack/pyeclib>`_ page for
   full details.
 * ``ec_num_data_fragments``: The total number of fragments that will be
   comprised of data.
@@ -270,7 +270,7 @@ Region Support
 --------------
 
 For at least the initial version of EC, it is not recommended that an EC scheme
-span beyond a single region, neither performance nor functional validation has 
+span beyond a single region, neither performance nor functional validation has
 be been done in such a configuration.
 
 --------------

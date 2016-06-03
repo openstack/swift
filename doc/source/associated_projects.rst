@@ -109,8 +109,8 @@ Other
 * `Better Staticweb <https://github.com/CloudVPS/better-staticweb>`_ - Makes swift containers accessible by default.
 * `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple Django web app to access OpenStack Swift.
 * `Swift-account-stats <https://github.com/enovance/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
-* `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ - High Level Erasure Code library used by Swift
-* `liberasurecode <http://www.bytebucket.org/tsg-/liberasurecode>`_ - Low Level Erasure Code library used by PyECLib
+* `PyECLib <https://github.com/openstack/pyeclib>`_ - High Level Erasure Code library used by Swift
+* `liberasurecode <https://github.com/openstack/liberasurecode>`_ - Low Level Erasure Code library used by PyECLib
 * `Swift Browser <https://github.com/zerovm/swift-browser>`_ - JavaScript interface for Swift
 * `swift-ui <https://github.com/fanatic/swift-ui>`_ - OpenStack Swift web browser
 * `Swift Durability Calculator <https://github.com/enovance/swift-durability-calculator>`_ - Data Durability Calculation Tool for Swift
