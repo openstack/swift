@@ -9,13 +9,13 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev169\n"
+"Project-Id-Version: swift 2.7.1.dev175\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-02 04:58+0000\n"
+"POT-Creation-Date: 2016-06-03 04:47+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-06-01 09:32+0000\n"
+"PO-Revision-Date: 2016-06-02 07:02+0000\n"
 "Last-Translator: Andreas Jaeger <jaegerandi@gmail.com>\n"
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -72,12 +72,20 @@ msgstr ""
 "%(time).2fs (%(rate).2f/s, %(remaining)s verbleibend)"
 
 #, python-format
+msgid "%(server)s (%(pid)s) appears to have stopped"
+msgstr "%(server)s (%(pid)s) scheinbar gestoppt"
+
+#, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr "%(success)s Erfolge, %(failure)s Fehlschläge"
 
 #, python-format
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s gab 503 für %(statuses)s zurück"
+
+#, python-format
+msgid "%(type)s: %(value)s"
+msgstr "%(type)s: %(value)s"
 
 #, python-format
 msgid "%s already started..."
@@ -289,6 +297,13 @@ msgstr ""
 "Änderungen"
 
 #, python-format
+msgid ""
+"Could not bind to %(addr)s:%(port)s after trying for %(timeout)s seconds"
+msgstr ""
+"Keine Bindung an %(addr)s:%(port)s möglich nach Versuch über %(timeout)s "
+"Sekunden"
+
+#, python-format
 msgid "Could not load %(conf)r: %(error)s"
 msgstr "%(conf)r konnte nicht geladen werden: %(error)s"
 
@@ -334,6 +349,14 @@ msgstr ""
 "FEHLER Kontoaktualisierung fehlgeschlagen mit %(ip)s:%(port)s/%(device)s "
 "(wird zu einem späteren Zeitpunkt erneut versucht): Antwort %(status)s "
 "%(reason)s"
+
+#, python-format
+msgid ""
+"ERROR Account update failed: different  numbers of hosts and devices in "
+"request: \"%(hosts)s\" vs \"%(devices)s\""
+msgstr ""
+"FEHLER Kontoaktualisierung fehlgeschlagen: Unterschiedliche Anzahl von Hosts "
+"und Einheiten in der Anforderung: \"%(hosts)s\" contra \"%(devices)s\""
 
 #, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
@@ -511,6 +534,10 @@ msgid "Error hashing suffix"
 msgstr "Fehler beim Hashing des Suffix"
 
 #, python-format
+msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
+msgstr "Fehler in %(conf)r mit mtime_check_interval: %(error)s"
+
+#, python-format
 msgid "Error limiting server %s"
 msgstr "Fehler beim Begrenzen des Servers %s"
 
@@ -663,6 +690,10 @@ msgstr "%(given_domain)s zugeordnet zu %(found_domain)s"
 #, python-format
 msgid "No %s running"
 msgstr "Kein %s läuft"
+
+#, python-format
+msgid "No cluster endpoint for %(realm)r %(cluster)r"
+msgstr "Kein Cluster-Endpunkt für %(realm)r %(cluster)r"
 
 #, python-format
 msgid "No permission to signal PID %d"
@@ -893,6 +924,10 @@ msgid "Running object replicator in script mode."
 msgstr "Objektreplikator läuft im Skriptmodus."
 
 #, python-format
+msgid "Signal %(server)s  pid: %(pid)s  signal: %(signal)s"
+msgstr "Signal %(server)s  PID: %(pid)s  Signal: %(signal)s"
+
+#, python-format
 msgid ""
 "Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
 "skipped, %(fail)s failed"
@@ -996,6 +1031,17 @@ msgid "UNCAUGHT EXCEPTION"
 msgstr "NICHT ABGEFANGENE AUSNAHME"
 
 #, python-format
+msgid "Unable to find %(section)s config section in %(conf)s"
+msgstr ""
+"%(section)s-Konfigurationsabschnitt in %(conf)s kann nicht gefunden werden"
+
+#, python-format
+msgid "Unable to load internal client from config: %(conf)r (%(error)s)"
+msgstr ""
+"Interner Client konnte nicht aus der Konfiguration geladen werden:  %(conf)r "
+"(%(error)s)"
+
+#, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr ""
 "%s konnte nicht in libc gefunden werden. Wird als Nullbefehl verlassen."
@@ -1004,11 +1050,19 @@ msgstr ""
 msgid "Unable to locate config for %s"
 msgstr "Konfiguration für %s wurde nicht gefunden."
 
+#, python-format
+msgid "Unable to locate config number %(number)s for %(server)s"
+msgstr "Konfigurationsnummer %(number)s für %(server)s wurde nicht gefunden."
+
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 "fallocate, posix_fallocate konnte nicht in libc gefunden werden. Wird als "
 "Nullbefehl verlassen."
+
+#, python-format
+msgid "Unable to perform fsync() on directory %(dir)s: %(err)s"
+msgstr "fsync() kann für Verzeichnis %(dir)s nicht ausgeführt werden: %(err)s"
 
 #, python-format
 msgid "Unable to read config from %s"
@@ -1059,6 +1113,17 @@ msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 "WARNUNG: Grenzwert für Speicher kann nicht geändert werden.  Wird nicht als "
 "Root ausgeführt?"
+
+#, python-format
+msgid "Waited %(kill_wait)s seconds for %(server)s to die; giving up"
+msgstr ""
+"Hat %(kill_wait)s Sekunden für %(server)s zum Erlöschen gewartet; Gibt auf"
+
+#, python-format
+msgid "Waited %(kill_wait)s seconds for %(server)s to die; killing"
+msgstr ""
+"Hat %(kill_wait)s Sekunden für %(server)s zum Erlöschen gewartet. Wird "
+"abgebrochen."
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""
