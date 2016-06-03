@@ -769,7 +769,6 @@ use = egg:swift#copy
 # Note: To enable encryption, add the following 3 dependent pieces of
 # crypto middleware to the proxy-server pipeline as follows:
 # ... decrypter keymaster encrypter proxy-logging (end of pipeline)
-
 [filter:decrypter]
 use = egg:swift#decrypter
 
@@ -788,6 +787,5 @@ use = egg:swift#keymaster
 # to the devstack proxy-config so that gate tests can pass.
 # base64 encoding of "dontEverUseThisIn_PRODUCTION_xxxxxxxxxxxxxxx"
 encryption_root_secret = ZG9udEV2ZXJVc2VUaGlzSW5fUFJPRFVDVElPTl94eHh4eHh4eHh4eHh4eHg=
-
 [filter:encrypter]
 use = egg:swift#encrypter
