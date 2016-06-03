@@ -77,6 +77,12 @@ class TestObjectFailures(ReplProbeTest):
         obj = 'object-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
                                                         'VERIFY')
+        # Stash the on disk data for future comparison - this may not equal
+        # 'VERIFY' if for example the proxy has crypto enabled
+        backend_data = direct_client.direct_get_object(
+            onode, opart, self.account, container, obj, headers={
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
+
         metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
         write_metadata(data_file, metadata)
@@ -84,7 +90,7 @@ class TestObjectFailures(ReplProbeTest):
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
                 'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
-        self.assertEqual(odata, 'VERIFY')
+        self.assertEqual(odata, backend_data)
         try:
             direct_client.direct_get_object(
                 onode, opart, self.account, container, obj, headers={
@@ -98,14 +104,19 @@ class TestObjectFailures(ReplProbeTest):
         obj = 'object-range-%s' % uuid4()
         onode, opart, data_file = self._setup_data_file(container, obj,
                                                         'RANGE')
+        # Stash the on disk data for future comparison - this may not equal
+        # 'VERIFY' if for example the proxy has crypto enabled
+        backend_data = direct_client.direct_get_object(
+            onode, opart, self.account, container, obj, headers={
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
 
         metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
         write_metadata(data_file, metadata)
         base_headers = {'X-Backend-Storage-Policy-Index': self.policy.idx}
-        for header, result in [({'Range': 'bytes=0-2'}, 'RAN'),
-                               ({'Range': 'bytes=1-11'}, 'ANGE'),
-                               ({'Range': 'bytes=0-11'}, 'RANGE')]:
+        for header, result in [({'Range': 'bytes=0-2'}, backend_data[0:3]),
+                               ({'Range': 'bytes=1-11'}, backend_data[1:]),
+                               ({'Range': 'bytes=0-11'}, backend_data)]:
             req_headers = base_headers.copy()
             req_headers.update(header)
             odata = direct_client.direct_get_object(
