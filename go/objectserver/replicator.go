@@ -96,6 +96,7 @@ type Replicator struct {
 	devGroup       sync.WaitGroup
 	partRateTicker *time.Ticker
 	timePerPart    time.Duration
+	LoopSleepTime  time.Duration
 	quorumDelete   bool
 	concurrencySem chan struct{}
 	devices        map[string]bool
@@ -523,13 +524,14 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device, canceler chan stru
 	defer r.devGroup.Done()
 	var lastPassDuration time.Duration
 	for {
-		r.cleanTemp(dev)
+		time.Sleep(r.LoopSleepTime)
 		passStartTime := time.Now()
-
 		if mounted, err := hummingbird.IsMount(filepath.Join(r.driveRoot, dev.Device)); r.checkMounts && (err != nil || mounted != true) {
 			r.LogError("[replicateDevice] Drive not mounted: %s", dev.Device)
 			break
 		}
+
+		r.cleanTemp(dev)
 		objPath := filepath.Join(r.driveRoot, dev.Device, "objects")
 		if fi, err := os.Stat(objPath); err != nil || !fi.Mode().IsDir() {
 			r.LogError("[replicateDevice] No objects found: %s", objPath)
@@ -875,6 +877,7 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 		partitions:             make(map[string]bool),
 		cancelers:              make(map[string]chan struct{}),
 		once:                   false,
+		LoopSleepTime:          5 * time.Second,
 	}
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {

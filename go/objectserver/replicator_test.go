@@ -100,6 +100,7 @@ func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) *Replicator
 	replicator, _ := NewReplicator(conf, flags)
 	rep := replicator.(*Replicator)
 	rep.concurrencySem = make(chan struct{}, 1)
+	rep.LoopSleepTime = 0
 	return rep
 }
 
