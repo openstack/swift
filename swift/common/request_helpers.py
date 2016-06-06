@@ -27,6 +27,7 @@ import time
 
 import six
 from six.moves.urllib.parse import unquote
+from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
@@ -38,7 +39,7 @@ from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range
+    parse_content_range, csv_append, list_from_csv
 
 from swift.common.wsgi import make_subrequest
 
@@ -544,3 +545,66 @@ def http_response_to_document_iters(response, read_chunk_size=4096):
         params = dict(params_list)
         return multipart_byteranges_to_document_iters(
             response, params['boundary'], read_chunk_size)
+
+
+def update_etag_is_at_header(req, name):
+    """
+    Helper function to update an X-Backend-Etag-Is-At header whose value is a
+    list of alternative header names at which the actual object etag may be
+    found. This informs the object server where to look for the actual object
+    etag when processing conditional requests.
+
+    Since the proxy server and/or middleware may set alternative etag header
+    names, the value of X-Backend-Etag-Is-At is a comma separated list which
+    the object server inspects in order until it finds an etag value.
+
+    :param req: a swob Request
+    :param name: name of a sysmeta where alternative etag may be found
+    """
+    if ',' in name:
+        # HTTP header names should not have commas but we'll check anyway
+        raise ValueError('Header name must not contain commas')
+    existing = req.headers.get("X-Backend-Etag-Is-At")
+    req.headers["X-Backend-Etag-Is-At"] = csv_append(
+        existing, name)
+
+
+def resolve_etag_is_at_header(req, metadata):
+    """
+    Helper function to resolve an alternative etag value that may be stored in
+    metadata under an alternate name.
+
+    The value of the request's X-Backend-Etag-Is-At header (if it exists) is a
+    comma separated list of alternate names in the metadata at which an
+    alternate etag value may be found. This list is processed in order until an
+    alternate etag is found.
+
+    The left most value in X-Backend-Etag-Is-At will have been set by the left
+    most middleware, or if no middleware, by ECObjectController, if an EC
+    policy is in use. The left most middleware is assumed to be the authority
+    on what the etag value of the object content is.
+
+    The resolver will work from left to right in the list until it finds a
+    value that is a name in the given metadata. So the left most wins, IF it
+    exists in the metadata.
+
+    By way of example, assume the encrypter middleware is installed. If an
+    object is *not* encrypted then the resolver will not find the encrypter
+    middleware's alternate etag sysmeta (X-Object-Sysmeta-Crypto-Etag) but will
+    then find the EC alternate etag (if EC policy). But if the object *is*
+    encrypted then X-Object-Sysmeta-Crypto-Etag is found and used, which is
+    correct because it should be preferred over X-Object-Sysmeta-Crypto-Etag.
+
+    :param req: a swob Request
+    :param metadata: a dict containing object metadata
+    :return: an alternate etag value if any is found, otherwise None
+    """
+    alternate_etag = None
+    metadata = HeaderKeyDict(metadata)
+    if "X-Backend-Etag-Is-At" in req.headers:
+        names = list_from_csv(req.headers["X-Backend-Etag-Is-At"])
+        for name in names:
+            if name in metadata:
+                alternate_etag = metadata[name]
+                break
+    return alternate_etag

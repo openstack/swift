@@ -2011,7 +2011,7 @@ class TestObjectController(unittest.TestCase):
             call_count[0] += 1
 
         commit_confirmation = \
-            'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
+            'swift.proxy.controllers.obj.MIMEPutter.send_commit_confirmation'
 
         with mock.patch('swift.obj.server.md5', busted_md5_constructor), \
                 mock.patch(commit_confirmation, mock_committer):
@@ -2062,7 +2062,7 @@ class TestObjectController(unittest.TestCase):
         read_footer = \
             'swift.obj.server.ObjectController._read_metadata_footer'
         commit_confirmation = \
-            'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
+            'swift.proxy.controllers.obj.MIMEPutter.send_commit_confirmation'
 
         with mock.patch(read_footer) as read_footer_call, \
                 mock.patch(commit_confirmation, mock_committer):

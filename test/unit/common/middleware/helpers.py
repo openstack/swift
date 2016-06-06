@@ -16,7 +16,6 @@
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
 from collections import defaultdict
-from copy import deepcopy
 from hashlib import md5
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
@@ -113,24 +112,34 @@ class FakeSwift(object):
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
 
-        self._calls.append((method, path, req_headers))
-
         # simulate object PUT
         if method == 'PUT' and obj:
-            input = env['wsgi.input'].read()
+            input = ''.join(iter(env['wsgi.input'].read, ''))
+            if 'swift.callback.update_footers' in env:
+                footers = HeaderKeyDict()
+                env['swift.callback.update_footers'](footers)
+                req_headers.update(footers)
             etag = md5(input).hexdigest()
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(input))
 
             # keep it for subsequent GET requests later
-            self.uploaded[path] = (deepcopy(headers), input)
+            self.uploaded[path] = (dict(req_headers), input)
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
-        # range requests ought to work, which require conditional_response=True
+        self._calls.append((method, path, HeaderKeyDict(req_headers)))
+
+        # range requests ought to work, hence conditional_response=True
         req = swob.Request(env)
-        resp = resp_class(req=req, headers=headers, body=body,
-                          conditional_response=req.method in ('GET', 'HEAD'))
+        if isinstance(body, list):
+            resp = resp_class(
+                req=req, headers=headers, app_iter=body,
+                conditional_response=req.method in ('GET', 'HEAD'))
+        else:
+            resp = resp_class(
+                req=req, headers=headers, body=body,
+                conditional_response=req.method in ('GET', 'HEAD'))
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
         return LeakTrackingIter(wsgi_iter, self, path)

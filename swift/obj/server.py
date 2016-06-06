@@ -46,7 +46,7 @@ from swift.common.http import is_success
 from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
-    is_user_meta, is_sys_or_user_meta
+    is_user_meta, is_sys_or_user_meta, resolve_etag_is_at_header
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -832,10 +832,7 @@ class ObjectController(BaseStorageServer):
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
-                conditional_etag = None
-                if 'X-Backend-Etag-Is-At' in request.headers:
-                    conditional_etag = metadata.get(
-                        request.headers['X-Backend-Etag-Is-At'])
+                conditional_etag = resolve_etag_is_at_header(request, metadata)
                 response = Response(
                     app_iter=disk_file.reader(keep_cache=keep_cache),
                     request=request, conditional_response=True,
@@ -889,10 +886,7 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
-        conditional_etag = None
-        if 'X-Backend-Etag-Is-At' in request.headers:
-            conditional_etag = metadata.get(
-                request.headers['X-Backend-Etag-Is-At'])
+        conditional_etag = resolve_etag_is_at_header(request, metadata)
         response = Response(request=request, conditional_response=True,
                             conditional_etag=conditional_etag)
         response.headers['Content-Type'] = metadata.get(

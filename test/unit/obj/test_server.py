@@ -2385,6 +2385,7 @@ class TestObjectController(unittest.TestCase):
             'X-Timestamp': utils.Timestamp(time()).internal,
             'Content-Type': 'application/octet-stream',
             'X-Object-Meta-Xtag': 'madeup',
+            'X-Object-Sysmeta-Xtag': 'alternate madeup',
         }
         req = Request.blank('/sda1/p/a/c/o', method='PUT',
                             headers=headers)
@@ -2397,6 +2398,39 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', headers={
             'If-Match': 'madeup',
             'X-Backend-Etag-Is-At': 'X-Object-Meta-Xtag'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, using first in list of alternates
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At':
+                'X-Object-Meta-Xtag,X-Object-Sysmeta-Z'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, using second in list of alternates
+        alts = 'X-Object-Sysmeta-Y,X-Object-Meta-Xtag,X-Object-Sysmeta-Z'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At': alts})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, choosing first of multiple alternates
+        alts = 'X-Object-Sysmeta-Y,X-Object-Meta-Xtag,X-Object-Sysmeta-Xtag'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At': alts})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, choosing first of multiple alternates
+        # (switches order of second two alternates from previous assertion)
+        alts = 'X-Object-Sysmeta-Y,X-Object-Sysmeta-Xtag,X-Object-Meta-Xtag'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'alternate madeup',
+            'X-Backend-Etag-Is-At': alts})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 

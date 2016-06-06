@@ -32,6 +32,8 @@ import eventlet
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
+
+
 from swift.common.utils import Timestamp, NOTICE
 from test import get_config
 from swift.common import utils
@@ -848,7 +850,7 @@ def fake_http_connect(*code_iter, **kwargs):
 
         def __init__(self, status, etag=None, body='', timestamp='1',
                      headers=None, expect_headers=None, connection_id=None,
-                     give_send=None):
+                     give_send=None, give_expect=None):
             if not isinstance(status, FakeStatus):
                 status = FakeStatus(status)
             self._status = status
@@ -864,6 +866,8 @@ def fake_http_connect(*code_iter, **kwargs):
             self.timestamp = timestamp
             self.connection_id = connection_id
             self.give_send = give_send
+            self.give_expect = give_expect
+            self.closed = False
             if 'slow' in kwargs and isinstance(kwargs['slow'], list):
                 try:
                     self._next_sleep = kwargs['slow'].pop(0)
@@ -884,6 +888,8 @@ def fake_http_connect(*code_iter, **kwargs):
             return self
 
         def getexpect(self):
+            if self.give_expect:
+                self.give_expect(self)
             expect_status = self._status.get_expect_status()
             headers = dict(self.expect_headers)
             if expect_status == 409:
@@ -953,7 +959,7 @@ def fake_http_connect(*code_iter, **kwargs):
 
         def send(self, amt=None):
             if self.give_send:
-                self.give_send(self.connection_id, amt)
+                self.give_send(self, amt)
             am_slow, value = self.get_slow()
             if am_slow:
                 if self.received < 4:
@@ -964,7 +970,7 @@ def fake_http_connect(*code_iter, **kwargs):
             return HeaderKeyDict(self.getheaders()).get(name, default)
 
         def close(self):
-            pass
+            self.closed = True
 
     timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
     etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
@@ -1017,7 +1023,8 @@ def fake_http_connect(*code_iter, **kwargs):
             body = next(body_iter)
         return FakeConn(status, etag, body=body, timestamp=timestamp,
                         headers=headers, expect_headers=expect_headers,
-                        connection_id=i, give_send=kwargs.get('give_send'))
+                        connection_id=i, give_send=kwargs.get('give_send'),
+                        give_expect=kwargs.get('give_expect'))
 
     connect.code_iter = code_iter
 
