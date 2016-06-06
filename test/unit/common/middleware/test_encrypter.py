@@ -84,6 +84,7 @@ class TestEncrypter(unittest.TestCase):
                          base64.b64decode(actual['body_key']['key']))
         self.assertEqual(FAKE_IV,
                          base64.b64decode(actual['body_key']['iv']))
+        self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
         # verify etag
         self.assertEqual(ciphertext_etag, req_hdrs['Etag'])
@@ -119,6 +120,7 @@ class TestEncrypter(unittest.TestCase):
         actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
+        self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
         # content-type is not encrypted
         self.assertEqual('text/plain', req_hdrs['Content-Type'])
@@ -139,6 +141,7 @@ class TestEncrypter(unittest.TestCase):
         actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
         # sysmeta is not encrypted
         self.assertEqual('do not encrypt me',
@@ -300,6 +303,7 @@ class TestEncrypter(unittest.TestCase):
                          base64.b64decode(actual['body_key']['key']))
         self.assertEqual(FAKE_IV,
                          base64.b64decode(actual['body_key']['iv']))
+        self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
     def test_PUT_with_etag_override_in_headers(self):
         # verify handling of another middleware's
@@ -345,6 +349,7 @@ class TestEncrypter(unittest.TestCase):
         actual = json.loads(urllib.unquote_plus(param[len(crypto_meta_tag):]))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(etag_iv, base64.b64decode(actual['iv']))
+        self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
     def test_PUT_with_bad_etag_in_other_footers(self):
         # verify that etag supplied in footers from other middleware overrides
@@ -471,6 +476,7 @@ class TestEncrypter(unittest.TestCase):
         actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual(Crypto().get_cipher(), actual['cipher'])
         self.assertEqual(FAKE_IV, base64.b64decode(actual['iv']))
+        self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
         # sysmeta is not encrypted
         self.assertEqual('do not encrypt me',

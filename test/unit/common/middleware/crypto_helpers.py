@@ -21,7 +21,8 @@ from swift.common.middleware.crypto_utils import Crypto
 def fetch_crypto_keys():
     return {'account': 'This is an account key 012345678',
             'container': 'This is a container key 01234567',
-            'object': 'This is an object key 0123456789'}
+            'object': 'This is an object key 0123456789',
+            'id': {'v': 'fake', 'path': '/a/c/fake'}}
 
 
 def md5hex(s):

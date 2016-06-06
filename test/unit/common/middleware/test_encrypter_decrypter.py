@@ -247,6 +247,15 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self._check_match_requests('HEAD', self.crypto_app)
         self._check_listing(self.crypto_app)
 
+    def test_put_without_crypto_post_with_crypto_read_with_crypto(self):
+        self._create_container(self.proxy_app, policy_name='one')
+        self._put_object(self.proxy_app, self.plaintext)
+        self._post_object(self.crypto_app)
+        self._check_GET_and_HEAD(self.crypto_app)
+        self._check_match_requests('GET', self.crypto_app)
+        self._check_match_requests('HEAD', self.crypto_app)
+        self._check_listing(self.crypto_app)
+
     def test_write_without_crypto_read_with_crypto(self):
         self._create_container(self.proxy_app, policy_name='one')
         self._put_object(self.proxy_app, self.plaintext)
