@@ -654,3 +654,26 @@ func TestRestartDevice(t *testing.T) {
 	statsDp = <-repl.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.CancelCount)
 }
+
+func TestRestartDevices(t *testing.T) {
+	t.Parallel()
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator.driveRoot = driveRoot
+	ldev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 6001, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: "127.0.0.2", ReplicationPort: 6001, Device: "sdb"}
+	ring := &FakeRepRing2{ldev: ldev, rdev: rdev}
+	replicator.Ring = ring
+	replicator.restartDevices()
+	_, oka := replicator.cancelers["sda"]
+	_, okb := replicator.cancelers["sdb"]
+	require.True(t, oka)
+	require.False(t, okb)
+	ring.ldev, ring.rdev = ring.rdev, ring.ldev
+	replicator.restartDevices()
+	_, oka = replicator.cancelers["sda"]
+	_, okb = replicator.cancelers["sdb"]
+	require.True(t, okb)
+	require.False(t, oka)
+}
