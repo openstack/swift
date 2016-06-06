@@ -16,7 +16,9 @@
 package proxyserver
 
 import (
+	"mime"
 	"net/http"
+	"path/filepath"
 
 	"github.com/openstack/swift/go/hummingbird"
 )
@@ -101,6 +103,19 @@ func (server *ProxyServer) ObjectPutHandler(writer http.ResponseWriter, request 
 	}
 	if ctx.Authorize != nil && !ctx.Authorize(request) {
 		hummingbird.StandardResponse(writer, 401)
+		return
+	}
+	if request.Header.Get("Content-Type") == "" {
+		contentType := mime.TypeByExtension(filepath.Ext(vars["obj"]))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		request.Header.Set("Content-Type", contentType)
+	}
+	if status, str := CheckObjPut(request, vars["obj"]); status != http.StatusOK {
+		writer.Header().Set("Content-Type", "text/plain")
+		writer.WriteHeader(status)
+		writer.Write([]byte(str))
 		return
 	}
 	request.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
