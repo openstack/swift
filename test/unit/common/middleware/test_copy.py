@@ -689,9 +689,11 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         source_headers = {
             'x-object-sysmeta-test1': 'copy me',
             'x-object-meta-test2': 'copy me too',
+            'x-object-transient-sysmeta-test3': 'ditto',
             'x-object-sysmeta-container-update-override-etag': 'etag val',
             'x-object-sysmeta-container-update-override-size': 'size val',
-            'x-object-sysmeta-container-update-override-foo': 'bar'}
+            'x-object-sysmeta-container-update-override-foo': 'bar',
+            'x-delete-at': 'delete-at-time'}
 
         get_resp_headers = source_headers.copy()
         get_resp_headers['etag'] = 'source etag'
@@ -713,20 +715,20 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', method='COPY',
                             headers={'Content-Length': 0,
                                      'Destination': 'c/o-copy0'})
-        status, headers, body = self.call_ssc(req)
+        status, resp_headers, body = self.call_ssc(req)
         self.assertEqual('201 Created', status)
-        verify_headers(source_headers.copy(), [], headers)
-        method, path, headers = self.app.calls_with_headers[-1]
+        verify_headers(source_headers.copy(), [], resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
         self.assertEqual('PUT', method)
         self.assertEqual('/v1/a/c/o-copy0', path)
-        verify_headers(source_headers.copy(), [], headers.items())
-        self.assertIn('etag', headers)
-        self.assertEqual(headers['etag'], 'source etag')
+        verify_headers(source_headers.copy(), [], put_headers.items())
+        self.assertIn('etag', put_headers)
+        self.assertEqual(put_headers['etag'], 'source etag')
 
         req = Request.blank('/v1/a/c/o-copy0', method='GET')
-        status, headers, body = self.call_ssc(req)
+        status, resp_headers, body = self.call_ssc(req)
         self.assertEqual('200 OK', status)
-        verify_headers(source_headers.copy(), [], headers)
+        verify_headers(source_headers.copy(), [], resp_headers)
 
         # use a COPY request with a Range header
         self.app.register('PUT', '/v1/a/c/o-copy1', swob.HTTPCreated, {})
@@ -734,7 +736,7 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
                             headers={'Content-Length': 0,
                                      'Destination': 'c/o-copy1',
                                      'Range': 'bytes=1-2'})
-        status, headers, body = self.call_ssc(req)
+        status, resp_headers, body = self.call_ssc(req)
         expected_headers = source_headers.copy()
         unexpected_headers = (
             'x-object-sysmeta-container-update-override-etag',
@@ -743,38 +745,54 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         for h in unexpected_headers:
             expected_headers.pop(h)
         self.assertEqual('201 Created', status)
-        verify_headers(expected_headers, unexpected_headers, headers)
-        method, path, headers = self.app.calls_with_headers[-1]
+        verify_headers(expected_headers, unexpected_headers, resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
         self.assertEqual('PUT', method)
         self.assertEqual('/v1/a/c/o-copy1', path)
-        verify_headers(expected_headers, unexpected_headers, headers.items())
+        verify_headers(
+            expected_headers, unexpected_headers, put_headers.items())
         # etag should not be copied with a Range request
-        self.assertNotIn('etag', headers)
+        self.assertNotIn('etag', put_headers)
 
         req = Request.blank('/v1/a/c/o-copy1', method='GET')
-        status, headers, body = self.call_ssc(req)
+        status, resp_headers, body = self.call_ssc(req)
         self.assertEqual('200 OK', status)
-        verify_headers(expected_headers, unexpected_headers, headers)
+        verify_headers(expected_headers, unexpected_headers, resp_headers)
 
         # use a PUT with x-copy-from
         self.app.register('PUT', '/v1/a/c/o-copy2', swob.HTTPCreated, {})
         req = Request.blank('/v1/a/c/o-copy2', method='PUT',
                             headers={'Content-Length': 0,
                                      'X-Copy-From': 'c/o'})
-        status, headers, body = self.call_ssc(req)
+        status, resp_headers, body = self.call_ssc(req)
         self.assertEqual('201 Created', status)
-        verify_headers(source_headers.copy(), [], headers)
-        method, path, headers = self.app.calls_with_headers[-1]
+        verify_headers(source_headers.copy(), [], resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
         self.assertEqual('PUT', method)
         self.assertEqual('/v1/a/c/o-copy2', path)
-        verify_headers(source_headers.copy(), [], headers.items())
-        self.assertIn('etag', headers)
-        self.assertEqual(headers['etag'], 'source etag')
+        verify_headers(source_headers.copy(), [], put_headers.items())
+        self.assertIn('etag', put_headers)
+        self.assertEqual(put_headers['etag'], 'source etag')
 
         req = Request.blank('/v1/a/c/o-copy2', method='GET')
-        status, headers, body = self.call_ssc(req)
+        status, resp_headers, body = self.call_ssc(req)
         self.assertEqual('200 OK', status)
-        verify_headers(source_headers.copy(), [], headers)
+        verify_headers(source_headers.copy(), [], resp_headers)
+
+        # copy to same path as source
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'Content-Length': 0,
+                                     'X-Copy-From': 'c/o'})
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('201 Created', status)
+        verify_headers(source_headers.copy(), [], resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c/o', path)
+        verify_headers(source_headers.copy(), [], put_headers.items())
+        self.assertIn('etag', put_headers)
+        self.assertEqual(put_headers['etag'], 'source etag')
 
     def test_COPY_no_destination_header(self):
         req = Request.blank(

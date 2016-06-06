@@ -46,7 +46,8 @@ from swift.common.http import is_success
 from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
-    is_user_meta, is_sys_or_user_meta, resolve_etag_is_at_header
+    is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
+    resolve_etag_is_at_header
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -520,7 +521,8 @@ class ObjectController(BaseStorageServer):
             metadata = {'X-Timestamp': req_timestamp.internal}
             self._preserve_slo_manifest(metadata, orig_metadata)
             metadata.update(val for val in request.headers.items()
-                            if is_user_meta('object', val[0]))
+                            if (is_user_meta('object', val[0]) or
+                                is_object_transient_sysmeta(val[0])))
             headers_to_copy = (
                 request.headers.get(
                     'X-Backend-Replication-Headers', '').split() +
@@ -767,9 +769,11 @@ class ObjectController(BaseStorageServer):
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.items()
-                                if is_sys_or_user_meta('object', val[0]))
+                                if (is_sys_or_user_meta('object', val[0]) or
+                                    is_object_transient_sysmeta(val[0])))
                 metadata.update(val for val in footer_meta.items()
-                                if is_sys_or_user_meta('object', val[0]))
+                                if (is_sys_or_user_meta('object', val[0]) or
+                                    is_object_transient_sysmeta(val[0])))
                 headers_to_copy = (
                     request.headers.get(
                         'X-Backend-Replication-Headers', '').split() +
@@ -861,8 +865,9 @@ class ObjectController(BaseStorageServer):
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.items():
-                    if is_sys_or_user_meta('object', key) or \
-                            key.lower() in self.allowed_headers:
+                    if (is_sys_or_user_meta('object', key) or
+                            is_object_transient_sysmeta(key) or
+                            key.lower() in self.allowed_headers):
                         response.headers[key] = value
                 response.etag = metadata['ETag']
                 response.last_modified = math.ceil(float(file_x_ts))
@@ -913,8 +918,9 @@ class ObjectController(BaseStorageServer):
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.items():
-            if is_sys_or_user_meta('object', key) or \
-                    key.lower() in self.allowed_headers:
+            if (is_sys_or_user_meta('object', key) or
+                    is_object_transient_sysmeta(key) or
+                    key.lower() in self.allowed_headers):
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = Timestamp(metadata['X-Timestamp'])

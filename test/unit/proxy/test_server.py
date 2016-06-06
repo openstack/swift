@@ -53,7 +53,7 @@ from swift.common.utils import hash_path, storage_directory, \
     iter_multipart_mime_documents, public
 
 from test.unit import (
-    connect_tcp, readuntil2crlfs, FakeLogger, FakeRing, fake_http_connect,
+    connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
     mocked_http_conn, DEFAULT_TEST_EC_TYPE)
 from swift.proxy import server as proxy_server

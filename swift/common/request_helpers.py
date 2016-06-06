@@ -44,6 +44,9 @@ from swift.common.utils import split_path, validate_device_partition, \
 from swift.common.wsgi import make_subrequest
 
 
+OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
+
+
 def get_param(req, name, default=None):
     """
     Get parameters from an HTTP request ensuring proper handling UTF-8
@@ -175,6 +178,19 @@ def is_sys_or_user_meta(server_type, key):
     return is_user_meta(server_type, key) or is_sys_meta(server_type, key)
 
 
+def is_object_transient_sysmeta(key):
+    """
+    Tests if a header key starts with and is longer than the prefix for object
+    transient system metadata.
+
+    :param key: header key
+    :returns: True if the key satisfies the test, False otherwise
+    """
+    if len(key) <= len(OBJECT_TRANSIENT_SYSMETA_PREFIX):
+        return False
+    return key.lower().startswith(OBJECT_TRANSIENT_SYSMETA_PREFIX)
+
+
 def strip_user_meta_prefix(server_type, key):
     """
     Removes the user metadata prefix for a given server type from the start
@@ -197,6 +213,17 @@ def strip_sys_meta_prefix(server_type, key):
     :returns: stripped header key
     """
     return key[len(get_sys_meta_prefix(server_type)):]
+
+
+def strip_object_transient_sysmeta_prefix(key):
+    """
+    Removes the object transient system metadata prefix from the start of a
+    header key.
+
+    :param key: header key
+    :returns: stripped header key
+    """
+    return key[len(OBJECT_TRANSIENT_SYSMETA_PREFIX):]
 
 
 def get_user_meta_prefix(server_type):
@@ -223,6 +250,20 @@ def get_sys_meta_prefix(server_type):
     :returns: prefix string for server type's system metadata headers
     """
     return 'x-%s-%s-' % (server_type.lower(), 'sysmeta')
+
+
+def get_object_transient_sysmeta(key):
+    """
+    Returns the Object Transient System Metadata header for key.
+    The Object Transient System Metadata namespace will be persisted by
+    backend object servers. These headers are treated in the same way as
+    object user metadata i.e. all headers in this namespace will be
+    replaced on every POST request.
+
+    :param key: metadata key
+    :returns: the entire object transient system metadata header for key
+    """
+    return '%s%s' % (OBJECT_TRANSIENT_SYSMETA_PREFIX, key)
 
 
 def remove_items(headers, condition):

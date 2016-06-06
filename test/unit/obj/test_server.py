@@ -1683,7 +1683,8 @@ class TestObjectController(unittest.TestCase):
                      'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
                      'X-Object-Meta-1': 'One',
                      'X-Object-Sysmeta-1': 'One',
-                     'X-Object-Sysmeta-Two': 'Two'})
+                     'X-Object-Sysmeta-Two': 'Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -1702,7 +1703,8 @@ class TestObjectController(unittest.TestCase):
                           'name': '/a/c/o',
                           'X-Object-Meta-1': 'One',
                           'X-Object-Sysmeta-1': 'One',
-                          'X-Object-Sysmeta-Two': 'Two'})
+                          'X-Object-Sysmeta-Two': 'Two',
+                          'X-Object-Transient-Sysmeta-Foo': 'Bar'})
 
     def test_PUT_succeeds_with_later_POST(self):
         ts_iter = make_timestamp_iter()
@@ -1875,6 +1877,62 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         check_response(resp)
 
+    def test_POST_transient_sysmeta(self):
+        # check that diskfile transient system meta is changed by a POST
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'X-Object-Sysmeta-1': 'Not One',
+                     'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        # original .data file metadata should be unchanged
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        self.assertTrue(os.path.isfile(objfile))
+        self.assertEqual(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertDictEqual(diskfile.read_metadata(objfile),
+                             {'X-Timestamp': timestamp1,
+                              'Content-Length': '14',
+                              'Content-Type': 'text/plain',
+                              'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                              'name': '/a/c/o',
+                              'X-Object-Meta-1': 'One',
+                              'X-Object-Sysmeta-1': 'One',
+                              'X-Object-Transient-Sysmeta-Foo': 'Bar'})
+
+        # .meta file metadata should have only user meta items
+        metafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp2 + '.meta')
+        self.assertTrue(os.path.isfile(metafile))
+        self.assertDictEqual(diskfile.read_metadata(metafile),
+                             {'X-Timestamp': timestamp2,
+                              'name': '/a/c/o',
+                              'X-Object-Meta-1': 'Not One',
+                              'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
+
     def test_PUT_then_fetch_system_metadata(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -1884,7 +1942,8 @@ class TestObjectController(unittest.TestCase):
                      'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
                      'X-Object-Meta-1': 'One',
                      'X-Object-Sysmeta-1': 'One',
-                     'X-Object-Sysmeta-Two': 'Two'})
+                     'X-Object-Sysmeta-Two': 'Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -1903,6 +1962,8 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.headers['x-object-meta-1'], 'One')
             self.assertEqual(resp.headers['x-object-sysmeta-1'], 'One')
             self.assertEqual(resp.headers['x-object-sysmeta-two'], 'Two')
+            self.assertEqual(resp.headers['x-object-transient-sysmeta-foo'],
+                             'Bar')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -1921,9 +1982,13 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp,
                      'Content-Type': 'text/plain',
                      'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-0': 'deleted by post',
+                     'X-Object-Sysmeta-0': 'Zero',
+                     'X-Object-Transient-Sysmeta-0': 'deleted by post',
                      'X-Object-Meta-1': 'One',
                      'X-Object-Sysmeta-1': 'One',
-                     'X-Object-Sysmeta-Two': 'Two'})
+                     'X-Object-Sysmeta-Two': 'Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -1934,7 +1999,8 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp2,
                      'X-Object-Meta-1': 'Not One',
                      'X-Object-Sysmeta-1': 'Not One',
-                     'X-Object-Sysmeta-Two': 'Not Two'})
+                     'X-Object-Sysmeta-Two': 'Not Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
@@ -1951,8 +2017,13 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.headers['etag'],
                              '"1000d172764c9dbc3a5798a67ec5bb76"')
             self.assertEqual(resp.headers['x-object-meta-1'], 'Not One')
+            self.assertEqual(resp.headers['x-object-sysmeta-0'], 'Zero')
             self.assertEqual(resp.headers['x-object-sysmeta-1'], 'One')
             self.assertEqual(resp.headers['x-object-sysmeta-two'], 'Two')
+            self.assertEqual(resp.headers['x-object-transient-sysmeta-foo'],
+                             'Not Bar')
+            self.assertNotIn('x-object-meta-0', resp.headers)
+            self.assertNotIn('x-object-transient-sysmeta-0', resp.headers)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})

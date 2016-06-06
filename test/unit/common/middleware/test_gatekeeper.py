@@ -74,12 +74,17 @@ class TestGatekeeper(unittest.TestCase):
     x_backend_headers = {'X-Backend-Replication': 'true',
                          'X-Backend-Replication-Headers': 'stuff'}
 
+    object_transient_sysmeta_headers = {
+        'x-object-transient-sysmeta-': 'value',
+        'x-object-transient-sysmeta-foo': 'value'}
     x_timestamp_headers = {'X-Timestamp': '1455952805.719739'}
 
     forbidden_headers_out = dict(sysmeta_headers.items() +
-                                 x_backend_headers.items())
+                                 x_backend_headers.items() +
+                                 object_transient_sysmeta_headers.items())
     forbidden_headers_in = dict(sysmeta_headers.items() +
-                                x_backend_headers.items())
+                                x_backend_headers.items() +
+                                object_transient_sysmeta_headers.items())
     shunted_headers_in = dict(x_timestamp_headers.items())
 
     def _assertHeadersEqual(self, expected, actual):

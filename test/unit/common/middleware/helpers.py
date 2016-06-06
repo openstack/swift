@@ -19,6 +19,8 @@ from collections import defaultdict
 from hashlib import md5
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.request_helpers import is_user_meta, \
+    is_object_transient_sysmeta
 from swift.common.swob import HTTPNotImplemented
 from swift.common.utils import split_path
 
@@ -87,7 +89,7 @@ class FakeSwift(object):
             if resp:
                 return resp(env, start_response)
 
-        req_headers = swob.Request(env).headers
+        req = swob.Request(env)
         self.swift_sources.append(env.get('swift.source'))
         self.txn_ids.append(env.get('swift.trans_id'))
 
@@ -114,26 +116,41 @@ class FakeSwift(object):
 
         # simulate object PUT
         if method == 'PUT' and obj:
-            input = ''.join(iter(env['wsgi.input'].read, ''))
+            put_body = ''.join(iter(env['wsgi.input'].read, ''))
             if 'swift.callback.update_footers' in env:
                 footers = HeaderKeyDict()
                 env['swift.callback.update_footers'](footers)
-                req_headers.update(footers)
-            etag = md5(input).hexdigest()
+                req.headers.update(footers)
+            etag = md5(put_body).hexdigest()
             headers.setdefault('Etag', etag)
-            headers.setdefault('Content-Length', len(input))
+            headers.setdefault('Content-Length', len(put_body))
 
             # keep it for subsequent GET requests later
-            self.uploaded[path] = (dict(req_headers), input)
+            self.uploaded[path] = (dict(req.headers), put_body)
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
+        # simulate object POST
+        elif method == 'POST' and obj:
+            metadata, data = self.uploaded.get(path, ({}, None))
+            # select items to keep from existing...
+            new_metadata = dict(
+                (k, v) for k, v in metadata.items()
+                if (not is_user_meta('object', k) and not
+                    is_object_transient_sysmeta(k)))
+            # apply from new
+            new_metadata.update(
+                dict((k, v) for k, v in req.headers.items()
+                     if (is_user_meta('object', k) or
+                         is_object_transient_sysmeta(k) or
+                         k.lower == 'content-type')))
+            self.uploaded[path] = new_metadata, data
+
         # note: tests may assume this copy of req_headers is case insensitive
         # so we deliberately use a HeaderKeyDict
-        self._calls.append((method, path, HeaderKeyDict(req_headers)))
+        self._calls.append((method, path, HeaderKeyDict(req.headers)))
 
         # range requests ought to work, hence conditional_response=True
-        req = swob.Request(env)
         if isinstance(body, list):
             resp = resp_class(
                 req=req, headers=headers, app_iter=body,
