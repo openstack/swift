@@ -507,21 +507,27 @@ class TestObjectController(unittest.TestCase):
                                   headers_out, objdevice, policy):
             calls_made.append((headers_out, policy))
 
+        body = 'test'
         headers = {
             'X-Timestamp': t[1].internal,
             'Content-Type': 'application/octet-stream;swift_bytes=123456789',
-            'Content-Length': '4',
             'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
+            # EC fragments will typically have a different size to the body and
+            # for small bodies the fragments may be longer. For this test all
+            # that matters is that the fragment and body lengths differ.
+            body = body + 'ec_overhead'
             headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
                 update_etag
+            headers['X-Object-Sysmeta-Container-Update-Override-Size'] = '4'
             headers['X-Object-Sysmeta-Ec-Etag'] = update_etag
+            headers['X-Object-Sysmeta-Ec-Content-Length'] = '4'
             headers['X-Object-Sysmeta-Ec-Frag-Index'] = 2
+        headers['Content-Length'] = str(len(body))
 
-        req = Request.blank('/sda1/p/a/c/o',
+        req = Request.blank('/sda1/p/a/c/o', body=body,
                             environ={'REQUEST_METHOD': 'PUT'},
-                            headers=headers, body='test')
-
+                            headers=headers)
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
             resp = req.get_response(self.object_controller)
@@ -725,10 +731,12 @@ class TestObjectController(unittest.TestCase):
 
             # make PUT with given headers and verify correct etag is sent in
             # container update
+            body = 'test ec overhead'
             headers['X-Timestamp'] = ts_put.internal
+            headers['Content-Length'] = len(body)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT'},
-                                headers=headers, body='test')
+                                headers=headers, body=body)
 
             with mock.patch(
                     'swift.obj.server.ObjectController.container_update',
@@ -774,13 +782,13 @@ class TestObjectController(unittest.TestCase):
 
         base_headers = {
             'Content-Type': 'application/octet-stream;swift_bytes=123456789',
-            'Content-Length': '4',
             'X-Backend-Storage-Policy-Index': int(policy),
             'X-Object-Sysmeta-Ec-Frag-Index': 2}
 
         # PUT - old style headers are sufficient
         headers = dict(base_headers)
         headers['X-Backend-Container-Update-Override-Etag'] = 'expected'
+        headers['X-Object-Sysmeta-Container-Update-Override-Size'] = '4'
         headers['X-Object-Sysmeta-Ec-Etag'] = 'expected'
         do_test(headers)
 
@@ -790,6 +798,7 @@ class TestObjectController(unittest.TestCase):
         # update with the correct etag).
         headers = dict(base_headers)
         headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = 'expected'
+        headers['X-Object-Sysmeta-Container-Update-Override-Size'] = '4'
         do_test(headers)
 
         # PUT - X-Object-Sysmeta-Container-Update-Override-Etag trumps
@@ -797,6 +806,7 @@ class TestObjectController(unittest.TestCase):
         headers = dict(base_headers)
         headers['X-Object-Sysmeta-Ec-Etag'] = 'ec etag'
         headers['X-Object-Sysmeta-Container-Update-Override-Etag'] = 'expected'
+        headers['X-Object-Sysmeta-Container-Update-Override-Size'] = '4'
         do_test(headers)
 
     def _test_PUT_then_POST_async_pendings(self, policy, update_etag=None):

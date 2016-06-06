@@ -559,8 +559,8 @@ class ObjectController(BaseStorageServer):
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
 
-        if (content_type_headers['Content-Type-Timestamp'] !=
-                disk_file.data_timestamp):
+        if (content_type_headers['Content-Type-Timestamp']
+                != disk_file.data_timestamp):
             # Current content-type is not from the datafile, but the datafile
             # content-type may have a swift_bytes param that was appended by
             # SLO and we must continue to send that with the container update.
@@ -583,15 +583,19 @@ class ObjectController(BaseStorageServer):
             'x-meta-timestamp': metadata['X-Timestamp'],
             'x-etag': orig_metadata['ETag']})
 
+        # Special cases for backwards compatibility.
+        # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
+        # X-Backend-Container-Update-Override-Etag value sent with the original
+        # PUT. Similarly send X-Object-Sysmeta-Ec-Content-Length which is the
+        # same as the X-Backend-Container-Update-Override-Size value. We have
+        # to send Etag and size with a POST container update because the
+        # original PUT container update may have failed or be in async_pending.
         if 'X-Object-Sysmeta-Ec-Etag' in orig_metadata:
-            # Special case for backwards compatibility.
-            # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
-            # X-Backend-Container-Update-Override-Etag value sent with the
-            # original PUT. We have to send Etag (and size etc) with a POST
-            # container update because the original PUT container update may
-            # have failed or be in async_pending.
             update_headers['X-Etag'] = orig_metadata[
                 'X-Object-Sysmeta-Ec-Etag']
+        if 'X-Object-Sysmeta-Ec-Content-Length' in orig_metadata:
+            update_headers['X-Size'] = orig_metadata[
+                'X-Object-Sysmeta-Ec-Content-Length']
 
         self._check_container_override(update_headers, orig_metadata)
 

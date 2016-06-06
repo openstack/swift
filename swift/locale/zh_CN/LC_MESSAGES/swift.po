@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev50\n"
+"Project-Id-Version: swift 2.7.1.dev169\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-04-17 21:20+0000\n"
+"POT-Creation-Date: 2016-06-02 04:58+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -258,24 +258,12 @@ msgstr ""
 "%(fail)s 失败, %(no_change)s 无更改"
 
 #, python-format
-msgid "Could not bind to %s:%s after trying for %s seconds"
-msgstr "尝试过%s秒后无法捆绑%s:%s"
-
-#, python-format
-msgid "Could not load %r: %s"
-msgstr "无法下载%r: %s"
-
-#, python-format
 msgid "Data download error: %s"
 msgstr "数据下载错误：%s"
 
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "设备通过完成： %.02fs"
-
-#, python-format
-msgid "Directory %r does not map to a valid policy (%s)"
-msgstr "目录 %r 未映射至有效策略 (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -306,12 +294,6 @@ msgstr ""
 "%(status)s %(reason)s"
 
 #, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr "出现错误 账号更新失败：本机数量与设备数量不符: \"%s\" vs \"%s\""
-
-#, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "失败响应错误%(status)s来自%(host)s"
 
@@ -326,12 +308,6 @@ msgid ""
 msgstr ""
 "错误 容器更新失败(正在保存 稍后同步更新)：%(status)d回应来自%(ip)s:%(port)s/"
 "%(dev)s"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr "错误 容器更新失败：主机数量和设备数量不符合请求: \"%s\" vs \"%s\""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -480,10 +456,6 @@ msgid "Error hashing suffix"
 msgstr "执行Hashing后缀时发生错误"
 
 #, python-format
-msgid "Error in %r with mtime_check_interval: %s"
-msgstr "%r中mtime_check_interval出现错误：%s"
-
-#, python-format
 msgid "Error limiting server %s"
 msgstr "服务器出现错误%s "
 
@@ -628,10 +600,6 @@ msgid "No %s running"
 msgstr "无%s账号运行"
 
 #, python-format
-msgid "No cluster endpoint for %r %r"
-msgstr "%r %r的集群节点不存在"
-
-#, python-format
 msgid "No permission to signal PID %d"
 msgstr "无权限发送信号PID%d"
 
@@ -752,18 +720,6 @@ msgstr "在X-Container-Sync-To中，变量，查询和碎片不被允许"
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "分区时间: max %(max).4fs, min %(min).4fs, med %(med).4fs"
-
-#, python-format
-msgid "Pass beginning; %s possible containers; %s possible objects"
-msgstr "开始通过；%s可能容器；%s可能对象"
-
-#, python-format
-msgid "Pass completed in %ds; %d objects expired"
-msgstr "%ds通过完成; %d对象过期"
-
-#, python-format
-msgid "Pass so far %ds; %d objects expired"
-msgstr "%ds目前通过；%d对象过期"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中路径是必须的"
@@ -944,10 +900,6 @@ msgstr "尝试执行书写%s"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕获的异常"
-
-#, python-format
-msgid "Unable to load internal client from config: %r (%s)"
-msgstr "无法从配置装入内部客户机：%r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."

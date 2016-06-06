@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev50\n"
+"Project-Id-Version: swift 2.7.1.dev169\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-04-17 21:20+0000\n"
+"POT-Creation-Date: 2016-06-02 04:58+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -271,24 +271,12 @@ msgstr ""
 "inchangé(s)"
 
 #, python-format
-msgid "Could not bind to %s:%s after trying for %s seconds"
-msgstr "Liaison impossible à %s:%s après une tentative de %s secondes"
-
-#, python-format
-msgid "Could not load %r: %s"
-msgstr "Impossible de charger  %r: %s"
-
-#, python-format
 msgid "Data download error: %s"
 msgstr "Erreur de téléchargement des données: %s"
 
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "Session d'audit d'unité terminée : %.02fs"
-
-#, python-format
-msgid "Directory %r does not map to a valid policy (%s)"
-msgstr "Le répertoire %r n'est pas mappé à une stratégie valide (%s)"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -323,14 +311,6 @@ msgstr ""
 "%(reason)s"
 
 #, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"ERREUR Echec de la mise à jour du compte. Le nombre d'hôtes et le nombre "
-"d'unités diffèrent dans la demande : \"%s\" / \"%s\""
-
-#, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "ERREUR Réponse incorrecte %(status)s de %(host)s"
 
@@ -346,14 +326,6 @@ msgstr ""
 "ERREUR Echec de la mise à jour du conteneur (sauvegarde pour mise à jour "
 "asynchrone ultérieure) : réponse %(status)d renvoyée par %(ip)s:%(port)s/"
 "%(dev)s"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"ERREUR Echec de la mise à jour du conteneur. Le nombre d'hôtes et le nombre "
-"d'unités diffèrent dans la demande : \"%s\" / \"%s\""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -516,10 +488,6 @@ msgid "Error hashing suffix"
 msgstr "Erreur suffixe hashing"
 
 #, python-format
-msgid "Error in %r with mtime_check_interval: %s"
-msgstr "Erreur dans %r liée à mtime_check_interval : %s"
-
-#, python-format
 msgid "Error limiting server %s"
 msgstr "Erreur limitation du serveur %s"
 
@@ -672,10 +640,6 @@ msgid "No %s running"
 msgstr "Non démarré %s"
 
 #, python-format
-msgid "No cluster endpoint for %r %r"
-msgstr "Aucun noeud final de cluster pour %r %r"
-
-#, python-format
 msgid "No permission to signal PID %d"
 msgstr "Aucun droit pour signaler le PID %d"
 
@@ -811,18 +775,6 @@ msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 "Temps de partition : maximum %(max).4fs, minimum %(min).4fs, moyenne "
 "%(med).4fs"
-
-#, python-format
-msgid "Pass beginning; %s possible containers; %s possible objects"
-msgstr "Début de session. %s conteneur(s) possible(s). %s objet(s) possible(s)"
-
-#, python-format
-msgid "Pass completed in %ds; %d objects expired"
-msgstr "Session terminée dans %ds. %d objet(s) arrivé(s) à expiration"
-
-#, python-format
-msgid "Pass so far %ds; %d objects expired"
-msgstr "Session jusqu'à %ds. %d objet(s) arrivé(s) à expiration"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "Chemin requis dans X-Container-Sync-To"
@@ -1019,11 +971,6 @@ msgstr "Tentative d'écriture sur %s"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "EXCEPTION NON INTERCEPTEE"
-
-#, python-format
-msgid "Unable to load internal client from config: %r (%s)"
-msgstr ""
-"Impossible de charger le client interne depuis la configuration : %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."

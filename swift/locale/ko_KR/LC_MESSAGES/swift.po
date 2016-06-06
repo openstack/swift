@@ -8,9 +8,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev50\n"
+"Project-Id-Version: swift 2.7.1.dev169\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-04-17 21:20+0000\n"
+"POT-Creation-Date: 2016-06-02 04:58+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -264,24 +264,12 @@ msgstr ""
 "%(fail)s개 실패, %(no_change)s개 변경 없음"
 
 #, python-format
-msgid "Could not bind to %s:%s after trying for %s seconds"
-msgstr "%s초 동안 시도한 후 %s:%s에 바인드할 수 없음"
-
-#, python-format
-msgid "Could not load %r: %s"
-msgstr "%r을(를) 로드할 수 없음: %s"
-
-#, python-format
 msgid "Data download error: %s"
 msgstr "데이터 다운로드 오류: %s"
 
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "장치 패스 완료 : %.02fs"
-
-#, python-format
-msgid "Directory %r does not map to a valid policy (%s)"
-msgstr "%r 디렉토리가 올바른 정책(%s)에 맵핑되지 않음"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -312,14 +300,6 @@ msgstr ""
 "응답 %(status)s %(reason)s"
 
 #, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"오류. 계정 업데이트 실패: 다음 요청에서 호스트 및 디바이스 수가 서로 다름: "
-"\"%s\" 대 \"%s\""
-
-#, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "오류. %(host)s의 잘못된 응답 %(status)s"
 
@@ -334,14 +314,6 @@ msgid ""
 msgstr ""
 "오류. 컨테이너 업데이트 실패(이후 비동기 업데이트용으로 저장): %(status)d응"
 "답. 출처: %(ip)s:%(port)s/%(dev)s"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"오류. 컨테이너 업데이트 실패: 다음 요청에서 호스트 및 디바이스 수가 서로 다"
-"름: \"%s\" 대 \"%s\""
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -494,10 +466,6 @@ msgid "Error hashing suffix"
 msgstr "접미부를 해싱하는 중 오류 발생"
 
 #, python-format
-msgid "Error in %r with mtime_check_interval: %s"
-msgstr "%r에서 mtime_check_interval 오류 발생: %s"
-
-#, python-format
 msgid "Error limiting server %s"
 msgstr "서버 %s 제한 오류"
 
@@ -647,10 +615,6 @@ msgid "No %s running"
 msgstr "%s이(가) 실행되지 않음"
 
 #, python-format
-msgid "No cluster endpoint for %r %r"
-msgstr "%r %r에 대한 클러스터 엔드포인트가 없음"
-
-#, python-format
 msgid "No permission to signal PID %d"
 msgstr "PID %d을(를) 표시할 권한이 없음"
 
@@ -774,18 +738,6 @@ msgstr "X-Container-Sync-To에 매개변수, 조회, 단편이 허용되지 않�
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "파티션 시간: 최대 %(max).4f초, 최소 %(min).4f초, 중간 %(med).4f초"
-
-#, python-format
-msgid "Pass beginning; %s possible containers; %s possible objects"
-msgstr "전달 시작, %s개의 컨테이너 사용 가능, %s개의 오브젝트 사용 가능"
-
-#, python-format
-msgid "Pass completed in %ds; %d objects expired"
-msgstr "%d초 안에 전달이 완료됨. %d개의 오브젝트가 만료됨"
-
-#, python-format
-msgid "Pass so far %ds; %d objects expired"
-msgstr "현재 %d개 전달, %d개의 오브젝트가 만료됨"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "X-Container-Sync-To에 경로가 필요함"
@@ -969,10 +921,6 @@ msgstr "%s에 쓰기 시도 중"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "미발견 예외"
-
-#, python-format
-msgid "Unable to load internal client from config: %r (%s)"
-msgstr "구성에서 내부 클라이언트를 로드할 수 없음: %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."

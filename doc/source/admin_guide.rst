@@ -425,7 +425,7 @@ cluster: region 1 in San Francisco (SF), and region 2 in New York
 read_affinity
 ~~~~~~~~~~~~~
 
-This setting makes the proxy server prefer local backend servers for
+This setting, combined with sorting_method setting, makes the proxy server prefer local backend servers for
 GET and HEAD requests over non-local ones. For example, it is
 preferable for an SF proxy server to service object GET requests
 by talking to SF object servers, as the client will receive lower
@@ -440,6 +440,7 @@ This is where the read_affinity setting comes in.
 Example::
 
     [app:proxy-server]
+    sorting_method = affinity
     read_affinity = r1=100
 
 This will make the proxy attempt to service GET and HEAD requests from
@@ -451,6 +452,7 @@ fall back to backend servers in other regions.
 Example::
 
     [app:proxy-server]
+    sorting_method = affinity
     read_affinity = r1z1=100, r1=200
 
 This will make the proxy attempt to service GET and HEAD requests from

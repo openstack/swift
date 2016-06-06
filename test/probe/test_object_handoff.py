@@ -46,8 +46,7 @@ class TestObjectHandoff(ReplProbeTest):
         opart, onodes = self.object_ring.get_nodes(
             self.account, container, obj)
         onode = onodes[0]
-        kill_server((onode['ip'], onode['port']),
-                    self.ipport2server, self.pids)
+        kill_server((onode['ip'], onode['port']), self.ipport2server)
 
         # Create container/obj (goes to two primary servers and one handoff)
         client.put_object(self.url, self.token, container, obj, 'VERIFY')
@@ -66,8 +65,7 @@ class TestObjectHandoff(ReplProbeTest):
         # Kill other two container/obj primary servers
         #   to ensure GET handoff works
         for node in onodes[1:]:
-            kill_server((node['ip'], node['port']),
-                        self.ipport2server, self.pids)
+            kill_server((node['ip'], node['port']), self.ipport2server)
 
         # Indirectly through proxy assert we can get container/obj
         odata = client.get_object(self.url, self.token, container, obj)[-1]
@@ -77,8 +75,7 @@ class TestObjectHandoff(ReplProbeTest):
 
         # Restart those other two container/obj primary servers
         for node in onodes[1:]:
-            start_server((node['ip'], node['port']),
-                         self.ipport2server, self.pids)
+            start_server((node['ip'], node['port']), self.ipport2server)
 
         # We've indirectly verified the handoff node has the container/object,
         #   but let's directly verify it.
@@ -119,8 +116,7 @@ class TestObjectHandoff(ReplProbeTest):
                     (cnode['ip'], cnode['port']))
 
         # Bring the first container/obj primary server back up
-        start_server((onode['ip'], onode['port']),
-                     self.ipport2server, self.pids)
+        start_server((onode['ip'], onode['port']), self.ipport2server)
 
         # Assert that it doesn't have container/obj yet
         try:
@@ -180,8 +176,7 @@ class TestObjectHandoff(ReplProbeTest):
 
         # Kill the first container/obj primary server again (we have two
         #   primaries and the handoff up now)
-        kill_server((onode['ip'], onode['port']),
-                    self.ipport2server, self.pids)
+        kill_server((onode['ip'], onode['port']), self.ipport2server)
 
         # Delete container/obj
         try:
@@ -218,8 +213,7 @@ class TestObjectHandoff(ReplProbeTest):
                     (cnode['ip'], cnode['port']))
 
         # Restart the first container/obj primary server again
-        start_server((onode['ip'], onode['port']),
-                     self.ipport2server, self.pids)
+        start_server((onode['ip'], onode['port']), self.ipport2server)
 
         # Assert it still has container/obj
         direct_client.direct_get_object(
