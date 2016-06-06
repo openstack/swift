@@ -447,11 +447,32 @@ class ObjectController(BaseStorageServer):
             raise HTTPBadRequest("invalid JSON for footer doc")
 
     def _check_container_override(self, update_headers, metadata):
-        for key, val in metadata.items():
-            override_prefix = 'x-backend-container-update-override-'
-            if key.lower().startswith(override_prefix):
-                override = key.lower().replace(override_prefix, 'x-')
-                update_headers[override] = val
+        """
+        Applies any overrides to the container update headers.
+
+        Overrides may be in the x-object-sysmeta-container-update- namespace or
+        the x-backend-container-update-override- namespace. The former is
+        preferred and is used by proxy middlewares. The latter is historical
+        but is still used with EC policy PUT requests; for backwards
+        compatibility the header names used with EC policy requests have not
+        been changed to the sysmeta namespace - that way the EC PUT path of a
+        newer proxy will remain compatible with an object server that pre-dates
+        the introduction of the x-object-sysmeta-container-update- namespace
+        and vice-versa.
+
+        :param update_headers: a dict of headers used in the container update
+        :param metadata: a dict that may container override items
+        """
+        # the order of this list is significant:
+        # x-object-sysmeta-container-update-override-* headers take precedence
+        # over x-backend-container-update-override-* headers
+        override_prefixes = ['x-backend-container-update-override-',
+                             'x-object-sysmeta-container-update-override-']
+        for override_prefix in override_prefixes:
+            for key, val in metadata.items():
+                if key.lower().startswith(override_prefix):
+                    override = key.lower().replace(override_prefix, 'x-')
+                    update_headers[override] = val
 
     def _preserve_slo_manifest(self, update_metadata, orig_metadata):
         if 'X-Static-Large-Object' in orig_metadata:

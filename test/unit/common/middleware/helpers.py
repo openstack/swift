@@ -128,6 +128,8 @@ class FakeSwift(object):
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
+        # note: tests may assume this copy of req_headers is case insensitive
+        # so we deliberately use a HeaderKeyDict
         self._calls.append((method, path, HeaderKeyDict(req_headers)))
 
         # range requests ought to work, hence conditional_response=True

@@ -1818,6 +1818,11 @@ def trailing_metadata(policy, client_obj_hasher,
         'X-Object-Sysmeta-EC-Etag': client_obj_hasher.hexdigest(),
         'X-Object-Sysmeta-EC-Content-Length':
         str(bytes_transferred_from_client),
+        # older style x-backend-container-update-override-* headers are used
+        # here (rather than x-object-sysmeta-container-update-override-*
+        # headers) for backwards compatibility: the request may be to an object
+        # server that has not yet been upgraded to accept the newer style
+        # x-object-sysmeta-container-update-override- headers.
         'X-Backend-Container-Update-Override-Etag':
         client_obj_hasher.hexdigest(),
         'X-Backend-Container-Update-Override-Size':
