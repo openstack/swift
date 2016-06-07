@@ -281,6 +281,8 @@ individual items of user metadata is not supported. In cases where middleware
 needs to store its own metadata with a POST request, it may use Object Transient
 Sysmeta.
 
+.. _transient_sysmeta:
+
 ^^^^^^^^^^^^^^^^^^^^^^^^
 Object Transient-Sysmeta
 ^^^^^^^^^^^^^^^^^^^^^^^^
