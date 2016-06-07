@@ -611,6 +611,38 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device, canceler chan stru
 	}
 }
 
+// restartDevices should be called periodically from the statsReporter thread to make sure devices that should be replicating are.
+func (r *Replicator) restartDevices() {
+	shouldBeRunning := make(map[string]bool)
+	if localDevices, err := r.Ring.LocalDevices(r.port); err != nil {
+		r.LogError("Error getting local devices: %v", err)
+		return
+	} else {
+		// launch replication for any new devices
+		for _, dev := range localDevices {
+			shouldBeRunning[dev.Device] = true
+			if _, ok := r.deviceProgressMap[dev.Device]; !ok {
+				r.restartReplicateDevice(dev)
+			}
+		}
+	}
+	// kill any replicators that are no longer in the ring
+	for dev, canceler := range r.cancelers {
+		if !shouldBeRunning[dev] {
+			close(canceler)
+			delete(r.cancelers, dev)
+			delete(r.deviceProgressMap, dev)
+		}
+	}
+	// re-launch any stalled replicators
+	for _, dp := range r.deviceProgressMap {
+		if time.Since(dp.LastUpdate) > ReplicateDeviceTimeout {
+			r.restartReplicateDevice(dp.dev)
+			continue
+		}
+	}
+}
+
 // Collect and log replication stats - runs in a goroutine launched by run(), runs for the duration of a replication pass.
 func (r *Replicator) statsReporter(c <-chan time.Time) {
 	for {
@@ -662,11 +694,9 @@ func (r *Replicator) statsReporter(c <-chan time.Time) {
 			var totalDuration time.Duration
 			var maxLastPassUpdate time.Time
 
+			r.restartDevices()
+
 			for _, dp := range r.deviceProgressMap {
-				if time.Since(dp.LastUpdate) > ReplicateDeviceTimeout {
-					r.restartReplicateDevice(dp.dev)
-					continue
-				}
 				totalParts += dp.PartitionsTotal
 				doneParts += dp.PartitionsDone
 				bytesProcessed += dp.BytesSent
@@ -704,7 +734,6 @@ func (r *Replicator) statsReporter(c <-chan time.Time) {
 						"object_replication_time": float64(totalDuration) / float64(len(r.deviceProgressMap)) / float64(time.Second),
 						"object_replication_last": float64(maxLastPassUpdate.UnixNano()) / float64(time.Second),
 					})
-
 			}
 		}
 	}
