@@ -744,6 +744,30 @@ class TestContainer(Base):
             for file_item in files:
                 self.assertIn(file_item, self.env.files)
 
+    def _testContainerFormattedFileList(self, format_type):
+        expected = {}
+        for name in self.env.files:
+            expected[name] = self.env.container.file(name).info()
+
+        file_list = self.env.container.files(parms={'format': format_type})
+        self.assert_status(200)
+        for actual in file_list:
+            name = actual['name']
+            self.assertIn(name, expected)
+            self.assertEqual(expected[name]['etag'], actual['hash'])
+            self.assertEqual(
+                expected[name]['content_type'], actual['content_type'])
+            self.assertEqual(
+                expected[name]['content_length'], actual['bytes'])
+            expected.pop(name)
+        self.assertFalse(expected)  # sanity check
+
+    def testContainerJsonFileList(self):
+        self._testContainerFormattedFileList('json')
+
+    def testContainerXmlFileList(self):
+        self._testContainerFormattedFileList('xml')
+
     def testMarkerLimitFileList(self):
         for format_type in [None, 'json', 'xml']:
             for marker in ['0', 'A', 'I', 'R', 'Z', 'a', 'i', 'r', 'z',

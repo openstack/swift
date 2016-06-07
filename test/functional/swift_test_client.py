@@ -585,6 +585,7 @@ class Container(Base):
                     file_item['name'] = file_item['name'].encode('utf-8')
                     file_item['content_type'] = file_item['content_type'].\
                         encode('utf-8')
+                    file_item['bytes'] = int(file_item['bytes'])
                 return files
             else:
                 content = self.conn.response.read()

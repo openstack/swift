@@ -3210,6 +3210,24 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(listing_dict['content_type'],
                          'text/plain;hello="world"')
 
+    def test_extract_swift_bytes(self):
+        scenarios = {
+            # maps input value -> expected returned tuple
+            '': ('', None),
+            'text/plain': ('text/plain', None),
+            'text/plain; other=thing': ('text/plain;other=thing', None),
+            'text/plain; swift_bytes=123': ('text/plain', '123'),
+            'text/plain; other=thing;swift_bytes=123':
+                ('text/plain;other=thing', '123'),
+            'text/plain; swift_bytes=123; other=thing':
+                ('text/plain;other=thing', '123'),
+            'text/plain; swift_bytes=123; swift_bytes=456':
+                ('text/plain', '456'),
+            'text/plain; swift_bytes=123; other=thing;swift_bytes=456':
+                ('text/plain;other=thing', '456')}
+        for test_value, expected in scenarios.items():
+            self.assertEqual(expected, utils.extract_swift_bytes(test_value))
+
     def test_clean_content_type(self):
         subtests = {
             '': '', 'text/plain': 'text/plain',
