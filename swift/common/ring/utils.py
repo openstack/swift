@@ -586,6 +586,8 @@ def parse_args(argvish):
                       help="Device name (e.g. md0, sdb1) for change")
     parser.add_option('-M', '--change-meta', type="string", default="",
                       help="Extra device info (just a string) for change")
+    parser.add_option('-y', '--yes', default=False, action="store_true",
+                      help="Assume a yes response to all questions")
     return parser.parse_args(argvish)
 
 
