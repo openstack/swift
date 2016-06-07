@@ -122,8 +122,6 @@ class FakeSwift(object):
                 env['swift.callback.update_footers'](footers)
                 req_headers.update(footers)
             etag = md5(input).hexdigest()
-            req_headers.setdefault('Etag', etag)
-            req_headers.setdefault('Content-Length', len(input))
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(input))
 

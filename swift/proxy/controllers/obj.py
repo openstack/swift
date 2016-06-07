@@ -1793,7 +1793,7 @@ def trailing_metadata(policy, client_obj_hasher,
                       fragment_archive_index):
     return {
         # etag and size values are being added twice here.
-        # The container update header is used to update the container db
+        # The container override header is used to update the container db
         # with these values as they represent the correct etag and size for
         # the whole object and not just the FA.
         # The object sysmeta headers will be saved on each FA of the object.
