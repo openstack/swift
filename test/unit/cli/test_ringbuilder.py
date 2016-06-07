@@ -29,6 +29,8 @@ from swift.cli.ringbuilder import EXIT_SUCCESS, EXIT_WARNING, EXIT_ERROR
 from swift.common import exceptions
 from swift.common.ring import RingBuilder
 
+from test.unit import Timeout
+
 
 class RunSwiftRingBuilderMixin(object):
 
@@ -1954,6 +1956,29 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.create_sample_ring()
         argv = ["-safe", self.tmpfile]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+    def test_remove_all_devices(self):
+        # Would block without the 'yes' argument
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "remove", "--weight", "100", "--yes"]
+        with Timeout(5):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+    def test_set_info_all_devices(self):
+        # Would block without the 'yes' argument
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "set_info", "--weight", "100",
+                "--change-meta", "something", "--yes"]
+        with Timeout(5):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+    def test_set_weight_all_devices(self):
+        # Would block without the 'yes' argument
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "set_weight",
+                "--weight", "100", "200", "--yes"]
+        with Timeout(5):
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
 
 class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
