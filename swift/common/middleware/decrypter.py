@@ -388,9 +388,6 @@ class DecrypterContContext(BaseDecrypterContext):
     def decrypt_obj_dict(self, obj_dict, key):
         ciphertext = obj_dict['hash']
         obj_dict['hash'] = self.decrypt_value_with_meta(ciphertext, key)
-
-        # TODO - did we need to use the length to decide to decrypt?
-        # if etag and (len(etag) > constraints.ETAG_LENGTH):
         return obj_dict
 
     def process_xml_resp(self, key, resp_iter):
