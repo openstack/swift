@@ -25,6 +25,7 @@ import unittest
 import uuid
 import shlex
 import shutil
+import time
 
 from swift.cli import ringbuilder
 from swift.cli.ringbuilder import EXIT_SUCCESS, EXIT_WARNING, EXIT_ERROR
@@ -1886,6 +1887,27 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ring = RingBuilder.load(self.tmpfile)
             self.assertEqual(ring.min_part_seconds_left, 3600)
 
+    def test_time_remaining(self):
+        self.create_sample_ring()
+        self.run_srb('rebalance')
+        now = time.time()
+        with mock.patch('swift.common.ring.builder.time', return_value=now):
+            out, err = self.run_srb('rebalance')
+        self.assertIn('No partitions could be reassigned', out)
+        self.assertIn('must be at least min_part_hours', out)
+        self.assertIn('1 hours (1:00:00 remaining)', out)
+        the_future = now + 3600
+        with mock.patch('swift.common.ring.builder.time',
+                        return_value=the_future):
+            out, err = self.run_srb('rebalance')
+        self.assertIn('No partitions could be reassigned', out)
+        self.assertIn('There is no need to do so at this time', out)
+        # or you can pretend_min_part_hours_passed
+        self.run_srb('pretend_min_part_hours_passed')
+        out, err = self.run_srb('rebalance')
+        self.assertIn('No partitions could be reassigned', out)
+        self.assertIn('There is no need to do so at this time', out)
+
     def test_rebalance_failure_does_not_reset_last_moves_epoch(self):
         ring = RingBuilder(8, 3, 1)
         ring.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
@@ -1921,6 +1943,40 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # Test rebalance using explicit seed parameter
         argv = ["", self.tmpfile, "rebalance", "--seed", "2"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+    def test_rebalance_removed_devices(self):
+        self.create_sample_ring()
+        argvs = [
+            ["", self.tmpfile, "rebalance", "3"],
+            ["", self.tmpfile, "remove", "d0"],
+            ["", self.tmpfile, "rebalance", "3"]]
+        for argv in argvs:
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+    def test_rebalance_min_part_hours_not_passed(self):
+        self.create_sample_ring()
+        argvs = [
+            ["", self.tmpfile, "rebalance", "3"],
+            ["", self.tmpfile, "set_weight", "d0", "1000"]]
+        for argv in argvs:
+            self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+        ring = RingBuilder.load(self.tmpfile)
+        last_replica2part2dev = ring._replica2part2dev
+
+        mock_stdout = six.StringIO()
+        argv = ["", self.tmpfile, "rebalance", "3"]
+        with mock.patch("sys.stdout", mock_stdout):
+            self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        expected = "No partitions could be reassigned.\n" + \
+                   "The time between rebalances must be " + \
+                   "at least min_part_hours: 1 hours"
+        self.assertTrue(expected in mock_stdout.getvalue())
+
+        # Messages can be faked, so let's assure that the partition assignment
+        # did not change at all, despite the warning
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(last_replica2part2dev, ring._replica2part2dev)
 
     def test_write_ring(self):
         self.create_sample_ring()
