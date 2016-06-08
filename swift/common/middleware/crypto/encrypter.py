@@ -25,7 +25,8 @@ from swift.common.request_helpers import get_object_transient_sysmeta, \
     strip_user_meta_prefix, is_user_meta, update_etag_is_at_header
 from swift.common.swob import Request, Match, HTTPException, \
     HTTPUnprocessableEntity
-from swift.common.utils import get_logger, config_true_value
+from swift.common.utils import get_logger, config_true_value, \
+    MD5_OF_EMPTY_STRING
 
 
 def encrypt_header_val(crypto, value, key):
@@ -149,13 +150,18 @@ class EncInputWrapper(object):
                 'X-Object-Sysmeta-Container-Update-Override-Etag',
                 container_listing_etag_header) or plaintext_etag
 
-            if container_listing_etag is not None:
+            if (container_listing_etag is not None and
+                    (container_listing_etag != MD5_OF_EMPTY_STRING or
+                     plaintext_etag)):
                 # Encrypt the container-listing etag using the container key
                 # and a random IV, and use it to override the container update
                 # value, with the crypto parameters appended. We use the
                 # container key here so that only that key is required to
                 # decrypt all etag values in a container listing when handling
-                # a container GET request.
+                # a container GET request. Don't encrypt an EMPTY_ETAG
+                # unless there actually was some body content, in which case
+                # the container-listing etag is possibly conveying some
+                # non-obvious information.
                 val, crypto_meta = encrypt_header_val(
                     self.crypto, container_listing_etag,
                     self.keys['container'])
