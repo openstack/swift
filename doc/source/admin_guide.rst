@@ -286,6 +286,96 @@ using the format `regex_pattern_X = regex_expression`, where `X` is a number.
 This script has been tested on Ubuntu 10.04 and Ubuntu 12.04, so if you are
 using a different distro or OS, some care should be taken before using in production.
 
+------------------------------
+Preventing Disk Full Scenarios
+------------------------------
+
+Prevent disk full scenarios by ensuring that the ``proxy-server`` blocks PUT
+requests and rsync prevents replication to the specific drives.
+
+You can prevent `proxy-server` PUT requests to low space disks by ensuring
+``fallocate_reserve`` is set in the ``object-server.conf``. By default,
+``fallocate_reserve`` is set to 1%. This blocks PUT requests that leave the
+free disk space below 1% of the disk.
+
+In order to prevent rsync replication to specific drives, firstly
+setup ``rsync_module`` per disk in your ``object-replicator``.
+Set this in ``object-server.conf``:
+
+.. code::
+
+    [object-replicator]
+    rsync_module = {replication_ip}::object_{device}
+
+Set the individual drives in ``rsync.conf``. For example:
+
+.. code::
+
+    [object_sda]
+    max connections = 4
+    lock file = /var/lock/object_sda.lock
+
+    [object_sdb]
+    max connections = 4
+    lock file = /var/lock/object_sdb.lock
+
+Finally, monitor the disk space of each disk and adjust the rsync
+``max connections`` per drive to ``-1``. We recommend utilising your existing
+monitoring solution to achieve this. The following is an example script:
+
+.. code-block:: python
+
+    #!/usr/bin/env python
+    import os
+    import errno
+
+    RESERVE = 500 * 2 ** 20  # 500 MiB
+
+    DEVICES = '/srv/node1'
+
+    path_template = '/etc/rsync.d/disable_%s.conf'
+    config_template = '''
+    [object_%s]
+    max connections = -1
+    '''
+
+    def disable_rsync(device):
+        with open(path_template % device, 'w') as f:
+            f.write(config_template.lstrip() % device)
+
+
+    def enable_rsync(device):
+        try:
+            os.unlink(path_template % device)
+        except OSError as e:
+            # ignore file does not exist
+            if e.errno != errno.ENOENT:
+                raise
+
+
+    for device in os.listdir(DEVICES):
+        path = os.path.join(DEVICES, device)
+        st = os.statvfs(path)
+        free = st.f_bavail * st.f_frsize
+        if free < RESERVE:
+            disable_rsync(device)
+        else:
+            enable_rsync(device)
+
+For the above script to work, ensure ``/etc/rsync.d/`` conf files are
+included, by specifying ``&include`` in your ``rsync.conf`` file:
+
+.. code::
+
+    &include /etc/rsync.d
+
+Use this in conjunction with a cron job to periodically run the script, for example:
+
+.. code::
+
+    # /etc/cron.d/devicecheck
+    * * * * * root /some/path/to/disable_rsync.py
+
 .. _dispersion_report:
 
 -----------------
@@ -519,11 +609,11 @@ Example::
 
 Assuming 3 replicas, this configuration will make object PUTs try
 storing the object's replicas on up to 6 disks ("2 * replicas") in
-region 1 ("r1"). Proxy server tries to find 3 devices for storing the 
-object. While a device is unavailable, it queries the ring for the 4th 
+region 1 ("r1"). Proxy server tries to find 3 devices for storing the
+object. While a device is unavailable, it queries the ring for the 4th
 device and so on until 6th device. If the 6th disk is still unavailable,
-the last replica will be sent to other region. It doesn't mean there'll 
-have 6 replicas in region 1. 
+the last replica will be sent to other region. It doesn't mean there'll
+have 6 replicas in region 1.
 
 
 You should be aware that, if you have data coming into SF faster than
