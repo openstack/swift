@@ -89,36 +89,15 @@ class EncInputWrapper(object):
         path_ver, path_for_base = req.split_path(1, 2, True)
 
         def footers_callback(footers):
-            plaintext_etag = None
-            if self.body_crypto_ctxt:
-                plaintext_etag = self.plaintext_md5.hexdigest()
-                # Encrypt the plaintext etag using the container key and
-                # persist as sysmeta along with the crypto parameters
-                # that were used.
-
-                val, etag_crypto_meta = encrypt_header_val(
-                    self.crypto, plaintext_etag,
-                    self.keys['container'],
-                    iv_base=os.path.join(os.sep, path_for_base))
-                footers['X-Object-Sysmeta-Crypto-Etag'] = val
-                footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = \
-                    dump_crypto_meta(etag_crypto_meta)
-                footers['X-Object-Sysmeta-Crypto-Meta'] = dump_crypto_meta(
-                    self.body_crypto_meta)
-            else:
-                # No data was read from body, nothing was encrypted, so
-                # don't set any crypto sysmeta for the body, but do re-instate
-                # any etag provided in inbound request.
-                if client_etag is not None:
-                    footers['Etag'] = client_etag
-
             if inner_callback:
                 # pass on footers dict to any other callback that was
                 # registered before this one. It may override any footers that
                 # were set.
                 inner_callback(footers)
 
+            plaintext_etag = encrypted_etag = etag_crypto_meta = None
             if self.body_crypto_ctxt:
+                plaintext_etag = self.plaintext_md5.hexdigest()
                 # If client (or other middleware) supplied etag, then validate
                 # against plaintext etag
                 etag_to_check = footers.get('Etag') or client_etag
@@ -129,6 +108,26 @@ class EncInputWrapper(object):
                 # override any previous notion of etag with the ciphertext etag
                 footers['Etag'] = self.ciphertext_md5.hexdigest()
 
+                # Encrypt the plaintext etag using the container key and
+                # persist as sysmeta along with the crypto parameters
+                # that were used.
+                encrypted_etag, etag_crypto_meta = encrypt_header_val(
+                    self.crypto, plaintext_etag,
+                    self.keys['container'],
+                    iv_base=os.path.join(os.sep, path_for_base))
+                footers['X-Object-Sysmeta-Crypto-Etag'] = encrypted_etag
+                footers['X-Object-Sysmeta-Crypto-Meta-Etag'] = \
+                    dump_crypto_meta(etag_crypto_meta)
+                footers['X-Object-Sysmeta-Crypto-Meta'] = dump_crypto_meta(
+                    self.body_crypto_meta)
+            else:
+                # No data was read from body, nothing was encrypted, so don't
+                # set any crypto sysmeta for the body, but do re-instate any
+                # etag provided in inbound request if other middleware has not
+                # already set a value.
+                if client_etag is not None:
+                    footers.setdefault('Etag', client_etag)
+
             # When deciding on the etag that should appear in container
             # listings, look for:
             #   * override in the footer, otherwise
@@ -137,7 +136,7 @@ class EncInputWrapper(object):
             # This may be None if no override was set and no data was read
             container_listing_etag = footers.get(
                 'X-Object-Sysmeta-Container-Update-Override-Etag',
-                container_listing_etag_header or plaintext_etag)
+                container_listing_etag_header)
 
             if container_listing_etag is not None:
                 # Encrypt the container-listing etag using the container key
@@ -150,6 +149,13 @@ class EncInputWrapper(object):
                 crypto_meta['key_id'] = self.keys['id']
                 footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
                     append_crypto_meta(val, crypto_meta)
+            elif plaintext_etag is not None:
+                # use the same encrypted etag value stored in object sysmeta,
+                # with its crypto parameters appended
+                etag_crypto_meta['key_id'] = self.keys['id']
+                footers['X-Object-Sysmeta-Container-Update-Override-Etag'] = \
+                    append_crypto_meta(encrypted_etag, etag_crypto_meta)
+            # else: no override was set and no data was read
 
         req.environ['swift.callback.update_footers'] = footers_callback
 

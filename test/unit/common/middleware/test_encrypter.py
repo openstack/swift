@@ -456,8 +456,7 @@ class TestEncrypter(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'x-object-meta-test': 'encrypt me',
                 'x-object-sysmeta-test': 'do not encrypt me'}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         key = fetch_crypto_keys()['object']
         self.app.register('POST', '/v1/a/c/o', HTTPAccepted, {})
         resp = req.get_response(self.encrypter)
@@ -582,8 +581,7 @@ class TestEncrypter(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated,
                           {'Etag': 'ciphertextEtag'})
         resp = req.get_response(self.encrypter)
@@ -599,8 +597,7 @@ class TestEncrypter(unittest.TestCase):
                'wsgi.input': FileLikeIter(chunks)}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
 
         with mock.patch(
@@ -624,8 +621,7 @@ class TestEncrypter(unittest.TestCase):
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body)),
                 'Etag': md5hex(body)}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
 
         with mock.patch(
@@ -648,8 +644,7 @@ class TestEncrypter(unittest.TestCase):
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body)),
                 'Etag': 'badclientetag'}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(self.encrypter)
         self.assertEqual('422 Unprocessable Entity', resp.status)
@@ -659,8 +654,7 @@ class TestEncrypter(unittest.TestCase):
         env = {'REQUEST_METHOD': 'PUT'}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         resp = req.get_response(self.encrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertIn('%s not in env' % CRYPTO_KEY_CALLBACK,
@@ -676,8 +670,7 @@ class TestEncrypter(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: raise_exc}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         resp = req.get_response(self.encrypter)
         self.assertEqual('500 Internal Error', resp.status)
         self.assertIn('from %s: Testing' % CRYPTO_KEY_CALLBACK,
@@ -699,8 +692,7 @@ class TestEncrypter(unittest.TestCase):
                    lambda footers: footers.update(other_footers)}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
         resp = req.get_response(self.encrypter)
         self.assertEqual('201 Created', resp.status)
@@ -721,8 +713,7 @@ class TestEncrypter(unittest.TestCase):
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'content-type': 'text/plain',
                 'content-length': str(len(body))}
-        req = Request.blank(
-            '/v1/a/c/o', environ=env, body=body, headers=hdrs)
+        req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         mocked_func = 'swift.common.middleware.encrypter.check_metadata'
         with mock.patch(mocked_func) as mocked:
             mocked.side_effect = [HTTPBadRequest('testing')]
