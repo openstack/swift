@@ -92,6 +92,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual(
             'encrypt me, too',
             resp.headers['X-Object-Sysmeta-Container-Update-Override-Etag'])
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Meta', resp.headers)
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Meta-Etag', resp.headers)
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Etag', resp.headers)
 
     def _test_412_response(self, method):
         # simulate a 412 response to a conditional GET which has an Etag header
@@ -355,6 +358,9 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
         self.assertEqual('do not encrypt me',
                          resp.headers['x-object-sysmeta-test'])
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Meta', resp.headers)
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Meta-Etag', resp.headers)
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Etag', resp.headers)
 
     def _test_req_content_type_not_encrypted(self, method):
         # check that content_type is not decrypted if it does not have crypto
@@ -1141,9 +1147,8 @@ class TestModuleMethods(unittest.TestCase):
         for k, v in actual:
             k = k.lower()
             self.assertNotIn(k, purged_headers)
-            if k in retained_headers:
-                self.assertEqual(retained_headers[k], v)
-                retained_headers.pop(k)
+            self.assertEqual(retained_headers[k], v)
+            retained_headers.pop(k)
         self.assertFalse(retained_headers)
 
 

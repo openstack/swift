@@ -608,7 +608,8 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
             'x-object-meta-test2': 'copy me too',
             'x-object-transient-sysmeta-test3': 'ditto',
             'x-object-sysmeta-container-update-override-etag': 'etag val',
-            'x-object-sysmeta-container-update-override-size': 'size val'}
+            'x-object-sysmeta-container-update-override-size': 'size val',
+            'x-object-sysmeta-container-update-override-foo': 'bar'}
 
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
@@ -646,7 +647,8 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         expected_headers = source_headers.copy()
         unexpected_headers = (
             'x-object-sysmeta-container-update-override-etag',
-            'x-object-sysmeta-container-update-override-size')
+            'x-object-sysmeta-container-update-override-size',
+            'x-object-sysmeta-container-update-override-foo')
         for h in unexpected_headers:
             expected_headers.pop(h)
         verify_response('201 Created', expected_headers, unexpected_headers)

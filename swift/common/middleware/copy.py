@@ -494,10 +494,8 @@ class ServerSideCopyMiddleware(object):
         else:
             # since we're not copying the source etag, make sure that any
             # container update override values are not copied.
-            source_resp.headers.pop(
-                'X-Object-Sysmeta-Container-Update-Override-Etag', None)
-            source_resp.headers.pop(
-                'X-Object-Sysmeta-Container-Update-Override-Size', None)
+            remove_items(source_resp.headers, lambda k: k.startswith(
+                'X-Object-Sysmeta-Container-Update-Override-'))
 
         # We no longer need these headers
         sink_req.headers.pop('X-Copy-From', None)
