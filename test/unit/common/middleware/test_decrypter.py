@@ -1125,6 +1125,27 @@ class TestModuleMethods(unittest.TestCase):
         self.assertTrue(callable(factory))
         self.assertIsInstance(factory(None), decrypter.Decrypter)
 
+    def test_purge_crypto_sysmeta_headers(self):
+        retained_headers = {'x-object-sysmeta-test1': 'keep',
+                            'x-object-meta-test2': 'retain',
+                            'x-object-transient-sysmeta-test3': 'leave intact',
+                            'etag': 'hold onto',
+                            'x-other': 'cherish',
+                            'x-object-not-meta': 'do not remove'}
+        purged_headers = {'x-object-sysmeta-crypto-test1': 'remove',
+                          'x-object-transient-sysmeta-crypto-test2': 'purge'}
+        test_headers = retained_headers.copy()
+        test_headers.update(purged_headers)
+        actual = decrypter.purge_crypto_sysmeta_headers(test_headers.items())
+
+        for k, v in actual:
+            k = k.lower()
+            self.assertNotIn(k, purged_headers)
+            if k in retained_headers:
+                self.assertEqual(retained_headers[k], v)
+                retained_headers.pop(k)
+        self.assertFalse(retained_headers)
+
 
 class TestDecrypter(unittest.TestCase):
     def test_app_exception(self):
