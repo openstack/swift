@@ -528,8 +528,6 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         resp = req.get_response(self.decrypter)
         self.assertEqual('3456789a', resp.body)
         self.assertEqual('200 OK', resp.status)
-        # TODO - how do we validate the range body if etag is for whole? Is
-        # the test actually faking the correct Etag in response?
         self.assertEqual(plaintext_etag, resp.headers['Etag'])
         self.assertEqual('text/plain', resp.headers['Content-Type'])
 
