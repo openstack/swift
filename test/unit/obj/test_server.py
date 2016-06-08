@@ -507,21 +507,26 @@ class TestObjectController(unittest.TestCase):
                                   headers_out, objdevice, policy):
             calls_made.append((headers_out, policy))
 
+        body = 'test'
         headers = {
             'X-Timestamp': t[1].internal,
             'Content-Type': 'application/octet-stream;swift_bytes=123456789',
-            'Content-Length': '4',
             'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
+            # EC fragments will typically have a different size to the body and
+            # for small bodies the fragments may be longer. For this test all
+            # that matters is that the fragment and body lengths differ.
+            body = body + 'ec_overhead'
             headers['X-Backend-Container-Update-Override-Etag'] = update_etag
+            headers['X-Backend-Container-Update-Override-Size'] = '4'
             headers['X-Object-Sysmeta-Ec-Etag'] = update_etag
+            headers['X-Object-Sysmeta-Ec-Content-Length'] = '4'
             headers['X-Object-Sysmeta-Ec-Frag-Index'] = 2
+        headers['Content-Length'] = str(len(body))
 
-        req = Request.blank('/sda1/p/a/c/o',
+        req = Request.blank('/sda1/p/a/c/o', body=body,
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers)
-        req.body = 'test'
-
         with mock.patch('swift.obj.server.ObjectController.container_update',
                         mock_container_update):
             resp = req.get_response(self.object_controller)

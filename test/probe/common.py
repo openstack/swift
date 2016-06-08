@@ -58,18 +58,16 @@ def get_server_number(ipport, ipport2server):
     return server, number
 
 
-def start_server(ipport, ipport2server, pids, check=True):
+def start_server(ipport, ipport2server):
     server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).start(number=number, wait=False)
     if err:
         raise Exception('unable to start %s' % (
             server if not number else '%s%s' % (server, number)))
-    if check:
-        return check_server(ipport, ipport2server, pids)
-    return None
+    return check_server(ipport, ipport2server)
 
 
-def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
+def check_server(ipport, ipport2server):
     server = ipport2server[ipport]
     if server[:-1] in ('account', 'container', 'object'):
         if int(server[-1]) > 4:
@@ -79,7 +77,7 @@ def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
             path += '/3'
         elif server[:-1] == 'object':
             path += '/3/4'
-        try_until = time() + timeout
+        try_until = time() + CHECK_SERVER_TIMEOUT
         while True:
             try:
                 conn = HTTPConnection(*ipport)
@@ -95,11 +93,11 @@ def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                 if time() > try_until:
                     print(err)
                     print('Giving up on %s:%s after %s seconds.' % (
-                        server, ipport, timeout))
+                        server, ipport, CHECK_SERVER_TIMEOUT))
                     raise err
                 sleep(0.1)
     else:
-        try_until = time() + timeout
+        try_until = time() + CHECK_SERVER_TIMEOUT
         while True:
             try:
                 url, token = get_auth('http://%s:%d/auth/v1.0' % ipport,
@@ -116,7 +114,7 @@ def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
     return None
 
 
-def kill_server(ipport, ipport2server, pids):
+def kill_server(ipport, ipport2server):
     server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).kill(number=number)
     if err:
@@ -136,7 +134,7 @@ def kill_server(ipport, ipport2server, pids):
         sleep(0.1)
 
 
-def kill_nonprimary_server(primary_nodes, ipport2server, pids):
+def kill_nonprimary_server(primary_nodes, ipport2server):
     primary_ipports = [(n['ip'], n['port']) for n in primary_nodes]
     for ipport, server in ipport2server.items():
         if ipport in primary_ipports:
@@ -146,7 +144,7 @@ def kill_nonprimary_server(primary_nodes, ipport2server, pids):
         raise Exception('Cannot figure out server type for %r' % primary_nodes)
     for ipport, server in list(ipport2server.items()):
         if server[:-1] == server_type and ipport not in primary_ipports:
-            kill_server(ipport, ipport2server, pids)
+            kill_server(ipport, ipport2server)
             return ipport
 
 
@@ -206,7 +204,7 @@ def get_ring(ring_name, required_replicas, required_devices,
     devs = [dev for dev in ring.devs if dev is not None]
     if len(devs) != required_devices:
         raise SkipTest('%s has %s devices instead of %s' % (
-            ring.serialized_path, len(ring.devs), required_devices))
+            ring.serialized_path, len(devs), required_devices))
     for dev in devs:
         # verify server is exposing mounted device
         ipport = (dev['ip'], dev['port'])
@@ -322,7 +320,6 @@ class ProbeTest(unittest.TestCase):
 
     def setUp(self):
         resetswift()
-        self.pids = {}
         try:
             self.ipport2server = {}
             self.configs = defaultdict(dict)
@@ -354,11 +351,11 @@ class ProbeTest(unittest.TestCase):
 
             Manager(['main']).start(wait=False)
             for ipport in self.ipport2server:
-                check_server(ipport, self.ipport2server, self.pids)
+                check_server(ipport, self.ipport2server)
             proxy_ipport = ('127.0.0.1', 8080)
             self.ipport2server[proxy_ipport] = 'proxy'
             self.url, self.token, self.account = check_server(
-                proxy_ipport, self.ipport2server, self.pids)
+                proxy_ipport, self.ipport2server)
             self.replicators = Manager(
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])
@@ -443,10 +440,13 @@ class ProbeTest(unittest.TestCase):
             swift_dir = /etc/swift
 
             [pipeline:main]
-            pipeline = catch_errors cache proxy-server
+            pipeline = catch_errors cache copy proxy-server
 
             [app:proxy-server]
             use = egg:swift#proxy
+
+            [filter:copy]
+            use = egg:swift#copy
             object_post_as_copy = %s
 
             [filter:cache]

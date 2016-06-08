@@ -544,15 +544,6 @@ class ObjectController(BaseStorageServer):
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
 
-        update_etag = orig_metadata['ETag']
-        if 'X-Object-Sysmeta-Ec-Etag' in orig_metadata:
-            # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
-            # X-Backend-Container-Update-Override-Etag value sent with the
-            # original PUT. We have to send Etag (and size etc) with a POST
-            # container update because the original PUT container update may
-            # have failed or be in async_pending.
-            update_etag = orig_metadata['X-Object-Sysmeta-Ec-Etag']
-
         if (content_type_headers['Content-Type-Timestamp']
                 != disk_file.data_timestamp):
             # Current content-type is not from the datafile, but the datafile
@@ -568,17 +559,34 @@ class ObjectController(BaseStorageServer):
                 content_type_headers['Content-Type'] += (';swift_bytes=%s'
                                                          % swift_bytes)
 
+        update_headers = HeaderKeyDict({
+            'x-size': orig_metadata['Content-Length'],
+            'x-content-type': content_type_headers['Content-Type'],
+            'x-timestamp': disk_file.data_timestamp.internal,
+            'x-content-type-timestamp':
+            content_type_headers['Content-Type-Timestamp'],
+            'x-meta-timestamp': metadata['X-Timestamp'],
+            'x-etag': orig_metadata['ETag']})
+
+        # Special cases for backwards compatibility.
+        # For EC policy, send X-Object-Sysmeta-Ec-Etag which is same as the
+        # X-Backend-Container-Update-Override-Etag value sent with the original
+        # PUT. Similarly send X-Object-Sysmeta-Ec-Content-Length which is the
+        # same as the X-Backend-Container-Update-Override-Size value. We have
+        # to send Etag and size with a POST container update because the
+        # original PUT container update may have failed or be in async_pending.
+        if 'X-Object-Sysmeta-Ec-Etag' in orig_metadata:
+            update_headers['X-Etag'] = orig_metadata[
+                'X-Object-Sysmeta-Ec-Etag']
+        if 'X-Object-Sysmeta-Ec-Content-Length' in orig_metadata:
+            update_headers['X-Size'] = orig_metadata[
+                'X-Object-Sysmeta-Ec-Content-Length']
+
+        self._check_container_override(update_headers, orig_metadata)
+
         # object POST updates are PUT to the container server
         self.container_update(
-            'PUT', account, container, obj, request,
-            HeaderKeyDict({
-                'x-size': orig_metadata['Content-Length'],
-                'x-content-type': content_type_headers['Content-Type'],
-                'x-timestamp': disk_file.data_timestamp.internal,
-                'x-content-type-timestamp':
-                content_type_headers['Content-Type-Timestamp'],
-                'x-meta-timestamp': metadata['X-Timestamp'],
-                'x-etag': update_etag}),
+            'PUT', account, container, obj, request, update_headers,
             device, policy)
         return HTTPAccepted(request=request)
 

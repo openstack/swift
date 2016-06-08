@@ -233,7 +233,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # Test no devices
         # _set_weight_values doesn't take argv-like arguments
         self.assertSystemExit(
-            EXIT_ERROR, ringbuilder._set_weight_values, [], 100)
+            EXIT_ERROR, ringbuilder._set_weight_values, [], 100, {})
 
     def test_parse_set_weight_values_number_of_arguments(self):
         # Test Number of arguments abnormal
@@ -249,7 +249,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # Test no devices
         # _set_info_values doesn't take argv-like arguments
         self.assertSystemExit(
-            EXIT_ERROR, ringbuilder._set_info_values, [], 100)
+            EXIT_ERROR, ringbuilder._set_info_values, [], 100, {})
 
     def test_parse_set_info_values_number_of_arguments(self):
         # Test Number of arguments abnormal

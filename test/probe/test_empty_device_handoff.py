@@ -58,8 +58,7 @@ class TestEmptyDevice(ReplProbeTest):
         onode = onodes[0]
 
         # Kill one container/obj primary server
-        kill_server((onode['ip'], onode['port']),
-                    self.ipport2server, self.pids)
+        kill_server((onode['ip'], onode['port']), self.ipport2server)
 
         # Delete the default data directory for objects on the primary server
         obj_dir = '%s/%s' % (self._get_objects_dir(onode),
@@ -77,8 +76,7 @@ class TestEmptyDevice(ReplProbeTest):
         # Kill other two container/obj primary servers
         #  to ensure GET handoff works
         for node in onodes[1:]:
-            kill_server((node['ip'], node['port']),
-                        self.ipport2server, self.pids)
+            kill_server((node['ip'], node['port']), self.ipport2server)
 
         # Indirectly through proxy assert we can get container/obj
         odata = client.get_object(self.url, self.token, container, obj)[-1]
@@ -87,8 +85,7 @@ class TestEmptyDevice(ReplProbeTest):
                             'returned: %s' % repr(odata))
         # Restart those other two container/obj primary servers
         for node in onodes[1:]:
-            start_server((node['ip'], node['port']),
-                         self.ipport2server, self.pids)
+            start_server((node['ip'], node['port']), self.ipport2server)
             self.assertFalse(os.path.exists(obj_dir))
             # We've indirectly verified the handoff node has the object, but
             # let's directly verify it.
@@ -127,8 +124,7 @@ class TestEmptyDevice(ReplProbeTest):
                             missing)
 
         # Bring the first container/obj primary server back up
-        start_server((onode['ip'], onode['port']),
-                     self.ipport2server, self.pids)
+        start_server((onode['ip'], onode['port']), self.ipport2server)
 
         # Assert that it doesn't have container/obj yet
         self.assertFalse(os.path.exists(obj_dir))

@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev50\n"
+"Project-Id-Version: swift 2.7.1.dev169\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-04-17 21:20+0000\n"
+"POT-Creation-Date: 2016-06-02 04:58+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -263,24 +263,12 @@ msgstr ""
 "%(success)s、失敗 %(fail)s、未変更 %(no_change)s"
 
 #, python-format
-msgid "Could not bind to %s:%s after trying for %s seconds"
-msgstr "%s 秒間の試行後に %s:%s にバインドできませんでした"
-
-#, python-format
-msgid "Could not load %r: %s"
-msgstr "%r をロードできませんでした: %s"
-
-#, python-format
 msgid "Data download error: %s"
 msgstr "データダウンロードエラー: %s"
 
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "デバイスの処理が完了しました: %.02fs"
-
-#, python-format
-msgid "Directory %r does not map to a valid policy (%s)"
-msgstr "ディレクトリー %r は有効なポリシーにマップしていません (%s) "
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -311,14 +299,6 @@ msgstr ""
 "されます): 応答 %(status)s %(reason)s"
 
 #, python-format
-msgid ""
-"ERROR Account update failed: different  numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"エラー: アカウント更新に失敗しました。要求内のホスト数およびデバイス数が異な"
-"ります: 「%s」vs「%s」"
-
-#, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "エラー: ホスト %(host)s からの応答 %(status)s が正しくありません"
 
@@ -333,14 +313,6 @@ msgid ""
 msgstr ""
 "エラー: コンテナー更新に失敗しました (後の非同期更新のために保存中): %(ip)s:"
 "%(port)s/%(dev)s からの %(status)d 応答"
-
-#, python-format
-msgid ""
-"ERROR Container update failed: different numbers of hosts and devices in "
-"request: \"%s\" vs \"%s\""
-msgstr ""
-"エラー: コンテナー更新に失敗しました。要求内のホスト数およびデバイス数が異な"
-"ります: 「%s」vs「%s」"
 
 #, python-format
 msgid "ERROR Could not get account info %s"
@@ -497,10 +469,6 @@ msgid "Error hashing suffix"
 msgstr "サフィックスのハッシュエラー"
 
 #, python-format
-msgid "Error in %r with mtime_check_interval: %s"
-msgstr "mtime_check_interval で %r にエラーがあります: %s"
-
-#, python-format
 msgid "Error limiting server %s"
 msgstr "サーバー %s の制限エラー"
 
@@ -652,10 +620,6 @@ msgid "No %s running"
 msgstr "%s が実行されていません"
 
 #, python-format
-msgid "No cluster endpoint for %r %r"
-msgstr "%r %r のエンドポイントクラスターがありません"
-
-#, python-format
 msgid "No permission to signal PID %d"
 msgstr "PID %d にシグナル通知する許可がありません"
 
@@ -782,19 +746,6 @@ msgstr ""
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "パーティション時間: 最大 %(max).4fs、最小 %(min).4fs、中間 %(med).4fs"
-
-#, python-format
-msgid "Pass beginning; %s possible containers; %s possible objects"
-msgstr ""
-"パスの開始中。%s コンテナーおよび %s オブジェクトが存在する可能性があります"
-
-#, python-format
-msgid "Pass completed in %ds; %d objects expired"
-msgstr "%d でパスが完了しました。%d オブジェクトの有効期限が切れました"
-
-#, python-format
-msgid "Pass so far %ds; %d objects expired"
-msgstr "現在までのパス %d。%d オブジェクトの有効期限が切れました"
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "X-Container-Sync-To にパスが必要です"
@@ -983,10 +934,6 @@ msgstr "%s への書き込みを試行中"
 
 msgid "UNCAUGHT EXCEPTION"
 msgstr "キャッチされていない例外"
-
-#, python-format
-msgid "Unable to load internal client from config: %r (%s)"
-msgstr "設定から内部クライアントをロードできません: %r (%s)"
 
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."

@@ -163,7 +163,7 @@ __all__ = ['TempURL', 'filter_factory',
 
 
 from os.path import basename
-from time import time
+from time import time, strftime, gmtime
 
 from six.moves.urllib.parse import parse_qs
 from six.moves.urllib.parse import urlencode
@@ -425,6 +425,11 @@ class TempURL(object):
                 # newline into existing_disposition
                 value = disposition_value.replace('\n', '%0A')
                 out_headers.append(('Content-Disposition', value))
+
+                # include Expires header for better cache-control
+                out_headers.append(('Expires', strftime(
+                    "%a, %d %b %Y %H:%M:%S GMT",
+                    gmtime(temp_url_expires))))
                 headers = out_headers
             return start_response(status, headers, exc_info)
 
