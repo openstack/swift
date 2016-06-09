@@ -617,11 +617,88 @@ have 6 replicas in region 1.
 
 
 You should be aware that, if you have data coming into SF faster than
-your link to NY can transfer it, then your cluster's data distribution
+your replicators are transferring it to NY, then your cluster's data distribution
 will get worse and worse over time as objects pile up in SF. If this
 happens, it is recommended to disable write_affinity and simply let
 object PUTs traverse the WAN link, as that will naturally limit the
 object growth rate to what your WAN link can handle.
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Checking handoff partition distribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can check if handoff partitions are piling up on a server by
+comparing the expected number of partitions with the actual number on
+your disks. First get the number of partitions that are currently
+assigned to a server using the ``dispersion`` command from
+``swift-ring-builder``::
+
+    swift-ring-builder sample.builder dispersion --verbose
+    Dispersion is 0.000000, Balance is 0.000000, Overload is 0.00%
+    Required overload is 0.000000%
+    --------------------------------------------------------------------------
+    Tier                           Parts      %    Max     0     1     2     3
+    --------------------------------------------------------------------------
+    r1                              8192   0.00      2     0     0  8192     0
+    r1z1                            4096   0.00      1  4096  4096     0     0
+    r1z1-172.16.10.1                4096   0.00      1  4096  4096     0     0
+    r1z1-172.16.10.1/sda1           4096   0.00      1  4096  4096     0     0
+    r1z2                            4096   0.00      1  4096  4096     0     0
+    r1z2-172.16.10.2                4096   0.00      1  4096  4096     0     0
+    r1z2-172.16.10.2/sda1           4096   0.00      1  4096  4096     0     0
+    r1z3                            4096   0.00      1  4096  4096     0     0
+    r1z3-172.16.10.3                4096   0.00      1  4096  4096     0     0
+    r1z3-172.16.10.3/sda1           4096   0.00      1  4096  4096     0     0
+    r1z4                            4096   0.00      1  4096  4096     0     0
+    r1z4-172.16.20.4                4096   0.00      1  4096  4096     0     0
+    r1z4-172.16.20.4/sda1           4096   0.00      1  4096  4096     0     0
+    r2                              8192   0.00      2     0  8192     0     0
+    r2z1                            4096   0.00      1  4096  4096     0     0
+    r2z1-172.16.20.1                4096   0.00      1  4096  4096     0     0
+    r2z1-172.16.20.1/sda1           4096   0.00      1  4096  4096     0     0
+    r2z2                            4096   0.00      1  4096  4096     0     0
+    r2z2-172.16.20.2                4096   0.00      1  4096  4096     0     0
+    r2z2-172.16.20.2/sda1           4096   0.00      1  4096  4096     0     0
+
+As you can see from the output, each server should store 4096 partitions, and
+each region should store 8192 partitions. This example used a partition power
+of 13 and 3 replicas.
+
+With write_affinity enabled it is expected to have a higher number of
+partitions on disk compared to the value reported by the
+swift-ring-builder dispersion command. The number of additional (handoff)
+partitions in region r1 depends on your cluster size, the amount
+of incoming data as well as the replication speed.
+
+Let's use the example from above with 6 nodes in 2 regions, and write_affinity
+configured to write to region r1 first. `swift-ring-builder` reported that
+each node should store 4096 partitions::
+
+ Expected partitions for region r2:                                      8192
+ Handoffs stored across 4 nodes in region r1:                 8192 / 4 = 2048
+ Maximum number of partitions on each server in region r1: 2048 + 4096 = 6144
+
+Worst case is that handoff partitions in region 1 are populated with new
+object replicas faster than replication is able to move them to region 2.
+In that case you will see ~ 6144 partitions per
+server in region r1. Your actual number should be lower and
+between 4096 and 6144 partitions (preferably on the lower side).
+
+Now count the number of object partitions on a given server in region 1,
+for example on 172.16.10.1.  Note that the pathnames might be
+different; `/srv/node/` is the default mount location, and `objects`
+applies only to storage policy 0 (storage policy 1 would use
+`objects-1` and so on)::
+
+    find -L /srv/node/ -maxdepth 3 -type d -wholename "*objects/*" | wc -l
+
+If this number is always on the upper end of the expected partition
+number range (4096 to 6144) or increasing you should check your
+replication speed and maybe even disable write_affinity.
+Please refer to the next section how to collect metrics from Swift, and
+especially :ref:`swift-recon -r <recon-replication>` how to check replication
+stats.
 
 
 --------------------------------
@@ -747,6 +824,8 @@ This information can also be queried via the swift-recon command line utility::
       -t SECONDS, --timeout=SECONDS
                             Time to wait for a response from a server
       --swiftdir=SWIFTDIR   Default = /etc/swift
+
+.. _recon-replication:
 
 For example, to obtain container replication info from all hosts in zone "3"::
 
