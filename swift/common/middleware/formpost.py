@@ -38,6 +38,16 @@ form input::
     <input type="hidden" name="x_delete_at" value="<unix-timestamp>" />
     <input type="hidden" name="x_delete_after" value="<seconds>" />
 
+If you want to specify the content type or content encoding of the files you
+can set content-encoding or content-type by adding them to the form input::
+
+    <input type="hidden" name="content-type" value="text/html" />
+    <input type="hidden" name="content-encoding" value="gzip" />
+
+The above example applies these parameters to all uploaded files. You can also
+set the content-type and content-encoding on a per-file basis by adding the
+parameters to each part of the upload.
+
 The <swift-url> is the URL of the Swift destination, such as::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object_prefix
@@ -270,6 +280,10 @@ class FormPost(object):
                 if 'content-type' not in attributes and 'content-type' in hdrs:
                     attributes['content-type'] = \
                         hdrs['Content-Type'] or 'application/octet-stream'
+                if 'content-encoding' not in attributes and \
+                        'content-encoding' in hdrs:
+                    attributes['content-encoding'] = \
+                        hdrs['Content-Encoding']
                 status, subheaders = \
                     self._perform_subrequest(env, attributes, fp, keys)
                 if not status.startswith('2'):
@@ -357,6 +371,9 @@ class FormPost(object):
         if 'content-type' in attributes:
             subenv['CONTENT_TYPE'] = \
                 attributes['content-type'] or 'application/octet-stream'
+        if 'content-encoding' in attributes:
+            subenv['HTTP_CONTENT_ENCODING'] = \
+                attributes['content-encoding']
         try:
             if int(attributes.get('expires') or 0) < time():
                 raise FormUnauthorized('form expired')

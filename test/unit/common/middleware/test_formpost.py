@@ -190,6 +190,7 @@ class TestFormPost(unittest.TestCase):
             'Content-Disposition: form-data; name="file2"; '
             'filename="testfile2.txt"',
             'Content-Type: text/plain',
+            'Content-Encoding: gzip',
             '',
             'Test\nFile\nTwo\n',
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -768,7 +769,7 @@ class TestFormPost(unittest.TestCase):
         self.formpost = formpost.filter_factory({})(self.auth)
 
         def log_assert_int_status(env, response_status_int):
-            self.assertTrue(isinstance(response_status_int, int))
+            self.assertIsInstance(response_status_int, int)
 
         self.formpost._log_request = log_assert_int_status
         status = [None]
@@ -1117,7 +1118,7 @@ class TestFormPost(unittest.TestCase):
         def start_response(s, h, e=None):
             pass
         body = ''.join(self.formpost(env, start_response))
-        self.assertTrue('User-Agent' in self.app.requests[0].headers)
+        self.assertIn('User-Agent', self.app.requests[0].headers)
         self.assertEqual(self.app.requests[0].headers['User-Agent'],
                          'FormPost')
 
@@ -1675,8 +1676,8 @@ class TestFormPost(unittest.TestCase):
         self.assertEqual(status, '201 Created')
         self.assertTrue('201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertTrue("X-Delete-At" in self.app.requests[0].headers)
-        self.assertTrue("X-Delete-At" in self.app.requests[1].headers)
+        self.assertIn("X-Delete-At", self.app.requests[0].headers)
+        self.assertIn("X-Delete-At", self.app.requests[1].headers)
         self.assertEqual(delete_at,
                          self.app.requests[0].headers["X-Delete-At"])
         self.assertEqual(delete_at,
@@ -1754,8 +1755,8 @@ class TestFormPost(unittest.TestCase):
         self.assertEqual(status, '201 Created')
         self.assertTrue('201 Created' in body)
         self.assertEqual(len(self.app.requests), 2)
-        self.assertTrue("X-Delete-After" in self.app.requests[0].headers)
-        self.assertTrue("X-Delete-After" in self.app.requests[1].headers)
+        self.assertIn("X-Delete-After", self.app.requests[0].headers)
+        self.assertIn("X-Delete-After", self.app.requests[1].headers)
         self.assertEqual(delete_after,
                          self.app.requests[0].headers["X-Delete-After"])
         self.assertEqual(delete_after,
@@ -1795,6 +1796,110 @@ class TestFormPost(unittest.TestCase):
         exc_info = exc_info[0]
         self.assertEqual(status, '400 Bad Request')
         self.assertTrue('FormPost: x_delete_after not an integer' in body)
+
+    def test_global_content_type_encoding(self):
+        body_part = [
+            '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'Content-Disposition: form-data; name="content-encoding"',
+            '',
+            'gzip',
+            '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'Content-Disposition: form-data; name="content-type"',
+            '',
+            'text/html',
+        ]
+
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        wsgi_input = b'\r\n'.join(body_part + body)
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        env['wsgi.input'] = BytesIO(wsgi_input)
+
+        env['swift.infocache'][get_cache_key('AUTH_test')] = (
+            self._fake_cache_env('AUTH_test', [key]))
+        env['swift.infocache'][get_cache_key(
+            'AUTH_test', 'container')] = {'meta': {}}
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEqual(status, '201 Created')
+        self.assertTrue('201 Created' in body)
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertIn("Content-Type", self.app.requests[0].headers)
+        self.assertIn("Content-Type", self.app.requests[1].headers)
+        self.assertIn("Content-Encoding", self.app.requests[0].headers)
+        self.assertIn("Content-Encoding", self.app.requests[1].headers)
+        self.assertEqual("text/html",
+                         self.app.requests[0].headers["Content-Type"])
+        self.assertEqual("text/html",
+                         self.app.requests[1].headers["Content-Type"])
+        self.assertEqual("gzip",
+                         self.app.requests[0].headers["Content-Encoding"])
+        self.assertEqual("gzip",
+                         self.app.requests[1].headers["Content-Encoding"])
+
+    def test_single_content_type_encoding(self):
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        wsgi_input = b'\r\n'.join(body)
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        env['wsgi.input'] = BytesIO(wsgi_input)
+
+        env['swift.infocache'][get_cache_key('AUTH_test')] = (
+            self._fake_cache_env('AUTH_test', [key]))
+        env['swift.infocache'][get_cache_key(
+            'AUTH_test', 'container')] = {'meta': {}}
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEqual(status, '201 Created')
+        self.assertTrue('201 Created' in body)
+
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertIn("Content-Type", self.app.requests[0].headers)
+        self.assertIn("Content-Type", self.app.requests[1].headers)
+        self.assertEqual("text/plain",
+                         self.app.requests[0].headers["Content-Type"])
+        self.assertEqual("text/plain",
+                         self.app.requests[1].headers["Content-Type"])
+
+        self.assertFalse("Content-Encoding" in self.app.requests[0].headers)
+        self.assertIn("Content-Encoding", self.app.requests[1].headers)
+        self.assertEqual("gzip",
+                         self.app.requests[1].headers["Content-Encoding"])
 
 
 if __name__ == '__main__':
