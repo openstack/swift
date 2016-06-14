@@ -10,29 +10,29 @@ Object Storage installation guide for OpenStack Mitaka
 ------------------------------------------------------
 
  * `openSUSE Leap 42.1 and SUSE Linux Enterprise Server 12 SP1 <http://docs.openstack.org/mitaka/install-guide-obs/swift.html>`_
- * `RHEL 7, CentOS 7 <http://docs.openstack.org/mitaka/install-guide-rdo/swift.html>`_
- * `Ubuntu 14.04 <http://docs.openstack.org/mitaka/install-guide-ubuntu/swift.html>`_
+ * `RHEL 7, CentOS 7 <http://docs.openstack.org/mitaka/install-guide-rdo/swift.html>`__
+ * `Ubuntu 14.04 <http://docs.openstack.org/mitaka/install-guide-ubuntu/swift.html>`__
 
 Object Storage installation guide for OpenStack Liberty
 -------------------------------------------------------
 
- * `openSUSE 13.2 and SUSE Linux Enterprise Server 12 <http://docs.openstack.org/liberty/install-guide-obs/swift.html>`_
- * `RHEL 7, CentOS 7 <http://docs.openstack.org/liberty/install-guide-rdo/swift.html>`_
- * `Ubuntu 14.04 <http://docs.openstack.org/liberty/install-guide-ubuntu/swift.html>`_
+ * `openSUSE 13.2 and SUSE Linux Enterprise Server 12 <http://docs.openstack.org/liberty/install-guide-obs/swift.html>`__
+ * `RHEL 7, CentOS 7 <http://docs.openstack.org/liberty/install-guide-rdo/swift.html>`__
+ * `Ubuntu 14.04 <http://docs.openstack.org/liberty/install-guide-ubuntu/swift.html>`__
 
 Object Storage installation guide for OpenStack Kilo
 ----------------------------------------------------
 
- * `openSUSE 13.2 and SUSE Linux Enterprise Server 12 <http://docs.openstack.org/kilo/install-guide/install/zypper/content/ch_swift.html>`_
+ * `openSUSE 13.2 and SUSE Linux Enterprise Server 12 <http://docs.openstack.org/kilo/install-guide/install/zypper/content/ch_swift.html>`__
  * `RHEL 7, CentOS 7, and Fedora 21 <http://docs.openstack.org/kilo/install-guide/install/yum/content/ch_swift.html>`_
- * `Ubuntu 14.04 <http://docs.openstack.org/kilo/install-guide/install/apt/content/ch_swift.html>`_
+ * `Ubuntu 14.04 <http://docs.openstack.org/kilo/install-guide/install/apt/content/ch_swift.html>`__
 
 Object Storage installation guide for OpenStack Juno
 ----------------------------------------------------
 
  * `openSUSE 13.1 and SUSE Linux Enterprise Server 11 <http://docs.openstack.org/juno/install-guide/install/zypper/content/ch_swift.html>`_
  * `RHEL 7, CentOS 7, and Fedora 20 <http://docs.openstack.org/juno/install-guide/install/yum/content/ch_swift.html>`_
- * `Ubuntu 14.04 <http://docs.openstack.org/juno/install-guide/install/apt/content/ch_swift.html>`_
+ * `Ubuntu 14.04 <http://docs.openstack.org/juno/install-guide/install/apt/content/ch_swift.html>`__
 
 Object Storage installation guide for OpenStack Icehouse
 --------------------------------------------------------
