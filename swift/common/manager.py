@@ -378,9 +378,8 @@ class Manager(object):
 
         """
         cmd = cmd.lower().replace('-', '_')
-        try:
-            f = getattr(self, cmd)
-        except AttributeError:
+        f = getattr(self, cmd, None)
+        if f is None:
             raise UnknownCommandError(cmd)
         if not hasattr(f, 'publicly_accessible'):
             raise UnknownCommandError(cmd)

@@ -382,10 +382,9 @@ class Application(object):
             req.headers['x-trans-id'] = req.environ['swift.trans_id']
             controller.trans_id = req.environ['swift.trans_id']
             self.logger.client_ip = get_remote_client(req)
-            try:
-                handler = getattr(controller, req.method)
-                getattr(handler, 'publicly_accessible')
-            except AttributeError:
+
+            handler = getattr(controller, req.method, None)
+            if not getattr(handler, 'publicly_accessible', False):
                 allowed_methods = getattr(controller, 'allowed_methods', set())
                 return HTTPMethodNotAllowed(
                     request=req, headers={'Allow': ', '.join(allowed_methods)})

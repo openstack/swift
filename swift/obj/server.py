@@ -1031,10 +1031,7 @@ class ObjectController(BaseStorageServer):
         else:
             try:
                 # disallow methods which have not been marked 'public'
-                try:
-                    if req.method not in self.allowed_methods:
-                        raise AttributeError('Not allowed method.')
-                except AttributeError:
+                if req.method not in self.allowed_methods:
                     res = HTTPMethodNotAllowed()
                 else:
                     method = getattr(self, req.method)
