@@ -274,6 +274,13 @@ func TestReadDirNames(t *testing.T) {
 }
 
 func TestGetHashPrefixAndSuffix(t *testing.T) {
+	var config_source []byte = []byte(
+		"[swift-hash]\n" +
+			"swift_hash_path_suffix = 983abc1de3ff4258\n")
+	tempFile, _ := ioutil.TempFile("", "swift.conf-")
+	defer os.RemoveAll(tempFile.Name())
+	ioutil.WriteFile(tempFile.Name(), config_source, 0600)
+	configLocations = []string{tempFile.Name()}
 	_, suffix, err := GetHashPrefixAndSuffix()
 	assert.Nil(t, err, "Error getting hash path prefix or suffix")
 

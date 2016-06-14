@@ -484,13 +484,13 @@ func NewKeyedLimit(limitPerKey int64, totalLimit int64) *KeyedLimit {
 	return &KeyedLimit{limitPerKey: limitPerKey, totalLimit: totalLimit, locked: make(map[string]bool), inUse: make(map[string]int64)}
 }
 
+var configLocations = []string{"/etc/hummingbird/hummingbird.conf", "/etc/swift/swift.conf"}
+
 // GetHashPrefixAndSuffix retrieves the hash path prefix and suffix from
 // the correct configs based on the environments setup. The suffix cannot
 // be nil
 func GetHashPrefixAndSuffix() (prefix string, suffix string, err error) {
-	config_locations := []string{"/etc/hummingbird/hummingbird.conf", "/etc/swift/swift.conf"}
-
-	for _, loc := range config_locations {
+	for _, loc := range configLocations {
 		if conf, e := LoadConfig(loc); e == nil {
 			var ok bool
 			prefix, _ = conf.Get("swift-hash", "swift_hash_path_prefix")
