@@ -1,0 +1,84 @@
+Edit the ``/etc/swift/proxy-server.conf`` file and complete the
+following actions:
+
+* In the ``[DEFAULT]`` section, configure the bind port, user, and
+  configuration directory:
+
+  .. code-block:: none
+
+     [DEFAULT]
+     ...
+     bind_port = 8080
+     user = swift
+     swift_dir = /etc/swift
+
+* In the ``[pipeline:main]`` section, remove the ``tempurl`` and
+  ``tempauth`` modules and add the ``authtoken`` and ``keystoneauth``
+  modules:
+
+  .. code-block:: none
+
+     [pipeline:main]
+     pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk ratelimit authtoken keystoneauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+
+  .. note::
+
+     Do not change the order of the modules.
+
+  .. note::
+
+     For more information on other modules that enable additional features,
+     see the `Deployment Guide <http://docs.openstack.org/developer/swift/deployment_guide.html>`__.
+
+* In the ``[app:proxy-server]`` section, enable automatic account creation:
+
+  .. code-block:: console
+
+     [app:proxy-server]
+     use = egg:swift#proxy
+     ...
+     account_autocreate = True
+
+* In the ``[filter:keystoneauth]`` section, configure the operator roles:
+
+  .. code-block:: console
+
+     [filter:keystoneauth]
+     use = egg:swift#keystoneauth
+     ...
+     operator_roles = admin,user
+
+* In the ``[filter:authtoken]`` section, configure Identity service access:
+
+  .. code-block:: none
+
+     [filter:authtoken]
+     paste.filter_factory = keystonemiddleware.auth_token:filter_factory
+     ...
+     auth_uri = http://controller:5000
+     auth_url = http://controller:35357
+     memcached_servers = controller:11211
+     auth_type = password
+     project_domain_name = default
+     user_domain_name = default
+     project_name = service
+     username = swift
+     password = SWIFT_PASS
+     delay_auth_decision = True
+
+  Replace ``SWIFT_PASS`` with the password you chose for the ``swift`` user
+  in the Identity service.
+
+  .. note::
+
+     Comment out or remove any other options in the ``[filter:authtoken]``
+     section.
+
+* In the ``[filter:cache]`` section, configure the ``memcached`` location:
+
+  .. code-block:: none
+
+     [filter:cache]
+     use = egg:swift#memcache
+     ...
+     memcache_servers = controller:11211

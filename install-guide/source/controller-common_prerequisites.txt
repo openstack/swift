@@ -1,0 +1,116 @@
+Prerequisites
+-------------
+
+The proxy service relies on an authentication and authorization mechanism such
+as the Identity service. However, unlike other services, it also offers an
+internal mechanism that allows it to operate without any other OpenStack
+services. Before you configure the Object Storage service, you must
+create service credentials and an API endpoint.
+
+.. note::
+
+   The Object Storage service does not use an SQL database on the controller
+   node. Instead, it uses distributed SQLite databases on each storage node.
+
+#. Source the ``admin`` credentials to gain access to admin-only CLI commands:
+
+   .. code-block:: console
+
+      $ . admin-openrc
+
+#. To create the Identity service credentials, complete these steps:
+
+   * Create the ``swift`` user:
+
+     .. code-block:: console
+
+        $ openstack user create --domain default --password-prompt swift
+        User Password:
+        Repeat User Password:
+        +-----------+----------------------------------+
+        | Field     | Value                            |
+        +-----------+----------------------------------+
+        | domain_id | e0353a670a9e496da891347c589539e9 |
+        | enabled   | True                             |
+        | id        | d535e5cbd2b74ac7bfb97db9cced3ed6 |
+        | name      | swift                            |
+        +-----------+----------------------------------+
+
+   * Add the ``admin`` role to the ``swift`` user:
+
+     .. code-block:: console
+
+        $ openstack role add --project service --user swift admin
+
+     .. note::
+
+        This command provides no output.
+
+   * Create the ``swift`` service entity:
+
+     .. code-block:: console
+
+        $ openstack service create --name swift \
+          --description "OpenStack Object Storage" object-store
+        +-------------+----------------------------------+
+        | Field       | Value                            |
+        +-------------+----------------------------------+
+        | description | OpenStack Object Storage         |
+        | enabled     | True                             |
+        | id          | 75ef509da2c340499d454ae96a2c5c34 |
+        | name        | swift                            |
+        | type        | object-store                     |
+        +-------------+----------------------------------+
+
+#. Create the Object Storage service API endpoints:
+
+   .. code-block:: console
+
+      $ openstack endpoint create --region RegionOne \
+        object-store public http://controller:8080/v1/AUTH_%\(tenant_id\)s
+      +--------------+----------------------------------------------+
+      | Field        | Value                                        |
+      +--------------+----------------------------------------------+
+      | enabled      | True                                         |
+      | id           | 12bfd36f26694c97813f665707114e0d             |
+      | interface    | public                                       |
+      | region       | RegionOne                                    |
+      | region_id    | RegionOne                                    |
+      | service_id   | 75ef509da2c340499d454ae96a2c5c34             |
+      | service_name | swift                                        |
+      | service_type | object-store                                 |
+      | url          | http://controller:8080/v1/AUTH_%(tenant_id)s |
+      +--------------+----------------------------------------------+
+
+      $ openstack endpoint create --region RegionOne \
+        object-store internal http://controller:8080/v1/AUTH_%\(tenant_id\)s
+      +--------------+----------------------------------------------+
+      | Field        | Value                                        |
+      +--------------+----------------------------------------------+
+      | enabled      | True                                         |
+      | id           | 7a36bee6733a4b5590d74d3080ee6789             |
+      | interface    | internal                                     |
+      | region       | RegionOne                                    |
+      | region_id    | RegionOne                                    |
+      | service_id   | 75ef509da2c340499d454ae96a2c5c34             |
+      | service_name | swift                                        |
+      | service_type | object-store                                 |
+      | url          | http://controller:8080/v1/AUTH_%(tenant_id)s |
+      +--------------+----------------------------------------------+
+
+      $ openstack endpoint create --region RegionOne \
+        object-store admin http://controller:8080/v1
+      +--------------+----------------------------------+
+      | Field        | Value                            |
+      +--------------+----------------------------------+
+      | enabled      | True                             |
+      | id           | ebb72cd6851d4defabc0b9d71cdca69b |
+      | interface    | admin                            |
+      | region       | RegionOne                        |
+      | region_id    | RegionOne                        |
+      | service_id   | 75ef509da2c340499d454ae96a2c5c34 |
+      | service_name | swift                            |
+      | service_type | object-store                     |
+      | url          | http://controller:8080/v1        |
+      +--------------+----------------------------------+
+
