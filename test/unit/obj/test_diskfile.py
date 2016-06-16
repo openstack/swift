@@ -246,10 +246,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertFalse(os.path.isdir(tmp_path))
             pickle_args = (self.existing_device, 'a', 'c', 'o',
                            'data', 0.0, policy)
-            # async updates don't create their tmpdir on their own
-            self.assertRaises(OSError, self.df_mgr.pickle_async_update,
-                              *pickle_args)
-            os.makedirs(tmp_path)
             # now create a async update
             self.df_mgr.pickle_async_update(*pickle_args)
             # check tempdir
