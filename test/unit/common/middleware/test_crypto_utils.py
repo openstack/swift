@@ -249,7 +249,6 @@ class TestCrypto(unittest.TestCase):
                 ValueError, self.crypto.create_encryption_ctxt, bad_key, iv)
 
     def test_create_decryption_context(self):
-        # TODO: add tests here for non-zero offset
         value = 'decrypt me' * 100  # more than one cipher block
         key = os.urandom(32)
         iv = os.urandom(16)
@@ -269,8 +268,9 @@ class TestCrypto(unittest.TestCase):
             self.assertRaises(
                 ValueError, self.crypto.create_decryption_ctxt, bad_key, iv, 0)
 
-        self.assertRaises(
-            ValueError, self.crypto.create_decryption_ctxt, key, iv, -1)
+        with self.assertRaises(ValueError) as cm:
+            self.crypto.create_decryption_ctxt(key, iv, -1)
+        self.assertEqual("Offset must not be negative", cm.exception.message)
 
     def test_enc_dec_small_chunks(self):
         self.enc_dec_chunks(['encrypt me', 'because I', 'am sensitive'])
@@ -291,20 +291,33 @@ class TestCrypto(unittest.TestCase):
                          (''.join(chunks), ''.join(dec_val)))
 
     def test_decrypt_range(self):
-        chunks = ['012345', '6789', 'abcdef']
+        chunks = ['0123456789abcdef', 'ghijklmnopqrstuv']
         key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
         iv = self.crypto.create_iv()
         enc_ctxt = self.crypto.create_encryption_ctxt(key, iv)
         enc_val = [enc_ctxt.update(chunk) for chunk in chunks]
         self.assertTrue(''.join(enc_val) != chunks)
 
-        # Simulate a ranged GET from byte 4 to 12 : '456789abc'
-        dec_ctxt = self.crypto.create_decryption_ctxt(key, iv, 4)
-        ranged_chunks = [enc_val[0][4:], enc_val[1], enc_val[2][:3]]
+        # Simulate a ranged GET from byte 19 to 32 : 'jklmnopqrstuv'
+        dec_ctxt = self.crypto.create_decryption_ctxt(key, iv, 19)
+        ranged_chunks = [enc_val[1][3:]]
         dec_val = [dec_ctxt.update(chunk) for chunk in ranged_chunks]
-        self.assertEqual('456789abc', ''.join(dec_val),
+        self.assertEqual('jklmnopqrstuv', ''.join(dec_val),
                          'Expected value {%s} but got {%s}' %
-                         ('456789abc', ''.join(dec_val)))
+                         ('jklmnopqrstuv', ''.join(dec_val)))
+
+    def test_create_decryption_context_non_zero_offset(self):
+        key = 'objL7wjV6L79Sfs4y7dy41273l0k6Wki'
+        iv = '0000000010000000'
+        mappings = {2: '0000000010000000',
+                    16: '0000000010000001',
+                    19: '0000000010000001',
+                    48: '0000000010000003',
+                    1024: '000000001000000p',
+                    5119: '000000001000001o'}
+        for offset, exp_iv in mappings.items():
+            dec_ctxt = self.crypto.create_decryption_ctxt(key, iv, offset)
+            self.assertEqual(exp_iv, dec_ctxt.iv)
 
     def test_check_key(self):
         for key in ('objKey', 'a' * 31, 'a' * 33, 'a' * 16, 'a' * 24):
