@@ -469,11 +469,14 @@ class TestWSGI(unittest.TestCase):
                     with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
                         with mock.patch.dict('os.environ', {'TZ': ''}):
                             with mock.patch('swift.common.wsgi.inspect'):
-                                conf = wsgi.appconfig(conf_dir)
-                                logger = logging.getLogger('test')
-                                sock = listen(('localhost', 0))
-                                wsgi.run_server(conf, logger, sock)
-                                self.assertTrue(os.environ['TZ'] is not '')
+                                with mock.patch('time.tzset') as mock_tzset:
+                                    conf = wsgi.appconfig(conf_dir)
+                                    logger = logging.getLogger('test')
+                                    sock = listen(('localhost', 0))
+                                    wsgi.run_server(conf, logger, sock)
+                                    self.assertEqual(os.environ['TZ'], 'UTC+0')
+                                    self.assertEqual(mock_tzset.mock_calls,
+                                                     [mock.call()])
 
         self.assertEqual('HTTP/1.0',
                          _wsgi.HttpProtocol.default_request_version)

@@ -398,10 +398,9 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
 
 def run_server(conf, logger, sock, global_conf=None):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
-    # some platforms. This locks in reported times to the timezone in which
-    # the server first starts running in locations that periodically change
-    # timezones.
-    os.environ['TZ'] = time.strftime("%z", time.gmtime())
+    # some platforms. This locks in reported times to UTC.
+    os.environ['TZ'] = 'UTC+0'
+    time.tzset()
 
     wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
     # Turn off logging requests by the underlying WSGI software.
