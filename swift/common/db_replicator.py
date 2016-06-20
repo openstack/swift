@@ -89,11 +89,15 @@ def roundrobin_datadirs(datadirs):
             suffixes = os.listdir(part_dir)
             if not suffixes:
                 os.rmdir(part_dir)
+                continue
             for suffix in suffixes:
                 suff_dir = os.path.join(part_dir, suffix)
                 if not os.path.isdir(suff_dir):
                     continue
                 hashes = os.listdir(suff_dir)
+                if not hashes:
+                    os.rmdir(suff_dir)
+                    continue
                 for hsh in hashes:
                     hash_dir = os.path.join(suff_dir, hsh)
                     if not os.path.isdir(hash_dir):
@@ -101,6 +105,15 @@ def roundrobin_datadirs(datadirs):
                     object_file = os.path.join(hash_dir, hsh + '.db')
                     if os.path.exists(object_file):
                         yield (partition, object_file, node_id)
+                    else:
+                        try:
+                            os.rmdir(hash_dir)
+                        except OSError as e:
+                            if e.errno is not errno.ENOTEMPTY:
+                                raise
+            # remove empty partitions after the above directory walk
+            if not suffixes:
+                os.rmdir(part_dir)
 
     its = [walk_datadir(datadir, node_id) for datadir, node_id in datadirs]
     while its:
