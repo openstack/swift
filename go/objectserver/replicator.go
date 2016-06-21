@@ -140,7 +140,13 @@ func OneTimeChan() chan time.Time {
 	return c
 }
 
-var quarantineFileError = fmt.Errorf("Invalid file")
+type quarantineFileError struct {
+	msg string
+}
+
+func (q quarantineFileError) Error() string {
+	return q.msg
+}
 
 func (r *Replicator) getFile(filePath string) (fp *os.File, xattrs []byte, size int64, err error) {
 	fp, err = os.Open(filePath)
@@ -154,44 +160,44 @@ func (r *Replicator) getFile(filePath string) (fp *os.File, xattrs []byte, size 
 	}()
 	finfo, err := fp.Stat()
 	if err != nil || !finfo.Mode().IsRegular() {
-		return nil, nil, 0, quarantineFileError
+		return nil, nil, 0, quarantineFileError{"not a regular file"}
 	}
 	rawxattr, err := RawReadMetadata(fp.Fd())
 	if err != nil || len(rawxattr) == 0 {
-		return nil, nil, 0, quarantineFileError
+		return nil, nil, 0, quarantineFileError{"error reading xattrs"}
 	}
 
 	// Perform a mini-audit, since it's cheap and we can potentially avoid spreading bad data around.
 	v, err := hummingbird.PickleLoads(rawxattr)
 	if err != nil {
-		return nil, nil, 0, quarantineFileError
+		return nil, nil, 0, quarantineFileError{"error unpickling xattrs"}
 	}
 	metadata, ok := v.(map[interface{}]interface{})
 	if !ok {
-		return nil, nil, 0, quarantineFileError
+		return nil, nil, 0, quarantineFileError{"invalid metadata type"}
 	}
 	for key, value := range metadata {
 		if _, ok := key.(string); !ok {
-			return nil, nil, 0, quarantineFileError
+			return nil, nil, 0, quarantineFileError{"invalid key in metadata"}
 		}
 		if _, ok := value.(string); !ok {
-			return nil, nil, 0, quarantineFileError
+			return nil, nil, 0, quarantineFileError{"invalid value in metadata"}
 		}
 	}
 	switch filepath.Ext(filePath) {
 	case ".data":
 		for _, reqEntry := range []string{"Content-Length", "Content-Type", "name", "ETag", "X-Timestamp"} {
 			if _, ok := metadata[reqEntry]; !ok {
-				return nil, nil, 0, quarantineFileError
+				return nil, nil, 0, quarantineFileError{".data missing required metadata"}
 			}
 		}
 		if contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64); err != nil || contentLength != finfo.Size() {
-			return nil, nil, 0, quarantineFileError
+			return nil, nil, 0, quarantineFileError{"invalid content-length"}
 		}
 	case ".ts":
 		for _, reqEntry := range []string{"name", "X-Timestamp"} {
 			if _, ok := metadata[reqEntry]; !ok {
-				return nil, nil, 0, quarantineFileError
+				return nil, nil, 0, quarantineFileError{".ts missing required metadata"}
 			}
 		}
 	}
@@ -276,8 +282,10 @@ func (r *Replicator) syncFile(objFile string, dst []*syncFileArg, j *job) (syncs
 	lst := strings.Split(objFile, string(os.PathSeparator))
 	relPath := filepath.Join(lst[len(lst)-5:]...)
 	fp, xattrs, fileSize, err := r.getFile(objFile)
-	if err == quarantineFileError {
-		// TODO: quarantine
+	if _, ok := err.(quarantineFileError); ok {
+		hashDir := filepath.Dir(objFile)
+		r.LogError("[syncFile] %s failed audit and is being quarantined: %s", hashDir, err.Error())
+		QuarantineHash(hashDir)
 		return 0, 0, nil
 	} else if err != nil {
 		return 0, 0, nil

@@ -678,3 +678,63 @@ func TestRestartDevices(t *testing.T) {
 	require.True(t, okb)
 	require.False(t, oka)
 }
+
+func TestSyncFileQuarantine(t *testing.T) {
+	t.Parallel()
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator.driveRoot = driveRoot
+
+	hashDir := filepath.Join(driveRoot, "sda", "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e")
+	objFile := filepath.Join(hashDir, "12345.data")
+
+	require.Nil(t, os.MkdirAll(objFile, 0777)) // not a regular file
+	replicator.syncFile(objFile, nil, nil)
+	assert.False(t, hummingbird.Exists(hashDir))
+
+	os.MkdirAll(hashDir, 0777) // error reading metadata
+	fp, err := os.Create(objFile)
+	require.Nil(t, err)
+	defer fp.Close()
+	replicator.syncFile(objFile, nil, nil)
+	assert.False(t, hummingbird.Exists(hashDir))
+
+	os.MkdirAll(hashDir, 0777) // unparseable pickle
+	fp, err = os.Create(objFile)
+	defer fp.Close()
+	require.Nil(t, err)
+	RawWriteMetadata(fp.Fd(), []byte("NOT A VALID PICKLE"))
+	replicator.syncFile(objFile, nil, nil)
+	assert.False(t, hummingbird.Exists(hashDir))
+
+	os.MkdirAll(hashDir, 0777) // wrong metadata type
+	fp, err = os.Create(objFile)
+	defer fp.Close()
+	require.Nil(t, err)
+	RawWriteMetadata(fp.Fd(), hummingbird.PickleDumps("hi"))
+	replicator.syncFile(objFile, nil, nil)
+	assert.False(t, hummingbird.Exists(hashDir))
+
+	os.MkdirAll(hashDir, 0777) // unparseable content-length
+	fp, err = os.Create(objFile)
+	defer fp.Close()
+	require.Nil(t, err)
+	badContentLengthMetdata := map[string]string{
+		"Content-Type": "text/plain", "name": "/a/c/o", "ETag": "d41d8cd98f00b204e9800998ecf8427e",
+		"X-Timestamp": "12345.12345", "Content-Length": "X"}
+	RawWriteMetadata(fp.Fd(), hummingbird.PickleDumps(badContentLengthMetdata))
+	replicator.syncFile(objFile, nil, nil)
+	assert.False(t, hummingbird.Exists(hashDir))
+
+	os.MkdirAll(hashDir, 0777) // content-length doesn't match file size
+	fp, err = os.Create(objFile)
+	defer fp.Close()
+	require.Nil(t, err)
+	wrongContentLengthMetdata := map[string]string{
+		"Content-Type": "text/plain", "name": "/a/c/o", "ETag": "d41d8cd98f00b204e9800998ecf8427e",
+		"X-Timestamp": "12345.12345", "Content-Length": "50000"}
+	RawWriteMetadata(fp.Fd(), hummingbird.PickleDumps(wrongContentLengthMetdata))
+	replicator.syncFile(objFile, nil, nil)
+	assert.False(t, hummingbird.Exists(hashDir))
+}
