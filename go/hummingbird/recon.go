@@ -29,6 +29,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/load"
+	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/process"
 )
 
 func DumpReconCache(reconCachePath string, source string, cacheData map[string]interface{}) error {
@@ -79,22 +84,44 @@ func DumpReconCache(reconCachePath string, source string, cacheData map[string]i
 	return WriteFileAtomic(reconFile, newdata, 0600)
 }
 
+// getMem dumps the contents of /proc/meminfo if it's available, otherwise it pulls what it can from gopsutil/mem
 func getMem() interface{} {
-	results := make(map[string]string)
-	fp, _ := os.Open("/proc/meminfo")
-	defer fp.Close()
-	scanner := bufio.NewScanner(fp)
-	for scanner.Scan() {
-		vals := strings.Split(scanner.Text(), ":")
-		results[strings.TrimSpace(vals[0])] = strings.TrimSpace(vals[1])
+	if fp, err := os.Open("/proc/meminfo"); err == nil {
+		defer fp.Close()
+		results := make(map[string]string)
+		scanner := bufio.NewScanner(fp)
+		for scanner.Scan() {
+			vals := strings.Split(scanner.Text(), ":")
+			results[strings.TrimSpace(vals[0])] = strings.TrimSpace(vals[1])
+		}
+		return results
+	} else {
+		vmem, err := mem.VirtualMemory()
+		if err != nil {
+			return nil
+		}
+		swap, err := mem.SwapMemory()
+		if err != nil {
+			return nil
+		}
+		return map[string]string{
+			"MemTotal":  strconv.FormatUint(vmem.Total, 10),
+			"MemFree":   strconv.FormatUint(vmem.Available, 10),
+			"Buffers":   strconv.FormatUint(vmem.Buffers, 10),
+			"Cached":    strconv.FormatUint(vmem.Cached, 10),
+			"SwapTotal": strconv.FormatUint(swap.Total, 10),
+			"SwapFree":  strconv.FormatUint(swap.Free, 10),
+		}
 	}
-	return results
 }
 
 func getSockstats() interface{} {
 	results := make(map[string]int64)
 
-	fp, _ := os.Open("/proc/net/sockstat")
+	fp, err := os.Open("/proc/net/sockstat")
+	if err != nil {
+		return nil
+	}
 	defer fp.Close()
 	scanner := bufio.NewScanner(fp)
 	for scanner.Scan() {
@@ -109,7 +136,10 @@ func getSockstats() interface{} {
 		}
 	}
 
-	fp, _ = os.Open("/proc/net/sockstat6")
+	fp, err = os.Open("/proc/net/sockstat6")
+	if err != nil {
+		return nil
+	}
 	defer fp.Close()
 	scanner = bufio.NewScanner(fp)
 	for scanner.Scan() {
@@ -125,26 +155,39 @@ func getSockstats() interface{} {
 
 func getLoad() interface{} {
 	results := make(map[string]interface{})
-	fp, _ := os.Open("/proc/loadavg")
-	defer fp.Close()
-	data, _ := ioutil.ReadAll(fp)
-	parts := strings.Split(strings.TrimSpace(string(data)), " ")
-	results["1m"], _ = strconv.ParseFloat(parts[0], 64)
-	results["5m"], _ = strconv.ParseFloat(parts[1], 64)
-	results["15m"], _ = strconv.ParseFloat(parts[2], 64)
-	results["tasks"] = parts[3]
-	results["processes"], _ = strconv.ParseInt(parts[4], 10, 64)
+	avg, err := load.Avg()
+	if err != nil {
+		return nil
+	}
+	misc, err := load.Misc()
+	if err != nil {
+		return nil
+	}
+	pids, err := process.Pids()
+	if err != nil {
+		return nil
+	}
+	results["1m"] = avg.Load1
+	results["5m"] = avg.Load5
+	results["15m"] = avg.Load15
+	results["tasks"] = fmt.Sprintf("%d/%d", misc.ProcsRunning, len(pids))
+	// swift's recon puts the pid of the last created process in this field, which seems kind of useless.
+	// I'm making it the number of processes, which seems like what it was meant to be.
+	results["processes"] = len(pids)
+	// also adding these two fields, since they might be useful.
+	results["running"] = misc.ProcsRunning
+	results["blocked"] = misc.ProcsBlocked
 	return results
 }
 
 func getMounts() interface{} {
 	results := make([]map[string]string, 0)
-	fp, _ := os.Open("/proc/mounts")
-	defer fp.Close()
-	scanner := bufio.NewScanner(fp)
-	for scanner.Scan() {
-		vals := strings.Split(scanner.Text(), " ")
-		results = append(results, map[string]string{"device": vals[0], "path": vals[1]})
+	partitions, err := disk.Partitions(true)
+	if err != nil {
+		return nil
+	}
+	for _, part := range partitions {
+		results = append(results, map[string]string{"device": part.Device, "path": part.Mountpoint})
 	}
 	return results
 }

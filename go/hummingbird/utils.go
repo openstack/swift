@@ -359,7 +359,7 @@ func StandardizeTimestamp(timestamp string) (string, error) {
 
 func IsNotDir(err error) bool {
 	if se, ok := err.(*os.SyscallError); ok {
-		return se.Err == syscall.ENOTDIR
+		return se.Err == syscall.ENOTDIR || se.Err == syscall.EINVAL
 	}
 	if se, ok := err.(*os.PathError); ok {
 		return os.IsNotExist(se)

@@ -55,8 +55,9 @@ func (o *TempFile) Save(dst string) error {
 }
 
 // Preallocate pre-allocates space for the file.
-func (o *TempFile) Preallocate(size int64, reserve int64) {
+func (o *TempFile) Preallocate(size int64, reserve int64) error {
 	// TODO: this could be done for most non-linux operating systems, but it hasn't been important.
+	return nil
 }
 
 // NewAtomicFileWriter returns an AtomicFileWriter, which handles atomically writing files.
