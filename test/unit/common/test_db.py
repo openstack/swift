@@ -691,9 +691,9 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertTrue(stub_called[0])
         # ensure that metadata was cleared
         m2 = broker.metadata
-        self.assertTrue(not any(v[0] for v in m2.itervalues()))
+        self.assertTrue(not any(v[0] for v in m2.values()))
         self.assertTrue(all(v[1] == normalize_timestamp('2')
-                            for v in m2.itervalues()))
+                            for v in m2.values()))
 
     def test_get(self):
         broker = DatabaseBroker(':memory:')
