@@ -17,6 +17,7 @@
 
 import os
 from six import StringIO
+from six.moves import reload_module
 import unittest
 from getpass import getuser
 import logging
@@ -69,7 +70,7 @@ class TestRunDaemon(unittest.TestCase):
         utils.capture_stdio = lambda *args: None
 
     def tearDown(self):
-        reload(utils)
+        reload_module(utils)
 
     def test_run(self):
         d = MyDaemon({})
