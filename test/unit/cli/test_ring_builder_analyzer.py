@@ -17,8 +17,8 @@
 import os
 import json
 import mock
+from six import StringIO
 import unittest
-from StringIO import StringIO
 from test.unit import with_tempdir
 
 from swift.cli.ring_builder_analyzer import parse_scenario, run_scenario

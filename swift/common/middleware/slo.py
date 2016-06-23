@@ -297,11 +297,11 @@ def parse_and_validate_input(req_body, req_path):
                              for ek in sorted(extraneous_keys))))
             continue
 
-        if not isinstance(seg_dict['path'], basestring):
+        if not isinstance(seg_dict['path'], six.string_types):
             errors.append("Index %d: \"path\" must be a string" % seg_index)
             continue
         if not (seg_dict['etag'] is None or
-                isinstance(seg_dict['etag'], basestring)):
+                isinstance(seg_dict['etag'], six.string_types)):
             errors.append(
                 "Index %d: \"etag\" must be a string or null" % seg_index)
             continue
