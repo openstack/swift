@@ -346,7 +346,7 @@ class TestSsyncEC(TestBaseSsync):
         tx_tombstones['o5'][0].delete(t5)
 
         suffixes = set()
-        for diskfiles in (tx_objs.values() + tx_tombstones.values()):
+        for diskfiles in list(tx_objs.values()) + list(tx_tombstones.values()):
             for df in diskfiles:
                 suffixes.add(os.path.basename(os.path.dirname(df._datadir)))
 
@@ -536,7 +536,7 @@ class TestSsyncEC(TestBaseSsync):
         tx_tombstones['o5'][0].delete(t5)
 
         suffixes = set()
-        for diskfiles in (tx_objs.values() + tx_tombstones.values()):
+        for diskfiles in list(tx_objs.values()) + list(tx_tombstones.values()):
             for df in diskfiles:
                 suffixes.add(os.path.basename(os.path.dirname(df._datadir)))
 
@@ -706,7 +706,7 @@ class TestSsyncReplication(TestBaseSsync):
         tx_tombstones['o7'][0].delete(t7b)
 
         suffixes = set()
-        for diskfiles in (tx_objs.values() + tx_tombstones.values()):
+        for diskfiles in list(tx_objs.values()) + list(tx_tombstones.values()):
             for df in diskfiles:
                 suffixes.add(os.path.basename(os.path.dirname(df._datadir)))
 
@@ -879,7 +879,7 @@ class TestSsyncReplication(TestBaseSsync):
         rx_tombstones['o7'][0].delete(next(self.ts_iter))
 
         suffixes = set()
-        for diskfiles in (tx_objs.values() + tx_tombstones.values()):
+        for diskfiles in list(tx_objs.values()) + list(tx_tombstones.values()):
             for df in diskfiles:
                 suffixes.add(os.path.basename(os.path.dirname(df._datadir)))
 
