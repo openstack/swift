@@ -87,21 +87,24 @@ func (r *FakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes {
 	return nil
 }
 
-func makeReplicator(settings ...string) *Replicator {
+func makeReplicator(settings ...string) (*Replicator, error) {
 	return makeReplicatorWithFlags(settings, &flag.FlagSet{})
 }
 
-func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) *Replicator {
+func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) (*Replicator, error) {
 	configString := "[object-replicator]\nmount_check=false\n"
 	for i := 0; i < len(settings); i += 2 {
 		configString += fmt.Sprintf("%s=%s\n", settings[i], settings[i+1])
 	}
 	conf, _ := hummingbird.StringConfig(configString)
-	replicator, _ := NewReplicator(conf, flags)
+	replicator, err := NewReplicator(conf, flags)
+	if err != nil {
+		return nil, err
+	}
 	rep := replicator.(*Replicator)
 	rep.concurrencySem = make(chan struct{}, 1)
 	rep.LoopSleepTime = 0
-	return rep
+	return rep, nil
 }
 
 func newServer(handler http.Handler) (ts *httptest.Server, host string, port int) {
@@ -141,7 +144,8 @@ func TestCleanTemp(t *testing.T) {
 	ioutil.WriteFile(filepath.Join(driveRoot, "sda", "tmp", "oldfile"), []byte(""), 0666)
 	ioutil.WriteFile(filepath.Join(driveRoot, "sda", "tmp", "newfile"), []byte(""), 0666)
 	os.Chtimes(filepath.Join(driveRoot, "sda", "tmp", "oldfile"), time.Now().Add(0-48*time.Hour), time.Now().Add(0-48*time.Hour))
-	replicator := makeReplicator("devices", driveRoot)
+	replicator, err := makeReplicator("devices", driveRoot)
+	require.Nil(t, err)
 	dev := &hummingbird.Device{ReplicationIp: "", ReplicationPort: 0, Device: "sda"}
 	replicator.cleanTemp(dev)
 	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "tmp", "newfile")))
@@ -150,7 +154,8 @@ func TestCleanTemp(t *testing.T) {
 
 func TestReplicatorReportStatsNotSetup(t *testing.T) {
 	saved := &replicationLogSaver{}
-	replicator := makeReplicator("devices", os.TempDir(), "ms_per_part", "1", "concurrency", "3")
+	replicator, err := makeReplicator("devices", os.TempDir(), "ms_per_part", "1", "concurrency", "3")
+	require.Nil(t, err)
 	replicator.logger = saved
 	reportStats := func(t time.Time) string {
 		c := make(chan time.Time)
@@ -174,7 +179,8 @@ func TestReplicatorReportStatsNotSetup(t *testing.T) {
 
 func TestReplicatorReportStats(t *testing.T) {
 	saved := &replicationLogSaver{}
-	replicator := makeReplicator("devices", os.TempDir(), "ms_per_part", "1", "concurrency", "3")
+	replicator, err := makeReplicator("devices", os.TempDir(), "ms_per_part", "1", "concurrency", "3")
+	require.Nil(t, err)
 	replicator.logger = saved
 
 	replicator.deviceProgressMap["sda"] = &deviceProgress{
@@ -225,7 +231,8 @@ func (r *FakeHandoffRing) GetJobNodes(partition uint64, localDevice int) (respon
 }
 
 func TestReplicatorVmDuration(t *testing.T) {
-	replicator := makeReplicator("vm_test_mode", "true")
+	replicator, err := makeReplicator("vm_test_mode", "true")
+	require.Nil(t, err)
 	assert.Equal(t, 2000*time.Millisecond, replicator.timePerPart)
 }
 
@@ -239,7 +246,8 @@ func (s *repmanLogSaver) Err(val string) error {
 }
 
 func TestGetFile(t *testing.T) {
-	replicator := makeReplicator()
+	replicator, err := makeReplicator()
+	require.Nil(t, err)
 	file, err := ioutil.TempFile("", "")
 	assert.Nil(t, err)
 	defer file.Close()
@@ -260,8 +268,9 @@ func TestGetFile(t *testing.T) {
 }
 
 func TestGetFileBadFile(t *testing.T) {
-	replicator := makeReplicator()
-	_, _, _, err := replicator.getFile("somenonexistentfile")
+	replicator, err := makeReplicator()
+	require.Nil(t, err)
+	_, _, _, err = replicator.getFile("somenonexistentfile")
 	require.NotNil(t, err)
 
 	dir, err := ioutil.TempDir("", "")
@@ -279,7 +288,8 @@ func TestGetFileBadFile(t *testing.T) {
 }
 
 func TestGetFileBadMetadata(t *testing.T) {
-	replicator := makeReplicator()
+	replicator, err := makeReplicator()
+	require.Nil(t, err)
 	file, err := ioutil.TempFile("", "")
 	require.Nil(t, err)
 	defer file.Close()
@@ -360,7 +370,8 @@ func TestReplicationLocal(t *testing.T) {
 
 	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
 	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
-	replicator := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	replicator, err := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	require.Nil(t, err)
 	replicator.driveRoot = ts.objServer.driveRoot
 	replicator.Ring = &FakeRepRing1{ldev: ldev, rdev: rdev}
 	replicator.Run()
@@ -412,7 +423,8 @@ func TestReplicationHandoff(t *testing.T) {
 
 	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
 	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
-	replicator := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	replicator, err := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	require.Nil(t, err)
 	replicator.driveRoot = ts.objServer.driveRoot
 	replicator.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
 	replicator.Run()
@@ -454,11 +466,11 @@ func TestReplicationHandoffQuorumDelete(t *testing.T) {
 	flags := flag.NewFlagSet("hbird flags", flag.ContinueOnError)
 	flags.Bool("q", false, "boolean value")
 	flags.Parse([]string{})
-	replicator := makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
+	replicator, _ := makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
 	require.False(t, replicator.quorumDelete)
 
 	flags.Parse([]string{"-q"})
-	replicator = makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
+	replicator, _ = makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
 	require.True(t, replicator.quorumDelete)
 	replicator.driveRoot = ts.objServer.driveRoot
 	replicator.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
@@ -472,7 +484,8 @@ func TestReplicationHandoffQuorumDelete(t *testing.T) {
 }
 
 func TestListObjFiles(t *testing.T) {
-	repl := makeReplicator()
+	repl, err := makeReplicator()
+	require.Nil(t, err)
 	dir, err := ioutil.TempDir("", "")
 	require.Nil(t, err)
 	defer os.RemoveAll(dir)
@@ -522,7 +535,8 @@ func TestPriorityRepHandler(t *testing.T) {
 	t.Parallel()
 	driveRoot := setupDirectory()
 	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator, err := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	require.Nil(t, err)
 	replicator.driveRoot = driveRoot
 	w := httptest.NewRecorder()
 	job := &PriorityRepJob{
@@ -546,7 +560,8 @@ func TestPriorityRepHandler404(t *testing.T) {
 	t.Parallel()
 	driveRoot := setupDirectory()
 	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator, err := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	require.Nil(t, err)
 	replicator.driveRoot = driveRoot
 	w := httptest.NewRecorder()
 	job := &PriorityRepJob{
@@ -600,7 +615,7 @@ func TestRestartDevice(t *testing.T) {
 	}
 
 	saved := &replicationLogSaver{}
-	repl := makeReplicator()
+	repl, _ := makeReplicator()
 	repl.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
 	repl.logger = saved
 
@@ -660,7 +675,7 @@ func TestRestartDevices(t *testing.T) {
 	t.Parallel()
 	driveRoot := setupDirectory()
 	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator, _ := makeReplicator("bind_port", "1234", "check_mounts", "no")
 	replicator.driveRoot = driveRoot
 	ldev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 6001, Device: "sda"}
 	rdev := &hummingbird.Device{ReplicationIp: "127.0.0.2", ReplicationPort: 6001, Device: "sdb"}
@@ -683,7 +698,8 @@ func TestSyncFileQuarantine(t *testing.T) {
 	t.Parallel()
 	driveRoot := setupDirectory()
 	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	replicator, err := makeReplicator("bind_port", "1234", "check_mounts", "no")
+	require.Nil(t, err)
 	replicator.driveRoot = driveRoot
 
 	hashDir := filepath.Join(driveRoot, "sda", "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e")
