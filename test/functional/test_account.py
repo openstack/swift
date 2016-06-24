@@ -19,7 +19,7 @@ import unittest2
 import json
 from uuid import uuid4
 from unittest2 import SkipTest
-from string import letters
+from string import ascii_letters
 
 from six.moves import range
 from swift.common.middleware.acl import format_acl
@@ -127,7 +127,7 @@ class TestAccount(unittest2.TestCase):
         # needs to be an acceptable header size
         num_keys = 8
         max_key_size = load_constraint('max_header_size') / num_keys
-        acl = {'admin': [c * max_key_size for c in letters[:num_keys]]}
+        acl = {'admin': [c * max_key_size for c in ascii_letters[:num_keys]]}
         headers = {'x-account-access-control': format_acl(
             version=2, acl_dict=acl)}
         resp = retry(post, headers=headers, use_account=1)
@@ -135,7 +135,8 @@ class TestAccount(unittest2.TestCase):
         self.assertEqual(resp.status, 400)
 
         # and again a touch smaller
-        acl = {'admin': [c * max_key_size for c in letters[:num_keys - 1]]}
+        acl = {'admin': [c * max_key_size for c
+                         in ascii_letters[:num_keys - 1]]}
         headers = {'x-account-access-control': format_acl(
             version=2, acl_dict=acl)}
         resp = retry(post, headers=headers, use_account=1)
