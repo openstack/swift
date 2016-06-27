@@ -150,7 +150,7 @@ func InvalidateHash(hashDir string) error {
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
 
-	if partitionLock, err := hummingbird.LockPath(partitionDir, 10); err != nil {
+	if partitionLock, err := hummingbird.LockPath(partitionDir, 10*time.Second); err != nil {
 		return err
 	} else {
 		defer partitionLock.Close()
@@ -322,7 +322,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		}
 	}
 	if modified {
-		partitionLock, err := hummingbird.LockPath(partitionDir, 10)
+		partitionLock, err := hummingbird.LockPath(partitionDir, 10*time.Second)
 		defer partitionLock.Close()
 		if err != nil {
 			return nil, &hummingbird.BackendError{Err: err, Code: hummingbird.LockPathError}

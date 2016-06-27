@@ -84,32 +84,39 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-func LockPath(directory string, timeout int) (*os.File, error) {
-	sleepTime := 5
+// LockPath locks a directory with a timeout.
+func LockPath(directory string, timeout time.Duration) (*os.File, error) {
 	lockfile := filepath.Join(directory, ".lock")
 	file, err := os.OpenFile(lockfile, os.O_RDWR|os.O_CREATE, 0660)
 	if err != nil {
 		if os.IsNotExist(err) && os.MkdirAll(directory, 0755) == nil {
 			file, err = os.OpenFile(lockfile, os.O_RDWR|os.O_CREATE, 0660)
 		}
-		if file == nil {
-			return nil, errors.New(fmt.Sprintf("Unable to open file ccc. ( %s )", err.Error()))
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("Unable to open lock file (%v)", err))
 		}
 	}
-	for stop := time.Now().Add(time.Duration(timeout) * time.Second); time.Now().Before(stop); {
-		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	success := make(chan error)
+	cancel := make(chan struct{})
+	defer close(cancel)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	go func(fd int) {
+		select {
+		case success <- syscall.Flock(fd, syscall.LOCK_EX):
+		case <-cancel:
+		}
+	}(int(file.Fd()))
+	select {
+	case err = <-success:
 		if err == nil {
 			return file, nil
 		}
-		time.Sleep(time.Millisecond * time.Duration(sleepTime))
-		sleepTime += 5
+	case <-timer.C:
+		err = errors.New("Flock timed out")
 	}
 	file.Close()
-	return nil, errors.New("Timed out")
-}
-
-func LockParent(file string, timeout int) (*os.File, error) {
-	return LockPath(filepath.Dir(file), timeout)
+	return nil, err
 }
 
 func IsMount(dir string) (bool, error) {
