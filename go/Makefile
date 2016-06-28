@@ -2,11 +2,9 @@ HUMMINGBIRD_VERSION?=$(shell git describe --tags)
 
 all: bin/hummingbird
 
-bin:
+bin/hummingbird: */*.go
 	mkdir -p bin
-
-bin/hummingbird: bin */*.go
-	go build -o bin/hummingbird -ldflags "-X main.Version=$(HUMMINGBIRD_VERSION)" cmd/hummingbird.go
+	go build -o bin/hummingbird -ldflags "-X main.Version=$(HUMMINGBIRD_VERSION)" cmd/hummingbird/main.go
 
 get:
 	go get -t ./...
@@ -14,14 +12,14 @@ get:
 fmt:
 	go fmt ./...
 
-install: all
-	cp bin/* $(DESTDIR)/usr/bin
-
-develop: all
-	ln -f -s `pwd`/bin/* -t /usr/local/bin/
-
 test:
-	@test -z "$(shell find . -name '*.go' | xargs gofmt -l)" || (echo "Need to run 'go fmt ./...'"; exit 1)
+	@test -z "$(shell find . -name '*.go' | xargs gofmt -l)" || (echo "You need to run 'go fmt ./...'"; exit 1)
 	go vet ./...
 	go test -cover ./...
+
+install: bin/hummingbird
+	cp bin/hummingbird $(DESTDIR)/usr/bin/hummingbird
+
+develop: bin/hummingbird
+	ln -f -s bin/hummingbird /usr/local/bin/hummingbird
 
