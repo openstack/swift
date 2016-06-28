@@ -489,7 +489,11 @@ var configLocations = []string{"/etc/hummingbird/hummingbird.conf", "/etc/swift/
 // GetHashPrefixAndSuffix retrieves the hash path prefix and suffix from
 // the correct configs based on the environments setup. The suffix cannot
 // be nil
-func GetHashPrefixAndSuffix() (prefix string, suffix string, err error) {
+type getHashPrefixAndSuffixFunc func() (pfx string, sfx string, err error)
+
+var GetHashPrefixAndSuffix getHashPrefixAndSuffixFunc = normalGetHashPrefixAndSuffix
+
+func normalGetHashPrefixAndSuffix() (prefix string, suffix string, err error) {
 	for _, loc := range configLocations {
 		if conf, e := LoadConfig(loc); e == nil {
 			var ok bool
