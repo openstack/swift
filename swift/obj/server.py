@@ -55,7 +55,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HTTPConflict, \
     HTTPServerError
-from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
+from swift.obj.diskfile import RESERVED_DATAFILE_META, DiskFileRouter
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -148,7 +148,7 @@ class ObjectController(BaseStorageServer):
         ]
         self.allowed_headers = set()
         for header in extra_allowed_headers:
-            if header not in DATAFILE_SYSTEM_META:
+            if header not in RESERVED_DATAFILE_META:
                 self.allowed_headers.add(header)
         self.auto_create_account_prefix = \
             conf.get('auto_create_account_prefix') or '.'
@@ -526,11 +526,6 @@ class ObjectController(BaseStorageServer):
                     override = key.lower().replace(override_prefix, 'x-')
                     update_headers[override] = val
 
-    def _preserve_slo_manifest(self, update_metadata, orig_metadata):
-        if 'X-Static-Large-Object' in orig_metadata:
-            update_metadata['X-Static-Large-Object'] = \
-                orig_metadata['X-Static-Large-Object']
-
     @public
     @timing_stats()
     def POST(self, request):
@@ -573,7 +568,6 @@ class ObjectController(BaseStorageServer):
 
         if req_timestamp > orig_timestamp:
             metadata = {'X-Timestamp': req_timestamp.internal}
-            self._preserve_slo_manifest(metadata, orig_metadata)
             metadata.update(val for val in request.headers.items()
                             if (is_user_meta('object', val[0]) or
                                 is_object_transient_sysmeta(val[0])))
