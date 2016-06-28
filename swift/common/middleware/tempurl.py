@@ -28,7 +28,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
+r"""
 TempURL Middleware
 
 Allows the creation of URLs to provide temporary access to objects.
@@ -69,7 +69,7 @@ seconds on ``/v1/AUTH_account/container/object``::
     expires = int(time() + 60)
     path = '/v1/AUTH_account/container/object'
     key = 'mykey'
-    hmac_body = '%s\\n%s\\n%s' % (method, expires, path)
+    hmac_body = '%s\n%s\n%s' % (method, expires, path)
     sig = hmac.new(key, hmac_body, sha1).hexdigest()
 
 Be certain to use the full path, from the ``/v1/`` onward.

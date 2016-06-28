@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
+r"""
 FormPost Middleware
 
 Translates a browser form post into a regular Swift object PUT.
@@ -86,7 +86,7 @@ sample code for computing the signature::
     max_file_count = 10
     expires = int(time() + 600)
     key = 'mykey'
-    hmac_body = '%s\\n%s\\n%s\\n%s\\n%s' % (path, redirect,
+    hmac_body = '%s\n%s\n%s\n%s\n%s' % (path, redirect,
         max_file_size, max_file_count, expires)
     signature = hmac.new(key, hmac_body, sha1).hexdigest()
 
