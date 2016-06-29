@@ -856,6 +856,20 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             node_error_count(self.app, object_ring.devs[1]),
             self.app.error_suppression_limit + 1)
 
+    def test_PUT_connect_exception_with_unicode_path_and_locale(self):
+        expected = 201
+        statuses = (
+            Exception('Connection refused: Please insert ten dollars'),
+            201, 201)
+
+        req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 method='PUT',
+                                 body='life is utf-gr8')
+        with set_http_connect(*statuses):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, expected)
+
     def test_PUT_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):

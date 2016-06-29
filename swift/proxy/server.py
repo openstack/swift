@@ -535,7 +535,7 @@ class Application(object):
               ' re: %(info)s'),
             {'type': typ, 'ip': node['ip'],
              'port': node['port'], 'device': node['device'],
-             'info': additional_info},
+             'info': additional_info.decode('utf-8')},
             **kwargs)
 
     def modify_wsgi_pipeline(self, pipe):
