@@ -31,7 +31,6 @@ class HealthCheckMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.conf = conf
         self.disable_path = conf.get('disable_path', '')
 
     def GET(self, req):
@@ -45,15 +44,11 @@ class HealthCheckMiddleware(object):
 
     def __call__(self, env, start_response):
         req = Request(env)
-        try:
-            if req.path == '/healthcheck':
-                handler = self.GET
-                if self.disable_path and os.path.exists(self.disable_path):
-                    handler = self.DISABLED
-                return handler(req)(env, start_response)
-        except UnicodeError:
-            # definitely, this is not /healthcheck
-            pass
+        if req.path == '/healthcheck':
+            handler = self.GET
+            if self.disable_path and os.path.exists(self.disable_path):
+                handler = self.DISABLED
+            return handler(req)(env, start_response)
         return self.app(env, start_response)
 
 
