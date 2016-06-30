@@ -22,7 +22,8 @@ from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_sys_or_user_meta, strip_sys_meta_prefix, strip_user_meta_prefix, \
     remove_items, copy_header_subset, get_name_and_placement, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
-    update_etag_is_at_header, resolve_etag_is_at_header
+    update_etag_is_at_header, resolve_etag_is_at_header, \
+    strip_object_transient_sysmeta_prefix
 
 from test.unit import patch_policies
 from test.unit.common.test_utils import FakeResponse
@@ -62,12 +63,20 @@ class TestRequestHelpers(unittest.TestCase):
         for st in server_types:
             self.assertEqual(strip_sys_meta_prefix(st, 'x-%s-%s-a'
                                                    % (st, mt)), 'a')
+        mt = 'not-sysmeta'
+        for st in server_types:
+            with self.assertRaises(ValueError):
+                strip_sys_meta_prefix(st, 'x-%s-%s-a' % (st, mt))
 
     def test_strip_user_meta_prefix(self):
         mt = 'meta'
         for st in server_types:
             self.assertEqual(strip_user_meta_prefix(st, 'x-%s-%s-a'
                                                     % (st, mt)), 'a')
+        mt = 'not-meta'
+        for st in server_types:
+            with self.assertRaises(ValueError):
+                strip_sys_meta_prefix(st, 'x-%s-%s-a' % (st, mt))
 
     def test_is_object_transient_sysmeta(self):
         self.assertTrue(is_object_transient_sysmeta(
@@ -76,6 +85,15 @@ class TestRequestHelpers(unittest.TestCase):
             'x-object-transient-sysmeta-'))
         self.assertFalse(is_object_transient_sysmeta(
             'x-object-meatmeta-foo'))
+
+    def test_strip_object_transient_sysmeta_prefix(self):
+        mt = 'object-transient-sysmeta'
+        self.assertEqual(strip_object_transient_sysmeta_prefix('x-%s-a' % mt),
+                         'a')
+
+        mt = 'object-sysmeta-transient'
+        with self.assertRaises(ValueError):
+            strip_object_transient_sysmeta_prefix('x-%s-a' % mt)
 
     def test_remove_items(self):
         src = {'a': 'b',
