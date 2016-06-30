@@ -383,11 +383,11 @@ class Application(object):
             controller.trans_id = req.environ['swift.trans_id']
             self.logger.client_ip = get_remote_client(req)
 
-            handler = getattr(controller, req.method, None)
-            if not getattr(handler, 'publicly_accessible', False):
-                allowed_methods = getattr(controller, 'allowed_methods', set())
-                return HTTPMethodNotAllowed(
-                    request=req, headers={'Allow': ', '.join(allowed_methods)})
+            if req.method not in controller.allowed_methods:
+                return HTTPMethodNotAllowed(request=req, headers={
+                    'Allow': ', '.join(controller.allowed_methods)})
+            handler = getattr(controller, req.method)
+
             old_authorize = None
             if 'swift.authorize' in req.environ:
                 # We call authorize before the handler, always. If authorized,
