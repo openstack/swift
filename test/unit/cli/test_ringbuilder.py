@@ -1425,7 +1425,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
 
     def test_validate_non_existent_file(self):
-        rand_file = '%s/%s' % ('/tmp', str(uuid.uuid4()))
+        rand_file = '%s/%s' % (tempfile.gettempdir(), str(uuid.uuid4()))
         argv = ["", rand_file, "validate"]
         self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
 

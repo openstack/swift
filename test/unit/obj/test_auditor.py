@@ -14,7 +14,6 @@
 # limitations under the License.
 import json
 
-from test import unit
 import unittest
 import mock
 import os
@@ -26,7 +25,7 @@ from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       DEFAULT_TEST_EC_TYPE)
+                       DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs)
 from swift.obj import auditor, replicator
 from swift.obj.diskfile import (
     DiskFile, write_metadata, invalidate_hash, get_data_dir,
@@ -63,6 +62,7 @@ def works_only_once(callable_thing, exception):
 class TestAuditor(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         self.rcache = os.path.join(self.testdir, 'object.recon')
@@ -118,7 +118,6 @@ class TestAuditor(unittest.TestCase):
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
-        unit.xattr_data = {}
 
     def test_worker_conf_parms(self):
         def check_common_defaults():

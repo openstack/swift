@@ -53,7 +53,8 @@ from test import listen_zero
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn, DEFAULT_TEST_EC_TYPE, make_timestamp_iter)
+    mocked_http_conn, DEFAULT_TEST_EC_TYPE, make_timestamp_iter,
+    skip_if_no_xattrs)
 from test.unit.helpers import setup_servers, teardown_servers
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
@@ -237,6 +238,7 @@ def _limit_max_file_size(f):
 class TestController(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
         self.memcache = FakeMemcache()
@@ -1288,6 +1290,7 @@ class TestProxyServerLoading(unittest.TestCase):
 class TestProxyServerConfigLoading(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.tempdir = mkdtemp()
         account_ring_path = os.path.join(self.tempdir, 'account.ring.gz')
         write_fake_ring(account_ring_path)
@@ -1987,6 +1990,7 @@ class TestReplicatedObjectController(
     Test suite for replication policy
     """
     def setUp(self):
+        skip_if_no_xattrs()
         self.app = proxy_server.Application(
             None, FakeMemcache(),
             logger=debug_logger('proxy-ut'),
@@ -6383,6 +6387,7 @@ class BaseTestECObjectController(BaseTestObjectController):
 
 class TestECObjectController(BaseTestECObjectController, unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.ec_policy = POLICIES[3]
         super(TestECObjectController, self).setUp()
 
@@ -6390,11 +6395,15 @@ class TestECObjectController(BaseTestECObjectController, unittest.TestCase):
 class TestECDuplicationObjectController(
         BaseTestECObjectController, unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.ec_policy = POLICIES[4]
         super(TestECDuplicationObjectController, self).setUp()
 
 
 class TestECMismatchedFA(unittest.TestCase):
+    def setUp(self):
+        skip_if_no_xattrs()
+
     def tearDown(self):
         prosrv = _test_servers[0]
         # don't leak error limits and poison other tests
@@ -6581,6 +6590,7 @@ class TestECMismatchedFA(unittest.TestCase):
 class TestECGets(unittest.TestCase):
     def setUp(self):
         super(TestECGets, self).setUp()
+        skip_if_no_xattrs()
         self.tempdir = mkdtemp()
 
     def tearDown(self):
@@ -6852,6 +6862,7 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
                 mkdirs(data_path)
 
     def setUp(self):
+        skip_if_no_xattrs()
         debug.hub_exceptions(False)
         self._cleanup_devices()
 
@@ -6960,6 +6971,7 @@ class TestObjectECRangedGET(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        skip_if_no_xattrs()
         cls.obj_name = 'range-get-test'
         cls.tiny_obj_name = 'range-get-test-tiny'
         cls.aligned_obj_name = 'range-get-test-aligned'
@@ -9488,6 +9500,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         # This is just a simple test that can be used to verify and debug the
         # various data paths between the proxy server and the object
         # server. Used as a play ground to debug buffer sizes for sockets.
+        skip_if_no_xattrs()
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         # Client is transmitting in 2 MB chunks
@@ -9601,6 +9614,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
     def setUp(self):
         global _test_sockets
+        skip_if_no_xattrs()
         self.prolis = prolis = listen_zero()
         self._orig_prolis = _test_sockets[0]
         allowed_headers = ', '.join([

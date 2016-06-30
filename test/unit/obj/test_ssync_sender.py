@@ -26,8 +26,9 @@ from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, diskfile, ssync_receiver
 from swift.obj.replicator import ObjectReplicator
 
-from test.unit import patch_policies, make_timestamp_iter, debug_logger
 from test.unit.obj.common import BaseTest
+from test.unit import patch_policies, make_timestamp_iter, skip_if_no_xattrs, \
+    debug_logger
 
 
 class NullBufferedHTTPConnection(object):
@@ -84,6 +85,7 @@ class FakeConnection(object):
 class TestSender(BaseTest):
 
     def setUp(self):
+        skip_if_no_xattrs()
         super(TestSender, self).setUp()
         self.daemon = ObjectReplicator(self.daemon_conf,
                                        debug_logger('test-ssync-sender'))

@@ -45,7 +45,7 @@ from swift.obj.reconstructor import REVERT
 from test.unit import (patch_policies, debug_logger, mocked_http_conn,
                        FabricatedRing, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies,
-                       quiet_eventlet_exceptions)
+                       quiet_eventlet_exceptions, skip_if_no_xattrs)
 from test.unit.obj.common import write_diskfile
 
 
@@ -149,6 +149,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     legacy_durable = False
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.testdir = tempfile.mkdtemp()
         _create_test_rings(self.testdir)
         POLICIES[0].object_ring = ring.Ring(self.testdir, ring_name='object')
@@ -2387,6 +2388,7 @@ class TestWorkerReconstructor(unittest.TestCase):
 @patch_policies(with_ec_default=True)
 class BaseTestObjectReconstructor(unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.policy = POLICIES.default
         self.policy.object_ring._rtime = time.time() + 3600
         self.testdir = tempfile.mkdtemp()

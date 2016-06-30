@@ -30,7 +30,7 @@ from swift.proxy import server as proxy
 import swift.proxy.controllers
 from swift.proxy.controllers.base import get_object_info
 from test.unit import FakeMemcache, debug_logger, FakeRing, \
-    fake_http_connect, patch_policies
+    fake_http_connect, patch_policies, skip_if_no_xattrs
 
 
 class FakeServerConnection(WSGIContext):
@@ -132,6 +132,7 @@ class TestObjectSysmeta(unittest.TestCase):
                              % (key, resp.headers))
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.app = proxy.Application(None, FakeMemcache(),
                                      logger=debug_logger('proxy-ut'),
                                      account_ring=FakeRing(replicas=1),

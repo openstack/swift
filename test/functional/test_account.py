@@ -834,6 +834,9 @@ class TestAccount(unittest2.TestCase):
         if tf.skip:
             raise SkipTest
 
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
+
         def post(url, token, parsed, conn, extra_headers):
             headers = {'X-Auth-Token': token}
             headers.update(extra_headers)

@@ -105,6 +105,10 @@ class DiskFileXattrNotSupported(DiskFileError):
     pass
 
 
+class DiskFileBadMetadataChecksum(DiskFileError):
+    pass
+
+
 class DeviceUnavailable(SwiftException):
     pass
 

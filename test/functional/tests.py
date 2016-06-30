@@ -87,16 +87,19 @@ class BaseEnv(object):
 
 
 class Base(unittest2.TestCase):
-    # subclasses may override env class
     env = BaseEnv
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.tearDown()
 
     @classmethod
     def setUpClass(cls):
         cls.env.setUp()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.env.tearDown()
+    def setUp(self):
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
     def assert_body(self, body):
         response_body = self.env.conn.response.read()
@@ -2720,6 +2723,9 @@ class TestServiceToken(unittest2.TestCase):
     def setUp(self):
         if tf.skip_service_tokens:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
         self.SET_TO_USERS_TOKEN = 1
         self.SET_TO_SERVICE_TOKEN = 2

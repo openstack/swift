@@ -44,7 +44,8 @@ from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
-                       requires_o_tmpfile_support, encode_frag_archive_bodies)
+                       requires_o_tmpfile_support, encode_frag_archive_bodies,
+                       skip_if_no_xattrs)
 from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
@@ -60,6 +61,7 @@ from swift.common.storage_policy import (
     POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy,
     BaseStoragePolicy, REPL_POLICY, EC_POLICY)
 from test.unit.obj.common import write_diskfile
+
 
 test_policies = [
     StoragePolicy(0, name='zero', is_default=True),
@@ -145,6 +147,7 @@ def _make_metafilename(meta_timestamp, ctype_timestamp=None):
 class TestDiskFileModuleMethods(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = ''
         # Setup a test ring per policy (stolen from common/test_ring.py)
@@ -682,6 +685,7 @@ class BaseDiskFileTestMixin(object):
     mgr_cls = None
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(
             self.tmpdir, 'tmp_test_obj_server_DiskFile')
@@ -3526,6 +3530,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             wrong_byte = 'X' if meta_xattr[0] != 'X' else 'Y'
             xattr.setxattr(data_files[0], "user.swift.metadata",
                            wrong_byte + meta_xattr[1:])
+        elif invalid_type == 'Subtly-Corrupt-Xattrs':
+            # We have to go below read_metadata/write_metadata to get proper
+            # corruption.
+            meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
+            wrong_checksum = md5(meta_xattr + "some extra stuff").hexdigest()
+            xattr.setxattr(data_files[0], "user.swift.metadata_checksum",
+                           wrong_checksum)
         elif invalid_type == 'Truncated-Xattrs':
             meta_xattr = xattr.getxattr(data_files[0], "user.swift.metadata")
             xattr.setxattr(data_files[0], "user.swift.metadata",
@@ -3684,6 +3695,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_quarantine_corrupt_xattrs(self):
         self.run_quarantine_invalids('Corrupt-Xattrs')
 
+    def test_quarantine_subtly_corrupt_xattrs(self):
+        # xattrs that unpickle without error, but whose checksum does not
+        # match
+        self.run_quarantine_invalids('Subtly-Corrupt-Xattrs')
+
     def test_quarantine_truncated_xattrs(self):
         self.run_quarantine_invalids('Truncated-Xattrs')
 
@@ -3746,18 +3762,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             invalid_type='Bad-Content-Length')
 
     def test_quarantine_fstat_oserror(self):
-        invocations = [0]
-        orig_os_fstat = os.fstat
-
-        def bad_fstat(fd):
-            invocations[0] += 1
-            if invocations[0] == 4:
-                # FIXME - yes, this an icky way to get code coverage ... worth
-                # it?
-                raise OSError()
-            return orig_os_fstat(fd)
-
-        with mock.patch('os.fstat', bad_fstat):
+        with mock.patch('os.fstat', side_effect=OSError()):
             self.assertRaises(
                 DiskFileQuarantined,
                 self._get_open_disk_file)
@@ -5957,6 +5962,7 @@ class TestSuffixHashes(unittest.TestCase):
     """
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.testdir = tempfile.mkdtemp()
         self.logger = debug_logger('suffix-hash-test')
         self.devices = os.path.join(self.testdir, 'node')
