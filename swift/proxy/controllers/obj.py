@@ -1471,15 +1471,15 @@ class Putter(object):
         :returns: HTTPResponse
         :raises: Timeout if the response took too long
         """
-        with Timeout(timeout):
-            # don't do this update of self.resp if the Expect response during
-            # conenct() was actually a final response
-            if not self.final_resp:
+        # don't do this update of self.resp if the Expect response during
+        # connect() was actually a final response
+        if not self.final_resp:
+            with Timeout(timeout):
                 if informational:
                     self.resp = self.conn.getexpect()
                 else:
                     self.resp = self.conn.getresponse()
-            return self.resp
+        return self.resp
 
     def spawn_sender_greenthread(self, pool, queue_depth, write_timeout,
                                  exception_handler):
