@@ -21,7 +21,8 @@ from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_sys_or_user_meta, strip_sys_meta_prefix, strip_user_meta_prefix, \
     remove_items, copy_header_subset, get_name_and_placement, \
-    http_response_to_document_iters
+    http_response_to_document_iters, is_object_transient_sysmeta, \
+    update_etag_is_at_header, resolve_etag_is_at_header
 
 from test.unit import patch_policies
 from test.unit.common.test_utils import FakeResponse
@@ -67,6 +68,14 @@ class TestRequestHelpers(unittest.TestCase):
         for st in server_types:
             self.assertEqual(strip_user_meta_prefix(st, 'x-%s-%s-a'
                                                     % (st, mt)), 'a')
+
+    def test_is_object_transient_sysmeta(self):
+        self.assertTrue(is_object_transient_sysmeta(
+            'x-object-transient-sysmeta-foo'))
+        self.assertFalse(is_object_transient_sysmeta(
+            'x-object-transient-sysmeta-'))
+        self.assertFalse(is_object_transient_sysmeta(
+            'x-object-meatmeta-foo'))
 
     def test_remove_items(self):
         src = {'a': 'b',
@@ -273,3 +282,74 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
         self.assertEqual(body.read(), 'ches')
 
         self.assertRaises(StopIteration, next, doc_iters)
+
+    def test_update_etag_is_at_header(self):
+        # start with no existing X-Backend-Etag-Is-At
+        req = Request.blank('/v/a/c/o')
+        update_etag_is_at_header(req, 'X-Object-Sysmeta-My-Etag')
+        self.assertEqual('X-Object-Sysmeta-My-Etag',
+                         req.headers['X-Backend-Etag-Is-At'])
+        # add another alternate
+        update_etag_is_at_header(req, 'X-Object-Sysmeta-Ec-Etag')
+        self.assertEqual('X-Object-Sysmeta-My-Etag,X-Object-Sysmeta-Ec-Etag',
+                         req.headers['X-Backend-Etag-Is-At'])
+        with self.assertRaises(ValueError) as cm:
+            update_etag_is_at_header(req, 'X-Object-Sysmeta-,-Bad')
+        self.assertEqual('Header name must not contain commas',
+                         cm.exception.message)
+
+    def test_resolve_etag_is_at_header(self):
+        def do_test():
+            req = Request.blank('/v/a/c/o')
+            # ok to have no X-Backend-Etag-Is-At
+            self.assertIsNone(resolve_etag_is_at_header(req, metadata))
+
+            # ok to have no matching metadata
+            req.headers['X-Backend-Etag-Is-At'] = 'X-Not-There'
+            self.assertIsNone(resolve_etag_is_at_header(req, metadata))
+
+            # selects from metadata
+            req.headers['X-Backend-Etag-Is-At'] = 'X-Object-Sysmeta-Ec-Etag'
+            self.assertEqual('an etag value',
+                             resolve_etag_is_at_header(req, metadata))
+            req.headers['X-Backend-Etag-Is-At'] = 'X-Object-Sysmeta-My-Etag'
+            self.assertEqual('another etag value',
+                             resolve_etag_is_at_header(req, metadata))
+
+            # first in list takes precedence
+            req.headers['X-Backend-Etag-Is-At'] = \
+                'X-Object-Sysmeta-My-Etag,X-Object-Sysmeta-Ec-Etag'
+            self.assertEqual('another etag value',
+                             resolve_etag_is_at_header(req, metadata))
+
+            # non-existent alternates are passed over
+            req.headers['X-Backend-Etag-Is-At'] = \
+                'X-Bogus,X-Object-Sysmeta-My-Etag,X-Object-Sysmeta-Ec-Etag'
+            self.assertEqual('another etag value',
+                             resolve_etag_is_at_header(req, metadata))
+
+            # spaces in list are ok
+            alts = 'X-Foo, X-Object-Sysmeta-My-Etag , X-Object-Sysmeta-Ec-Etag'
+            req.headers['X-Backend-Etag-Is-At'] = alts
+            self.assertEqual('another etag value',
+                             resolve_etag_is_at_header(req, metadata))
+
+            # lower case in list is ok
+            alts = alts.lower()
+            req.headers['X-Backend-Etag-Is-At'] = alts
+            self.assertEqual('another etag value',
+                             resolve_etag_is_at_header(req, metadata))
+
+            # upper case in list is ok
+            alts = alts.upper()
+            req.headers['X-Backend-Etag-Is-At'] = alts
+            self.assertEqual('another etag value',
+                             resolve_etag_is_at_header(req, metadata))
+
+        metadata = {'X-Object-Sysmeta-Ec-Etag': 'an etag value',
+                    'X-Object-Sysmeta-My-Etag': 'another etag value'}
+        do_test()
+        metadata = dict((k.lower(), v) for k, v in metadata.items())
+        do_test()
+        metadata = dict((k.upper(), v) for k, v in metadata.items())
+        do_test()

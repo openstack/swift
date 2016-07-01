@@ -339,6 +339,8 @@ class Test(ReplProbeTest):
     def test_sysmeta_after_replication_with_subsequent_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
         usermeta = {'x-object-meta-bar': 'meta-bar'}
+        transient_sysmeta = {
+            'x-object-transient-sysmeta-bar': 'transient-sysmeta-bar'}
         self.brain.put_container(policy_index=int(self.policy))
         # put object
         self._put_object()
@@ -356,11 +358,13 @@ class Test(ReplProbeTest):
         # post some user meta to second server subset
         self.brain.stop_handoff_half()
         self.container_brain.stop_handoff_half()
-        self._post_object(usermeta)
+        user_and_transient_sysmeta = dict(usermeta)
+        user_and_transient_sysmeta.update(transient_sysmeta)
+        self._post_object(user_and_transient_sysmeta)
         metadata = self._get_object_metadata()
-        for key in usermeta:
+        for key in user_and_transient_sysmeta:
             self.assertTrue(key in metadata)
-            self.assertEqual(metadata[key], usermeta[key])
+            self.assertEqual(metadata[key], user_and_transient_sysmeta[key])
         for key in sysmeta:
             self.assertFalse(key in metadata)
         self.brain.start_handoff_half()
@@ -376,6 +380,7 @@ class Test(ReplProbeTest):
         metadata = self._get_object_metadata()
         expected = dict(sysmeta)
         expected.update(usermeta)
+        expected.update(transient_sysmeta)
         for key in expected.keys():
             self.assertTrue(key in metadata, key)
             self.assertEqual(metadata[key], expected[key])
@@ -399,6 +404,8 @@ class Test(ReplProbeTest):
     def test_sysmeta_after_replication_with_prior_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
         usermeta = {'x-object-meta-bar': 'meta-bar'}
+        transient_sysmeta = {
+            'x-object-transient-sysmeta-bar': 'transient-sysmeta-bar'}
         self.brain.put_container(policy_index=int(self.policy))
         # put object
         self._put_object()
@@ -406,11 +413,13 @@ class Test(ReplProbeTest):
         # put user meta to first server subset
         self.brain.stop_handoff_half()
         self.container_brain.stop_handoff_half()
-        self._post_object(headers=usermeta)
+        user_and_transient_sysmeta = dict(usermeta)
+        user_and_transient_sysmeta.update(transient_sysmeta)
+        self._post_object(user_and_transient_sysmeta)
         metadata = self._get_object_metadata()
-        for key in usermeta:
+        for key in user_and_transient_sysmeta:
             self.assertTrue(key in metadata)
-            self.assertEqual(metadata[key], usermeta[key])
+            self.assertEqual(metadata[key], user_and_transient_sysmeta[key])
         self.brain.start_handoff_half()
         self.container_brain.start_handoff_half()
 
@@ -436,7 +445,7 @@ class Test(ReplProbeTest):
         for key in sysmeta:
             self.assertTrue(key in metadata)
             self.assertEqual(metadata[key], sysmeta[key])
-        for key in usermeta:
+        for key in user_and_transient_sysmeta:
             self.assertFalse(key in metadata)
         self.brain.start_primary_half()
         self.container_brain.start_primary_half()
@@ -449,7 +458,7 @@ class Test(ReplProbeTest):
         for key in sysmeta:
             self.assertTrue(key in metadata)
             self.assertEqual(metadata[key], sysmeta[key])
-        for key in usermeta:
+        for key in user_and_transient_sysmeta:
             self.assertFalse(key in metadata)
         self.brain.start_handoff_half()
         self.container_brain.start_handoff_half()

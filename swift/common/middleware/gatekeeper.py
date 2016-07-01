@@ -33,22 +33,25 @@ automatically inserted close to the start of the pipeline by the proxy server.
 
 from swift.common.swob import Request
 from swift.common.utils import get_logger, config_true_value
-from swift.common.request_helpers import remove_items, get_sys_meta_prefix
+from swift.common.request_helpers import (
+    remove_items, get_sys_meta_prefix, OBJECT_TRANSIENT_SYSMETA_PREFIX
+)
 import re
 
 #: A list of python regular expressions that will be used to
 #: match against inbound request headers. Matching headers will
 #: be removed from the request.
 # Exclude headers starting with a sysmeta prefix.
+# Exclude headers starting with object transient system metadata prefix.
+# Exclude headers starting with an internal backend header prefix.
 # If adding to this list, note that these are regex patterns,
 # so use a trailing $ to constrain to an exact header match
 # rather than prefix match.
 inbound_exclusions = [get_sys_meta_prefix('account'),
                       get_sys_meta_prefix('container'),
                       get_sys_meta_prefix('object'),
+                      OBJECT_TRANSIENT_SYSMETA_PREFIX,
                       'x-backend']
-# 'x-object-sysmeta' is reserved in anticipation of future support
-# for system metadata being applied to objects
 
 
 #: A list of python regular expressions that will be used to

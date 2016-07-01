@@ -710,6 +710,102 @@ class TestObjectController(unittest.TestCase):
         self._test_POST_container_updates(
             POLICIES[1], update_etag='override_etag')
 
+    def test_POST_container_updates_precedence(self):
+        # Verify correct etag and size being sent with container updates for a
+        # PUT and for a subsequent POST.
+        ts_iter = make_timestamp_iter()
+
+        def do_test(body, headers, policy):
+            def mock_container_update(ctlr, op, account, container, obj, req,
+                                      headers_out, objdevice, policy):
+                calls_made.append((headers_out, policy))
+            calls_made = []
+            ts_put = next(ts_iter)
+
+            # make PUT with given headers and verify correct etag is sent in
+            # container update
+            headers.update({
+                'Content-Type':
+                    'application/octet-stream;swift_bytes=123456789',
+                'X-Backend-Storage-Policy-Index': int(policy),
+                'X-Object-Sysmeta-Ec-Frag-Index': 2,
+                'X-Timestamp': ts_put.internal,
+                'Content-Length': len(body)})
+
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'PUT'},
+                                headers=headers, body=body)
+
+            with mock.patch(
+                    'swift.obj.server.ObjectController.container_update',
+                    mock_container_update):
+                resp = req.get_response(self.object_controller)
+
+            self.assertEqual(resp.status_int, 201)
+            self.assertEqual(1, len(calls_made))
+            expected_headers = HeaderKeyDict({
+                'x-size': '4',
+                'x-content-type':
+                    'application/octet-stream;swift_bytes=123456789',
+                'x-timestamp': ts_put.internal,
+                'x-etag': 'expected'})
+            self.assertDictEqual(expected_headers, calls_made[0][0])
+            self.assertEqual(policy, calls_made[0][1])
+
+            # make a POST and verify container update has the same etag
+            calls_made = []
+            ts_post = next(ts_iter)
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Timestamp': ts_post.internal,
+                         'X-Backend-Storage-Policy-Index': int(policy)})
+
+            with mock.patch(
+                    'swift.obj.server.ObjectController.container_update',
+                    mock_container_update):
+                resp = req.get_response(self.object_controller)
+
+            self.assertEqual(resp.status_int, 202)
+            self.assertEqual(1, len(calls_made))
+            expected_headers.update({
+                'x-content-type-timestamp': ts_put.internal,
+                'x-meta-timestamp': ts_post.internal})
+            self.assertDictEqual(expected_headers, calls_made[0][0])
+            self.assertEqual(policy, calls_made[0][1])
+
+        # sanity check - EC headers are ok
+        headers = {
+            'X-Backend-Container-Update-Override-Etag': 'expected',
+            'X-Backend-Container-Update-Override-Size': '4',
+            'X-Object-Sysmeta-Ec-Etag': 'expected',
+            'X-Object-Sysmeta-Ec-Content-Length': '4'}
+        do_test('test ec frag longer than 4', headers, POLICIES[1])
+
+        # middleware overrides take precedence over EC/older overrides
+        headers = {
+            'X-Backend-Container-Update-Override-Etag': 'unexpected',
+            'X-Backend-Container-Update-Override-Size': '3',
+            'X-Object-Sysmeta-Ec-Etag': 'unexpected',
+            'X-Object-Sysmeta-Ec-Content-Length': '3',
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'expected',
+            'X-Object-Sysmeta-Container-Update-Override-Size': '4'}
+        do_test('test ec frag longer than 4', headers, POLICIES[1])
+
+        # overrides with replication policy
+        headers = {
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'expected',
+            'X-Object-Sysmeta-Container-Update-Override-Size': '4'}
+        do_test('longer than 4', headers, POLICIES[0])
+
+        # middleware overrides take precedence over EC/older overrides with
+        # replication policy
+        headers = {
+            'X-Backend-Container-Update-Override-Etag': 'unexpected',
+            'X-Backend-Container-Update-Override-Size': '3',
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'expected',
+            'X-Object-Sysmeta-Container-Update-Override-Size': '4'}
+        do_test('longer than 4', headers, POLICIES[0])
+
     def _test_PUT_then_POST_async_pendings(self, policy, update_etag=None):
         # Test that PUT and POST requests result in distinct async pending
         # files when sync container update fails.
@@ -1587,7 +1683,8 @@ class TestObjectController(unittest.TestCase):
                      'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
                      'X-Object-Meta-1': 'One',
                      'X-Object-Sysmeta-1': 'One',
-                     'X-Object-Sysmeta-Two': 'Two'})
+                     'X-Object-Sysmeta-Two': 'Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -1606,7 +1703,8 @@ class TestObjectController(unittest.TestCase):
                           'name': '/a/c/o',
                           'X-Object-Meta-1': 'One',
                           'X-Object-Sysmeta-1': 'One',
-                          'X-Object-Sysmeta-Two': 'Two'})
+                          'X-Object-Sysmeta-Two': 'Two',
+                          'X-Object-Transient-Sysmeta-Foo': 'Bar'})
 
     def test_PUT_succeeds_with_later_POST(self):
         ts_iter = make_timestamp_iter()
@@ -1779,6 +1877,62 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         check_response(resp)
 
+    def test_POST_transient_sysmeta(self):
+        # check that diskfile transient system meta is changed by a POST
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'X-Object-Sysmeta-1': 'Not One',
+                     'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        # original .data file metadata should be unchanged
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        self.assertTrue(os.path.isfile(objfile))
+        self.assertEqual(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertDictEqual(diskfile.read_metadata(objfile),
+                             {'X-Timestamp': timestamp1,
+                              'Content-Length': '14',
+                              'Content-Type': 'text/plain',
+                              'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                              'name': '/a/c/o',
+                              'X-Object-Meta-1': 'One',
+                              'X-Object-Sysmeta-1': 'One',
+                              'X-Object-Transient-Sysmeta-Foo': 'Bar'})
+
+        # .meta file metadata should have only user meta items
+        metafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp2 + '.meta')
+        self.assertTrue(os.path.isfile(metafile))
+        self.assertDictEqual(diskfile.read_metadata(metafile),
+                             {'X-Timestamp': timestamp2,
+                              'name': '/a/c/o',
+                              'X-Object-Meta-1': 'Not One',
+                              'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
+
     def test_PUT_then_fetch_system_metadata(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -1788,7 +1942,8 @@ class TestObjectController(unittest.TestCase):
                      'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
                      'X-Object-Meta-1': 'One',
                      'X-Object-Sysmeta-1': 'One',
-                     'X-Object-Sysmeta-Two': 'Two'})
+                     'X-Object-Sysmeta-Two': 'Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -1807,6 +1962,8 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.headers['x-object-meta-1'], 'One')
             self.assertEqual(resp.headers['x-object-sysmeta-1'], 'One')
             self.assertEqual(resp.headers['x-object-sysmeta-two'], 'Two')
+            self.assertEqual(resp.headers['x-object-transient-sysmeta-foo'],
+                             'Bar')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -1825,9 +1982,13 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp,
                      'Content-Type': 'text/plain',
                      'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-0': 'deleted by post',
+                     'X-Object-Sysmeta-0': 'Zero',
+                     'X-Object-Transient-Sysmeta-0': 'deleted by post',
                      'X-Object-Meta-1': 'One',
                      'X-Object-Sysmeta-1': 'One',
-                     'X-Object-Sysmeta-Two': 'Two'})
+                     'X-Object-Sysmeta-Two': 'Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Bar'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -1838,7 +1999,8 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp2,
                      'X-Object-Meta-1': 'Not One',
                      'X-Object-Sysmeta-1': 'Not One',
-                     'X-Object-Sysmeta-Two': 'Not Two'})
+                     'X-Object-Sysmeta-Two': 'Not Two',
+                     'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
@@ -1855,8 +2017,13 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.headers['etag'],
                              '"1000d172764c9dbc3a5798a67ec5bb76"')
             self.assertEqual(resp.headers['x-object-meta-1'], 'Not One')
+            self.assertEqual(resp.headers['x-object-sysmeta-0'], 'Zero')
             self.assertEqual(resp.headers['x-object-sysmeta-1'], 'One')
             self.assertEqual(resp.headers['x-object-sysmeta-two'], 'Two')
+            self.assertEqual(resp.headers['x-object-transient-sysmeta-foo'],
+                             'Not Bar')
+            self.assertNotIn('x-object-meta-0', resp.headers)
+            self.assertNotIn('x-object-transient-sysmeta-0', resp.headers)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -2385,6 +2552,7 @@ class TestObjectController(unittest.TestCase):
             'X-Timestamp': utils.Timestamp(time()).internal,
             'Content-Type': 'application/octet-stream',
             'X-Object-Meta-Xtag': 'madeup',
+            'X-Object-Sysmeta-Xtag': 'alternate madeup',
         }
         req = Request.blank('/sda1/p/a/c/o', method='PUT',
                             headers=headers)
@@ -2397,6 +2565,39 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', headers={
             'If-Match': 'madeup',
             'X-Backend-Etag-Is-At': 'X-Object-Meta-Xtag'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, using first in list of alternates
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At':
+                'X-Object-Meta-Xtag,X-Object-Sysmeta-Z'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, using second in list of alternates
+        alts = 'X-Object-Sysmeta-Y,X-Object-Meta-Xtag,X-Object-Sysmeta-Z'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At': alts})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, choosing first of multiple alternates
+        alts = 'X-Object-Sysmeta-Y,X-Object-Meta-Xtag,X-Object-Sysmeta-Xtag'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At': alts})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # match x-backend-etag-is-at, choosing first of multiple alternates
+        # (switches order of second two alternates from previous assertion)
+        alts = 'X-Object-Sysmeta-Y,X-Object-Sysmeta-Xtag,X-Object-Meta-Xtag'
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'alternate madeup',
+            'X-Backend-Etag-Is-At': alts})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
@@ -4276,47 +4477,75 @@ class TestObjectController(unittest.TestCase):
             'x-trans-id': '123',
             'referer': 'PUT http://localhost/sda1/0/a/c/o'}))
 
-    def test_container_update_overrides(self):
-        container_updates = []
+    def test_PUT_container_update_overrides(self):
+        ts_iter = make_timestamp_iter()
 
-        def capture_updates(ip, port, method, path, headers, *args, **kwargs):
-            container_updates.append((ip, port, method, path, headers))
+        def do_test(override_headers):
+            container_updates = []
 
-        headers = {
-            'X-Timestamp': 1,
-            'X-Trans-Id': '123',
-            'X-Container-Host': 'chost:cport',
-            'X-Container-Partition': 'cpartition',
-            'X-Container-Device': 'cdevice',
-            'Content-Type': 'text/plain',
+            def capture_updates(
+                    ip, port, method, path, headers, *args, **kwargs):
+                container_updates.append((ip, port, method, path, headers))
+
+            ts_put = next(ts_iter)
+            headers = {
+                'X-Timestamp': ts_put.internal,
+                'X-Trans-Id': '123',
+                'X-Container-Host': 'chost:cport',
+                'X-Container-Partition': 'cpartition',
+                'X-Container-Device': 'cdevice',
+                'Content-Type': 'text/plain',
+            }
+            headers.update(override_headers)
+            req = Request.blank('/sda1/0/a/c/o', method='PUT',
+                                headers=headers, body='')
+            with mocked_http_conn(
+                    200, give_connect=capture_updates) as fake_conn:
+                with fake_spawn():
+                    resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            self.assertEqual(resp.status_int, 201)
+            self.assertEqual(len(container_updates), 1)
+            ip, port, method, path, headers = container_updates[0]
+            self.assertEqual(ip, 'chost')
+            self.assertEqual(port, 'cport')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/cdevice/cpartition/a/c/o')
+            self.assertEqual(headers, HeaderKeyDict({
+                'user-agent': 'object-server %s' % os.getpid(),
+                'x-size': '0',
+                'x-etag': 'override_etag',
+                'x-content-type': 'override_val',
+                'x-timestamp': ts_put.internal,
+                'X-Backend-Storage-Policy-Index': '0',  # default
+                'x-trans-id': '123',
+                'referer': 'PUT http://localhost/sda1/0/a/c/o',
+                'x-foo': 'bar'}))
+
+        # EC policy override headers
+        do_test({
             'X-Backend-Container-Update-Override-Etag': 'override_etag',
             'X-Backend-Container-Update-Override-Content-Type': 'override_val',
             'X-Backend-Container-Update-Override-Foo': 'bar',
-            'X-Backend-Container-Ignored': 'ignored'
-        }
-        req = Request.blank('/sda1/0/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers=headers, body='')
-        with mocked_http_conn(200, give_connect=capture_updates) as fake_conn:
-            with fake_spawn():
-                resp = req.get_response(self.object_controller)
-        self.assertRaises(StopIteration, fake_conn.code_iter.next)
-        self.assertEqual(resp.status_int, 201)
-        self.assertEqual(len(container_updates), 1)
-        ip, port, method, path, headers = container_updates[0]
-        self.assertEqual(ip, 'chost')
-        self.assertEqual(port, 'cport')
-        self.assertEqual(method, 'PUT')
-        self.assertEqual(path, '/cdevice/cpartition/a/c/o')
-        self.assertEqual(headers, HeaderKeyDict({
-            'user-agent': 'object-server %s' % os.getpid(),
-            'x-size': '0',
-            'x-etag': 'override_etag',
-            'x-content-type': 'override_val',
-            'x-timestamp': utils.Timestamp(1).internal,
-            'X-Backend-Storage-Policy-Index': '0',  # default when not given
-            'x-trans-id': '123',
-            'referer': 'PUT http://localhost/sda1/0/a/c/o',
-            'x-foo': 'bar'}))
+            'X-Backend-Container-Ignored': 'ignored'})
+
+        # middleware override headers
+        do_test({
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'override_etag',
+            'X-Object-Sysmeta-Container-Update-Override-Content-Type':
+                'override_val',
+            'X-Object-Sysmeta-Container-Update-Override-Foo': 'bar',
+            'X-Object-Sysmeta-Ignored': 'ignored'})
+
+        # middleware override headers take precedence over EC policy headers
+        do_test({
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'override_etag',
+            'X-Object-Sysmeta-Container-Update-Override-Content-Type':
+                'override_val',
+            'X-Object-Sysmeta-Container-Update-Override-Foo': 'bar',
+            'X-Backend-Container-Update-Override-Etag': 'ignored',
+            'X-Backend-Container-Update-Override-Content-Type': 'ignored',
+            'X-Backend-Container-Update-Override-Foo': 'ignored'})
 
     def test_container_update_async(self):
         policy = random.choice(list(POLICIES))

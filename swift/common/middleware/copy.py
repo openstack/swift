@@ -142,10 +142,10 @@ from swift.common.utils import get_logger, \
 from swift.common.swob import Request, HTTPPreconditionFailed, \
     HTTPRequestEntityTooLarge, HTTPBadRequest
 from swift.common.http import HTTP_MULTIPLE_CHOICES, HTTP_CREATED, \
-    is_success
+    is_success, HTTP_OK
 from swift.common.constraints import check_account_format, MAX_FILE_SIZE
 from swift.common.request_helpers import copy_header_subset, remove_items, \
-    is_sys_meta, is_sys_or_user_meta
+    is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta
 from swift.common.wsgi import WSGIContext, make_subrequest
 
 
@@ -206,16 +206,18 @@ def _check_destination_header(req):
                               '<container name>/<object name>')
 
 
-def _copy_headers_into(from_r, to_r):
+def _copy_headers(src, dest):
     """
-    Will copy desired headers from from_r to to_r
-    :params from_r: a swob Request or Response
-    :params to_r: a swob Request or Response
+    Will copy desired headers from src to dest.
+
+    :params src: an instance of collections.Mapping
+    :params dest: an instance of collections.Mapping
     """
-    pass_headers = ['x-delete-at']
-    for k, v in from_r.headers.items():
-        if is_sys_or_user_meta('object', k) or k.lower() in pass_headers:
-            to_r.headers[k] = v
+    for k, v in src.items():
+        if (is_sys_or_user_meta('object', k) or
+                is_object_transient_sysmeta(k) or
+                k.lower() == 'x-delete-at'):
+            dest[k] = v
 
 
 class ServerSideCopyWebContext(WSGIContext):
@@ -422,9 +424,7 @@ class ServerSideCopyMiddleware(object):
                     source_resp.headers['last-modified']
         # Existing sys and user meta of source object is added to response
         # headers in addition to the new ones.
-        for k, v in sink_req.headers.items():
-            if is_sys_or_user_meta('object', k) or k.lower() == 'x-delete-at':
-                resp_headers[k] = v
+        _copy_headers(sink_req.headers, resp_headers)
         return resp_headers
 
     def handle_PUT(self, req, start_response):
@@ -474,7 +474,24 @@ class ServerSideCopyMiddleware(object):
         # Set data source, content length and etag for the PUT request
         sink_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         sink_req.content_length = source_resp.content_length
-        sink_req.etag = source_resp.etag
+        if (source_resp.status_int == HTTP_OK and
+                'X-Static-Large-Object' not in source_resp.headers and
+                ('X-Object-Manifest' not in source_resp.headers or
+                 req.params.get('multipart-manifest') == 'get')):
+            # copy source etag so that copied content is verified, unless:
+            #  - not a 200 OK response: source etag may not match the actual
+            #    content, for example with a 206 Partial Content response to a
+            #    ranged request
+            #  - SLO manifest: etag cannot be specified in manifest PUT; SLO
+            #    generates its own etag value which may differ from source
+            #  - SLO: etag in SLO response is not hash of actual content
+            #  - DLO: etag in DLO response is not hash of actual content
+            sink_req.headers['Etag'] = source_resp.etag
+        else:
+            # since we're not copying the source etag, make sure that any
+            # container update override values are not copied.
+            remove_items(source_resp.headers, lambda k: k.startswith(
+                'X-Object-Sysmeta-Container-Update-Override-'))
 
         # We no longer need these headers
         sink_req.headers.pop('X-Copy-From', None)
@@ -494,10 +511,10 @@ class ServerSideCopyMiddleware(object):
             remove_items(sink_req.headers, condition)
             copy_header_subset(source_resp, sink_req, condition)
         else:
-            # Copy/update existing sysmeta and user meta
-            _copy_headers_into(source_resp, sink_req)
+            # Copy/update existing sysmeta, transient-sysmeta and user meta
+            _copy_headers(source_resp.headers, sink_req.headers)
             # Copy/update new metadata provided in request if any
-            _copy_headers_into(req, sink_req)
+            _copy_headers(req.headers, sink_req.headers)
 
         # Create response headers for PUT response
         resp_headers = self._create_response_headers(source_path,

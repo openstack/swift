@@ -18,6 +18,12 @@ synchronization key.
     your manifest file and your segment files are synced if they happen to be
     in different containers.
 
+.. note::
+
+    If you are using encryption middleware in the cluster from which objects
+    are being synced, then you should follow the instructions to configure
+    :ref:`container_sync_client_config` to be compatible with encryption.
+
 --------------------------
 Configuring Container Sync
 --------------------------

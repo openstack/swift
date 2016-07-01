@@ -55,6 +55,13 @@ class TestObjectHandoff(ReplProbeTest):
             raise Exception('Object GET did not return VERIFY, instead it '
                             'returned: %s' % repr(odata))
 
+        # Stash the on disk data from a primary for future comparison with the
+        # handoff - this may not equal 'VERIFY' if for example the proxy has
+        # crypto enabled
+        direct_get_data = direct_client.direct_get_object(
+            onodes[1], opart, self.account, container, obj, headers={
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
+
         # Kill other two container/obj primary servers
         #   to ensure GET handoff works
         for node in onodes[1:]:
@@ -76,9 +83,7 @@ class TestObjectHandoff(ReplProbeTest):
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj, headers={
                 'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
-        if odata != 'VERIFY':
-            raise Exception('Direct object GET did not return VERIFY, instead '
-                            'it returned: %s' % repr(odata))
+        self.assertEqual(direct_get_data, odata)
 
         # drop a tempfile in the handoff's datadir, like it might have
         # had if there was an rsync failure while it was previously a
@@ -143,9 +148,7 @@ class TestObjectHandoff(ReplProbeTest):
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
                 'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
-        if odata != 'VERIFY':
-            raise Exception('Direct object GET did not return VERIFY, instead '
-                            'it returned: %s' % repr(odata))
+        self.assertEqual(direct_get_data, odata)
 
         # and that it does *not* have a temporary rsync dropping!
         found_data_filename = False
@@ -273,6 +276,14 @@ class TestECObjectHandoffOverwrite(ECProbeTest):
         # shutdown one of the primary data nodes
         failed_primary = random.choice(onodes)
         failed_primary_device_path = self.device_dir('object', failed_primary)
+        # first read its ec etag value for future reference - this may not
+        # equal old_contents.etag if for example the proxy has crypto enabled
+        req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
+        headers = direct_client.direct_head_object(
+            failed_primary, opart, self.account, container_name,
+            object_name, headers=req_headers)
+        old_backend_etag = headers['X-Object-Sysmeta-EC-Etag']
+
         self.kill_drive(failed_primary_device_path)
 
         # overwrite our object with some new data
@@ -290,13 +301,18 @@ class TestECObjectHandoffOverwrite(ECProbeTest):
             failed_primary, opart, self.account, container_name,
             object_name, headers=req_headers)
         self.assertEqual(headers['X-Object-Sysmeta-EC-Etag'],
-                         old_contents.etag)
+                         old_backend_etag)
 
         # we have 1 primary with wrong old etag, and we should have 5 with
         # new etag plus a handoff with the new etag, so killing 2 other
         # primaries forces proxy to try to GET from all primaries plus handoff.
         other_nodes = [n for n in onodes if n != failed_primary]
         random.shuffle(other_nodes)
+        # grab the value of the new content's ec etag for future reference
+        headers = direct_client.direct_head_object(
+            other_nodes[0], opart, self.account, container_name,
+            object_name, headers=req_headers)
+        new_backend_etag = headers['X-Object-Sysmeta-EC-Etag']
         for node in other_nodes[:2]:
             self.kill_drive(self.device_dir('object', node))
 
@@ -314,8 +330,8 @@ class TestECObjectHandoffOverwrite(ECProbeTest):
                 continue
             found_frags[headers['X-Object-Sysmeta-EC-Etag']] += 1
         self.assertEqual(found_frags, {
-            new_contents.etag: 4,  # this should be enough to rebuild!
-            old_contents.etag: 1,
+            new_backend_etag: 4,  # this should be enough to rebuild!
+            old_backend_etag: 1,
         })
 
         # clear node error limiting

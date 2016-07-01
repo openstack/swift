@@ -13,3 +13,5 @@ python-dev [platform:dpkg]
 python-devel [platform:rpm]
 rsync
 xfsprogs
+libssl-dev [platform:dpkg]
+openssl-devel [platform:rpm]

@@ -1140,8 +1140,8 @@ class Response(object):
         conditional requests.
 
         It's most effectively used with X-Backend-Etag-Is-At which would
-        define the additional Metadata key where the original ETag of the
-        clear-form client request data.
+        define the additional Metadata key(s) where the original ETag of the
+        clear-form client request data may be found.
         """
         if self._conditional_etag is not None:
             return self._conditional_etag
@@ -1419,6 +1419,7 @@ HTTPOk = status_map[200]
 HTTPCreated = status_map[201]
 HTTPAccepted = status_map[202]
 HTTPNoContent = status_map[204]
+HTTPPartialContent = status_map[206]
 HTTPMovedPermanently = status_map[301]
 HTTPFound = status_map[302]
 HTTPSeeOther = status_map[303]
