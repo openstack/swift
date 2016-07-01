@@ -102,6 +102,11 @@ been chosen because it is the length of a base-64 encoded 32 byte value.
     should not be stored on any disk that is in any account, container or
     object ring.
 
+    The ``encryption_root_secret`` value should not be changed once deployed.
+    Doing so would prevent Swift from properly decrypting data that was
+    encrypted using the former value, and would therefore result in the loss of
+    that data.
+
 One method for generating a suitable value for ``encryption_root_secret`` is to
 use the ``openssl`` command line tool::
 

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import unittest
+import mock
 
 from swift.common import utils
 from swift.common.middleware import crypto
@@ -20,20 +21,50 @@ from swift.common.middleware import crypto
 
 class TestCrypto(unittest.TestCase):
     def test_filter_factory(self):
-        factory = crypto.filter_factory({})
-        self.assertTrue(callable(factory))
-        self.assertIsInstance(factory({}), crypto.decrypter.Decrypter)
-        self.assertIsInstance(factory({}).app, crypto.encrypter.Encrypter)
-        self.assertIn('encryption', utils._swift_admin_info)
-        self.assertDictEqual(
-            {'enabled': True}, utils._swift_admin_info['encryption'])
-        self.assertNotIn('encryption', utils._swift_info)
+        def do_test(conf, expect_enabled):
+            fake_app = object()
 
-        factory = crypto.filter_factory({'disable_encryption': True})
-        self.assertTrue(callable(factory))
-        self.assertIsInstance(factory({}), crypto.decrypter.Decrypter)
-        self.assertIsInstance(factory({}).app, crypto.encrypter.Encrypter)
-        self.assertIn('encryption', utils._swift_admin_info)
-        self.assertDictEqual(
-            {'enabled': False}, utils._swift_admin_info['encryption'])
-        self.assertNotIn('encryption', utils._swift_info)
+            with mock.patch.dict('swift.common.utils._swift_admin_info',
+                                 clear=True):
+                # we're not expecting utils._swift_info to be modified but mock
+                # it anyway just in case it is
+                with mock.patch.dict('swift.common.utils._swift_info',
+                                     clear=True):
+                    # Sanity checks...
+                    self.assertNotIn('encryption', utils._swift_admin_info)
+                    self.assertNotIn('encryption',
+                                     utils.get_swift_info(admin=True))
+                    self.assertNotIn('encryption',
+                                     utils.get_swift_info(admin=True)['admin'])
+
+                    factory = crypto.filter_factory(conf)
+                    self.assertTrue(callable(factory))
+                    filtered_app = factory(fake_app)
+
+                    self.assertNotIn('encryption', utils._swift_info)
+                    self.assertNotIn('encryption', utils.get_swift_info())
+                    self.assertNotIn('encryption',
+                                     utils.get_swift_info(admin=True))
+
+                    self.assertIn('encryption', utils._swift_admin_info)
+                    self.assertDictEqual({'enabled': expect_enabled},
+                                         utils._swift_admin_info['encryption'])
+                    self.assertIn('encryption',
+                                  utils.get_swift_info(admin=True)['admin'])
+                    self.assertDictEqual(
+                        {'enabled': expect_enabled},
+                        utils.get_swift_info(
+                            admin=True)['admin']['encryption'])
+
+            self.assertIsInstance(filtered_app, crypto.decrypter.Decrypter)
+            self.assertIsInstance(filtered_app.app, crypto.encrypter.Encrypter)
+            self.assertIs(filtered_app.app.app, fake_app)
+
+        # default enabled
+        do_test({}, True)
+
+        # explicitly enabled
+        do_test({'disable_encryption': False}, True)
+
+        # explicitly disabled
+        do_test({'disable_encryption': True}, False)
