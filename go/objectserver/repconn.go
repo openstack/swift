@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"time"
 
 	"github.com/openstack/swift/go/hummingbird"
@@ -140,9 +141,10 @@ func (r *RepConn) Close() {
 	r.c.Close()
 }
 
-func NewRepConn(dev *hummingbird.Device, partition string) (*RepConn, error) {
+func NewRepConn(dev *hummingbird.Device, partition string, policy int) (*RepConn, error) {
 	url := fmt.Sprintf("http://%s:%d/%s/%s", dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
 	req, err := http.NewRequest("REPCONN", url, nil)
+	req.Header.Set("X-Backend-Storage-Policy-Index", strconv.Itoa(policy))
 	if err != nil {
 		return nil, err
 	}

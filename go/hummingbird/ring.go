@@ -324,12 +324,16 @@ func LoadRing(path string, prefix string, suffix string) (Ring, error) {
 // GetRing returns the current ring given the ring_type ("account", "container", "object"),
 // hash path prefix, and hash path suffix. An error is raised if the requested ring does
 // not exist.
-func GetRing(ring_type, prefix, suffix string) (Ring, error) {
+func GetRing(ringType, prefix, suffix string, policy int) (Ring, error) {
 	var ring Ring
 	var err error
-	if ring, err = LoadRing(fmt.Sprintf("/etc/hummingbird/%s.ring.gz", ring_type), prefix, suffix); err != nil {
-		if ring, err = LoadRing(fmt.Sprintf("/etc/swift/%s.ring.gz", ring_type), prefix, suffix); err != nil {
-			return nil, fmt.Errorf("Error loading %s ring", ring_type)
+	ringFile := fmt.Sprintf("%s.ring.gz", ringType)
+	if policy != 0 {
+		ringFile = fmt.Sprintf("%s-%d.ring.gz", ringType, policy)
+	}
+	if ring, err = LoadRing(fmt.Sprintf("/etc/hummingbird/%s", ringFile), prefix, suffix); err != nil {
+		if ring, err = LoadRing(fmt.Sprintf("/etc/swift/%s", ringFile), prefix, suffix); err != nil {
+			return nil, fmt.Errorf("Error loading %s:%d ring", ringType, policy)
 		}
 	}
 	return ring, nil

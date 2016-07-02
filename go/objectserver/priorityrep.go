@@ -18,8 +18,10 @@ package objectserver
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,21 +145,29 @@ func getPartMoveJobs(oldRing, newRing hummingbird.Ring) []*PriorityRepJob {
 
 // MoveParts takes two object .ring.gz files as []string{oldRing, newRing} and dispatches priority replication jobs to rebalance data in line with any ring changes.
 func MoveParts(args []string) {
-	if len(args) != 1 {
-		fmt.Println("USAGE: hummingbird moveparts [old ringfile]")
+	flags := flag.NewFlagSet("moveparts", flag.ExitOnError)
+	policy := flags.Int("p", 0, "policy index to use")
+	flags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "USAGE: hummingbird moveparts [old ringfile]")
+		flags.PrintDefaults()
+	}
+	flags.Parse(args)
+	if len(flags.Args()) != 1 {
+		flags.Usage()
 		return
 	}
+
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		fmt.Println("Unable to load hash path prefix and suffix:", err)
 		return
 	}
-	oldRing, err := hummingbird.LoadRing(args[0], hashPathPrefix, hashPathSuffix)
+	oldRing, err := hummingbird.LoadRing(flags.Arg(0), hashPathPrefix, hashPathSuffix)
 	if err != nil {
 		fmt.Println("Unable to load old ring:", err)
 		return
 	}
-	curRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
+	curRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, *policy)
 	if err != nil {
 		fmt.Println("Unable to load current ring:", err)
 		return
@@ -193,22 +203,30 @@ func getRestoreDeviceJobs(ring hummingbird.Ring, ip string, devName string) []*P
 
 // RestoreDevice takes an IP address and device name such as []string{"172.24.0.1", "sda1"} and attempts to restores its data from peers.
 func RestoreDevice(args []string) {
-	if len(args) != 2 {
-		fmt.Println("USAGE: hummingbird restoredevice [ip] [device]")
+	flags := flag.NewFlagSet("restoredevice", flag.ExitOnError)
+	policy := flags.Int("p", 0, "policy index to use")
+	flags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "USAGE: hummingbird restoredevice [ip] [device]\n")
+		flags.PrintDefaults()
+	}
+	flags.Parse(args)
+	if len(flags.Args()) != 2 {
+		flags.Usage()
 		return
 	}
+
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		fmt.Println("Unable to load hash path prefix and suffix:", err)
 		return
 	}
-	objRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
+	objRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, *policy)
 	if err != nil {
 		fmt.Println("Unable to load ring:", err)
 		return
 	}
 	client := &http.Client{Timeout: time.Hour}
-	jobs := getRestoreDeviceJobs(objRing, args[0], args[1])
+	jobs := getRestoreDeviceJobs(objRing, flags.Arg(0), flags.Arg(1))
 	fmt.Println("Job count:", len(jobs))
 	doPriRepJobs(jobs, 2, client)
 	fmt.Println("Done sending jobs.")
@@ -231,21 +249,29 @@ func getRescuePartsJobs(objRing hummingbird.Ring, partitions []uint64) []*Priori
 }
 
 func RescueParts(args []string) {
-	if len(args) != 1 {
-		fmt.Println("USAGE: hummingbird rescueparts partnum1,partnum2,...")
+	flags := flag.NewFlagSet("rescueparts", flag.ExitOnError)
+	policy := flags.Int("p", 0, "policy index to use")
+	flags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "USAGE: hummingbird rescueparts partnum1,partnum2,...\n")
+		flags.PrintDefaults()
+	}
+	flags.Parse(args)
+	if len(flags.Args()) != 1 {
+		flags.Usage()
 		return
 	}
+
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		fmt.Println("Unable to load hash path prefix and suffix:", err)
 		return
 	}
-	objRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
+	objRing, err := hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, *policy)
 	if err != nil {
 		fmt.Println("Unable to load ring:", err)
 		return
 	}
-	partsStr := strings.Split(args[0], ",")
+	partsStr := strings.Split(flags.Arg(0), ",")
 	partsInt := make([]uint64, len(partsStr))
 	for i, p := range partsStr {
 		partsInt[i], err = strconv.ParseUint(p, 10, 64)

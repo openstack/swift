@@ -175,13 +175,14 @@ type SwiftObjectFactory struct {
 	replicationMan   *ReplicationManager
 	replicateTimeout time.Duration
 	reclaimAge       int64
+	policy           int
 }
 
 // New returns an instance of SwiftObject with the given parameters. Metadata is read in and if needData is true, the file is opened.
 func (f *SwiftObjectFactory) New(vars map[string]string, needData bool) (Object, error) {
 	var err error
 	sor := &SwiftObject{reclaimAge: f.reclaimAge, reserve: f.reserve}
-	sor.hashDir = ObjHashDir(vars, f.driveRoot, f.hashPathPrefix, f.hashPathSuffix)
+	sor.hashDir = ObjHashDir(vars, f.driveRoot, f.hashPathPrefix, f.hashPathSuffix, f.policy)
 	sor.tempDir = TempDirPath(f.driveRoot, vars["device"])
 	sor.dataFile, sor.metaFile = ObjectFiles(sor.hashDir)
 	if sor.Exists() {
@@ -226,8 +227,8 @@ func (f *SwiftObjectFactory) objReplicateHandler(writer http.ResponseWriter, req
 	if len(vars["suffixes"]) > 0 {
 		recalculate = strings.Split(vars["suffixes"], "-")
 	}
-	hashes, err := GetHashes(f.driveRoot, vars["device"], vars["partition"], recalculate, f.reclaimAge, hummingbird.GetLogger(request))
-	if err != nil {
+	hashes, herr := GetHashes(f.driveRoot, vars["device"], vars["partition"], recalculate, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
+	if herr != nil {
 		hummingbird.GetLogger(request).LogError("Unable to get hashes for %s/%s", vars["device"], vars["partition"])
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
@@ -273,7 +274,7 @@ func (f *SwiftObjectFactory) objRepConnHandler(writer http.ResponseWriter, reque
 	var hashes map[string]string
 	if brr.NeedHashes {
 		var herr *hummingbird.BackendError
-		hashes, herr = GetHashes(f.driveRoot, brr.Device, brr.Partition, nil, f.reclaimAge, hummingbird.GetLogger(request))
+		hashes, herr = GetHashes(f.driveRoot, brr.Device, brr.Partition, nil, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
 		if herr != nil {
 			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", herr)
 			writer.WriteHeader(http.StatusInternalServerError)
@@ -355,7 +356,7 @@ func (f *SwiftObjectFactory) RegisterHandlers(addRoute func(method, path string,
 }
 
 // SwiftEngineConstructor creates a SwiftObjectFactory given the object server configs.
-func SwiftEngineConstructor(config hummingbird.Config, flags *flag.FlagSet) (ObjectEngine, error) {
+func SwiftEngineConstructor(config hummingbird.Config, policy *hummingbird.Policy, flags *flag.FlagSet) (ObjectEngine, error) {
 	driveRoot := config.GetDefault("app:object-server", "devices", "/srv/node")
 	reserve := config.GetInt("app:object-server", "fallocate_reserve", 0)
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
@@ -372,11 +373,12 @@ func SwiftEngineConstructor(config hummingbird.Config, flags *flag.FlagSet) (Obj
 		reserve:          reserve,
 		replicationMan:   replicationMan,
 		replicateTimeout: replicateTimeout,
-		reclaimAge:       reclaimAge}, nil
+		reclaimAge:       reclaimAge,
+		policy:           policy.Index}, nil
 }
 
 func init() {
-	RegisterObjectEngine("swift", SwiftEngineConstructor)
+	RegisterObjectEngine("replication", SwiftEngineConstructor)
 }
 
 // make sure these things satisfy interfaces at compile time

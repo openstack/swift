@@ -17,6 +17,7 @@ package hummingbird
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -33,6 +34,7 @@ type matcher struct {
 	catchallName string
 	vars         []variable
 	static       []variable
+	policy       int
 	handler      http.Handler
 }
 
@@ -41,6 +43,8 @@ type router struct {
 	NotFoundHandler         http.Handler
 	MethodNotAllowedHandler http.Handler
 }
+
+const anyPolicy = -1
 
 // Split a string in twain on sep.  Doing it this way over strings.Split*() saves allocating a slice.
 func Split2(path string, sep string) (string, string) {
@@ -52,13 +56,16 @@ func Split2(path string, sep string) (string, string) {
 }
 
 // Given a method and path, return the handler and vars that should be used to serve them.
-func (r *router) route(method, path string) (http.Handler, map[string]string) {
+func (r *router) route(method, path string, policy int) (http.Handler, map[string]string) {
 	methodFound := false
 	path = path[1:]
 	slashCount := strings.Count(path, "/")
 	// This code is slightly gnarly because it avoids allocating anything until it's sure of a match.
 NEXTMATCH:
 	for _, m := range r.matchers {
+		if m.policy != anyPolicy && m.policy != policy {
+			continue
+		}
 		if m.method != method {
 			continue
 		}
@@ -113,10 +120,10 @@ NEXTMATCH:
 	return r.NotFoundHandler, nil
 }
 
-// Register a handler for the given method and pattern.
+// HandlePolicy registers a handler for the given method, pattern, and policy header.
 // The pattern is pretty much what you're used to, i.e. /static/:variable/*catchall
-func (r *router) Handle(method, pattern string, handler http.Handler) {
-	m := &matcher{method: method}
+func (r *router) HandlePolicy(method, pattern string, policy int, handler http.Handler) {
+	m := &matcher{method: method, policy: policy}
 	parts := strings.Split(pattern[1:], "/")
 	m.length = len(parts)
 	if pattern[len(pattern)-1] == '/' {
@@ -134,6 +141,12 @@ func (r *router) Handle(method, pattern string, handler http.Handler) {
 	}
 	m.handler = handler
 	r.matchers = append(r.matchers, m)
+}
+
+// Handle registers a handler for the given method and pattern.
+// The pattern is pretty much what you're used to, i.e. /static/:variable/*catchall
+func (r *router) Handle(method, pattern string, handler http.Handler) {
+	r.HandlePolicy(method, pattern, anyPolicy, handler)
 }
 
 func (r *router) Get(path string, handler http.Handler) {
@@ -165,7 +178,11 @@ func (r *router) Post(path string, handler http.Handler) {
 }
 
 func (r *router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	handler, vars := r.route(request.Method, request.URL.Path)
+	policy, err := strconv.Atoi(request.Header.Get("X-Backend-Storage-Policy-Index"))
+	if err != nil {
+		policy = 0
+	}
+	handler, vars := r.route(request.Method, request.URL.Path, policy)
 	SetVars(request, vars)
 	handler.ServeHTTP(writer, request)
 }
