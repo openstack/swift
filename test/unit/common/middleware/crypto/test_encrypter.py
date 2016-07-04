@@ -536,6 +536,7 @@ class TestEncrypter(unittest.TestCase):
         env = {'REQUEST_METHOD': 'POST',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
         hdrs = {'x-object-meta-test': 'encrypt me',
+                'x-object-meta-test2': '',
                 'x-object-sysmeta-test': 'do not encrypt me'}
         req = Request.blank('/v1/a/c/o', environ=env, body=body, headers=hdrs)
         key = fetch_crypto_keys()['object']
@@ -551,6 +552,8 @@ class TestEncrypter(unittest.TestCase):
 
         # user meta is encrypted
         self._verify_user_metadata(req_hdrs, 'Test', 'encrypt me', key)
+        # unless it had no value
+        self.assertEqual('', req_hdrs['X-Object-Meta-Test2'])
 
         # sysmeta is not encrypted
         self.assertEqual('do not encrypt me',
@@ -877,6 +880,36 @@ class TestEncrypter(unittest.TestCase):
         with self.assertRaises(HTTPException) as catcher:
             req.get_response(app)
         self.assertEqual(FakeAppThatExcepts.MESSAGE, catcher.exception.body)
+
+    def test_encrypt_header_val(self):
+        # Prepare key and Crypto instance
+        object_key = fetch_crypto_keys()['object']
+
+        # - Normal string can be crypted
+        encrypted = encrypter.encrypt_header_val(Crypto(), 'aaa', object_key)
+        # sanity: return value is 2 item tuple
+        self.assertEqual(2, len(encrypted))
+        crypted_val, crypt_info = encrypted
+        expected_crypt_val = base64.b64encode(
+            encrypt('aaa', object_key, FAKE_IV))
+        expected_crypt_info = {
+            'cipher': 'AES_CTR_256', 'iv': 'This is an IV123'}
+        self.assertEqual(expected_crypt_val, crypted_val)
+        self.assertEqual(expected_crypt_info, crypt_info)
+
+        # - Empty string raises a ValueError for safety
+        with self.assertRaises(ValueError) as cm:
+            encrypter.encrypt_header_val(Crypto(), '', object_key)
+
+        self.assertEqual('empty value is not acceptable',
+                         cm.exception.message)
+
+        # - None also raises a ValueError for safety
+        with self.assertRaises(ValueError) as cm:
+            encrypter.encrypt_header_val(Crypto(), None, object_key)
+
+        self.assertEqual('empty value is not acceptable',
+                         cm.exception.message)
 
 
 if __name__ == '__main__':
