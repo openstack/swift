@@ -17,6 +17,7 @@
 
 from __future__ import print_function
 
+import binascii
 import errno
 import fcntl
 import grp
@@ -27,6 +28,7 @@ import operator
 import os
 import pwd
 import re
+import struct
 import sys
 import time
 import uuid
@@ -4238,3 +4240,25 @@ def md5_hash_for_file(fname):
         for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), ''):
             md5sum.update(block)
     return md5sum.hexdigest()
+
+
+def replace_partition_in_path(path, part_power):
+    """
+    Takes a full path to a file and a partition power and returns
+    the same path, but with the correct partition number. Most useful when
+    increasing the partition power.
+
+    :param path: full path to a file, for example object .data file
+    :param part_power: partition power to compute correct partition number
+    :returns: Path with re-computed partition power
+    """
+
+    path_components = path.split(os.sep)
+    digest = binascii.unhexlify(path_components[-2])
+
+    part_shift = 32 - int(part_power)
+    part = struct.unpack_from('>I', digest)[0] >> part_shift
+
+    path_components[-4] = "%d" % part
+
+    return os.sep.join(path_components)

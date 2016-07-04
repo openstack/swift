@@ -86,6 +86,7 @@ class RingBuilder(object):
                              % (min_part_hours,))
 
         self.part_power = part_power
+        self.next_part_power = None
         self.replicas = replicas
         self.min_part_hours = min_part_hours
         self.parts = 2 ** self.part_power
@@ -210,6 +211,7 @@ class RingBuilder(object):
         """
         if hasattr(builder, 'devs'):
             self.part_power = builder.part_power
+            self.next_part_power = builder.next_part_power
             self.replicas = builder.replicas
             self.min_part_hours = builder.min_part_hours
             self.parts = builder.parts
@@ -225,6 +227,7 @@ class RingBuilder(object):
             self._id = getattr(builder, '_id', None)
         else:
             self.part_power = builder['part_power']
+            self.next_part_power = builder.get('next_part_power')
             self.replicas = builder['replicas']
             self.min_part_hours = builder['min_part_hours']
             self.parts = builder['parts']
@@ -261,6 +264,7 @@ class RingBuilder(object):
         copy_from.
         """
         return {'part_power': self.part_power,
+                'next_part_power': self.next_part_power,
                 'replicas': self.replicas,
                 'min_part_hours': self.min_part_hours,
                 'parts': self.parts,
@@ -341,7 +345,8 @@ class RingBuilder(object):
                 self._ring = \
                     RingData([array('H', p2d) for p2d in
                               self._replica2part2dev],
-                             devs, self.part_shift)
+                             devs, self.part_shift,
+                             self.next_part_power)
         return self._ring
 
     def add_dev(self, dev):
@@ -1751,6 +1756,26 @@ class RingBuilder(object):
                 matched_devs.append(dev)
         return matched_devs
 
+    def prepare_increase_partition_power(self):
+        """
+        Prepares a ring for partition power increase.
+
+        This makes it possible to compute the future location of any object
+        based on the next partition power.
+
+        In this phase object servers should create hard links when finalizing a
+        write to the new location as well. A relinker will be run after
+        restarting object-servers, creating hard links to all existing objects
+        in their future location.
+
+        :returns: False if next_part_power was not set, otherwise True.
+        """
+        if self.next_part_power:
+            return False
+        self.next_part_power = self.part_power + 1
+        self.version += 1
+        return True
+
     def increase_partition_power(self):
         """
         Increases ring partition power by one.
@@ -1759,7 +1784,16 @@ class RingBuilder(object):
 
         OLD: 0, 3, 7, 5, 2, 1, ...
         NEW: 0, 0, 3, 3, 7, 7, 5, 5, 2, 2, 1, 1, ...
+
+        :returns: False if next_part_power was not set or is equal to current
+                  part_power, None if something went wrong, otherwise True.
         """
+
+        if not self.next_part_power:
+            return False
+
+        if self.next_part_power != (self.part_power + 1):
+            return False
 
         new_replica2part2dev = []
         for replica in self._replica2part2dev:
@@ -1775,13 +1809,47 @@ class RingBuilder(object):
 
         # We need to update the time when a partition has been moved the last
         # time. Since this is an array of all partitions, we need to double it
-        # two
+        # too
         new_last_part_moves = []
         for partition in self._last_part_moves:
             new_last_part_moves.append(partition)
             new_last_part_moves.append(partition)
         self._last_part_moves = new_last_part_moves
 
-        self.part_power += 1
+        self.part_power = self.next_part_power
         self.parts *= 2
         self.version += 1
+        return True
+
+    def cancel_increase_partition_power(self):
+        """
+        Cancels a ring partition power increasement.
+
+        This sets the next_part_power to the current part_power. Object
+        replicators will still skip replication, and a cleanup is still
+        required. Finally, a finish_increase_partition_power needs to be run.
+
+        :returns: False if next_part_power was not set or is equal to current
+                  part_power, otherwise True.
+        """
+
+        if not self.next_part_power:
+            return False
+
+        if self.next_part_power != (self.part_power + 1):
+            return False
+
+        self.next_part_power = self.part_power
+        self.version += 1
+        return True
+
+    def finish_increase_partition_power(self):
+        """Finish the partition power increase.
+
+        The hard links from the old object locations should be removed by now.
+        """
+        if self.next_part_power and self.next_part_power == self.part_power:
+            self.next_part_power = None
+            self.version += 1
+            return True
+        return False

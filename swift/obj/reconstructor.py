@@ -916,6 +916,19 @@ class ObjectReconstructor(Daemon):
         all_parts = []
 
         for policy, local_devices in policy2devices.items():
+            # Skip replication if next_part_power is set. In this case
+            # every object is hard-linked twice, but the replicator
+            # can't detect them and would create a second copy of the
+            # file if not yet existing - and this might double the
+            # actual transferred and stored data
+            next_part_power = getattr(
+                policy.object_ring, 'next_part_power', None)
+            if next_part_power is not None:
+                self.logger.warning(
+                    _("next_part_power set in policy '%s'. Skipping"),
+                    policy.name)
+                continue
+
             df_mgr = self._df_router[policy]
             for local_dev in local_devices:
                 dev_path = df_mgr.get_dev_path(local_dev['device'])
@@ -1018,6 +1031,7 @@ class ObjectReconstructor(Daemon):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current reconstruction pass."))
                     return
+
                 self.reconstruction_part_count += 1
                 jobs = self.build_reconstruction_jobs(part_info)
                 if not jobs:

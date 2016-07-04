@@ -38,10 +38,12 @@ from swift.common.ring.utils import tiers_for_dev
 class RingData(object):
     """Partitioned consistent hashing ring data (used for serialization)."""
 
-    def __init__(self, replica2part2dev_id, devs, part_shift):
+    def __init__(self, replica2part2dev_id, devs, part_shift,
+                 next_part_power=None):
         self.devs = devs
         self._replica2part2dev_id = replica2part2dev_id
         self._part_shift = part_shift
+        self.next_part_power = next_part_power
 
         for dev in self.devs:
             if dev is not None:
@@ -113,18 +115,27 @@ class RingData(object):
 
         if not hasattr(ring_data, 'devs'):
             ring_data = RingData(ring_data['replica2part2dev_id'],
-                                 ring_data['devs'], ring_data['part_shift'])
+                                 ring_data['devs'], ring_data['part_shift'],
+                                 ring_data.get('next_part_power'))
         return ring_data
 
     def serialize_v1(self, file_obj):
         # Write out new-style serialization magic and version:
         file_obj.write(struct.pack('!4sH', 'R1NG', 1))
         ring = self.to_dict()
+
+        # Only include next_part_power if it is set in the
+        # builder, otherwise just ignore it
+        _text = {'devs': ring['devs'], 'part_shift': ring['part_shift'],
+                 'replica_count': len(ring['replica2part2dev_id']),
+                 'byteorder': sys.byteorder}
+
+        next_part_power = ring.get('next_part_power')
+        if next_part_power is not None:
+            _text['next_part_power'] = next_part_power
+
         json_encoder = json.JSONEncoder(sort_keys=True)
-        json_text = json_encoder.encode(
-            {'devs': ring['devs'], 'part_shift': ring['part_shift'],
-             'replica_count': len(ring['replica2part2dev_id']),
-             'byteorder': sys.byteorder})
+        json_text = json_encoder.encode(_text)
         json_len = len(json_text)
         file_obj.write(struct.pack('!I', json_len))
         file_obj.write(json_text)
@@ -155,7 +166,8 @@ class RingData(object):
     def to_dict(self):
         return {'devs': self.devs,
                 'replica2part2dev_id': self._replica2part2dev_id,
-                'part_shift': self._part_shift}
+                'part_shift': self._part_shift,
+                'next_part_power': self.next_part_power}
 
 
 class Ring(object):
@@ -244,6 +256,15 @@ class Ring(object):
             self._num_regions = len(regions)
             self._num_zones = len(zones)
             self._num_ips = len(ips)
+            self._next_part_power = ring_data.next_part_power
+
+    @property
+    def next_part_power(self):
+        return self._next_part_power
+
+    @property
+    def part_power(self):
+        return 32 - self._part_shift
 
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)

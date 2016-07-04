@@ -676,6 +676,19 @@ class ObjectReplicator(Daemon):
         jobs = []
         ips = whataremyips(self.bind_ip)
         for policy in POLICIES:
+            # Skip replication if next_part_power is set. In this case
+            # every object is hard-linked twice, but the replicator can't
+            # detect them and would create a second copy of the file if not
+            # yet existing - and this might double the actual transferred
+            # and stored data
+            next_part_power = getattr(
+                policy.object_ring, 'next_part_power', None)
+            if next_part_power is not None:
+                self.logger.warning(
+                    _("next_part_power set in policy '%s'. Skipping"),
+                    policy.name)
+                continue
+
             if policy.policy_type == REPL_POLICY:
                 if (override_policies is not None and
                         str(policy.idx) not in override_policies):
@@ -744,6 +757,7 @@ class ObjectReplicator(Daemon):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current replication pass."))
                     return
+
                 try:
                     if isfile(job['path']):
                         # Clean up any (probably zero-byte) files where a

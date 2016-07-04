@@ -131,7 +131,7 @@ def _mock_process(ret):
     object_replicator.subprocess.Popen = orig_process
 
 
-def _create_test_rings(path, devs=None):
+def _create_test_rings(path, devs=None, next_part_power=None):
     testgz = os.path.join(path, 'object.ring.gz')
     intended_replica2part2dev_id = [
         [0, 1, 2, 3, 4, 5, 6],
@@ -159,14 +159,14 @@ def _create_test_rings(path, devs=None):
     with closing(GzipFile(testgz, 'wb')) as f:
         pickle.dump(
             ring.RingData(intended_replica2part2dev_id,
-                          intended_devs, intended_part_shift),
+                          intended_devs, intended_part_shift, next_part_power),
             f)
 
     testgz = os.path.join(path, 'object-1.ring.gz')
     with closing(GzipFile(testgz, 'wb')) as f:
         pickle.dump(
             ring.RingData(intended_replica2part2dev_id,
-                          intended_devs, intended_part_shift),
+                          intended_devs, intended_part_shift, next_part_power),
             f)
     for policy in POLICIES:
         policy.object_ring = None  # force reload
@@ -1958,6 +1958,15 @@ class TestObjectReplicator(unittest.TestCase):
 
             # After 10 cycles every partition is seen exactly once
             self.assertEqual(sorted(range(partitions)), sorted(seen))
+
+    def test_replicate_skipped_partpower_increase(self):
+        _create_test_rings(self.testdir, next_part_power=4)
+        self.replicator.replicate()
+        self.assertEqual(0, self.replicator.job_count)
+        self.assertEqual(0, self.replicator.replication_count)
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertIn(
+            "next_part_power set in policy 'one'. Skipping", warnings)
 
 
 if __name__ == '__main__':

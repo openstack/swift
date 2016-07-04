@@ -489,6 +489,16 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         dev = ring.devs[-1]
         self.assertGreater(dev['region'], 0)
 
+    def test_add_device_part_power_increase(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.next_part_power = 1
+        ring.save(self.tmpfile)
+
+        argv = ["", self.tmpfile, "add",
+                "r0z0-127.0.1.1:6200/sda1_some meta data", "100"]
+        self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+
     def test_remove_device(self):
         for search_value in self.search_values:
             self.create_sample_ring()
@@ -761,6 +771,15 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "remove",
                 "--ip", "unknown"]
         self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+    def test_remove_device_part_power_increase(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.next_part_power = 1
+        ring.save(self.tmpfile)
+
+        argv = ["", self.tmpfile, "remove", "d0"]
+        self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
 
     def test_set_weight(self):
         for search_value in self.search_values:
@@ -1987,6 +2006,15 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # did not change at all, despite the warning
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(last_replica2part2dev, ring._replica2part2dev)
+
+    def test_rebalance_part_power_increase(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.next_part_power = 1
+        ring.save(self.tmpfile)
+
+        argv = ["", self.tmpfile, "rebalance", "3"]
+        self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
 
     def test_write_ring(self):
         self.create_sample_ring()

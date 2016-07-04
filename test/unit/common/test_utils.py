@@ -3809,6 +3809,28 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))
 
+    def test_replace_partition_in_path(self):
+        # Check for new part = part * 2
+        old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77/f'
+        new = '/s/n/d/o/1400/c77/af088baea4806dcaba30bf07d9e64c77/f'
+        # Expected outcome
+        self.assertEqual(utils.replace_partition_in_path(old, 11), new)
+
+        # Make sure there is no change if the part power didn't change
+        self.assertEqual(utils.replace_partition_in_path(old, 10), old)
+        self.assertEqual(utils.replace_partition_in_path(new, 11), new)
+
+        # Check for new part = part * 2 + 1
+        old = '/s/n/d/o/693/c77/ad708baea4806dcaba30bf07d9e64c77/f'
+        new = '/s/n/d/o/1387/c77/ad708baea4806dcaba30bf07d9e64c77/f'
+
+        # Expected outcome
+        self.assertEqual(utils.replace_partition_in_path(old, 11), new)
+
+        # Make sure there is no change if the part power didn't change
+        self.assertEqual(utils.replace_partition_in_path(old, 10), old)
+        self.assertEqual(utils.replace_partition_in_path(new, 11), new)
+
 
 class ResellerConfReader(unittest.TestCase):
 

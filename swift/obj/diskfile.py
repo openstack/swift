@@ -65,7 +65,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     config_true_value, listdir, split_path, ismount, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     tpool_reraise, MD5_OF_EMPTY_STRING, link_fd_to_path, o_tmpfile_supported, \
-    O_TMPFILE, makedirs_count
+    O_TMPFILE, makedirs_count, replace_partition_in_path
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -343,6 +343,37 @@ def invalidate_hash(suffix_dir):
     with lock_path(partition_dir):
         with open(invalidations_file, 'ab') as inv_fh:
             inv_fh.write(suffix + "\n")
+
+
+def relink_paths(target_path, new_target_path, check_existing=False):
+    """
+    Hard-links a file located in target_path using the second path
+    new_target_path. Creates intermediate directories if required.
+
+    :param target_path: current absolute filename
+    :param new_target_path: new absolute filename for the hardlink
+    :param check_existing: if True, check whether the link is already present
+                           before attempting to create a new one
+    """
+
+    if target_path != new_target_path:
+        logging.debug('Relinking %s to %s due to next_part_power set',
+                      target_path, new_target_path)
+        new_target_dir = os.path.dirname(new_target_path)
+        if not os.path.isdir(new_target_dir):
+            os.makedirs(new_target_dir)
+
+        link_exists = False
+        if check_existing:
+            try:
+                new_stat = os.stat(new_target_path)
+                orig_stat = os.stat(target_path)
+                link_exists = (new_stat.st_ino == orig_stat.st_ino)
+            except OSError:
+                pass  # if anything goes wrong, try anyway
+
+        if not link_exists:
+            os.link(target_path, new_target_path)
 
 
 def get_part_path(dev_path, policy, partition):
@@ -1455,9 +1486,11 @@ class BaseDiskFileWriter(object):
     :param tmppath: full path name of the opened file descriptor
     :param bytes_per_sync: number bytes written between sync calls
     :param diskfile: the diskfile creating this DiskFileWriter instance
+    :param next_part_power: the next partition power to be used
     """
 
-    def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, diskfile):
+    def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, diskfile,
+                 next_part_power):
         # Parameter tracking
         self._name = name
         self._datadir = datadir
@@ -1465,6 +1498,7 @@ class BaseDiskFileWriter(object):
         self._tmppath = tmppath
         self._bytes_per_sync = bytes_per_sync
         self._diskfile = diskfile
+        self.next_part_power = next_part_power
 
         # Internal attributes
         self._upload_size = 0
@@ -1528,6 +1562,21 @@ class BaseDiskFileWriter(object):
             # It was an unnamed temp file created by open() with O_TMPFILE
             link_fd_to_path(self._fd, target_path,
                             self._diskfile._dirs_created)
+
+        # Check if the partition power will/has been increased
+        new_target_path = None
+        if self.next_part_power:
+            new_target_path = replace_partition_in_path(
+                target_path, self.next_part_power)
+            if target_path != new_target_path:
+                try:
+                    fsync_dir(os.path.dirname(target_path))
+                    relink_paths(target_path, new_target_path)
+                except OSError as exc:
+                    self.manager.logger.exception(
+                        'Relinking %s to %s failed: %s',
+                        target_path, new_target_path, exc)
+
         # If rename is successful, flag put as succeeded. This is done to avoid
         # unnecessary os.unlink() of tempfile later. As renamer() has
         # succeeded, the tempfile would no longer exist at its original path.
@@ -1537,6 +1586,8 @@ class BaseDiskFileWriter(object):
                 self.manager.cleanup_ondisk_files(self._datadir)
             except OSError:
                 logging.exception(_('Problem cleaning up %s'), self._datadir)
+
+            self._part_power_cleanup(target_path, new_target_path)
 
     def _put(self, metadata, cleanup=True, *a, **kw):
         """
@@ -1583,6 +1634,43 @@ class BaseDiskFileWriter(object):
                           :class:`~swift.common.utils.Timestamp`
         """
         pass
+
+    def _part_power_cleanup(self, cur_path, new_path):
+        """
+        Cleanup relative DiskFile directories.
+
+        If the partition power is increased soon or has just been increased but
+        the relinker didn't yet cleanup the old files, an additional cleanup of
+        the relative dirs has to be done. Otherwise there might be some unused
+        files left if a PUT or DELETE is done in the meantime
+        :param cur_path: current full path to an object file
+        :param new_path: recomputed path to an object file, based on the
+                         next_part_power set in the ring
+
+        """
+        if new_path is None:
+            return
+
+        # Partition power will be increased soon
+        if new_path != cur_path:
+            new_target_dir = os.path.dirname(new_path)
+            try:
+                self.manager.cleanup_ondisk_files(new_target_dir)
+            except OSError:
+                logging.exception(
+                    _('Problem cleaning up %s'), new_target_dir)
+
+        # Partition power has been increased, cleanup not yet finished
+        else:
+            prev_part_power = int(self.next_part_power) - 1
+            old_target_path = replace_partition_in_path(
+                cur_path, prev_part_power)
+            old_target_dir = os.path.dirname(old_target_path)
+            try:
+                self.manager.cleanup_ondisk_files(old_target_dir)
+            except OSError:
+                logging.exception(
+                    _('Problem cleaning up %s'), old_target_dir)
 
 
 class BaseDiskFileReader(object):
@@ -1922,6 +2010,7 @@ class BaseDiskFile(object):
     :param use_linkat: if True, use open() with linkat() to create obj file
     :param open_expired: if True, open() will not raise a DiskFileExpired if
                          object is expired
+    :param next_part_power: the next partition power to be used
     """
     reader_cls = None  # must be set by subclasses
     writer_cls = None  # must be set by subclasses
@@ -1929,7 +2018,8 @@ class BaseDiskFile(object):
     def __init__(self, mgr, device_path, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None,
-                 use_linkat=False, open_expired=False, **kwargs):
+                 use_linkat=False, open_expired=False, next_part_power=None,
+                 **kwargs):
         self._manager = mgr
         self._device_path = device_path
         self._logger = mgr.logger
@@ -1947,6 +2037,7 @@ class BaseDiskFile(object):
         # in all entry fops being carried out synchronously.
         self._dirs_created = 0
         self.policy = policy
+        self.next_part_power = next_part_power
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
             self._account = account
@@ -2491,7 +2582,8 @@ class BaseDiskFile(object):
                     raise
             dfw = self.writer_cls(self._name, self._datadir, fd, tmppath,
                                   bytes_per_sync=self._bytes_per_sync,
-                                  diskfile=self)
+                                  diskfile=self,
+                                  next_part_power=self.next_part_power)
             yield dfw
         finally:
             try:
@@ -2712,10 +2804,27 @@ class ECDiskFileWriter(BaseDiskFileWriter):
 
     def _finalize_durable(self, data_file_path, durable_data_file_path):
         exc = None
+        new_data_file_path = new_durable_data_file_path = None
+        if self.next_part_power:
+            new_data_file_path = replace_partition_in_path(
+                data_file_path, self.next_part_power)
+            new_durable_data_file_path = replace_partition_in_path(
+                durable_data_file_path, self.next_part_power)
         try:
             try:
                 os.rename(data_file_path, durable_data_file_path)
                 fsync_dir(self._datadir)
+                if self.next_part_power and \
+                        data_file_path != new_data_file_path:
+                    try:
+                        os.rename(new_data_file_path,
+                                  new_durable_data_file_path)
+                    except OSError as exc:
+                        self.manager.logger.exception(
+                            'Renaming new path %s to %s failed: %s',
+                            new_data_file_path, new_durable_data_file_path,
+                            exc)
+
             except (OSError, IOError) as err:
                 if err.errno not in (errno.ENOSPC, errno.EDQUOT):
                     # re-raise to catch all handler
@@ -2733,6 +2842,9 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     self.manager.logger.exception(
                         _('Problem cleaning up %(datadir)s (%(err)s)'),
                         {'datadir': self._datadir, 'err': os_err})
+                self._part_power_cleanup(
+                    durable_data_file_path, new_durable_data_file_path)
+
         except Exception as err:
             params = {'file': durable_data_file_path, 'err': err}
             self.manager.logger.exception(
