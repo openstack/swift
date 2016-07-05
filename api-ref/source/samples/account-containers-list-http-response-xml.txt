@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+Content-Length: 262
+X-Account-Object-Count: 1
+X-Timestamp: 1389453423.35964
+X-Account-Meta-Subject: Literature
+X-Account-Bytes-Used: 14
+X-Account-Container-Count: 2
+Content-Type: application/xml; charset=utf-8
+Accept-Ranges: bytes
+X-Trans-Id: tx69f60bc9f7634a01988e6-0052d9544b
+Date: Fri, 17 Jan 2014 16:03:23 GMT

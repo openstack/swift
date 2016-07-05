@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+Content-Length: 96
+X-Account-Object-Count: 1
+X-Timestamp: 1389453423.35964
+X-Account-Meta-Subject: Literature
+X-Account-Bytes-Used: 14
+X-Account-Container-Count: 2
+Content-Type: application/json; charset=utf-8
+Accept-Ranges: bytes
+X-Trans-Id: tx274a77a8975c4a66aeb24-0052d95365
+Date: Fri, 17 Jan 2014 15:59:33 GMT
