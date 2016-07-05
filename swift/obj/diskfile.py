@@ -1115,12 +1115,14 @@ class BaseDiskFileManager(object):
         """
         device_path = self.construct_dev_path(device)
         async_dir = os.path.join(device_path, get_async_dir(policy))
+        tmp_dir = os.path.join(device_path, get_tmp_dir(policy))
+        mkdirs(tmp_dir)
         ohash = hash_path(account, container, obj)
         write_pickle(
             data,
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
                          Timestamp(timestamp).internal),
-            os.path.join(device_path, get_tmp_dir(policy)))
+            tmp_dir)
         self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
