@@ -556,7 +556,7 @@ class Server(object):
         pids = {}
         for pid_file, pid in self.iter_pid_files(**kwargs):
             if not pid:  # Catches None and 0
-                print (_('Removing pid file %s with invalid pid') % pid_file)
+                print(_('Removing pid file %s with invalid pid') % pid_file)
                 remove_file(pid_file)
                 continue
             try:
