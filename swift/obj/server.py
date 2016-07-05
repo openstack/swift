@@ -1055,8 +1055,7 @@ class ObjectController(BaseStorageServer):
                 if req.method not in self.allowed_methods:
                     res = HTTPMethodNotAllowed()
                 else:
-                    method = getattr(self, req.method)
-                    res = method(req)
+                    res = getattr(self, req.method)(req)
             except DiskFileCollision:
                 res = HTTPForbidden(request=req)
             except HTTPException as error_response:
