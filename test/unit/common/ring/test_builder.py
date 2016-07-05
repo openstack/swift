@@ -2154,13 +2154,6 @@ class TestRingBuilder(unittest.TestCase):
         # now double up a device assignment
         rb._replica2part2dev[1][200] = rb._replica2part2dev[2][200]
 
-        class SubStringMatcher(object):
-            def __init__(self, substr):
-                self.substr = substr
-
-            def __eq__(self, other):
-                return self.substr in other
-
         with self.assertRaises(exceptions.RingValidationError) as e:
             rb.validate()
 

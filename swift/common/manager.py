@@ -441,6 +441,9 @@ class Server(object):
         except AttributeError:
             return False
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
     def get_pid_file_name(self, conf_file):
         """Translate conf_file to a corresponding pid_file
 
