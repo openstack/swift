@@ -157,16 +157,16 @@ def check_metadata(req, target_type):
             return HTTPBadRequest(
                 body='Metadata name too long: %s%s' % (prefix, key),
                 request=req, content_type='text/plain')
-        elif len(value) > MAX_META_VALUE_LENGTH:
+        if len(value) > MAX_META_VALUE_LENGTH:
             return HTTPBadRequest(
                 body='Metadata value longer than %d: %s%s' % (
                     MAX_META_VALUE_LENGTH, prefix, key),
                 request=req, content_type='text/plain')
-        elif meta_count > MAX_META_COUNT:
+        if meta_count > MAX_META_COUNT:
             return HTTPBadRequest(
                 body='Too many metadata items; max %d' % MAX_META_COUNT,
                 request=req, content_type='text/plain')
-        elif meta_size > MAX_META_OVERALL_SIZE:
+        if meta_size > MAX_META_OVERALL_SIZE:
             return HTTPBadRequest(
                 body='Total metadata too large; max %d'
                 % MAX_META_OVERALL_SIZE,
