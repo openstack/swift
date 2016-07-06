@@ -32,6 +32,7 @@ import eventlet
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
+import json
 
 
 from swift.common.utils import Timestamp, NOTICE
@@ -223,7 +224,8 @@ class FakeRing(Ring):
         for x in range(self.replicas):
             ip = '10.0.0.%s' % x
             port = self._base_port + x
-            self._devs.append({
+            # round trip through json to ensure unicode like real rings
+            self._devs.append(json.loads(json.dumps({
                 'ip': ip,
                 'replication_ip': ip,
                 'port': port,
@@ -232,7 +234,7 @@ class FakeRing(Ring):
                 'zone': x % 3,
                 'region': x % 2,
                 'id': x,
-            })
+            })))
 
     @property
     def replica_count(self):
