@@ -13,6 +13,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import print_function
 
 import traceback
 from optparse import OptionParser
@@ -33,7 +34,6 @@ from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.utils import compute_eta, get_time_units, config_true_value
 from swift.common.storage_policy import POLICIES
-
 
 insecure = False
 
@@ -77,9 +77,9 @@ def report(success):
         return
     next_report = time() + 5
     eta, eta_unit = compute_eta(begun, created, need_to_create)
-    print ('\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries'
-           % (item_type, created, need_to_create, round(eta), eta_unit,
-              retries_done)),
+    print('\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries'
+          % (item_type, created, need_to_create, round(eta), eta_unit,
+             retries_done), end='')
     stdout.flush()
 
 
@@ -105,9 +105,9 @@ Usage: %%prog [options] [conf_file]
                       help='Allow accessing insecure keystone server. '
                            'The keystone\'s certificate will not be verified.')
     parser.add_option('--no-overlap', action='store_true', default=False,
-                      help='No overlap of partitions if running populate \
+                      help="No overlap of partitions if running populate \
                       more than once. Will increase coverage by amount shown \
-                      in dispersion.conf file')
+                      in dispersion.conf file")
     parser.add_option('-P', '--policy-name', dest='policy_name',
                       help="Specify storage policy name")
 
@@ -127,7 +127,7 @@ Usage: %%prog [options] [conf_file]
         policy = POLICIES.get_by_name(options.policy_name)
         if policy is None:
             exit('Unable to find policy: %s' % options.policy_name)
-    print 'Using storage policy: %s ' % policy.name
+    print('Using storage policy: %s ' % policy.name)
 
     swift_dir = conf.get('swift_dir', '/etc/swift')
     dispersion_coverage = float(conf.get('dispersion_coverage', 1))
@@ -213,15 +213,15 @@ Usage: %%prog [options] [conf_file]
             suffix += 1
         coropool.waitall()
         elapsed, elapsed_unit = get_time_units(time() - begun)
-        print '\r\x1B[KCreated %d containers for dispersion reporting, ' \
-              '%d%s, %d retries' % \
+        print('\r\x1B[KCreated %d containers for dispersion reporting, '
+              '%d%s, %d retries' %
               ((need_to_create - need_to_queue), round(elapsed), elapsed_unit,
-               retries_done)
+               retries_done))
         if options.no_overlap:
             con_coverage = container_ring.partition_count - len(parts_left)
-            print '\r\x1B[KTotal container coverage is now %.2f%%.' % \
+            print('\r\x1B[KTotal container coverage is now %.2f%%.' %
                   ((float(con_coverage) / container_ring.partition_count
-                   * 100))
+                    * 100)))
         stdout.flush()
 
     if object_populate:
@@ -269,12 +269,12 @@ Usage: %%prog [options] [conf_file]
             suffix += 1
         coropool.waitall()
         elapsed, elapsed_unit = get_time_units(time() - begun)
-        print '\r\x1B[KCreated %d objects for dispersion reporting, ' \
-              '%d%s, %d retries' % \
+        print('\r\x1B[KCreated %d objects for dispersion reporting, '
+              '%d%s, %d retries' %
               ((need_to_create - need_to_queue), round(elapsed), elapsed_unit,
-               retries_done)
+               retries_done))
         if options.no_overlap:
             obj_coverage = object_ring.partition_count - len(parts_left)
-            print '\r\x1B[KTotal object coverage is now %.2f%%.' % \
-                  ((float(obj_coverage) / object_ring.partition_count * 100))
+            print('\r\x1B[KTotal object coverage is now %.2f%%.' %
+                  ((float(obj_coverage) / object_ring.partition_count * 100)))
         stdout.flush()
