@@ -1186,11 +1186,24 @@ class TestFile(Base):
         file_item = self.env.container.file(source_filename)
 
         metadata = {}
-        for i in range(1):
-            metadata[Utils.create_ascii_name()] = Utils.create_name()
+        metadata[Utils.create_ascii_name()] = Utils.create_name()
+        put_headers = {'Content-Type': 'application/test',
+                       'Content-Encoding': 'gzip',
+                       'Content-Disposition': 'attachment; filename=myfile'}
+        file_item.metadata = metadata
+        data = file_item.write_random(hdrs=put_headers)
 
-        data = file_item.write_random()
-        file_item.sync_metadata(metadata)
+        # the allowed headers are configurable in object server, so we cannot
+        # assert that content-encoding and content-disposition get *copied*
+        # unless they were successfully set on the original PUT, so populate
+        # expected_headers by making a HEAD on the original object
+        file_item.initialize()
+        self.assertEqual('application/test', file_item.content_type)
+        resp_headers = dict(file_item.conn.response.getheaders())
+        expected_headers = {}
+        for k, v in put_headers.items():
+            if k.lower() in resp_headers:
+                expected_headers[k] = v
 
         dest_cont = self.env.account.container(Utils.create_name())
         self.assertTrue(dest_cont.create())
@@ -1201,16 +1214,71 @@ class TestFile(Base):
             for prefix in ('', '/'):
                 dest_filename = Utils.create_name()
 
-                file_item = self.env.container.file(source_filename)
-                file_item.copy('%s%s' % (prefix, cont), dest_filename)
+                extra_hdrs = {'X-Object-Meta-Extra': 'fresh'}
+                self.assertTrue(file_item.copy(
+                    '%s%s' % (prefix, cont), dest_filename, hdrs=extra_hdrs))
 
                 self.assertIn(dest_filename, cont.files())
 
-                file_item = cont.file(dest_filename)
+                file_copy = cont.file(dest_filename)
 
-                self.assertEqual(data, file_item.read())
-                self.assertTrue(file_item.initialize())
-                self.assertEqual(metadata, file_item.metadata)
+                self.assertEqual(data, file_copy.read())
+                self.assertTrue(file_copy.initialize())
+                expected_metadata = dict(metadata)
+                # new metadata should be merged with existing
+                expected_metadata['extra'] = 'fresh'
+                self.assertDictEqual(expected_metadata, file_copy.metadata)
+                resp_headers = dict(file_copy.conn.response.getheaders())
+                for k, v in expected_headers.items():
+                    self.assertIn(k.lower(), resp_headers)
+                    self.assertEqual(v, resp_headers[k.lower()])
+
+                # repeat copy with updated content-type, content-encoding and
+                # content-disposition, which should get updated
+                extra_hdrs = {
+                    'X-Object-Meta-Extra': 'fresher',
+                    'Content-Type': 'application/test-changed',
+                    'Content-Encoding': 'not_gzip',
+                    'Content-Disposition': 'attachment; filename=notmyfile'}
+                self.assertTrue(file_item.copy(
+                    '%s%s' % (prefix, cont), dest_filename, hdrs=extra_hdrs))
+
+                self.assertIn(dest_filename, cont.files())
+
+                file_copy = cont.file(dest_filename)
+
+                self.assertEqual(data, file_copy.read())
+                self.assertTrue(file_copy.initialize())
+                expected_metadata['extra'] = 'fresher'
+                self.assertDictEqual(expected_metadata, file_copy.metadata)
+                resp_headers = dict(file_copy.conn.response.getheaders())
+                # if k is in expected_headers then we can assert its new value
+                for k, v in expected_headers.items():
+                    v = extra_hdrs.get(k, v)
+                    self.assertIn(k.lower(), resp_headers)
+                    self.assertEqual(v, resp_headers[k.lower()])
+
+                # repeat copy with X-Fresh-Metadata header - existing user
+                # metadata should not be copied, new completely replaces it.
+                extra_hdrs = {'Content-Type': 'application/test-updated',
+                              'X-Object-Meta-Extra': 'fresher',
+                              'X-Fresh-Metadata': 'true'}
+                self.assertTrue(file_item.copy(
+                    '%s%s' % (prefix, cont), dest_filename, hdrs=extra_hdrs))
+
+                self.assertIn(dest_filename, cont.files())
+
+                file_copy = cont.file(dest_filename)
+
+                self.assertEqual(data, file_copy.read())
+                self.assertTrue(file_copy.initialize())
+                self.assertEqual('application/test-updated',
+                                 file_copy.content_type)
+                expected_metadata = {'extra': 'fresher'}
+                self.assertDictEqual(expected_metadata, file_copy.metadata)
+                resp_headers = dict(file_copy.conn.response.getheaders())
+                for k in ('Content-Disposition', 'Content-Encoding'):
+                    self.assertNotIn(k.lower(), resp_headers)
 
     def testCopyAccount(self):
         # makes sure to test encoded characters
