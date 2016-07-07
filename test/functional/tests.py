@@ -1582,7 +1582,6 @@ class TestFile(Base):
 
             j = size_limit / (i * 2)
 
-            size = 0
             metadata = {}
             while len(metadata.keys()) < i:
                 key = Utils.create_ascii_name()
@@ -1592,7 +1591,6 @@ class TestFile(Base):
                     key = key[:j]
                     val = val[:j]
 
-                size += len(key) + len(val)
                 metadata[key] = val
 
             file_item = self.env.container.file(Utils.create_name())
