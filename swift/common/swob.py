@@ -284,7 +284,7 @@ def _resp_status_property():
         return '%s %s' % (self.status_int, self.title)
 
     def setter(self, value):
-        if isinstance(value, (int, long)):
+        if isinstance(value, six.integer_types):
             self.status_int = value
             self.explanation = self.title = RESPONSE_REASONS[value][0]
         else:

@@ -964,7 +964,7 @@ def decode_timestamps(encoded, explicit=False):
     # TODO: some tests, e.g. in test_replicator, put float timestamps values
     # into container db's, hence this defensive check, but in real world
     # this may never happen.
-    if not isinstance(encoded, basestring):
+    if not isinstance(encoded, six.string_types):
         ts = Timestamp(encoded)
         return ts, ts, ts
 
