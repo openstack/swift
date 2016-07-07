@@ -1545,10 +1545,11 @@ class Controller(object):
                         self.app.error_occurred(
                             node, _('ERROR %(status)d '
                                     'Trying to %(method)s %(path)s'
-                                    'From Container Server') % {
+                                    ' From %(type)s Server') % {
                                         'status': resp.status,
                                         'method': method,
-                                        'path': path})
+                                        'path': path,
+                                        'type': self.server_type})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,

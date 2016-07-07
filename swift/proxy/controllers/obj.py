@@ -349,7 +349,7 @@ class BaseObjectController(Controller):
         for putter in putters:
             if putter.failed:
                 continue
-            pile.spawn(self._get_conn_response, putter, req,
+            pile.spawn(self._get_conn_response, putter, req.path,
                        self.app.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):

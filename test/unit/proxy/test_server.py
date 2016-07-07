@@ -874,6 +874,60 @@ class TestProxyServer(unittest.TestCase):
 
         self.assertEqual(controller.__name__, 'InfoController')
 
+    def test_exception_occurred(self):
+        def do_test(additional_info):
+            logger = debug_logger('test')
+            app = proxy_server.Application({}, FakeMemcache(),
+                                           account_ring=FakeRing(),
+                                           container_ring=FakeRing(),
+                                           logger=logger)
+            node = app.container_ring.get_part_nodes(0)[0]
+            node_key = app._error_limit_node_key(node)
+            self.assertNotIn(node_key, app._error_limiting)  # sanity
+            try:
+                raise Exception('kaboom1!')
+            except Exception as err:
+                app.exception_occurred(node, 'server-type', additional_info)
+
+            self.assertEqual(1, app._error_limiting[node_key]['errors'])
+            line = logger.get_lines_for_level('error')[-1]
+            self.assertIn('server-type server', line)
+            self.assertIn(additional_info.decode('utf8'), line)
+            self.assertIn(node['ip'], line)
+            self.assertIn(str(node['port']), line)
+            self.assertIn(node['device'], line)
+            log_args, log_kwargs = logger.log_dict['error'][-1]
+            self.assertTrue(log_kwargs['exc_info'])
+            self.assertEqual(err, log_kwargs['exc_info'][1])
+
+        do_test('success')
+        do_test('succès')
+        do_test(u'success')
+
+    def test_error_occurred(self):
+        def do_test(msg):
+            logger = debug_logger('test')
+            app = proxy_server.Application({}, FakeMemcache(),
+                                           account_ring=FakeRing(),
+                                           container_ring=FakeRing(),
+                                           logger=logger)
+            node = app.container_ring.get_part_nodes(0)[0]
+            node_key = app._error_limit_node_key(node)
+            self.assertNotIn(node_key, app._error_limiting)  # sanity
+
+            app.error_occurred(node, msg)
+
+            self.assertEqual(1, app._error_limiting[node_key]['errors'])
+            line = logger.get_lines_for_level('error')[-1]
+            self.assertIn(msg.decode('utf8'), line)
+            self.assertIn(node['ip'], line)
+            self.assertIn(str(node['port']), line)
+            self.assertIn(node['device'], line)
+
+        do_test('success')
+        do_test('succès')
+        do_test(u'success')
+
     def test_error_limit_methods(self):
         logger = debug_logger('test')
         app = proxy_server.Application({}, FakeMemcache(),

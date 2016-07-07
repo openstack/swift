@@ -31,6 +31,7 @@ from six.moves import range
 
 import swift
 from swift.common import utils, swob, exceptions
+from swift.common.exceptions import ChunkWriteTimeout
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
@@ -856,19 +857,151 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             node_error_count(self.app, object_ring.devs[1]),
             self.app.error_suppression_limit + 1)
 
-    def test_PUT_connect_exception_with_unicode_path_and_locale(self):
+    def test_PUT_connect_exception_with_unicode_path(self):
         expected = 201
         statuses = (
             Exception('Connection refused: Please insert ten dollars'),
-            201, 201)
+            201, 201, 201)
 
         req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
                                  method='PUT',
                                  body='life is utf-gr8')
+        self.app.logger.clear()
         with set_http_connect(*statuses):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, expected)
+        log_lines = self.app.logger.get_lines_for_level('error')
+        self.assertFalse(log_lines[1:])
+        self.assertIn('ERROR with Object server', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn('re: Expect: 100-continue', log_lines[0])
+
+    def test_PUT_get_expect_errors_with_unicode_path(self):
+        def do_test(statuses):
+            req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                     method='PUT',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(*statuses):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            return log_lines
+
+        log_lines = do_test((201, (507, None), 201, 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        log_lines = do_test((201, (503, None), 201, 201))
+        self.assertIn('ERROR 503 Expect: 100-continue From Object Server',
+                      log_lines[0])
+
+    def test_PUT_send_exception_with_unicode_path(self):
+        def do_test(exc):
+            conns = set()
+
+            def capture_send(conn, data):
+                conns.add(conn)
+                if len(conns) == 2:
+                    raise exc
+
+            req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                     method='PUT',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(201, 201, 201, give_send=capture_send):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            self.assertIn('ERROR with Object server', log_lines[0])
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+            self.assertIn('Trying to write to', log_lines[0])
+
+        do_test(Exception('Exception while sending data on connection'))
+        do_test(ChunkWriteTimeout())
+
+    def test_PUT_final_response_errors_with_unicode_path(self):
+        def do_test(statuses):
+            req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                     method='PUT',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(*statuses):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            return req, log_lines
+
+        req, log_lines = do_test((201, (100, Exception('boom')), 201))
+        self.assertIn('ERROR with Object server', log_lines[0])
+        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        self.assertIn('Trying to get final status of PUT', log_lines[0])
+
+        req, log_lines = do_test((201, (100, Timeout()), 201))
+        self.assertIn('ERROR with Object server', log_lines[0])
+        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        self.assertIn('Trying to get final status of PUT', log_lines[0])
+
+        req, log_lines = do_test((201, (100, 507), 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        req, log_lines = do_test((201, (100, 500), 201))
+        self.assertIn('ERROR 500  From Object Server', log_lines[0])
+        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+
+    def test_DELETE_errors(self):
+        # verify logged errors with and without non-ascii characters in path
+        def do_test(path, statuses):
+
+            req = swob.Request.blank('/v1' + path,
+                                     method='DELETE',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(*statuses):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            return req, log_lines
+
+        req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
+                                 (201, 500, 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(' From Object Server', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 (201, 500, 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(' From Object Server', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
+                                 (201, 507, 201, 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 (201, 507, 201, 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
+                                 (201, Exception(), 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn('ERROR with Object server', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 (201, Exception(), 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn('ERROR with Object server', log_lines[0])
 
     def test_PUT_error_during_transfer_data(self):
         class FakeReader(object):
