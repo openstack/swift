@@ -17,6 +17,7 @@
 """Tests for swift.common.utils"""
 
 from collections import defaultdict
+from hashlib import md5
 import logging
 import socket
 import time
@@ -293,30 +294,38 @@ class TestMemcached(unittest.TestCase):
             finally:
                 sock.close()
 
-    def test_set_get(self):
+    def test_set_get_json(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
+        cache_key = md5('some_key').hexdigest()
+
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-        self.assertEqual(mock.cache.values()[0][1], '0')
+        # See JSON_FLAG
+        self.assertEqual(mock.cache, {cache_key: ('2', '0', '[1, 2, 3]')})
+
         memcache_client.set('some_key', [4, 5, 6])
         self.assertEqual(memcache_client.get('some_key'), [4, 5, 6])
+        self.assertEqual(mock.cache, {cache_key: ('2', '0', '[4, 5, 6]')})
+
         memcache_client.set('some_key', ['simple str', 'utf8 str éà'])
         # As per http://wiki.openstack.org/encoding,
         # we should expect to have unicode
         self.assertEqual(
             memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
-        self.assertTrue(float(mock.cache.values()[0][1]) == 0)
+        self.assertEqual(mock.cache, {cache_key: (
+            '2', '0', '["simple str", "utf8 str \\u00e9\\u00e0"]')})
+
         memcache_client.set('some_key', [1, 2, 3], time=20)
-        self.assertEqual(mock.cache.values()[0][1], '20')
+        self.assertEqual(mock.cache, {cache_key: ('2', '20', '[1, 2, 3]')})
 
         sixtydays = 60 * 24 * 60 * 60
         esttimeout = time.time() + sixtydays
         memcache_client.set('some_key', [1, 2, 3], time=sixtydays)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        _junk, cache_timeout, _junk = mock.cache[cache_key]
+        self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
 
     def test_incr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -343,25 +352,32 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
+        cache_key = md5('some_key').hexdigest()
+
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), '5')
-        self.assertEqual(mock.cache.values()[0][1], '55')
+        self.assertEqual(mock.cache, {cache_key: ('0', '55', '5')})
+
         memcache_client.delete('some_key')
         self.assertEqual(memcache_client.get('some_key'), None)
+
         fiftydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fiftydays
         memcache_client.incr('some_key', delta=5, time=fiftydays)
         self.assertEqual(memcache_client.get('some_key'), '5')
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        _junk, cache_timeout, _junk = mock.cache[cache_key]
+        self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
+
         memcache_client.delete('some_key')
         self.assertEqual(memcache_client.get('some_key'), None)
+
         memcache_client.incr('some_key', delta=5)
         self.assertEqual(memcache_client.get('some_key'), '5')
-        self.assertEqual(mock.cache.values()[0][1], '0')
+        self.assertEqual(mock.cache, {cache_key: ('0', '0', '5')})
+
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), '10')
-        self.assertEqual(mock.cache.values()[0][1], '0')
+        self.assertEqual(mock.cache, {cache_key: ('0', '0', '10')})
 
     def test_decr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -409,28 +425,35 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
+
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key')
         self.assertEqual(
             memcache_client.get_multi(('some_key2', 'some_key1'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3]])
-        self.assertEqual(mock.cache.values()[0][1], '0')
-        self.assertEqual(mock.cache.values()[1][1], '0')
+        for key in ('some_key1', 'some_key2'):
+            key = md5(key).hexdigest()
+            self.assertIn(key, mock.cache)
+            _junk, cache_timeout, _junk = mock.cache[key]
+            self.assertEqual(cache_timeout, '0')
+
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=20)
-        self.assertEqual(mock.cache.values()[0][1], '20')
-        self.assertEqual(mock.cache.values()[1][1], '20')
+        for key in ('some_key1', 'some_key2'):
+            key = md5(key).hexdigest()
+            _junk, cache_timeout, _junk = mock.cache[key]
+            self.assertEqual(cache_timeout, '20')
 
         fortydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fortydays
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=fortydays)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[1][1]) - esttimeout <= 1)
+        for key in ('some_key1', 'some_key2'):
+            key = md5(key).hexdigest()
+            _junk, cache_timeout, _junk = mock.cache[key]
+            self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
         self.assertEqual(memcache_client.get_multi(
             ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3], None])
