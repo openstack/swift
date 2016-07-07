@@ -142,10 +142,10 @@ if __name__ == '__main__':
     try:
         conf_path = sys.argv[1]
     except Exception:
-        print "Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1]
+        print("Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1])
         sys.exit(1)
     if not c.read(conf_path):
-        print "Unable to read config file %s" % conf_path
+        print("Unable to read config file %s" % conf_path)
         sys.exit(1)
     conf = dict(c.items('drive-audit'))
     device_dir = conf.get('device_dir', '/srv/node')

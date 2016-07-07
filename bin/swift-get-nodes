@@ -74,7 +74,7 @@ if __name__ == '__main__':
             ring_name = args[0].rsplit('/', 1)[-1].split('.', 1)[0]
             ring = Ring(args[0])
         else:
-            print 'Ring file does not exist'
+            print('Ring file does not exist')
         args.pop(0)
 
     try:

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import optparse
 import os
 import signal
@@ -104,11 +105,11 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
         args_len = max(args_len, len(args))
     args_len = min(args_len, 78 - hours_len - pid_len)
 
-    print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
-          ('Hours', 'PID', 'Command')
+    print(('%%%ds %%%ds %%s' % (hours_len, pid_len)) %
+          ('Hours', 'PID', 'Command'))
     for hours, pid, args in listing:
-        print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
-              (hours, pid, args[:args_len])
+        print(('%%%ds %%%ds %%s' % (hours_len, pid_len)) %
+              (hours, pid, args[:args_len]))
 
     if options.signal:
         try:
@@ -120,7 +121,8 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
         if not signum:
             sys.exit('Could not translate %r to a signal number.' %
                      options.signal)
-        print 'Sending processes %s (%d) signal...' % (options.signal, signum),
+        print('Sending processes %s (%d) signal...' % (options.signal, signum),
+              end='')
         for hours, pid, args in listing:
             os.kill(int(pid), signum)
-        print 'Done.'
+        print('Done.')

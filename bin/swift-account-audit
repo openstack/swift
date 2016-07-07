@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import os
 import sys
 from hashlib import md5
@@ -78,7 +79,7 @@ class Auditor(object):
         container_listing = self.audit_container(account, container)
         consistent = True
         if name not in container_listing:
-            print "  Object %s missing in container listing!" % path
+            print("  Object %s missing in container listing!" % path)
             consistent = False
             hash = None
         else:
@@ -99,14 +100,14 @@ class Auditor(object):
                     if resp.status // 100 != 2:
                         self.object_not_found += 1
                         consistent = False
-                        print '  Bad status GETting object "%s" on %s/%s' \
-                            % (path, node['ip'], node['device'])
+                        print('  Bad status GETting object "%s" on %s/%s'
+                              % (path, node['ip'], node['device']))
                         continue
                     if resp.getheader('ETag').strip('"') != calc_hash:
                         self.object_checksum_mismatch += 1
                         consistent = False
-                        print '  MD5 does not match etag for "%s" on %s/%s' \
-                            % (path, node['ip'], node['device'])
+                        print('  MD5 does not match etag for "%s" on %s/%s'
+                              % (path, node['ip'], node['device']))
                     etags.append(resp.getheader('ETag'))
                 else:
                     conn = http_connect(node['ip'], node['port'],
@@ -116,28 +117,29 @@ class Auditor(object):
                     if resp.status // 100 != 2:
                         self.object_not_found += 1
                         consistent = False
-                        print '  Bad status HEADing object "%s" on %s/%s' \
-                            % (path, node['ip'], node['device'])
+                        print('  Bad status HEADing object "%s" on %s/%s'
+                              % (path, node['ip'], node['device']))
                         continue
                     etags.append(resp.getheader('ETag'))
             except Exception:
                 self.object_exceptions += 1
                 consistent = False
-                print '  Exception fetching object "%s" on %s/%s' \
-                    % (path, node['ip'], node['device'])
+                print('  Exception fetching object "%s" on %s/%s'
+                      % (path, node['ip'], node['device']))
                 continue
         if not etags:
             consistent = False
-            print "  Failed fo fetch object %s at all!" % path
+            print("  Failed fo fetch object %s at all!" % path)
         elif hash:
             for etag in etags:
                 if resp.getheader('ETag').strip('"') != hash:
                     consistent = False
                     self.object_checksum_mismatch += 1
-                    print '  ETag mismatch for "%s" on %s/%s' \
-                        % (path, node['ip'], node['device'])
+                    print('  ETag mismatch for "%s" on %s/%s'
+                          % (path, node['ip'], node['device']))
         if not consistent and self.error_file:
-            print >>open(self.error_file, 'a'), path
+            with open(self.error_file, 'a') as err_file:
+                print(path, file=err_file)
         self.objects_checked += 1
 
     def audit_container(self, account, name, recurse=False):
@@ -146,13 +148,13 @@ class Auditor(object):
         if (account, name) in self.list_cache:
             return self.list_cache[(account, name)]
         self.in_progress[(account, name)] = Event()
-        print 'Auditing container "%s"' % name
+        print('Auditing container "%s"' % name)
         path = '/%s/%s' % (account, name)
         account_listing = self.audit_account(account)
         consistent = True
         if name not in account_listing:
             consistent = False
-            print "  Container %s not in account listing!" % path
+            print("  Container %s not in account listing!" % path)
         part, nodes = \
             self.container_ring.get_nodes(account, name.encode('utf-8'))
         rec_d = {}
@@ -180,8 +182,8 @@ class Auditor(object):
                 except Exception:
                     self.container_exceptions += 1
                     consistent = False
-                    print '  Exception GETting container "%s" on %s/%s' % \
-                        (path, node['ip'], node['device'])
+                    print('  Exception GETting container "%s" on %s/%s' %
+                          (path, node['ip'], node['device']))
                     break
                 if results:
                     marker = results[-1]['name']
@@ -202,13 +204,15 @@ class Auditor(object):
                       for header in responses.values()]
         if not obj_counts:
             consistent = False
-            print "  Failed to fetch container %s at all!" % path
+            print("  Failed to fetch container %s at all!" % path)
         else:
             if len(set(obj_counts)) != 1:
                 self.container_count_mismatch += 1
                 consistent = False
-                print "  Container databases don't agree on number of objects."
-                print "  Max: %s, Min: %s" % (max(obj_counts), min(obj_counts))
+                print(
+                    "  Container databases don't agree on number of objects.")
+                print(
+                    "  Max: %s, Min: %s" % (max(obj_counts), min(obj_counts)))
         self.containers_checked += 1
         self.list_cache[(account, name)] = rec_d
         self.in_progress[(account, name)].send(True)
@@ -217,7 +221,8 @@ class Auditor(object):
             for obj in rec_d.keys():
                 self.pool.spawn_n(self.audit_object, account, name, obj)
         if not consistent and self.error_file:
-            print >>open(self.error_file, 'a'), path
+            with open(self.error_file, 'a') as error_file:
+                print(path, file=error_file)
         return rec_d
 
     def audit_account(self, account, recurse=False):
@@ -226,7 +231,7 @@ class Auditor(object):
         if account in self.list_cache:
             return self.list_cache[account]
         self.in_progress[account] = Event()
-        print 'Auditing account "%s"' % account
+        print('Auditing account "%s"' % account)
         consistent = True
         path = '/%s' % account
         part, nodes = self.account_ring.get_nodes(account)
@@ -270,8 +275,8 @@ class Auditor(object):
             print("  Account databases for '%s' don't agree on"
                   " number of containers." % account)
             if cont_counts:
-                print "  Max: %s, Min: %s" % (max(cont_counts),
-                                              min(cont_counts))
+                print("  Max: %s, Min: %s" % (max(cont_counts),
+                                              min(cont_counts)))
         obj_counts = [int(header['x-account-object-count'])
                       for header in headers]
         if len(set(obj_counts)) != 1:
@@ -280,8 +285,8 @@ class Auditor(object):
             print("  Account databases for '%s' don't agree on"
                   " number of objects." % account)
             if obj_counts:
-                print "  Max: %s, Min: %s" % (max(obj_counts),
-                                              min(obj_counts))
+                print("  Max: %s, Min: %s" % (max(obj_counts),
+                                              min(obj_counts)))
         containers = set()
         for resp in responses.values():
             containers.update(container['name'] for container in resp[1])
@@ -294,7 +299,8 @@ class Auditor(object):
                 self.pool.spawn_n(self.audit_container, account,
                                   container, True)
         if not consistent and self.error_file:
-            print >>open(self.error_file, 'a'), path
+            with open(self.error_file, 'a') as error_file:
+                print(path, error_file)
         return containers
 
     def audit(self, account, container=None, obj=None):
@@ -312,9 +318,9 @@ class Auditor(object):
 
         def _print_stat(name, stat):
             # Right align stat name in a field of 18 characters
-            print "{0:>18}: {1}".format(name, stat)
+            print("{0:>18}: {1}".format(name, stat))
 
-        print
+        print()
         _print_stat("Accounts checked", self.accounts_checked)
         if self.account_not_found:
             _print_stat("Missing Replicas", self.account_not_found)
@@ -324,7 +330,7 @@ class Auditor(object):
             _print_stat("Container mismatch", self.account_container_mismatch)
         if self.account_object_mismatch:
             _print_stat("Object mismatch", self.account_object_mismatch)
-        print
+        print()
         _print_stat("Containers checked", self.containers_checked)
         if self.container_not_found:
             _print_stat("Missing Replicas", self.container_not_found)
@@ -334,7 +340,7 @@ class Auditor(object):
             _print_stat("Count mismatch", self.container_count_mismatch)
         if self.container_obj_mismatch:
             _print_stat("Object mismatch", self.container_obj_mismatch)
-        print
+        print()
         _print_stat("Objects checked", self.objects_checked)
         if self.object_not_found:
             _print_stat("Missing Replicas", self.object_not_found)
@@ -348,11 +354,11 @@ if __name__ == '__main__':
     try:
         optlist, args = getopt.getopt(sys.argv[1:], 'c:r:e:d')
     except getopt.GetoptError as err:
-        print str(err)
-        print usage
+        print(str(err))
+        print(usage)
         sys.exit(2)
     if not args and os.isatty(sys.stdin.fileno()):
-        print usage
+        print(usage)
         sys.exit()
     opts = dict(optlist)
     options = {

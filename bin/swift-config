@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import optparse
 import os
 import sys
@@ -64,7 +65,7 @@ def main():
         else:
             conf_files += Server(arg).conf_files(**options)
     for conf_file in conf_files:
-        print '# %s' % conf_file
+        print('# %s' % conf_file)
         if options['wsgi']:
             app_config = appconfig(conf_file)
             conf = inspect_app_config(app_config)
@@ -77,13 +78,13 @@ def main():
             if not isinstance(v, dict):
                 flat_vars[k] = v
                 continue
-            print '[%s]' % k
+            print('[%s]' % k)
             for opt, value in v.items():
-                print '%s = %s' % (opt, value)
-            print
+                print('%s = %s' % (opt, value))
+            print()
         for k, v in flat_vars.items():
-            print '# %s = %s' % (k, v)
-        print
+            print('# %s = %s' % (k, v))
+        print()
 
 if __name__ == "__main__":
     sys.exit(main())

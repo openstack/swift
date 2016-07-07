@@ -84,7 +84,7 @@ def main():
 
     if len(args) < 2:
         parser.print_help()
-        print 'ERROR: specify server(s) and command'
+        print('ERROR: specify server(s) and command')
         return 1
 
     command = args[-1]
@@ -101,7 +101,7 @@ def main():
         status = manager.run_command(command, **options.__dict__)
     except UnknownCommandError:
         parser.print_help()
-        print 'ERROR: unknown command, %s' % command
+        print('ERROR: unknown command, %s' % command)
         status = 1
 
     return 1 if status else 0
