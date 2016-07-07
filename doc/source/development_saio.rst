@@ -38,7 +38,7 @@ Installing dependencies
         sudo apt-get update
         sudo apt-get install curl gcc memcached rsync sqlite3 xfsprogs \
                              git-core libffi-dev python-setuptools \
-                             liberasurecode-dev
+                             liberasurecode-dev libssl-dev
         sudo apt-get install python-coverage python-dev python-nose \
                              python-xattr python-eventlet \
                              python-greenlet python-pastedeploy \
@@ -50,7 +50,7 @@ Installing dependencies
         sudo yum update
         sudo yum install curl gcc memcached rsync sqlite xfsprogs git-core \
                          libffi-devel xinetd liberasurecode-devel \
-                         python-setuptools \
+                         openssl-devel python-setuptools \
                          python-coverage python-devel python-nose \
                          pyxattr python-eventlet \
                          python-greenlet python-paste-deploy \
