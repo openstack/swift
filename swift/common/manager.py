@@ -316,7 +316,7 @@ class Manager(object):
                         except OSError as e:
                             # PID died before kill_group can take action?
                             if e.errno != errno.ESRCH:
-                                raise e
+                                raise
                 else:
                     print(_('Waited %(kill_wait)s seconds for %(server)s '
                             'to die; giving up') %

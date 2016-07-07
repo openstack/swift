@@ -1727,7 +1727,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         except socket.error as e:
             # Either /dev/log isn't a UNIX socket or it does not exist at all
             if e.errno not in [errno.ENOTSOCK, errno.ENOENT]:
-                raise e
+                raise
             handler = SysLogHandler(facility=facility)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
