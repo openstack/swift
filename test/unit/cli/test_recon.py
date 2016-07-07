@@ -878,3 +878,27 @@ class TestReconCommands(unittest.TestCase):
         # We need any_order=True because the order of calls depends on the dict
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('six.moves.builtins.print')
+    @mock.patch('swift.cli.recon.SwiftRecon.get_hosts')
+    def test_multiple_server_types(self, mock_get_hosts, mock_print):
+        mock_get_hosts.return_value = set([('127.0.0.1', 10000)])
+
+        self.recon.object_auditor_check = mock.MagicMock()
+        self.recon.auditor_check = mock.MagicMock()
+
+        with mock.patch.object(
+                sys, 'argv',
+                ["prog", "account", "container", "object", "--auditor"]):
+            self.recon.main()
+        expected_calls = [
+            mock.call("--> Starting reconnaissance on 1 hosts (account)"),
+            mock.call("--> Starting reconnaissance on 1 hosts (container)"),
+            mock.call("--> Starting reconnaissance on 1 hosts (object)"),
+        ]
+        mock_print.assert_has_calls(expected_calls, any_order=True)
+
+        expected = mock.call(set([('127.0.0.1', 10000)]))
+        self.recon.object_auditor_check.assert_has_calls([expected])
+        # Two calls expected - one account, one container
+        self.recon.auditor_check.assert_has_calls([expected, expected])
