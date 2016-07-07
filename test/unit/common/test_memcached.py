@@ -62,6 +62,8 @@ class ExplodingMockMemcached(object):
 
 
 class MockMemcached(object):
+    # See https://github.com/memcached/memcached/blob/master/doc/protocol.txt
+    # In particular, the "Storage commands" section may be interesting.
 
     def __init__(self):
         self.inbuf = ''
@@ -79,58 +81,67 @@ class MockMemcached(object):
         while '\n' in self.inbuf:
             cmd, self.inbuf = self.inbuf.split('\n', 1)
             parts = cmd.split()
-            if parts[0].lower() == 'set':
-                self.cache[parts[1]] = parts[2], parts[3], \
-                    self.inbuf[:int(parts[4])]
-                self.inbuf = self.inbuf[int(parts[4]) + 2:]
-                if len(parts) < 6 or parts[5] != 'noreply':
-                    self.outbuf += 'STORED\r\n'
-            elif parts[0].lower() == 'add':
-                value = self.inbuf[:int(parts[4])]
-                self.inbuf = self.inbuf[int(parts[4]) + 2:]
-                if parts[1] in self.cache:
-                    if len(parts) < 6 or parts[5] != 'noreply':
-                        self.outbuf += 'NOT_STORED\r\n'
-                else:
-                    self.cache[parts[1]] = parts[2], parts[3], value
-                    if len(parts) < 6 or parts[5] != 'noreply':
-                        self.outbuf += 'STORED\r\n'
-            elif parts[0].lower() == 'delete':
-                if self.exc_on_delete:
-                    raise Exception('mock is has exc_on_delete set')
-                if parts[1] in self.cache:
-                    del self.cache[parts[1]]
-                    if 'noreply' not in parts:
-                        self.outbuf += 'DELETED\r\n'
-                elif 'noreply' not in parts:
-                    self.outbuf += 'NOT_FOUND\r\n'
-            elif parts[0].lower() == 'get':
-                for key in parts[1:]:
-                    if key in self.cache:
-                        val = self.cache[key]
-                        self.outbuf += 'VALUE %s %s %s\r\n' % (
-                            key, val[0], len(val[2]))
-                        self.outbuf += val[2] + '\r\n'
-                self.outbuf += 'END\r\n'
-            elif parts[0].lower() == 'incr':
-                if parts[1] in self.cache:
-                    val = list(self.cache[parts[1]])
-                    val[2] = str(int(val[2]) + int(parts[2]))
-                    self.cache[parts[1]] = val
-                    self.outbuf += str(val[2]) + '\r\n'
-                else:
-                    self.outbuf += 'NOT_FOUND\r\n'
-            elif parts[0].lower() == 'decr':
-                if parts[1] in self.cache:
-                    val = list(self.cache[parts[1]])
-                    if int(val[2]) - int(parts[2]) > 0:
-                        val[2] = str(int(val[2]) - int(parts[2]))
-                    else:
-                        val[2] = '0'
-                    self.cache[parts[1]] = val
-                    self.outbuf += str(val[2]) + '\r\n'
-                else:
-                    self.outbuf += 'NOT_FOUND\r\n'
+            handler = getattr(self, 'handle_%s' % parts[0].lower(), None)
+            if handler:
+                handler(*parts[1:])
+            else:
+                raise ValueError('Unhandled command: %s' % parts[0])
+
+    def handle_set(self, key, flags, exptime, num_bytes, noreply=''):
+        self.cache[key] = flags, exptime, self.inbuf[:int(num_bytes)]
+        self.inbuf = self.inbuf[int(num_bytes) + 2:]
+        if noreply != 'noreply':
+            self.outbuf += 'STORED\r\n'
+
+    def handle_add(self, key, flags, exptime, num_bytes, noreply=''):
+        value = self.inbuf[:int(num_bytes)]
+        self.inbuf = self.inbuf[int(num_bytes) + 2:]
+        if key in self.cache:
+            if noreply != 'noreply':
+                self.outbuf += 'NOT_STORED\r\n'
+        else:
+            self.cache[key] = flags, exptime, value
+            if noreply != 'noreply':
+                self.outbuf += 'STORED\r\n'
+
+    def handle_delete(self, key, noreply=''):
+        if self.exc_on_delete:
+            raise Exception('mock is has exc_on_delete set')
+        if key in self.cache:
+            del self.cache[key]
+            if noreply != 'noreply':
+                self.outbuf += 'DELETED\r\n'
+        elif noreply != 'noreply':
+            self.outbuf += 'NOT_FOUND\r\n'
+
+    def handle_get(self, *keys):
+        for key in keys:
+            if key in self.cache:
+                val = self.cache[key]
+                self.outbuf += 'VALUE %s %s %s\r\n' % (
+                    key, val[0], len(val[2]))
+                self.outbuf += val[2] + '\r\n'
+        self.outbuf += 'END\r\n'
+
+    def handle_incr(self, key, value, noreply=''):
+        if key in self.cache:
+            current = self.cache[key][2]
+            new_val = str(int(current) + int(value))
+            self.cache[key] = self.cache[key][:2] + (new_val, )
+            self.outbuf += str(new_val) + '\r\n'
+        else:
+            self.outbuf += 'NOT_FOUND\r\n'
+
+    def handle_decr(self, key, value, noreply=''):
+        if key in self.cache:
+            current = self.cache[key][2]
+            new_val = str(int(current) - int(value))
+            if new_val[0] == '-':  # ie, val is negative
+                new_val = '0'
+            self.cache[key] = self.cache[key][:2] + (new_val, )
+            self.outbuf += str(new_val) + '\r\n'
+        else:
+            self.outbuf += 'NOT_FOUND\r\n'
 
     def readline(self):
         if self.read_return_none:
