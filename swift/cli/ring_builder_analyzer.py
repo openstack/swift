@@ -294,7 +294,7 @@ def run_scenario(scenario):
     }
 
     for round_index, commands in enumerate(scenario['rounds']):
-        print "Round %d" % (round_index + 1)
+        print("Round %d" % (round_index + 1))
 
         for command in commands:
             key = command.pop(0)
@@ -307,17 +307,16 @@ def run_scenario(scenario):
         rebalance_number = 1
         parts_moved, old_balance, removed_devs = rb.rebalance(seed=seed)
         rb.pretend_min_part_hours_passed()
-        print "\tRebalance 1: moved %d parts, balance is %.6f, \
-                %d removed devs" % (
-            parts_moved, old_balance, removed_devs)
+        print("\tRebalance 1: moved %d parts, balance is %.6f, %d removed "
+              "devs" % (parts_moved, old_balance, removed_devs))
 
         while True:
             rebalance_number += 1
             parts_moved, new_balance, removed_devs = rb.rebalance(seed=seed)
             rb.pretend_min_part_hours_passed()
-            print "\tRebalance %d: moved %d parts, balance is %.6f, \
-                    %d removed devs" % (
-                rebalance_number, parts_moved, new_balance, removed_devs)
+            print("\tRebalance %d: moved %d parts, balance is %.6f, "
+                  "%d removed devs" % (rebalance_number, parts_moved,
+                                       new_balance, removed_devs))
             if parts_moved == 0 and removed_devs == 0:
                 break
             if abs(new_balance - old_balance) < 1 and not (
