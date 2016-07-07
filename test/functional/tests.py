@@ -1883,6 +1883,16 @@ class TestFile(Base):
             else:
                 return False
 
+        # This loop will result in fallocate calls for 4x the limit
+        # (minus 111 bytes). With fallocate turned on in the object servers,
+        # this may fail if you don't have 4x the limit available on your
+        # data drives.
+
+        # Note that this test does not actually send any data to the system.
+        # All it does is ensure that a response (success or failure) comes
+        # back within 3 seconds. For the successful tests (size smaller
+        # than limit), the cluster will log a 499.
+
         for i in (limit - 100, limit - 10, limit - 1, limit, limit + 1,
                   limit + 10, limit + 100):
 
