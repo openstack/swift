@@ -11,6 +11,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import print_function
 import sys
 from optparse import OptionParser
 
@@ -67,7 +68,7 @@ def main():
         policy.idx, timestamp, options.op, force=options.force)
     if not container_name:
         return 'ERROR: unable to enqueue!'
-    print container_name
+    print(container_name)
 
 
 if __name__ == "__main__":
