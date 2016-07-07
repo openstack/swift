@@ -861,7 +861,7 @@ class ContainerBroker(DatabaseBroker):
                     'DELETE FROM object WHERE ' + query_mod +
                     'name=? AND storage_policy_index=?',
                     ((rec['name'], rec['storage_policy_index'])
-                     for rec in to_delete.itervalues()))
+                     for rec in to_delete.values()))
             if to_add:
                 curs.executemany(
                     'INSERT INTO object (name, created_at, size, content_type,'
@@ -870,7 +870,7 @@ class ContainerBroker(DatabaseBroker):
                     ((rec['name'], rec['created_at'], rec['size'],
                       rec['content_type'], rec['etag'], rec['deleted'],
                       rec['storage_policy_index'])
-                     for rec in to_add.itervalues()))
+                     for rec in to_add.values()))
             if source:
                 # for replication we rely on the remote end sending merges in
                 # order with no gaps to increment sync_points
