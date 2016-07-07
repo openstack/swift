@@ -12,7 +12,7 @@ As expiring objects are added to the system, the object servers will record the 
 
 Usually, just one instance of the ``swift-object-expirer`` daemon needs to run for a cluster. This isn't exactly automatic failover high availability, but if this daemon doesn't run for a few hours it should not be any real issue. The expired-but-not-yet-deleted objects will still ``404 Not Found`` if someone tries to ``GET`` or ``HEAD`` them and they'll just be deleted a bit later when the daemon is restarted.
 
-By default, the ``swift-object-expirer`` daemon will run with a concurrency of 1.  Increase this value to get more concurrency.  A concurrency of 1 may not be enough to delete expiring objects in a timely fashion for a particular swift cluster.
+By default, the ``swift-object-expirer`` daemon will run with a concurrency of 1.  Increase this value to get more concurrency.  A concurrency of 1 may not be enough to delete expiring objects in a timely fashion for a particular Swift cluster.
 
 It is possible to run multiple daemons to do different parts of the work if a single process with a concurrency of more than 1 is not enough (see the sample config file for details).
 

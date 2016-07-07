@@ -17,8 +17,8 @@ or 6.
 Deployment Options
 ------------------
 
-The swift services run completely autonomously, which provides for a lot of
-flexibility when architecting the hardware deployment for swift. The 4 main
+The Swift services run completely autonomously, which provides for a lot of
+flexibility when architecting the hardware deployment for Swift. The 4 main
 services are:
 
 #. Proxy Services
@@ -265,7 +265,7 @@ lexicographical order.  Filenames starting with '.' are ignored.  A mixture of
 file and directory configuration paths is not supported - if the configuration
 path is a file only that file will be parsed.
 
-The swift service management tool ``swift-init`` has adopted the convention of
+The Swift service management tool ``swift-init`` has adopted the convention of
 looking for ``/etc/swift/{type}-server.conf.d/`` if the file
 ``/etc/swift/{type}-server.conf`` file does not exist.
 
@@ -1581,7 +1581,7 @@ We do not recommend running Swift on RAID, but if you are using
 RAID it is also important to make sure that the proper sunit and swidth
 settings get set so that XFS can make most efficient use of the RAID array.
 
-For a standard swift install, all data drives are mounted directly under
+For a standard Swift install, all data drives are mounted directly under
 ``/srv/node`` (as can be seen in the above example of mounting ``/dev/sda1`` as
 ``/srv/node/sda``). If you choose to mount the drives in another directory,
 be sure to set the `devices` config option in all of the server configs to

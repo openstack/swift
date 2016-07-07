@@ -90,7 +90,7 @@ History
 Dynamic large object support has gone through various iterations before
 settling on this implementation.
 
-The primary factor driving the limitation of object size in swift is
+The primary factor driving the limitation of object size in Swift is
 maintaining balance among the partitions of the ring.  To maintain an even
 dispersion of disk usage throughout the cluster the obvious storage pattern
 was to simply split larger objects into smaller segments, which could then be
@@ -121,7 +121,7 @@ The current "user manifest" design was chosen in order to provide a
 transparent download of large objects to the client and still provide the
 uploading client a clean API to support segmented uploads.
 
-To meet an many use cases as possible swift supports two types of large
+To meet an many use cases as possible Swift supports two types of large
 object manifests. Dynamic and static large object manifests both support
 the same idea of allowing the user to upload many segments to be later
 downloaded as a single file.
@@ -143,7 +143,7 @@ also improves concurrent upload speed. It has the disadvantage that the
 manifest is finalized once PUT. Any changes to it means it has to be replaced.
 
 Between these two methods the user has great flexibility in how (s)he chooses
-to upload and retrieve large objects to swift. Swift does not, however, stop
+to upload and retrieve large objects to Swift. Swift does not, however, stop
 the user from harming themselves. In both cases the segments are deletable by
 the user at any time. If a segment was deleted by mistake, a dynamic large
 object, having no way of knowing it was ever there, would happily ignore the

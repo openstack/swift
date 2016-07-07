@@ -2,7 +2,7 @@
 Replication
 ===========
 
-Because each replica in swift functions independently, and clients generally
+Because each replica in Swift functions independently, and clients generally
 require only a simple majority of nodes responding to consider an operation
 successful, transient failures like network partitions can quickly cause
 replicas to diverge. These differences are eventually reconciled by

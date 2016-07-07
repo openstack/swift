@@ -196,7 +196,7 @@ headers)
 All user resources in Swift (i.e. account, container, objects) can have
 user metadata associated with them.  Middleware may also persist custom
 metadata to accounts and containers safely using System Metadata.  Some
-core swift features which predate sysmeta have added exceptions for
+core Swift features which predate sysmeta have added exceptions for
 custom non-user metadata headers (e.g.  :ref:`acls`,
 :ref:`large-objects`)
 

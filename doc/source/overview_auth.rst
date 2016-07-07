@@ -102,7 +102,7 @@ reseller_request to True. This can be used by other middlewares.
 
 TempAuth will now allow OPTIONS requests to go through without a token.
 
-The user starts a session by sending a ReST request to the auth system to
+The user starts a session by sending a REST request to the auth system to
 receive the auth token and a URL to the Swift system.
 
 -------------
@@ -143,7 +143,7 @@ having this in your ``/etc/keystone/default_catalog.templates`` ::
   catalog.RegionOne.object_store.adminURL = http://swiftproxy:8080/
   catalog.RegionOne.object_store.internalURL = http://swiftproxy:8080/v1/AUTH_$(tenant_id)s
 
-On your Swift Proxy server you will want to adjust your main pipeline
+On your Swift proxy server you will want to adjust your main pipeline
 and add auth_token and keystoneauth in your
 ``/etc/swift/proxy-server.conf`` like this ::
 
@@ -326,7 +326,7 @@ Extending Auth
 
 TempAuth is written as wsgi middleware, so implementing your own auth is as
 easy as writing new wsgi middleware, and plugging it in to the proxy server.
-The KeyStone project and the Swauth project are examples of additional auth
+The Keystone project and the Swauth project are examples of additional auth
 services.
 
 Also, see :doc:`development_auth`.
