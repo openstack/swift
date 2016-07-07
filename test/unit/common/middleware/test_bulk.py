@@ -639,9 +639,9 @@ class TestDelete(unittest.TestCase):
         resp_body = ''.join(self.bulk.handle_delete_iter(
             req, objs_to_delete=objs_to_delete,
             out_content_type='application/json'))
-        self.assertEqual(
-            self.app.delete_paths, ['/delete_works/AUTH_Acc/c/file_a',
-                                    '/delete_works/AUTH_Acc/c/file_d'])
+        self.assertEqual(set(self.app.delete_paths),
+                         set(['/delete_works/AUTH_Acc/c/file_a',
+                              '/delete_works/AUTH_Acc/c/file_d']))
         self.assertEqual(self.app.calls, 2)
         resp_data = utils.json.loads(resp_body)
         self.assertEqual(resp_data['Response Status'], '400 Bad Request')
@@ -655,9 +655,9 @@ class TestDelete(unittest.TestCase):
                             headers={'Accept': 'application/json'})
         req.method = 'POST'
         resp_body = self.handle_delete_and_iter(req)
-        self.assertEqual(
-            self.app.delete_paths,
-            ['/delete_works/AUTH_Acc/c/f', '/delete_works/AUTH_Acc/c/f404'])
+        self.assertEqual(set(self.app.delete_paths),
+                         set(['/delete_works/AUTH_Acc/c/f',
+                              '/delete_works/AUTH_Acc/c/f404']))
         self.assertEqual(self.app.calls, 2)
         resp_data = utils.json.loads(resp_body)
         self.assertEqual(resp_data['Number Deleted'], 1)
@@ -668,9 +668,9 @@ class TestDelete(unittest.TestCase):
                             headers={'Accept': 'application/json'})
         req.method = 'DELETE'
         resp_body = self.handle_delete_and_iter(req)
-        self.assertEqual(
-            self.app.delete_paths,
-            ['/delete_works/AUTH_Acc/c/f', '/delete_works/AUTH_Acc/c/f404'])
+        self.assertEqual(set(self.app.delete_paths),
+                         set(['/delete_works/AUTH_Acc/c/f',
+                              '/delete_works/AUTH_Acc/c/f404']))
         self.assertEqual(self.app.calls, 2)
         resp_data = utils.json.loads(resp_body)
         self.assertEqual(resp_data['Number Deleted'], 1)
