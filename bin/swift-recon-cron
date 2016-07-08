@@ -50,11 +50,11 @@ def main():
     try:
         conf_path = sys.argv[1]
     except Exception:
-        print "Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1]
-        print "ex: swift-recon-cron /etc/swift/object-server.conf"
+        print("Usage: %s CONF_FILE" % sys.argv[0].split('/')[-1])
+        print("ex: swift-recon-cron /etc/swift/object-server.conf")
         sys.exit(1)
     if not c.read(conf_path):
-        print "Unable to read config file %s" % conf_path
+        print("Unable to read config file %s" % conf_path)
         sys.exit(1)
     conf = dict(c.items('filter:recon'))
     device_dir = conf.get('devices', '/srv/node')
@@ -68,7 +68,7 @@ def main():
         os.mkdir(lock_dir)
     except OSError as e:
         logger.critical(str(e))
-        print str(e)
+        print(str(e))
         sys.exit(1)
     try:
         asyncs = get_async_count(device_dir, logger)

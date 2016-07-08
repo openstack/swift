@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import json
 from collections import defaultdict
 from six.moves.configparser import ConfigParser
@@ -54,18 +55,18 @@ def get_error_log(prefix):
             if msg_or_exc.http_status == 507:
                 if identifier not in unmounted:
                     unmounted.append(identifier)
-                    print >>stderr, 'ERROR: %s is unmounted -- This will ' \
-                        'cause replicas designated for that device to be ' \
-                        'considered missing until resolved or the ring is ' \
-                        'updated.' % (identifier)
+                    print('ERROR: %s is unmounted -- This will '
+                          'cause replicas designated for that device to be '
+                          'considered missing until resolved or the ring is '
+                          'updated.' % (identifier), file=stderr)
                     stderr.flush()
             if debug and identifier not in notfound:
                 notfound.append(identifier)
-                print >>stderr, 'ERROR: %s returned a 404' % (identifier)
+                print('ERROR: %s returned a 404' % (identifier), file=stderr)
                 stderr.flush()
         if not hasattr(msg_or_exc, 'http_status') or \
                 msg_or_exc.http_status not in (404, 507):
-            print >>stderr, 'ERROR: %s: %s' % (prefix, msg_or_exc)
+            print('ERROR: %s: %s' % (prefix, msg_or_exc), file=stderr)
             stderr.flush()
     return error_log
 
@@ -77,8 +78,8 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             prefix='dispersion_%d' % policy.idx, full_listing=True)[1]]
     containers_listed = len(containers)
     if not containers_listed:
-        print >>stderr, 'No containers to query. Has ' \
-                        'swift-dispersion-populate been run?'
+        print('No containers to query. Has '
+              'swift-dispersion-populate been run?', file=stderr)
         stderr.flush()
         return
     retries_done = [0]
@@ -109,10 +110,10 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         if output_missing_partitions and \
                 found_count < len(nodes):
             missing = len(nodes) - found_count
-            print '\r\x1B[K',
+            print('\r\x1B[K', end='')
             stdout.flush()
-            print >>stderr, '# Container partition %s missing %s cop%s' % (
-                part, missing, 'y' if missing == 1 else 'ies')
+            print('# Container partition %s missing %s cop%s' % (
+                part, missing, 'y' if missing == 1 else 'ies'), file=stderr)
         container_copies_found[0] += found_count
         containers_queried[0] += 1
         container_copies_missing[len(nodes) - found_count] += 1
@@ -121,9 +122,10 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             eta, eta_unit = compute_eta(begun, containers_queried[0],
                                         containers_listed)
             if not json_output:
-                print '\r\x1B[KQuerying containers: %d of %d, %d%s left, %d ' \
+                print('\r\x1B[KQuerying containers: %d of %d, %d%s left, %d '
                       'retries' % (containers_queried[0], containers_listed,
                                    round(eta), eta_unit, retries_done[0]),
+                      end='')
                 stdout.flush()
     container_parts = {}
     for container in containers:
@@ -140,19 +142,19 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     elapsed, elapsed_unit = get_time_units(time() - begun)
     container_copies_missing.pop(0, None)
     if not json_output:
-        print '\r\x1B[KQueried %d containers for dispersion reporting, ' \
+        print('\r\x1B[KQueried %d containers for dispersion reporting, '
               '%d%s, %d retries' % (containers_listed, round(elapsed),
-                                    elapsed_unit, retries_done[0])
+                                    elapsed_unit, retries_done[0]))
         if containers_listed - distinct_partitions:
-            print 'There were %d overlapping partitions' % (
-                  containers_listed - distinct_partitions)
+            print('There were %d overlapping partitions' % (
+                  containers_listed - distinct_partitions))
         for missing_copies, num_parts in container_copies_missing.items():
-            print missing_string(num_parts, missing_copies,
-                                 container_ring.replica_count)
-        print '%.02f%% of container copies found (%d of %d)' % (
-            value, copies_found, copies_expected)
-        print 'Sample represents %.02f%% of the container partition space' % (
-            100.0 * distinct_partitions / container_ring.partition_count)
+            print(missing_string(num_parts, missing_copies,
+                                 container_ring.replica_count))
+        print('%.02f%% of container copies found (%d of %d)' % (
+            value, copies_found, copies_expected))
+        print('Sample represents %.02f%% of the container partition space' % (
+            100.0 * distinct_partitions / container_ring.partition_count))
         stdout.flush()
         return None
     else:
@@ -177,14 +179,14 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             if err.http_status != 404:
                 raise
 
-            print >>stderr, 'No objects to query. Has ' \
-                            'swift-dispersion-populate been run?'
+            print('No objects to query. Has '
+                  'swift-dispersion-populate been run?', file=stderr)
             stderr.flush()
             return
     objects_listed = len(objects)
     if not objects_listed:
-        print >>stderr, 'No objects to query. Has swift-dispersion-populate ' \
-                        'been run?'
+        print('No objects to query. Has swift-dispersion-populate '
+              'been run?', file=stderr)
         stderr.flush()
         return
     retries_done = [0]
@@ -221,10 +223,10 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         if output_missing_partitions and \
                 found_count < len(nodes):
             missing = len(nodes) - found_count
-            print '\r\x1B[K',
+            print('\r\x1B[K', end='')
             stdout.flush()
-            print >>stderr, '# Object partition %s missing %s cop%s' % (
-                part, missing, 'y' if missing == 1 else 'ies')
+            print('# Object partition %s missing %s cop%s' % (
+                part, missing, 'y' if missing == 1 else 'ies'), file=stderr)
         object_copies_found[0] += found_count
         object_copies_missing[len(nodes) - found_count] += 1
         objects_queried[0] += 1
@@ -233,9 +235,10 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             eta, eta_unit = compute_eta(begun, objects_queried[0],
                                         objects_listed)
             if not json_output:
-                print '\r\x1B[KQuerying objects: %d of %d, %d%s left, %d ' \
+                print('\r\x1B[KQuerying objects: %d of %d, %d%s left, %d '
                       'retries' % (objects_queried[0], objects_listed,
                                    round(eta), eta_unit, retries_done[0]),
+                      end='')
             stdout.flush()
     object_parts = {}
     for obj in objects:
@@ -251,21 +254,21 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     value = 100.0 * copies_found / copies_expected
     elapsed, elapsed_unit = get_time_units(time() - begun)
     if not json_output:
-        print '\r\x1B[KQueried %d objects for dispersion reporting, ' \
+        print('\r\x1B[KQueried %d objects for dispersion reporting, '
               '%d%s, %d retries' % (objects_listed, round(elapsed),
-                                    elapsed_unit, retries_done[0])
+                                    elapsed_unit, retries_done[0]))
         if objects_listed - distinct_partitions:
-            print 'There were %d overlapping partitions' % (
-                  objects_listed - distinct_partitions)
+            print('There were %d overlapping partitions' % (
+                  objects_listed - distinct_partitions))
 
         for missing_copies, num_parts in object_copies_missing.items():
-            print missing_string(num_parts, missing_copies,
-                                 object_ring.replica_count)
+            print(missing_string(num_parts, missing_copies,
+                                 object_ring.replica_count))
 
-        print '%.02f%% of object copies found (%d of %d)' % \
-            (value, copies_found, copies_expected)
-        print 'Sample represents %.02f%% of the object partition space' % (
-            100.0 * distinct_partitions / object_ring.partition_count)
+        print('%.02f%% of object copies found (%d of %d)' %
+              (value, copies_found, copies_expected))
+        print('Sample represents %.02f%% of the object partition space' % (
+            100.0 * distinct_partitions / object_ring.partition_count))
         stdout.flush()
         return None
     else:
@@ -347,7 +350,7 @@ Usage: %%prog [options] [conf_file]
         policy = POLICIES.get_by_name(options.policy_name)
         if policy is None:
             exit('Unable to find policy: %s' % options.policy_name)
-    print 'Using storage policy: %s ' % policy.name
+    print('Using storage policy: %s ' % policy.name)
 
     swift_dir = conf.get('swift_dir', '/etc/swift')
     retries = int(conf.get('retries', 5))
@@ -405,4 +408,4 @@ Usage: %%prog [options] [conf_file]
             coropool, connpool, account, object_ring, retries,
             options.partitions, policy)
     if json_output:
-        print json.dumps(output)
+        print(json.dumps(output))
