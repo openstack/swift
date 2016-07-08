@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -57,81 +58,66 @@ type ProxyDirectClient struct {
 }
 
 func (c *ProxyDirectClient) quorumResponse(reqs ...*http.Request) int {
-	var requestCount int
-	var done []chan int
+	// this is based on swift's best_response function.
+	statusCodes := make(chan int)
+	cancel := make(chan struct{})
+	defer close(cancel)
 	for _, req := range reqs {
-		donech := make(chan int)
-		done = append(done, donech)
-		go func(client *http.Client, req *http.Request, done chan int) {
-			resp, err := client.Do(req)
-			if err != nil {
-				done <- 500
-			} else {
+		go func(req *http.Request) {
+			status := 500
+			if resp, err := c.client.Do(req); err == nil {
+				status = resp.StatusCode
 				resp.Body.Close()
-				done <- resp.StatusCode
 			}
-		}(c.client, req, donech)
-		requestCount += 1
+			select {
+			case statusCodes <- status:
+			case <-cancel:
+			}
+		}(req)
 	}
-
-	var responses []int
-	quorum := (requestCount / 2) + 1
-	for chanIndex, d := range done {
-		responses = append(responses, <-d)
-		for statusRange := 200; statusRange <= 400; statusRange += 100 {
-			rangeCount := 0
-			for _, response := range responses {
-				if response >= statusRange && response < (statusRange+100) {
-					rangeCount += 1
-					if rangeCount >= quorum {
-						go func() { // wait for any remaining connections to finish
-							for i := chanIndex + 1; i < len(done); i++ {
-								<-(done[i])
-							}
-						}()
-						return response
-					}
-				}
+	quorum := int(math.Ceil(float64(len(reqs)) / 2.0))
+	responseClasses := []int{0, 0, 0, 0, 0, 0}
+	for status := range statusCodes {
+		class := status / 100
+		if class <= 5 {
+			responseClasses[class]++
+			if responseClasses[class] >= quorum {
+				return status
 			}
 		}
 	}
-	return 500
+	return 503
 }
 
-func (c *ProxyDirectClient) firstResponse(reqs ...*http.Request) *http.Response {
+func (c *ProxyDirectClient) firstResponse(reqs ...*http.Request) (resp *http.Response) {
 	resps := make(chan *http.Response)
-	ticker := time.NewTicker(time.Second)
-	defer func() {
-		close(resps)
-		ticker.Stop()
-	}()
+	cancel := make(chan struct{})
+	defer close(cancel)
+
 	for _, req := range reqs {
-		go func() {
+		req.Cancel = cancel
+		go func(req *http.Request) {
 			resp, err := c.client.Do(req)
 			if err != nil {
-				resp = nil
-			} else if resp.StatusCode/100 != 2 {
-				resp.Body.Close()
 				resp = nil
 			}
 			select {
 			case resps <- resp:
-				return
-			default:
+			case <-cancel:
 				if resp != nil {
 					resp.Body.Close()
 				}
 			}
-		}()
+		}(req)
 		select {
-		case <-ticker.C:
-		case resp := <-resps:
-			if resp != nil {
-				return resp
+		case <-time.After(time.Second):
+		case resp = <-resps:
+			if resp.StatusCode/100 == 2 {
+				return
 			}
 		}
 	}
-	return nil
+	return
 }
 
 var _ ProxyClient = &ProxyDirectClient{}
