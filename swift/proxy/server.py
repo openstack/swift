@@ -509,7 +509,7 @@ class Application(object):
         """
         self._incr_node_errors(node)
         self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                          {'msg': msg, 'ip': node['ip'],
+                          {'msg': msg.decode('utf-8'), 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
 
     def iter_nodes(self, ring, partition, node_iter=None):

@@ -959,9 +959,9 @@ def fake_http_connect(*code_iter, **kwargs):
             self.body = self.body[amt:]
             return rv
 
-        def send(self, amt=None):
+        def send(self, data=None):
             if self.give_send:
-                self.give_send(self, amt)
+                self.give_send(self, data)
             am_slow, value = self.get_slow()
             if am_slow:
                 if self.received < 4:
