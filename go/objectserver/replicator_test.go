@@ -494,8 +494,9 @@ func TestListObjFiles(t *testing.T) {
 	require.Nil(t, err)
 	defer fp.Close()
 	objChan := make(chan string)
+	cancel := make(chan struct{})
 	var files []string
-	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	go repl.listObjFiles(objChan, cancel, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
 	for obj := range objChan {
 		files = append(files, obj)
 	}
@@ -505,7 +506,7 @@ func TestListObjFiles(t *testing.T) {
 	os.RemoveAll(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"))
 	objChan = make(chan string)
 	files = nil
-	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	go repl.listObjFiles(objChan, cancel, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
 	for obj := range objChan {
 		files = append(files, obj)
 	}
@@ -514,7 +515,7 @@ func TestListObjFiles(t *testing.T) {
 
 	objChan = make(chan string)
 	files = nil
-	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	go repl.listObjFiles(objChan, cancel, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
 	for obj := range objChan {
 		files = append(files, obj)
 	}
@@ -523,12 +524,32 @@ func TestListObjFiles(t *testing.T) {
 
 	objChan = make(chan string)
 	files = nil
-	go repl.listObjFiles(objChan, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	go repl.listObjFiles(objChan, cancel, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
 	for obj := range objChan {
 		files = append(files, obj)
 	}
 	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1")))
 	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects")))
+}
+
+func TestCancelListObjFiles(t *testing.T) {
+	repl, err := makeReplicator()
+	require.Nil(t, err)
+	dir, err := ioutil.TempDir("", "")
+	require.Nil(t, err)
+	defer os.RemoveAll(dir)
+	os.MkdirAll(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e"), 0777)
+	fp, err := os.Create(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"))
+	require.Nil(t, err)
+	fp.Close()
+	objChan := make(chan string)
+	cancel := make(chan struct{})
+	// Oh no, nobody is reading from your channel and you are stuck!
+	go repl.listObjFiles(objChan, cancel, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	// so we cancel you and make sure you closed your channel, which you do on exit.
+	close(cancel)
+	_, ok := <-objChan
+	require.False(t, ok)
 }
 
 func TestPriorityRepHandler(t *testing.T) {
