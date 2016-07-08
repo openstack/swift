@@ -32,6 +32,7 @@ import eventlet
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
+import signal
 import json
 
 
@@ -1061,3 +1062,20 @@ def mocked_http_conn(*args, **kwargs):
 
 def make_timestamp_iter():
     return iter(Timestamp(t) for t in itertools.count(int(time.time())))
+
+
+class Timeout(object):
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self._exit)
+        signal.alarm(self.seconds)
+
+    def __exit__(self, type, value, traceback):
+        signal.alarm(0)
+
+    def _exit(self, signum, frame):
+        class TimeoutException(Exception):
+            pass
+        raise TimeoutException
