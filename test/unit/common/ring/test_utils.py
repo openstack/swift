@@ -579,7 +579,7 @@ class TestUtils(unittest.TestCase):
 
     def test_build_dev_from_opts(self):
         argv = \
-            ["--region", "2", "--zone", "3",
+            ["--region", "0", "--zone", "3",
              "--ip", "test.test.com",
              "--port", "6200",
              "--replication-ip", "r.test.com",
@@ -588,7 +588,7 @@ class TestUtils(unittest.TestCase):
              "--meta", "some meta data",
              "--weight", "3.14159265359"]
         expected = {
-            'region': 2,
+            'region': 0,
             'zone': 3,
             'ip': "test.test.com",
             'port': 6200,

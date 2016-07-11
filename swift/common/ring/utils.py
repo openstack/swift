@@ -616,7 +616,7 @@ def build_dev_from_opts(opts):
                                          ['port', '-p', '--port'],
                                          ['device', '-d', '--device'],
                                          ['weight', '-w', '--weight']):
-        if not getattr(opts, attribute, None):
+        if getattr(opts, attribute, None) is None:
             raise ValueError('Required argument %s/%s not specified.' %
                              (shortopt, longopt))
 
