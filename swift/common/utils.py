@@ -1874,15 +1874,14 @@ def capture_stdio(logger, **kwargs):
 
 
 def parse_options(parser=None, once=False, test_args=None):
-    """
-    Parse standard swift server/daemon options with optparse.OptionParser.
+    """Parse standard swift server/daemon options with optparse.OptionParser.
 
     :param parser: OptionParser to use. If not sent one will be created.
     :param once: Boolean indicating the "once" option is available
     :param test_args: Override sys.argv; used in testing
 
-    :returns : Tuple of (config, options); config is an absolute path to the
-               config file, options is the parser options as a dictionary.
+    :returns: Tuple of (config, options); config is an absolute path to the
+              config file, options is the parser options as a dictionary.
 
     :raises SystemExit: First arg (CONFIG) is required, file must exist
     """

@@ -169,8 +169,8 @@ def get_socket(conf):
 
     :param conf: Configuration dict to read settings from
 
-    :returns : a socket object as returned from socket.listen or
-               ssl.wrap_socket if conf specifies cert_file
+    :returns: a socket object as returned from socket.listen or
+              ssl.wrap_socket if conf specifies cert_file
     """
     try:
         bind_port = int(conf['bind_port'])

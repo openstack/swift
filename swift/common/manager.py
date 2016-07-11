@@ -645,7 +645,7 @@ class Server(object):
         :param wait: boolean, if true capture stdout with a pipe
         :param daemon: boolean, if false ask server to log to console
 
-        :returns : the pid of the spawned process
+        :returns: the pid of the spawned process
         """
         args = [self.cmd, conf_file]
         if once:
