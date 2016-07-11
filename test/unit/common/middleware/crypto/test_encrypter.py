@@ -225,7 +225,7 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('', resp.body)
         self.assertEqual(EMPTY_ETAG, resp.headers['Etag'])
 
-    def test_PUT_with_other_footers(self):
+    def _test_PUT_with_other_footers(self, override_etag):
         # verify handling of another middleware's footer callback
         cont_key = fetch_crypto_keys()['container']
         body_key = os.urandom(32)
@@ -240,7 +240,7 @@ class TestEncrypter(unittest.TestCase):
             'X-Object-Sysmeta-Container-Update-Override-Size':
                 'other override',
             'X-Object-Sysmeta-Container-Update-Override-Etag':
-                'final etag'}
+                override_etag}
 
         env = {'REQUEST_METHOD': 'PUT',
                CRYPTO_KEY_CALLBACK: fetch_crypto_keys,
@@ -304,7 +304,7 @@ class TestEncrypter(unittest.TestCase):
         cont_key = fetch_crypto_keys()['container']
         cont_etag_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, cont_etag_iv)
-        self.assertEqual(encrypt('final etag', cont_key, cont_etag_iv),
+        self.assertEqual(encrypt(override_etag, cont_key, cont_etag_iv),
                          base64.b64decode(parts[0]))
 
         # verify body crypto meta
@@ -321,7 +321,15 @@ class TestEncrypter(unittest.TestCase):
                          base64.b64decode(actual['body_key']['iv']))
         self.assertEqual(fetch_crypto_keys()['id'], actual['key_id'])
 
-    def test_PUT_with_etag_override_in_headers(self):
+    def test_PUT_with_other_footers(self):
+        self._test_PUT_with_other_footers('override etag')
+
+    def test_PUT_with_other_footers_and_empty_etag(self):
+        # verify that an override etag value of EMPTY_ETAG will be encrypted
+        # when there was a non-zero body length
+        self._test_PUT_with_other_footers(EMPTY_ETAG)
+
+    def _test_PUT_with_etag_override_in_headers(self, override_etag):
         # verify handling of another middleware's
         # container-update-override-etag in headers
         plaintext = 'FAKE APP'
@@ -333,7 +341,7 @@ class TestEncrypter(unittest.TestCase):
                 'content-length': str(len(plaintext)),
                 'Etag': plaintext_etag,
                 'X-Object-Sysmeta-Container-Update-Override-Etag':
-                    'final etag'}
+                    override_etag}
         req = Request.blank(
             '/v1/a/c/o', environ=env, body=plaintext, headers=hdrs)
         self.app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
@@ -366,8 +374,16 @@ class TestEncrypter(unittest.TestCase):
 
         cont_etag_iv = base64.b64decode(actual_meta['iv'])
         self.assertEqual(FAKE_IV, cont_etag_iv)
-        self.assertEqual(encrypt('final etag', cont_key, cont_etag_iv),
+        self.assertEqual(encrypt(override_etag, cont_key, cont_etag_iv),
                          base64.b64decode(parts[0]))
+
+    def test_PUT_with_etag_override_in_headers(self):
+        self._test_PUT_with_etag_override_in_headers('override_etag')
+
+    def test_PUT_with_etag_override_in_headers_and_empty_etag(self):
+        # verify that an override etag value of EMPTY_ETAG will be encrypted
+        # when there was a non-zero body length
+        self._test_PUT_with_etag_override_in_headers(EMPTY_ETAG)
 
     def test_PUT_with_bad_etag_in_other_footers(self):
         # verify that etag supplied in footers from other middleware overrides
@@ -448,9 +464,10 @@ class TestEncrypter(unittest.TestCase):
 
         # check that an upstream footer callback gets called
         other_footers = {
-            'Etag': 'other etag',
+            'Etag': EMPTY_ETAG,
             'X-Object-Sysmeta-Other': 'other sysmeta',
-            'X-Backend-Container-Update-Override-Etag': 'other override'}
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+                'other override'}
         env.update({'swift.callback.update_footers':
                     lambda footers: footers.update(other_footers)})
         req = Request.blank('/v1/a/c/o', environ=env, body='', headers=hdrs)
@@ -461,6 +478,52 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual('201 Created', resp.status)
         self.assertEqual('response etag', resp.headers['Etag'])
         self.assertEqual(1, len(call_headers))
+
+        # verify encrypted override etag for container update.
+        self.assertIn(
+            'X-Object-Sysmeta-Container-Update-Override-Etag', call_headers[0])
+        parts = call_headers[0][
+            'X-Object-Sysmeta-Container-Update-Override-Etag'].rsplit(';', 1)
+        self.assertEqual(2, len(parts))
+        cont_key = fetch_crypto_keys()['container']
+
+        param = parts[1].strip()
+        crypto_meta_tag = 'swift_meta='
+        self.assertTrue(param.startswith(crypto_meta_tag), param)
+        actual_meta = json.loads(
+            urllib.unquote_plus(param[len(crypto_meta_tag):]))
+        self.assertEqual(Crypto().cipher, actual_meta['cipher'])
+        self.assertEqual(fetch_crypto_keys()['id'], actual_meta['key_id'])
+
+        cont_etag_iv = base64.b64decode(actual_meta['iv'])
+        self.assertEqual(FAKE_IV, cont_etag_iv)
+        self.assertEqual(encrypt('other override', cont_key, cont_etag_iv),
+                         base64.b64decode(parts[0]))
+
+        # verify that other middleware's footers made it to app
+        other_footers.pop('X-Object-Sysmeta-Container-Update-Override-Etag')
+        for k, v in other_footers.items():
+            self.assertEqual(v, call_headers[0][k])
+        # verify no encryption footers
+        for k in call_headers[0]:
+            self.assertFalse(k.lower().startswith('x-object-sysmeta-crypto-'))
+
+        # if upstream footer override etag is for an empty body then check that
+        # it is not encrypted
+        other_footers = {
+            'Etag': EMPTY_ETAG,
+            'X-Object-Sysmeta-Container-Update-Override-Etag': EMPTY_ETAG}
+        env.update({'swift.callback.update_footers':
+                    lambda footers: footers.update(other_footers)})
+        req = Request.blank('/v1/a/c/o', environ=env, body='', headers=hdrs)
+
+        call_headers = []
+        resp = req.get_response(encrypter.Encrypter(NonReadingApp(), {}))
+
+        self.assertEqual('201 Created', resp.status)
+        self.assertEqual('response etag', resp.headers['Etag'])
+        self.assertEqual(1, len(call_headers))
+
         # verify that other middleware's footers made it to app
         for k, v in other_footers.items():
             self.assertEqual(v, call_headers[0][k])

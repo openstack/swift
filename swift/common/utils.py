@@ -118,6 +118,8 @@ F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
 # Used by the parse_socket_string() function to validate IPv6 addresses
 IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
 
+MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
+
 
 class InvalidHashPathConfigError(ValueError):
 
