@@ -40,6 +40,7 @@ from swift.obj import diskfile
 import re
 import random
 from collections import defaultdict
+import uuid
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout, debug
@@ -2220,9 +2221,10 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(len(error_lines), 0)  # sanity
         self.assertEquals(len(warn_lines), 0)  # sanity
 
-    @unpatch_policies
-    def test_conditional_GET_ec(self):
-        self.put_container("ec", "ec-con")
+    def _test_conditional_GET(self, policy):
+        container_name = uuid.uuid4().hex
+        object_path = '/v1/a/%s/conditionals' % container_name
+        self.put_container(policy.name, container_name)
 
         obj = 'this object has an etag and is otherwise unimportant'
         etag = md5(obj).hexdigest()
@@ -2232,13 +2234,13 @@ class TestObjectController(unittest.TestCase):
         prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        fd.write('PUT /v1/a/ec-con/conditionals HTTP/1.1\r\n'
+        fd.write('PUT %s HTTP/1.1\r\n'
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (len(obj), obj))
+                 '\r\n%s' % (object_path, len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -2247,54 +2249,78 @@ class TestObjectController(unittest.TestCase):
         for verb, body in (('GET', obj), ('HEAD', '')):
             # If-Match
             req = Request.blank(
-                '/v1/a/ec-con/conditionals',
+                object_path,
                 environ={'REQUEST_METHOD': verb},
                 headers={'If-Match': etag})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.body, body)
+            self.assertEqual(etag, resp.headers.get('etag'))
+            self.assertEqual('bytes', resp.headers.get('accept-ranges'))
 
             req = Request.blank(
-                '/v1/a/ec-con/conditionals',
+                object_path,
                 environ={'REQUEST_METHOD': verb},
                 headers={'If-Match': not_etag})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 412)
+            self.assertEqual(etag, resp.headers.get('etag'))
 
             req = Request.blank(
-                '/v1/a/ec-con/conditionals',
+                object_path,
                 environ={'REQUEST_METHOD': verb},
                 headers={'If-Match': "*"})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.body, body)
+            self.assertEqual(etag, resp.headers.get('etag'))
+            self.assertEqual('bytes', resp.headers.get('accept-ranges'))
 
             # If-None-Match
             req = Request.blank(
-                '/v1/a/ec-con/conditionals',
+                object_path,
                 environ={'REQUEST_METHOD': verb},
                 headers={'If-None-Match': etag})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 304)
+            self.assertEqual(etag, resp.headers.get('etag'))
+            self.assertEqual('bytes', resp.headers.get('accept-ranges'))
 
             req = Request.blank(
-                '/v1/a/ec-con/conditionals',
+                object_path,
                 environ={'REQUEST_METHOD': verb},
                 headers={'If-None-Match': not_etag})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.body, body)
+            self.assertEqual(etag, resp.headers.get('etag'))
+            self.assertEqual('bytes', resp.headers.get('accept-ranges'))
 
             req = Request.blank(
-                '/v1/a/ec-con/conditionals',
+                object_path,
                 environ={'REQUEST_METHOD': verb},
                 headers={'If-None-Match': "*"})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 304)
+            self.assertEqual(etag, resp.headers.get('etag'))
+            self.assertEqual('bytes', resp.headers.get('accept-ranges'))
+
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
         self.assertEquals(len(error_lines), 0)  # sanity
         self.assertEquals(len(warn_lines), 0)  # sanity
+
+    @unpatch_policies
+    def test_conditional_GET_ec(self):
+        policy = POLICIES[3]
+        self.assertEqual('erasure_coding', policy.policy_type)  # sanity
+        self._test_conditional_GET(policy)
+
+    @unpatch_policies
+    def test_conditional_GET_replication(self):
+        policy = POLICIES[0]
+        self.assertEqual('replication', policy.policy_type)  # sanity
+        self._test_conditional_GET(policy)
 
     @unpatch_policies
     def test_GET_ec_big(self):
@@ -6347,7 +6373,7 @@ class TestObjectECRangedGET(unittest.TestCase):
             str(s) for s in range(431))
         assert seg_size * 4 > len(cls.obj) > seg_size * 3, \
             "object is wrong number of segments"
-
+        cls.obj_etag = md5(cls.obj).hexdigest()
         cls.tiny_obj = 'tiny, tiny object'
         assert len(cls.tiny_obj) < seg_size, "tiny_obj too large"
 
@@ -6495,9 +6521,11 @@ class TestObjectECRangedGET(unittest.TestCase):
     def test_unsatisfiable(self):
         # Goes just one byte too far off the end of the object, so it's
         # unsatisfiable
-        status, _junk, _junk = self._get_obj(
+        status, headers, _junk = self._get_obj(
             "bytes=%d-%d" % (len(self.obj), len(self.obj) + 100))
         self.assertEqual(status, 416)
+        self.assertEqual(self.obj_etag, headers.get('Etag'))
+        self.assertEqual('bytes', headers.get('Accept-Ranges'))
 
     def test_off_end(self):
         # Ranged GET that's mostly off the end of the object, but overlaps

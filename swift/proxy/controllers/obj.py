@@ -56,9 +56,10 @@ from swift.common.exceptions import ChunkReadTimeout, \
     PutterConnectError, ChunkReadError
 from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
-    HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
+    is_redirection, HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT,
+    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -2040,7 +2041,12 @@ class ECObjectController(BaseObjectController):
                     headers=resp_headers,
                     conditional_response=True,
                     app_iter=app_iter)
-                app_iter.kickoff(req, resp)
+                try:
+                    app_iter.kickoff(req, resp)
+                except HTTPException as err_resp:
+                    # catch any HTTPException response here so that we can
+                    # process response headers uniformly in _fix_response
+                    resp = err_resp
             else:
                 statuses = []
                 reasons = []
@@ -2060,10 +2066,12 @@ class ECObjectController(BaseObjectController):
     def _fix_response(self, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
-        # sysmeta, so we copy that here so the client gets it.
+        # sysmeta, so we copy that here (if it exists) so the client gets it.
+        resp.headers['Etag'] = resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+        if (is_success(resp.status_int) or is_redirection(resp.status_int) or
+                resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE):
+            resp.accept_ranges = 'bytes'
         if is_success(resp.status_int):
-            resp.headers['Etag'] = resp.headers.get(
-                'X-Object-Sysmeta-Ec-Etag')
             resp.headers['Content-Length'] = resp.headers.get(
                 'X-Object-Sysmeta-Ec-Content-Length')
             resp.fix_conditional_response()

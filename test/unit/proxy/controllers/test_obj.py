@@ -2193,7 +2193,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
 
     def test_GET_with_invalid_ranges(self):
-        # reall body size is segment_size - 10 (just 1 segment)
+        # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
         real_body = ('a' * segment_size)[:-10]
 
@@ -2205,7 +2205,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                                   segment_size, '%s-' % (segment_size + 10))
 
     def test_COPY_with_invalid_ranges(self):
-        # reall body size is segment_size - 10 (just 1 segment)
+        # real body size is segment_size - 10 (just 1 segment)
         segment_size = self.policy.ec_segment_size
         real_body = ('a' * segment_size)[:-10]
 
@@ -2218,6 +2218,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
     def _test_invalid_ranges(self, method, real_body, segment_size, req_range):
         # make a request with range starts from more than real size.
+        body_etag = md5(real_body).hexdigest()
         req = swift.common.swob.Request.blank(
             '/v1/a/c/o', method=method,
             headers={'Destination': 'c1/o',
@@ -2228,7 +2229,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
         node_fragments = zip(*fragment_payloads)
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
-        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body)),
+                   'X-Object-Sysmeta-Ec-Etag': body_etag}
         start = int(req_range.split('-')[0])
         self.assertTrue(start >= 0)  # sanity
         title, exp = swob.RESPONSE_REASONS[416]
@@ -2248,9 +2250,11 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 416)
-        self.assertEquals(resp.content_length, len(range_not_satisfiable_body))
-        self.assertEquals(resp.body, range_not_satisfiable_body)
+        self.assertEqual(resp.status_int, 416)
+        self.assertEqual(resp.content_length, len(range_not_satisfiable_body))
+        self.assertEqual(resp.body, range_not_satisfiable_body)
+        self.assertEqual(resp.etag, body_etag)
+        self.assertEqual(resp.headers['Accept-Ranges'], 'bytes')
 
 
 if __name__ == '__main__':
