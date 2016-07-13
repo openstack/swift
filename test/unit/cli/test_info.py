@@ -630,9 +630,11 @@ class TestPrintObjFullMeta(TestCliInfoBase):
                                  print_obj_metadata, [])
 
         def get_metadata(items):
-            md = dict(name='/AUTH_admin/c/dummy')
-            md['Content-Type'] = 'application/octet-stream'
-            md['X-Timestamp'] = 106.3
+            md = {
+                'name': '/AUTH_admin/c/dummy',
+                'Content-Type': 'application/octet-stream',
+                'X-Timestamp': 106.3,
+            }
             md.update(items)
             return md
 
@@ -648,6 +650,8 @@ class TestPrintObjFullMeta(TestCliInfoBase):
 Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
+  No metadata found
+Transient System Metadata:
   No metadata found
 User Metadata:
   X-Object-Meta-Mtime: 107.3
@@ -674,6 +678,8 @@ Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
   X-Object-Sysmeta-Mtime: 107.3
   X-Object-Sysmeta-Name: Obj name
+Transient System Metadata:
+  No metadata found
 User Metadata:
   No metadata found
 Other Metadata:
@@ -699,6 +705,8 @@ Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
   X-Object-Sysmeta-Mtime: 107.3
+Transient System Metadata:
+  No metadata found
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
@@ -719,6 +727,8 @@ Other Metadata:
 Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
+  No metadata found
+Transient System Metadata:
   No metadata found
 User Metadata:
   No metadata found
@@ -743,6 +753,8 @@ Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
   No metadata found
+Transient System Metadata:
+  No metadata found
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
@@ -764,6 +776,8 @@ Other Metadata:
 Content-Type: Not found in metadata
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
 System Metadata:
+  No metadata found
+Transient System Metadata:
   No metadata found
 User Metadata:
   X-Object-Meta-Mtime: 107.3
@@ -787,10 +801,40 @@ Content-Type: application/octet-stream
 Timestamp: Not found in metadata
 System Metadata:
   No metadata found
+Transient System Metadata:
+  No metadata found
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
   No metadata found'''
+
+        self.assertEqual(out.getvalue().strip(), exp_out)
+
+        metadata = get_metadata({
+            'X-Object-Meta-Mtime': '107.3',
+            'X-Object-Sysmeta-Mtime': '106.3',
+            'X-Object-Transient-Sysmeta-Mtime': '105.3',
+            'X-Object-Mtime': '104.3',
+        })
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+System Metadata:
+  X-Object-Sysmeta-Mtime: 106.3
+Transient System Metadata:
+  X-Object-Transient-Sysmeta-Mtime: 105.3
+User Metadata:
+  X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  X-Object-Mtime: 104.3''' % (
+            utils.Timestamp(106.3).internal)
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
