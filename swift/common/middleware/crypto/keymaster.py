@@ -16,9 +16,13 @@ import base64
 import hashlib
 import hmac
 import os
+import string
+
+import six
 
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request, HTTPException
+from swift.common.utils import readconf
 from swift.common.wsgi import WSGIContext
 
 
@@ -109,15 +113,30 @@ class KeyMaster(object):
 
     def __init__(self, app, conf):
         self.app = app
+
+        keymaster_config_path = conf.get('keymaster_config_path')
+        if keymaster_config_path:
+            if any(opt in conf for opt in ('encryption_root_secret',)):
+                raise ValueError('keymaster_config_path is set, but there '
+                                 'are other config options specified!')
+            conf = readconf(keymaster_config_path, 'keymaster')
+
         self.root_secret = conf.get('encryption_root_secret')
         try:
+            # b64decode will silently discard bad characters, but we should
+            # treat them as an error
+            if not isinstance(self.root_secret, six.string_types) or any(
+                    c not in string.digits + string.ascii_letters + '/+\r\n'
+                    for c in self.root_secret.strip('\r\n=')):
+                raise ValueError
             self.root_secret = base64.b64decode(self.root_secret)
             if len(self.root_secret) < 32:
                 raise ValueError
         except (TypeError, ValueError):
             raise ValueError(
-                'encryption_root_secret option in proxy-server.conf must be '
-                'a base64 encoding of at least 32 raw bytes')
+                'encryption_root_secret option in %s must be a base64 '
+                'encoding of at least 32 raw bytes' % (
+                    keymaster_config_path or 'proxy-server.conf'))
 
     def __call__(self, env, start_response):
         req = Request(env)

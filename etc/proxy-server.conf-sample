@@ -783,6 +783,15 @@ use = egg:swift#keymaster
 # likely to result in data loss.
 encryption_root_secret = changeme
 
+# Sets the path from which the keymaster config options should be read. This
+# allows multiple processes which need to be encryption-aware (for example,
+# proxy-server and container-sync) to share the same config file, ensuring
+# that the encryption keys used are the same. The format expected is similar
+# to other config files, with a single [keymaster] section and a single
+# encryption_root_secret option. If this option is set, the root secret
+# MUST NOT be set in proxy-server.conf.
+# keymaster_config_path =
+
 [filter:encryption]
 use = egg:swift#encryption
 
