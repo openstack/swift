@@ -276,6 +276,33 @@ def _set_info_values(devs, change, opts):
                                        format_device(dev)))
 
 
+def calculate_change_value(change_value, change, v_name, v_name_port):
+    ip = ''
+    if change_value and change_value[0].isdigit():
+        i = 1
+        while (i < len(change_value) and
+               change_value[i] in '0123456789.'):
+            i += 1
+        ip = change_value[:i]
+        change_value = change_value[i:]
+    elif change_value and change_value.startswith('['):
+        i = 1
+        while i < len(change_value) and change_value[i] != ']':
+            i += 1
+        i += 1
+        ip = change_value[:i].lstrip('[').rstrip(']')
+        change_value = change_value[i:]
+    if ip:
+        change[v_name] = validate_and_normalize_ip(ip)
+    if change_value.startswith(':'):
+        i = 1
+        while i < len(change_value) and change_value[i].isdigit():
+            i += 1
+        change[v_name_port] = int(change_value[1:i])
+        change_value = change_value[i:]
+    return change_value
+
+
 def _parse_set_info_values(argvish):
 
     new_cmd_format, opts, args = validate_args(argvish)
@@ -294,56 +321,15 @@ def _parse_set_info_values(argvish):
         for search_value, change_value in searches_and_changes:
             devs = builder.search_devs(parse_search_value(search_value))
             change = {}
-            ip = ''
-            if change_value and change_value[0].isdigit():
-                i = 1
-                while (i < len(change_value) and
-                       change_value[i] in '0123456789.'):
-                    i += 1
-                ip = change_value[:i]
-                change_value = change_value[i:]
-            elif change_value and change_value.startswith('['):
-                i = 1
-                while i < len(change_value) and change_value[i] != ']':
-                    i += 1
-                i += 1
-                ip = change_value[:i].lstrip('[').rstrip(']')
-                change_value = change_value[i:]
-            if ip:
-                change['ip'] = validate_and_normalize_ip(ip)
-            if change_value.startswith(':'):
-                i = 1
-                while i < len(change_value) and change_value[i].isdigit():
-                    i += 1
-                change['port'] = int(change_value[1:i])
-                change_value = change_value[i:]
+
+            change_value = calculate_change_value(change_value, change,
+                                                  'ip', 'port')
+
             if change_value.startswith('R'):
                 change_value = change_value[1:]
-                replication_ip = ''
-                if change_value and change_value[0].isdigit():
-                    i = 1
-                    while (i < len(change_value) and
-                           change_value[i] in '0123456789.'):
-                        i += 1
-                    replication_ip = change_value[:i]
-                    change_value = change_value[i:]
-                elif change_value and change_value.startswith('['):
-                    i = 1
-                    while i < len(change_value) and change_value[i] != ']':
-                        i += 1
-                    i += 1
-                    replication_ip = \
-                        change_value[:i].lstrip('[').rstrip(']')
-                    change_value = change_value[i:]
-                if replication_ip:
-                    change['replication_ip'] = \
-                        validate_and_normalize_ip(replication_ip)
-                if change_value.startswith(':'):
-                    i = 1
-                    while i < len(change_value) and change_value[i].isdigit():
-                        i += 1
-                    change['replication_port'] = int(change_value[1:i])
-                    change_value = change_value[i:]
+                change_value = calculate_change_value(change_value, change,
+                                                      'replication_ip',
+                                                      'replication_port')
             if change_value.startswith('/'):
                 i = 1
                 while i < len(change_value) and change_value[i] != '_':
