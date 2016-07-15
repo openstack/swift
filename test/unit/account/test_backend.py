@@ -87,7 +87,7 @@ class TestAccountBroker(unittest.TestCase):
                 raise Exception('OMG')
         except Exception:
             pass
-        self.assertTrue(broker.conn is None)
+        self.assertIsNone(broker.conn)
 
     def test_empty(self):
         # Test AccountBroker.empty
@@ -96,7 +96,7 @@ class TestAccountBroker(unittest.TestCase):
         self.assertTrue(broker.empty())
         broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        self.assertTrue(not broker.empty())
+        self.assertFalse(broker.empty())
         sleep(.00001)
         broker.put_container('o', 0, Timestamp.now().internal, 0, 0,
                              POLICIES.default.idx)
@@ -106,7 +106,7 @@ class TestAccountBroker(unittest.TestCase):
         # Test AccountBroker.is_status_deleted
         broker1 = AccountBroker(':memory:', account='a')
         broker1.initialize(Timestamp.now().internal)
-        self.assertTrue(not broker1.is_status_deleted())
+        self.assertFalse(broker1.is_status_deleted())
         broker1.delete_db(Timestamp.now().internal)
         self.assertTrue(broker1.is_status_deleted())
         broker2 = AccountBroker(':memory:', account='a')
@@ -180,7 +180,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(start)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assertTrue(Timestamp(info['created_at']) >= start)
+        self.assertGreaterEqual(Timestamp(info['created_at']), start)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ == TestAccountBrokerBeforeMetadata:
             self.assertEqual(info['status_changed_at'], '0')
@@ -193,7 +193,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.delete_db(delete_timestamp)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assertTrue(Timestamp(info['created_at']) >= start)
+        self.assertGreaterEqual(Timestamp(info['created_at']), start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -1217,8 +1217,8 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table doesn't have this column
-                self.assertTrue('no such column: storage_policy_index' in
-                                str(err))
+                self.assertIn('no such column: storage_policy_index',
+                              str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from storage_policy_index '
@@ -1591,7 +1591,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
             self.assertEqual(stats['object_count'], 0)
             self.assertEqual(stats['bytes_used'], 0)
             # un-migrated dbs should not return container_count
-            self.assertFalse('container_count' in stats)
+            self.assertNotIn('container_count', stats)
 
         # now force the migration
         policy_stats = self.broker.get_policy_stats(do_migrations=True)

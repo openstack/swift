@@ -66,8 +66,7 @@ class TestAccountController(unittest.TestCase):
         resp = server_handler.OPTIONS(req)
         self.assertEqual(200, resp.status_int)
         for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE'.split():
-            self.assertTrue(
-                verb in resp.headers['Allow'].split(', '))
+            self.assertIn(verb, resp.headers['Allow'].split(', '))
         self.assertEqual(len(resp.headers['Allow'].split(', ')), 7)
         self.assertEqual(resp.headers['Server'],
                          (server_handler.server_type + '/' + swift_version))
