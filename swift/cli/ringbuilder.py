@@ -181,7 +181,8 @@ def _parse_add_values(argvish):
     return parsed_devs
 
 
-def _set_weight_values(devs, weight, opts):
+def check_devs(devs, input_question, opts, abort_msg):
+
     if not devs:
         print('Search value matched 0 devices.\n'
               'The on-disk ring builder is unchanged.')
@@ -191,11 +192,17 @@ def _set_weight_values(devs, weight, opts):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if not opts.yes and \
-                input('Are you sure you want to update the weight for '
-                      'these %s devices? (y/N) ' % len(devs)) != 'y':
-            print('Aborting device modifications')
+        if not opts.yes and input(input_question) != 'y':
+            print(abort_msg)
             exit(EXIT_ERROR)
+
+
+def _set_weight_values(devs, weight, opts):
+
+    input_question = 'Are you sure you want to update the weight for these ' \
+                     '%s devices? (y/N) ' % len(devs)
+    abort_msg = 'Aborting device modifications'
+    check_devs(devs, input_question, opts, abort_msg)
 
     for dev in devs:
         builder.set_dev_weight(dev['id'], weight)
@@ -240,20 +247,10 @@ def _parse_set_weight_values(argvish):
 
 def _set_info_values(devs, change, opts):
 
-    if not devs:
-        print("Search value matched 0 devices.\n"
-              "The on-disk ring builder is unchanged.")
-        exit(EXIT_ERROR)
-
-    if len(devs) > 1:
-        print('Matched more than one device:')
-        for dev in devs:
-            print('    %s' % format_device(dev))
-        if not opts.yes and \
-                input('Are you sure you want to update the info for '
-                      'these %s devices? (y/N) ' % len(devs)) != 'y':
-            print('Aborting device modifications')
-            exit(EXIT_ERROR)
+    input_question = 'Are you sure you want to update the info for these ' \
+                     '%s devices? (y/N) ' % len(devs)
+    abort_msg = 'Aborting device modifications'
+    check_devs(devs, input_question, opts, abort_msg)
 
     for dev in devs:
         orig_dev_string = format_device(dev)
@@ -760,20 +757,10 @@ swift-ring-builder <builder_file> remove
 
         devs, opts = _parse_remove_values(argv[3:])
 
-        if not devs:
-            print('Search value matched 0 devices.\n'
-                  'The on-disk ring builder is unchanged.')
-            exit(EXIT_ERROR)
-
-        if len(devs) > 1:
-            print('Matched more than one device:')
-            for dev in devs:
-                print('    %s' % format_device(dev))
-            if not opts.yes and \
-                    input('Are you sure you want to remove these %s '
-                          'devices? (y/N) ' % len(devs)) != 'y':
-                print('Aborting device removals')
-                exit(EXIT_ERROR)
+        input_question = 'Are you sure you want to remove these ' \
+                         '%s devices? (y/N) ' % len(devs)
+        abort_msg = 'Aborting device removals'
+        check_devs(devs, input_question, opts, abort_msg)
 
         for dev in devs:
             try:
