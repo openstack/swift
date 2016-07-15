@@ -89,10 +89,9 @@ class TestCliInfoBase(unittest.TestCase):
         try:
             func(*args, **kwargs)
         except Exception as e:
-            self.assertTrue(msg in str(e),
-                            "Expected %r in %r" % (msg, str(e)))
-            self.assertTrue(isinstance(e, exc),
-                            "Expected %s, got %s" % (exc, type(e)))
+            self.assertIn(msg, str(e), "Expected %r in %r" % (msg, str(e)))
+            self.assertIsInstance(e, exc,
+                                  "Expected %s, got %s" % (exc, type(e)))
 
 
 class TestCliInfo(TestCliInfoBase):
@@ -206,9 +205,9 @@ No user metadata found in db file''' % POLICIES[0].name
             print_ring_locations(acctring, 'dir', 'acct')
         exp_db = os.path.join('${DEVICE:-/srv/node*}', 'sdb1', 'dir', '3',
                               'b47', 'dc5be2aa4347a22a0fee6bc7de505b47')
-        self.assertTrue(exp_db in out.getvalue())
-        self.assertTrue('127.0.0.1' in out.getvalue())
-        self.assertTrue('127.0.0.2' in out.getvalue())
+        self.assertIn(exp_db, out.getvalue())
+        self.assertIn('127.0.0.1', out.getvalue())
+        self.assertIn('127.0.0.2', out.getvalue())
 
     def test_print_ring_locations_container(self):
         out = StringIO()
@@ -217,7 +216,7 @@ No user metadata found in db file''' % POLICIES[0].name
             print_ring_locations(contring, 'dir', 'acct', 'con')
         exp_db = os.path.join('${DEVICE:-/srv/node*}', 'sdb1', 'dir', '1',
                               'fe6', '63e70955d78dfc62821edc07d6ec1fe6')
-        self.assertTrue(exp_db in out.getvalue())
+        self.assertIn(exp_db, out.getvalue())
 
     def test_print_ring_locations_obj(self):
         out = StringIO()
@@ -226,7 +225,7 @@ No user metadata found in db file''' % POLICIES[0].name
             print_ring_locations(objring, 'dir', 'acct', 'con', 'obj')
         exp_obj = os.path.join('${DEVICE:-/srv/node*}', 'sda1', 'dir', '1',
                                '117', '4a16154fc15c75e26ba6afadf5b1c117')
-        self.assertTrue(exp_obj in out.getvalue())
+        self.assertIn(exp_obj, out.getvalue())
 
     def test_print_ring_locations_partition_number(self):
         out = StringIO()
@@ -237,8 +236,8 @@ No user metadata found in db file''' % POLICIES[0].name
                                 'objects', '1')
         exp_obj2 = os.path.join('${DEVICE:-/srv/node*}', 'sdb1',
                                 'objects', '1')
-        self.assertTrue(exp_obj1 in out.getvalue())
-        self.assertTrue(exp_obj2 in out.getvalue())
+        self.assertIn(exp_obj1, out.getvalue())
+        self.assertIn(exp_obj2, out.getvalue())
 
     def test_print_item_locations_invalid_args(self):
         # No target specified
@@ -265,9 +264,9 @@ No user metadata found in db file''' % POLICIES[0].name
             # Test mismatch of ring and policy name (valid policy)
             self.assertRaises(InfoSystemExit, print_item_locations,
                               objring, policy_name='zero')
-        self.assertTrue('Warning: mismatch between ring and policy name!'
-                        in out.getvalue())
-        self.assertTrue('No target specified' in out.getvalue())
+        self.assertIn('Warning: mismatch between ring and policy name!',
+                      out.getvalue())
+        self.assertIn('No target specified', out.getvalue())
 
     def test_print_item_locations_invalid_policy_no_target(self):
         out = StringIO()
@@ -277,8 +276,8 @@ No user metadata found in db file''' % POLICIES[0].name
             self.assertRaises(InfoSystemExit, print_item_locations,
                               objring, policy_name=policy_name)
         exp_msg = 'Warning: Policy %s is not valid' % policy_name
-        self.assertTrue(exp_msg in out.getvalue())
-        self.assertTrue('No target specified' in out.getvalue())
+        self.assertIn(exp_msg, out.getvalue())
+        self.assertIn('No target specified', out.getvalue())
 
     def test_print_item_locations_policy_object(self):
         out = StringIO()
@@ -290,10 +289,10 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \tNone'
         exp_cont_msg = 'Container\tNone'
         exp_obj_msg = 'Object   \tNone'
-        self.assertTrue(exp_part_msg in out.getvalue())
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_part_msg, out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_dashed_ring_name_partition(self):
         out = StringIO()
@@ -306,10 +305,10 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \tNone'
         exp_cont_msg = 'Container\tNone'
         exp_obj_msg = 'Object   \tNone'
-        self.assertTrue(exp_part_msg in out.getvalue())
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_part_msg, out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_account_with_ring(self):
         out = StringIO()
@@ -318,16 +317,16 @@ No user metadata found in db file''' % POLICIES[0].name
             account_ring = ring.Ring(self.testdir, ring_name=account)
             print_item_locations(account_ring, account=account)
         exp_msg = 'Account  \t%s' % account
-        self.assertTrue(exp_msg in out.getvalue())
+        self.assertIn(exp_msg, out.getvalue())
         exp_warning = 'Warning: account specified ' + \
                       'but ring not named "account"'
-        self.assertTrue(exp_warning in out.getvalue())
+        self.assertIn(exp_warning, out.getvalue())
         exp_acct_msg = 'Account  \t%s' % account
         exp_cont_msg = 'Container\tNone'
         exp_obj_msg = 'Object   \tNone'
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_account_no_ring(self):
         out = StringIO()
@@ -338,9 +337,9 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \t%s' % account
         exp_cont_msg = 'Container\tNone'
         exp_obj_msg = 'Object   \tNone'
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_account_container_ring(self):
         out = StringIO()
@@ -353,9 +352,9 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \t%s' % account
         exp_cont_msg = 'Container\t%s' % container
         exp_obj_msg = 'Object   \tNone'
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_account_container_no_ring(self):
         out = StringIO()
@@ -367,9 +366,9 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \t%s' % account
         exp_cont_msg = 'Container\t%s' % container
         exp_obj_msg = 'Object   \tNone'
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_account_container_object_ring(self):
         out = StringIO()
@@ -384,9 +383,9 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \t%s' % account
         exp_cont_msg = 'Container\t%s' % container
         exp_obj_msg = 'Object   \t%s' % obj
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_item_locations_account_container_object_dashed_ring(self):
         out = StringIO()
@@ -401,9 +400,9 @@ No user metadata found in db file''' % POLICIES[0].name
         exp_acct_msg = 'Account  \t%s' % account
         exp_cont_msg = 'Container\t%s' % container
         exp_obj_msg = 'Object   \t%s' % obj
-        self.assertTrue(exp_acct_msg in out.getvalue())
-        self.assertTrue(exp_cont_msg in out.getvalue())
-        self.assertTrue(exp_obj_msg in out.getvalue())
+        self.assertIn(exp_acct_msg, out.getvalue())
+        self.assertIn(exp_cont_msg, out.getvalue())
+        self.assertIn(exp_obj_msg, out.getvalue())
 
     def test_print_info(self):
         db_file = 'foo'
@@ -431,7 +430,7 @@ No user metadata found in db file''' % POLICIES[0].name
         if exp_raised:
             self.fail("Unexpected exception raised")
         else:
-            self.assertTrue(len(out.getvalue().strip()) > 800)
+            self.assertGreater(len(out.getvalue().strip()), 800)
 
         controller = ContainerController(
             {'devices': self.testdir, 'mount_check': 'false'})
@@ -459,7 +458,7 @@ No user metadata found in db file''' % POLICIES[0].name
         if exp_raised:
             self.fail("Unexpected exception raised")
         else:
-            self.assertTrue(len(out.getvalue().strip()) > 600)
+            self.assertGreater(len(out.getvalue().strip()), 600)
 
         out = StringIO()
         exp_raised = False
@@ -517,8 +516,8 @@ class TestPrintObj(TestCliInfoBase):
             print_obj(self.datafile, swift_dir=self.testdir)
         etag_msg = 'ETag: Not found in metadata'
         length_msg = 'Content-Length: Not found in metadata'
-        self.assertTrue(etag_msg in out.getvalue())
-        self.assertTrue(length_msg in out.getvalue())
+        self.assertIn(etag_msg, out.getvalue())
+        self.assertIn(length_msg, out.getvalue())
 
     def test_print_obj_with_policy(self):
         out = StringIO()
@@ -527,15 +526,15 @@ class TestPrintObj(TestCliInfoBase):
         etag_msg = 'ETag: Not found in metadata'
         length_msg = 'Content-Length: Not found in metadata'
         ring_loc_msg = 'ls -lah'
-        self.assertTrue(etag_msg in out.getvalue())
-        self.assertTrue(length_msg in out.getvalue())
-        self.assertTrue(ring_loc_msg in out.getvalue())
+        self.assertIn(etag_msg, out.getvalue())
+        self.assertIn(length_msg, out.getvalue())
+        self.assertIn(ring_loc_msg, out.getvalue())
 
     def test_missing_etag(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile)
-        self.assertTrue('ETag: Not found in metadata' in out.getvalue())
+        self.assertIn('ETag: Not found in metadata', out.getvalue())
 
 
 class TestPrintObjFullMeta(TestCliInfoBase):
@@ -558,7 +557,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, swift_dir=self.testdir)
-        self.assertTrue('/objects-1/' in out.getvalue())
+        self.assertIn('/objects-1/', out.getvalue())
 
     def test_print_obj_policy_index(self):
         # Check an output of policy index when current directory is in
@@ -575,7 +574,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
                 print_obj(file_name, swift_dir=self.testdir)
         finally:
             os.chdir(cwd)
-        self.assertTrue('X-Backend-Storage-Policy-Index: 1' in out.getvalue())
+        self.assertIn('X-Backend-Storage-Policy-Index: 1', out.getvalue())
 
     def test_print_obj_curl_command_ipv4(self):
         # Note: policy 2 has IPv4 addresses in its ring
@@ -668,7 +667,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             out = StringIO()
             with mock.patch('sys.stdout', out):
                 print_obj(test_file, swift_dir=self.testdir)
-            self.assertTrue('/objects-1/' in out.getvalue())
+            self.assertIn('/objects-1/', out.getvalue())
 
     def test_print_obj_no_ring(self):
         no_rings_dir = os.path.join(self.testdir, 'no_rings_here')
@@ -677,22 +676,22 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, swift_dir=no_rings_dir)
-        self.assertTrue('d41d8cd98f00b204e9800998ecf8427e' in out.getvalue())
-        self.assertTrue('Partition' not in out.getvalue())
+        self.assertIn('d41d8cd98f00b204e9800998ecf8427e', out.getvalue())
+        self.assertNotIn('Partition', out.getvalue())
 
     def test_print_obj_policy_name_mismatch(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, policy_name='two', swift_dir=self.testdir)
         ring_alert_msg = 'Warning: Ring does not match policy!'
-        self.assertTrue(ring_alert_msg in out.getvalue())
+        self.assertIn(ring_alert_msg, out.getvalue())
 
     def test_valid_etag(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile)
-        self.assertTrue('ETag: d41d8cd98f00b204e9800998ecf8427e (valid)'
-                        in out.getvalue())
+        self.assertIn('ETag: d41d8cd98f00b204e9800998ecf8427e (valid)',
+                      out.getvalue())
 
     def test_invalid_etag(self):
         with open(self.datafile, 'wb') as fp:
@@ -705,15 +704,15 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile)
-        self.assertTrue('ETag: badetag doesn\'t match file hash'
-                        in out.getvalue())
+        self.assertIn('ETag: badetag doesn\'t match file hash',
+                      out.getvalue())
 
     def test_unchecked_etag(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, check_etag=False)
-        self.assertTrue('ETag: d41d8cd98f00b204e9800998ecf8427e (not checked)'
-                        in out.getvalue())
+        self.assertIn('ETag: d41d8cd98f00b204e9800998ecf8427e (not checked)',
+                      out.getvalue())
 
     def test_print_obj_metadata(self):
         self.assertRaisesMessage(ValueError, 'Metadata is None',

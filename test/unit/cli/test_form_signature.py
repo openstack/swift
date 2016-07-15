@@ -49,14 +49,14 @@ class TestFormSignature(unittest.TestCase):
                     max_file_count, str(expires), key])
 
         self.assertEqual(exitcode, 0)
-        self.assertTrue("Signature: %s" % expected_signature
-                        in out.getvalue())
-        self.assertTrue("Expires: %d" % (the_time + expires,)
-                        in out.getvalue())
+        self.assertIn("Signature: %s" % expected_signature,
+                      out.getvalue())
+        self.assertIn("Expires: %d" % (the_time + expires,),
+                      out.getvalue())
 
         sig_input = ('<input type="hidden" name="signature" value="%s" />'
                      % expected_signature)
-        self.assertTrue(sig_input in out.getvalue())
+        self.assertIn(sig_input, out.getvalue())
 
     def test_too_few_args(self):
         out = StringIO()
@@ -67,7 +67,7 @@ class TestFormSignature(unittest.TestCase):
 
         self.assertNotEqual(exitcode, 0)
         usage = 'Syntax: swift-form-signature <path>'
-        self.assertTrue(usage in out.getvalue())
+        self.assertIn(usage, out.getvalue())
 
     def test_invalid_filesize_arg(self):
         out = StringIO()
