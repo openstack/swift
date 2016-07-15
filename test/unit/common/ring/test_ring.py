@@ -198,9 +198,9 @@ class TestRing(TestRingBase):
             utils.SWIFT_CONF_FILE = _orig_swift_conf_file
 
     def test_has_changed(self):
-        self.assertEqual(self.ring.has_changed(), False)
+        self.assertFalse(self.ring.has_changed())
         os.utime(self.testgz, (time() + 60, time() + 60))
-        self.assertEqual(self.ring.has_changed(), True)
+        self.assertTrue(self.ring.has_changed())
 
     def test_reload(self):
         os.utime(self.testgz, (time() - 300, time() - 300))
