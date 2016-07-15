@@ -136,10 +136,10 @@ class TestReplicatorFunctions(ReplProbeTest):
                 try:
                     # Check replicate files and dir
                     for files in test_node_files_list:
-                        self.assertTrue(files in new_files_list[0])
+                        self.assertIn(files, new_files_list[0])
 
                     for dir in test_node_dir_list:
-                        self.assertTrue(dir in new_dir_list[0])
+                        self.assertIn(dir, new_dir_list[0])
                     break
                 except Exception:
                     if time.time() - begin > 60:
@@ -184,10 +184,10 @@ class TestReplicatorFunctions(ReplProbeTest):
 
                     # Check replicate files and dirs
                     for files in test_node_files_list:
-                        self.assertTrue(files in new_files_list[0])
+                        self.assertIn(files, new_files_list[0])
 
                     for directory in test_node_dir_list:
-                        self.assertTrue(directory in new_dir_list[0])
+                        self.assertIn(directory, new_dir_list[0])
                     break
                 except Exception:
                     if time.time() - begin > 60:
