@@ -30,7 +30,7 @@ func TestReplicationHandoff(t *testing.T) {
 
 	// put a file
 	timestamp := hummingbird.GetTimestamp()
-	assert.True(t, e.PutObject(0, timestamp, "X"))
+	assert.True(t, e.PutObject(0, timestamp, "X", 0))
 
 	// make a drive look unmounted with a handler that always 507s
 	origHandler := e.servers[1].Config.Handler
@@ -42,28 +42,28 @@ func TestReplicationHandoff(t *testing.T) {
 	e.replicators[0].Run()
 
 	// so it's on the primary nodes that are up
-	assert.True(t, e.ObjExists(0, timestamp))
-	assert.True(t, e.ObjExists(2, timestamp))
+	assert.True(t, e.ObjExists(0, timestamp, 0))
+	assert.True(t, e.ObjExists(2, timestamp, 0))
 
 	// and now it's on the handoff node
-	assert.True(t, e.ObjExists(3, timestamp))
+	assert.True(t, e.ObjExists(3, timestamp, 0))
 
 	// fix the "unmounted" drive
 	e.servers[1].Config.Handler = origHandler
 
 	// make sure it's not on the newly fixed node yet
-	assert.False(t, e.ObjExists(1, timestamp))
+	assert.False(t, e.ObjExists(1, timestamp, 0))
 
 	// run the handoff node's replicator
 	e.replicators[3].Run()
 
 	// it's no longer on the handoff node
-	assert.False(t, e.ObjExists(3, timestamp))
+	assert.False(t, e.ObjExists(3, timestamp, 0))
 
 	// make sure it's on all the primary nodes
-	assert.True(t, e.ObjExists(0, timestamp))
-	assert.True(t, e.ObjExists(1, timestamp))
-	assert.True(t, e.ObjExists(2, timestamp))
+	assert.True(t, e.ObjExists(0, timestamp, 0))
+	assert.True(t, e.ObjExists(1, timestamp, 0))
+	assert.True(t, e.ObjExists(2, timestamp, 0))
 }
 
 func TestReplicationUnlinkOld(t *testing.T) {
@@ -72,18 +72,18 @@ func TestReplicationUnlinkOld(t *testing.T) {
 
 	// put a file to a primary node
 	timestamp := hummingbird.GetTimestamp()
-	assert.True(t, e.PutObject(0, timestamp, "X"))
+	assert.True(t, e.PutObject(0, timestamp, "X", 0))
 
 	// put a newer file to another primary node
 	timestamp2 := hummingbird.GetTimestamp()
-	assert.True(t, e.PutObject(1, timestamp2, "X"))
+	assert.True(t, e.PutObject(1, timestamp2, "X", 0))
 
-	assert.True(t, e.ObjExists(0, timestamp))
-	assert.True(t, e.ObjExists(1, timestamp2))
+	assert.True(t, e.ObjExists(0, timestamp, 0))
+	assert.True(t, e.ObjExists(1, timestamp2, 0))
 
 	// run the replicator on the server with the old file
 	e.replicators[0].Run()
 
 	// verify the old file was removed by the replicator
-	assert.False(t, e.ObjExists(0, timestamp))
+	assert.False(t, e.ObjExists(0, timestamp, 0))
 }

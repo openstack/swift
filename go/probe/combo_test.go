@@ -32,11 +32,11 @@ func TestAuditReplicate(t *testing.T) {
 	// put a file
 	timestamp := hummingbird.GetTimestamp()
 	for i := 0; i < 3; i++ {
-		e.PutObject(i, timestamp, "X")
+		e.PutObject(i, timestamp, "X", 0)
 	}
 
 	// simulate bit-rot of the file contents
-	locations := e.FileLocations("a", "c", "o")
+	locations := e.FileLocations("a", "c", "o", 0)
 	path := filepath.Join(locations[0], timestamp+".data")
 	f, _ := os.OpenFile(path, os.O_RDWR, 0777)
 	f.Write([]byte("!"))
@@ -44,9 +44,9 @@ func TestAuditReplicate(t *testing.T) {
 
 	// make sure the file is gone after an audit pass
 	e.auditors[0].Run()
-	assert.False(t, e.ObjExists(0, timestamp))
+	assert.False(t, e.ObjExists(0, timestamp, 0))
 
 	// make sure the file is replaced after another server's replicator runs
 	e.replicators[1].Run()
-	assert.True(t, e.ObjExists(0, timestamp))
+	assert.True(t, e.ObjExists(0, timestamp, 0))
 }

@@ -373,7 +373,7 @@ func TestReplicationLocal(t *testing.T) {
 	replicator, err := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
 	require.Nil(t, err)
 	replicator.driveRoot = ts.objServer.driveRoot
-	replicator.Ring = &FakeRepRing1{ldev: ldev, rdev: rdev}
+	replicator.Rings[0] = &FakeRepRing1{ldev: ldev, rdev: rdev}
 	replicator.Run()
 
 	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
@@ -426,7 +426,7 @@ func TestReplicationHandoff(t *testing.T) {
 	replicator, err := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
 	require.Nil(t, err)
 	replicator.driveRoot = ts.objServer.driveRoot
-	replicator.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
 	replicator.Run()
 
 	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
@@ -473,7 +473,7 @@ func TestReplicationHandoffQuorumDelete(t *testing.T) {
 	replicator, _ = makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
 	require.True(t, replicator.quorumDelete)
 	replicator.driveRoot = ts.objServer.driveRoot
-	replicator.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
 	replicator.Run()
 
 	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
@@ -616,7 +616,7 @@ func TestRestartDevice(t *testing.T) {
 
 	saved := &replicationLogSaver{}
 	repl, _ := makeReplicator()
-	repl.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	repl.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
 	repl.logger = saved
 
 	// set stuff up
@@ -680,7 +680,7 @@ func TestRestartDevices(t *testing.T) {
 	ldev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 6001, Device: "sda"}
 	rdev := &hummingbird.Device{ReplicationIp: "127.0.0.2", ReplicationPort: 6001, Device: "sdb"}
 	ring := &FakeRepRing2{ldev: ldev, rdev: rdev}
-	replicator.Ring = ring
+	replicator.Rings[0] = ring
 	replicator.restartDevices()
 	_, oka := replicator.cancelers["sda"]
 	_, okb := replicator.cancelers["sdb"]
@@ -704,16 +704,17 @@ func TestSyncFileQuarantine(t *testing.T) {
 
 	hashDir := filepath.Join(driveRoot, "sda", "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e")
 	objFile := filepath.Join(hashDir, "12345.data")
+	j := &job{policy: 0}
 
 	require.Nil(t, os.MkdirAll(objFile, 0777)) // not a regular file
-	replicator.syncFile(objFile, nil, nil)
+	replicator.syncFile(objFile, nil, j)
 	assert.False(t, hummingbird.Exists(hashDir))
 
 	os.MkdirAll(hashDir, 0777) // error reading metadata
 	fp, err := os.Create(objFile)
 	require.Nil(t, err)
 	defer fp.Close()
-	replicator.syncFile(objFile, nil, nil)
+	replicator.syncFile(objFile, nil, j)
 	assert.False(t, hummingbird.Exists(hashDir))
 
 	os.MkdirAll(hashDir, 0777) // unparseable pickle
@@ -721,7 +722,7 @@ func TestSyncFileQuarantine(t *testing.T) {
 	defer fp.Close()
 	require.Nil(t, err)
 	RawWriteMetadata(fp.Fd(), []byte("NOT A VALID PICKLE"))
-	replicator.syncFile(objFile, nil, nil)
+	replicator.syncFile(objFile, nil, j)
 	assert.False(t, hummingbird.Exists(hashDir))
 
 	os.MkdirAll(hashDir, 0777) // wrong metadata type
@@ -729,7 +730,7 @@ func TestSyncFileQuarantine(t *testing.T) {
 	defer fp.Close()
 	require.Nil(t, err)
 	RawWriteMetadata(fp.Fd(), hummingbird.PickleDumps("hi"))
-	replicator.syncFile(objFile, nil, nil)
+	replicator.syncFile(objFile, nil, j)
 	assert.False(t, hummingbird.Exists(hashDir))
 
 	os.MkdirAll(hashDir, 0777) // unparseable content-length
@@ -740,7 +741,7 @@ func TestSyncFileQuarantine(t *testing.T) {
 		"Content-Type": "text/plain", "name": "/a/c/o", "ETag": "d41d8cd98f00b204e9800998ecf8427e",
 		"X-Timestamp": "12345.12345", "Content-Length": "X"}
 	RawWriteMetadata(fp.Fd(), hummingbird.PickleDumps(badContentLengthMetdata))
-	replicator.syncFile(objFile, nil, nil)
+	replicator.syncFile(objFile, nil, j)
 	assert.False(t, hummingbird.Exists(hashDir))
 
 	os.MkdirAll(hashDir, 0777) // content-length doesn't match file size
@@ -751,6 +752,6 @@ func TestSyncFileQuarantine(t *testing.T) {
 		"Content-Type": "text/plain", "name": "/a/c/o", "ETag": "d41d8cd98f00b204e9800998ecf8427e",
 		"X-Timestamp": "12345.12345", "Content-Length": "50000"}
 	RawWriteMetadata(fp.Fd(), hummingbird.PickleDumps(wrongContentLengthMetdata))
-	replicator.syncFile(objFile, nil, nil)
+	replicator.syncFile(objFile, nil, j)
 	assert.False(t, hummingbird.Exists(hashDir))
 }

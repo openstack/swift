@@ -49,6 +49,24 @@ type AtomicFileWriter interface {
 	Preallocate(int64, int64) error
 }
 
+func PolicyDir(policy int) string {
+	if policy == 0 {
+		return "objects"
+	}
+	return fmt.Sprintf("objects-%d", policy)
+}
+
+func UnPolicyDir(dir string) (int, error) {
+	if dir == "objects" {
+		return 0, nil
+	}
+	var policy int
+	if n, err := fmt.Sscanf(dir, "objects-%d", &policy); n == 1 && err == nil {
+		return policy, nil
+	}
+	return 0, fmt.Errorf("Unable to parse policy from dir")
+}
+
 func RawReadMetadata(fileNameOrFd interface{}) ([]byte, error) {
 	var pickledMetadata []byte
 	offset := 0
@@ -130,14 +148,14 @@ func WriteMetadata(fd uintptr, v map[string]string) error {
 func QuarantineHash(hashDir string) error {
 	// FYI- this does not invalidate the hash like swift's version. Please
 	// do that yourself
-	hash := filepath.Base(hashDir)
-	//          drive        objects      partition    suffix       hash
-	driveDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(hashDir))))
-	// TODO: this will need to be slightly more complicated once policies
-	quarantineDir := filepath.Join(driveDir, "quarantined", "objects")
+	//          objects      partition    suffix       hash
+	objsDir := filepath.Dir(filepath.Dir(filepath.Dir(hashDir)))
+	driveDir := filepath.Dir(objsDir)
+	quarantineDir := filepath.Join(driveDir, "quarantined", filepath.Base(objsDir))
 	if err := os.MkdirAll(quarantineDir, 0755); err != nil {
 		return err
 	}
+	hash := filepath.Base(hashDir)
 	destDir := filepath.Join(quarantineDir, hash+"-"+hummingbird.UUID())
 	if err := os.Rename(hashDir, destDir); err != nil {
 		return err
@@ -251,8 +269,8 @@ func RecalculateSuffixHash(suffixDir string, reclaimAge int64) (string, *humming
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func GetHashes(driveRoot string, device string, partition string, recalculate []string, reclaimAge int64, logger hummingbird.LoggingContext) (map[string]string, *hummingbird.BackendError) {
-	partitionDir := filepath.Join(driveRoot, device, "objects", partition)
+func GetHashes(driveRoot string, device string, partition string, recalculate []string, reclaimAge int64, policy int, logger hummingbird.LoggingContext) (map[string]string, *hummingbird.BackendError) {
+	partitionDir := filepath.Join(driveRoot, device, PolicyDir(policy), partition)
 	pklFile := filepath.Join(partitionDir, "hashes.pkl")
 	invalidFile := filepath.Join(partitionDir, "hashes.invalid")
 
@@ -307,7 +325,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 	for suffix, hash := range hashes {
 		if hash == "" {
 			modified = true
-			suffixDir := driveRoot + "/" + device + "/objects/" + partition + "/" + suffix
+			suffixDir := filepath.Join(partitionDir, suffix)
 			recalc_hash, err := RecalculateSuffixHash(suffixDir, reclaimAge)
 			if err == nil {
 				hashes[suffix] = recalc_hash
@@ -340,18 +358,18 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 			}
 			logger.LogError("Made recursive call to GetHashes: %s", partitionDir)
 			partitionLock.Close()
-			return GetHashes(driveRoot, device, partition, recalculate, reclaimAge, logger)
+			return GetHashes(driveRoot, device, partition, recalculate, reclaimAge, policy, logger)
 		}
 	}
 	return hashes, nil
 }
 
-func ObjHashDir(vars map[string]string, driveRoot string, hashPathPrefix string, hashPathSuffix string) string {
+func ObjHashDir(vars map[string]string, driveRoot string, hashPathPrefix string, hashPathSuffix string, policy int) string {
 	h := md5.New()
 	io.WriteString(h, hashPathPrefix+"/"+vars["account"]+"/"+vars["container"]+"/"+vars["obj"]+hashPathSuffix)
 	hexHash := hex.EncodeToString(h.Sum(nil))
 	suffix := hexHash[29:32]
-	return filepath.Join(driveRoot, vars["device"], "objects", vars["partition"], suffix, hexHash)
+	return filepath.Join(driveRoot, vars["device"], PolicyDir(policy), vars["partition"], suffix, hexHash)
 }
 
 func ObjectFiles(directory string) (string, string) {

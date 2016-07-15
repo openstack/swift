@@ -472,15 +472,15 @@ func NewProxyDirectClient() (ProxyClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.ObjectRing, err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix)
+	c.ObjectRing, err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, 0)
 	if err != nil {
 		return nil, err
 	}
-	c.ContainerRing, err = hummingbird.GetRing("container", hashPathPrefix, hashPathSuffix)
+	c.ContainerRing, err = hummingbird.GetRing("container", hashPathPrefix, hashPathSuffix, 0)
 	if err != nil {
 		return nil, err
 	}
-	c.AccountRing, err = hummingbird.GetRing("account", hashPathPrefix, hashPathSuffix)
+	c.AccountRing, err = hummingbird.GetRing("account", hashPathPrefix, hashPathSuffix, 0)
 	if err != nil {
 		return nil, err
 	}

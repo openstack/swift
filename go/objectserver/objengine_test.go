@@ -26,7 +26,7 @@ import (
 
 func TestObjectEngineRegistry(t *testing.T) {
 	testErr := errors.New("Not implemented")
-	constructor := func(hummingbird.Config, *flag.FlagSet) (ObjectEngine, error) {
+	constructor := func(hummingbird.Config, *hummingbird.Policy, *flag.FlagSet) (ObjectEngine, error) {
 		return nil, testErr
 	}
 
@@ -34,7 +34,7 @@ func TestObjectEngineRegistry(t *testing.T) {
 
 	fconstructor, err := FindEngine("test")
 	require.Nil(t, err)
-	eng, err := fconstructor(hummingbird.Config{}, nil)
+	eng, err := fconstructor(hummingbird.Config{}, nil, nil)
 	require.Nil(t, eng)
 	require.Equal(t, err, testErr)
 

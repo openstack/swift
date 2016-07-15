@@ -52,6 +52,7 @@ func (t *TestServer) Close() {
 
 func (t *TestServer) Do(method string, path string, body io.ReadCloser) (*http.Response, error) {
 	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%d%s", t.host, t.port, path), body)
+	req.Header.Set("X-Backend-Storage-Policy-Index", "0")
 	if err != nil {
 		return nil, err
 	}

@@ -197,22 +197,27 @@ func (a *Auditor) auditDevice(devPath string) {
 		return
 	}
 
-	objPath := filepath.Join(devPath, "objects")
-	partitions, err := hummingbird.ReadDirNames(objPath)
-	if err != nil {
-		a.errors++
-		a.totalErrors++
-		a.LogError("Error reading objects dir %s", objPath)
-		return
-	}
-	for _, partition := range partitions {
-		_, intErr := strconv.ParseInt(partition, 10, 64)
-		partitionDir := filepath.Join(objPath, partition)
-		if finfo, err := os.Stat(partitionDir); err != nil || intErr != nil || !finfo.Mode().IsDir() {
-			a.LogError("Skipping invalid file in objects directory: %s", partitionDir)
+	for _, policy := range hummingbird.LoadPolicies() {
+		if policy.Type != "replication" {
 			continue
 		}
-		a.auditPartition(partitionDir)
+		objPath := filepath.Join(devPath, PolicyDir(policy.Index))
+		partitions, err := hummingbird.ReadDirNames(objPath)
+		if err != nil {
+			a.errors++
+			a.totalErrors++
+			a.LogError("Error reading objects dir: %s", objPath)
+			continue
+		}
+		for _, partition := range partitions {
+			_, intErr := strconv.ParseInt(partition, 10, 64)
+			partitionDir := filepath.Join(objPath, partition)
+			if finfo, err := os.Stat(partitionDir); err != nil || intErr != nil || !finfo.Mode().IsDir() {
+				a.LogError("Skipping invalid file in objects directory: %s", partitionDir)
+				continue
+			}
+			a.auditPartition(partitionDir)
+		}
 	}
 }
 

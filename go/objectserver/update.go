@@ -116,10 +116,11 @@ func (server *ObjectServer) updateContainer(metadata map[string]string, request 
 		return
 	}
 	requestHeaders := http.Header{
-		"Referer":     {hummingbird.GetDefault(request.Header, "Referer", "-")},
-		"User-Agent":  {hummingbird.GetDefault(request.Header, "User-Agent", "-")},
-		"X-Trans-Id":  {hummingbird.GetDefault(request.Header, "X-Trans-Id", "-")},
-		"X-Timestamp": {request.Header.Get("X-Timestamp")},
+		"X-Backend-Storage-Policy-Index": {hummingbird.GetDefault(request.Header, "X-Backend-Storage-Policy-Index", "0")},
+		"Referer":                        {hummingbird.GetDefault(request.Header, "Referer", "-")},
+		"User-Agent":                     {hummingbird.GetDefault(request.Header, "User-Agent", "-")},
+		"X-Trans-Id":                     {hummingbird.GetDefault(request.Header, "X-Trans-Id", "-")},
+		"X-Timestamp":                    {request.Header.Get("X-Timestamp")},
 	}
 	if request.Method != "DELETE" {
 		requestHeaders.Add("X-Content-Type", metadata["Content-Type"])
@@ -152,10 +153,11 @@ func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr st
 	hosts := splitHeader(request.Header.Get("X-Delete-At-Host"))
 	devices := splitHeader(request.Header.Get("X-Delete-At-Device"))
 	requestHeaders := http.Header{
-		"Referer":     {hummingbird.GetDefault(request.Header, "Referer", "-")},
-		"User-Agent":  {hummingbird.GetDefault(request.Header, "User-Agent", "-")},
-		"X-Trans-Id":  {hummingbird.GetDefault(request.Header, "X-Trans-Id", "-")},
-		"X-Timestamp": {request.Header.Get("X-Timestamp")},
+		"X-Backend-Storage-Policy-Index": {hummingbird.GetDefault(request.Header, "X-Backend-Storage-Policy-Index", "0")},
+		"Referer":                        {hummingbird.GetDefault(request.Header, "Referer", "-")},
+		"User-Agent":                     {hummingbird.GetDefault(request.Header, "User-Agent", "-")},
+		"X-Trans-Id":                     {hummingbird.GetDefault(request.Header, "X-Trans-Id", "-")},
+		"X-Timestamp":                    {request.Header.Get("X-Timestamp")},
 	}
 	if request.Method != "DELETE" {
 		requestHeaders.Add("X-Content-Type", "text/plain")

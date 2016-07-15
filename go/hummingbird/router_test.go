@@ -19,7 +19,6 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/dimfeld/httptreemux"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -79,6 +78,9 @@ func TestRouterDisambiguation(t *testing.T) {
 	addRoute("REPLICATE", "/:device/:partition", "REPLICATE")
 	addRoute("SYNC", "/:device/*relpath", "SYNC")
 	addRoute("GET", "/info", "INFO")
+	router.HandlePolicy("GET", "/reconstruct", 10, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handledBy = "POLICY_VERB_WORKED"
+	}))
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handledBy = "NOT_FOUND"
 		vars = nil
@@ -158,6 +160,16 @@ func TestRouterDisambiguation(t *testing.T) {
 	makeRequest("GET", "/something/bad")
 	assert.Equal(t, "NOT_FOUND", handledBy)
 	assert.Nil(t, vars)
+
+	req, _ := http.NewRequest("GET", "/reconstruct", nil)
+	req.URL, _ = url.Parse("/reconstruct")
+	req.RequestURI = "/reconstruct"
+	router.ServeHTTP(mockResponseWriter{}, req)
+	assert.Equal(t, "NOT_FOUND", handledBy)
+
+	req.Header.Set("X-Backend-Storage-Policy-Index", "10")
+	router.ServeHTTP(mockResponseWriter{}, req)
+	assert.Equal(t, "POLICY_VERB_WORKED", handledBy)
 }
 
 func BenchmarkRouteObject(b *testing.B) {
@@ -173,30 +185,6 @@ func BenchmarkRouteObject(b *testing.B) {
 	router.Replicate("/:device/:partition", objGet)
 	router.Sync("/:device/*relpath", objGet)
 	router.Get("/:device/:partition/:account/:container/*obj", objGet)
-
-	r := newRequest("GET", "/sda/123/acc/cont/a/bunch/of/stuff")
-	w := mockResponseWriter{}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		router.ServeHTTP(w, r)
-	}
-}
-
-func BenchmarkRouteObjectTree(b *testing.B) {
-	router := httptreemux.New()
-	// calls SetVars() to be fair.  I mean, we could just pass the vars down too.
-	objGet := func(w http.ResponseWriter, r *http.Request, ps map[string]string) { SetVars(r, ps) }
-	router.GET("/healthcheck", objGet)
-	router.GET("/diskusage", objGet)
-	router.GET("/recon/:method", objGet)
-	router.HEAD("/:device/:partition/:account/:container/*obj", objGet)
-	router.PUT("/:device/:partition/:account/:container/*obj", objGet)
-	router.DELETE("/:device/:partition/:account/:container/*obj", objGet)
-	router.Handle("REPLICATE", "/:device/:partition/:suffixes", objGet)
-	router.Handle("REPLICATE", "/:device/:partition", objGet)
-	router.Handle("SYNC", "/:device/*relpath", objGet)
-	router.GET("/:device/:partition/:account/:container/*obj", objGet)
 
 	r := newRequest("GET", "/sda/123/acc/cont/a/bunch/of/stuff")
 	w := mockResponseWriter{}

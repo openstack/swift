@@ -31,9 +31,9 @@ func TestAuditorMd5(t *testing.T) {
 
 	// put a file
 	timestamp := hummingbird.GetTimestamp()
-	e.PutObject(0, timestamp, "X")
+	e.PutObject(0, timestamp, "X", 0)
 
-	locations := e.FileLocations("a", "c", "o")
+	locations := e.FileLocations("a", "c", "o", 0)
 	path := filepath.Join(locations[0], timestamp+".data")
 
 	// make sure the file is still there after an audit pass
@@ -56,9 +56,9 @@ func TestAuditorContentLength(t *testing.T) {
 
 	// put a file
 	timestamp := hummingbird.GetTimestamp()
-	e.PutObject(0, timestamp, "X")
+	e.PutObject(0, timestamp, "X", 0)
 
-	locations := e.FileLocations("a", "c", "o")
+	locations := e.FileLocations("a", "c", "o", 0)
 	path := filepath.Join(locations[0], timestamp+".data")
 
 	// make sure the file is still there after an audit pass
