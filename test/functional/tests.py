@@ -79,8 +79,8 @@ class Base(unittest2.TestCase):
 
     def assert_body(self, body):
         response_body = self.env.conn.response.read()
-        self.assertTrue(response_body == body,
-                        'Body returned: %s' % (response_body))
+        self.assertEqual(response_body, body,
+                         'Body returned: %s' % (response_body))
 
     def assert_status(self, status_or_statuses):
         self.assertTrue(
@@ -186,7 +186,7 @@ class TestAccount(Base):
 
             info = self.env.account.info()
             for field in ['object_count', 'container_count', 'bytes_used']:
-                self.assertTrue(info[field] >= 0)
+                self.assertGreaterEqual(info[field], 0)
 
             if info['container_count'] == len(self.env.containers):
                 break
@@ -213,8 +213,8 @@ class TestAccount(Base):
         for format_type in ['json', 'xml']:
             for a in self.env.account.containers(
                     parms={'format': format_type}):
-                self.assertTrue(a['count'] >= 0)
-                self.assertTrue(a['bytes'] >= 0)
+                self.assertGreaterEqual(a['count'], 0)
+                self.assertGreaterEqual(a['bytes'], 0)
 
             headers = dict(self.env.conn.response.getheaders())
             if format_type == 'json':
@@ -230,7 +230,8 @@ class TestAccount(Base):
             p = {'limit': l}
 
             if l <= limit:
-                self.assertTrue(len(self.env.account.containers(parms=p)) <= l)
+                self.assertLessEqual(len(self.env.account.containers(parms=p)),
+                                     l)
                 self.assert_status(200)
             else:
                 self.assertRaises(ResponseError,
@@ -316,11 +317,12 @@ class TestAccount(Base):
                     parms={'format': format_type,
                            'marker': marker,
                            'limit': limit})
-                self.assertTrue(len(containers) <= limit)
+                self.assertLessEqual(len(containers), limit)
                 if containers:
                     if isinstance(containers[0], dict):
                         containers = [x['name'] for x in containers]
-                    self.assertTrue(locale.strcoll(containers[0], marker) > 0)
+                    self.assertGreater(locale.strcoll(containers[0], marker),
+                                       0)
 
     def testContainersOrderedByName(self):
         for format_type in [None, 'json', 'xml']:
@@ -545,12 +547,11 @@ class TestContainer(Base):
         for i in range(len(files)):
             f = files[i]
             for j in range(1, len(files) - i):
-                self.assertTrue(
-                    cont.files(parms={'limit': j, 'marker': f}) ==
-                    files[i + 1: i + j + 1])
-            self.assertTrue(cont.files(parms={'marker': f}) == files[i + 1:])
-            self.assertTrue(cont.files(parms={'marker': f, 'prefix': f}) == [])
-            self.assertTrue(cont.files(parms={'prefix': f}) == [f])
+                self.assertEqual(cont.files(parms={'limit': j, 'marker': f}),
+                                 files[i + 1: i + j + 1])
+            self.assertEqual(cont.files(parms={'marker': f}), files[i + 1:])
+            self.assertEqual(cont.files(parms={'marker': f, 'prefix': f}), [])
+            self.assertEqual(cont.files(parms={'prefix': f}), [f])
 
     def testPrefixAndLimit(self):
         load_constraint('container_listing_limit')
@@ -783,11 +784,11 @@ class TestContainer(Base):
                 if isinstance(files[0], dict):
                     files = [x['name'] for x in files]
 
-                self.assertTrue(len(files) <= limit)
+                self.assertLessEqual(len(files), limit)
                 if files:
                     if isinstance(files[0], dict):
                         files = [x['name'] for x in files]
-                    self.assertTrue(locale.strcoll(files[0], marker) > 0)
+                    self.assertGreater(locale.strcoll(files[0], marker), 0)
 
     def testFileOrder(self):
         for format_type in [None, 'json', 'xml']:
@@ -1083,7 +1084,7 @@ class TestContainerPaths(Base):
         for format_type in ('json', 'xml'):
             for file_item in self.env.container.files(parms={'format':
                                                              format_type}):
-                self.assertTrue(int(file_item['bytes']) >= 0)
+                self.assertGreaterEqual(int(file_item['bytes']), 0)
                 self.assertIn('last_modified', file_item)
                 if file_item['name'].endswith('/'):
                     self.assertEqual(file_item['content_type'],
@@ -1207,9 +1208,9 @@ class TestFile(Base):
 
                 file_item = cont.file(dest_filename)
 
-                self.assertTrue(data == file_item.read())
+                self.assertEqual(data, file_item.read())
                 self.assertTrue(file_item.initialize())
-                self.assertTrue(metadata == file_item.metadata)
+                self.assertEqual(metadata, file_item.metadata)
 
     def testCopyAccount(self):
         # makes sure to test encoded characters
@@ -1240,9 +1241,9 @@ class TestFile(Base):
 
                 file_item = cont.file(dest_filename)
 
-                self.assertTrue(data == file_item.read())
+                self.assertEqual(data, file_item.read())
                 self.assertTrue(file_item.initialize())
-                self.assertTrue(metadata == file_item.metadata)
+                self.assertEqual(metadata, file_item.metadata)
 
         dest_cont = self.env.account2.container(Utils.create_name())
         self.assertTrue(dest_cont.create(hdrs={
@@ -1263,9 +1264,9 @@ class TestFile(Base):
 
             file_item = dest_cont.file(dest_filename)
 
-            self.assertTrue(data == file_item.read())
+            self.assertEqual(data, file_item.read())
             self.assertTrue(file_item.initialize())
-            self.assertTrue(metadata == file_item.metadata)
+            self.assertEqual(metadata, file_item.metadata)
 
     def testCopy404s(self):
         source_filename = Utils.create_name()
@@ -1423,9 +1424,9 @@ class TestFile(Base):
 
                 file_item = cont.file(dest_filename)
 
-                self.assertTrue(data == file_item.read())
+                self.assertEqual(data, file_item.read())
                 self.assertTrue(file_item.initialize())
-                self.assertTrue(metadata == file_item.metadata)
+                self.assertEqual(metadata, file_item.metadata)
 
     def testCopyFromAccountHeader(self):
         acct = self.env.conn.account_name
@@ -1466,9 +1467,9 @@ class TestFile(Base):
 
                 file_item = cont.file(dest_filename)
 
-                self.assertTrue(data == file_item.read())
+                self.assertEqual(data, file_item.read())
                 self.assertTrue(file_item.initialize())
-                self.assertTrue(metadata == file_item.metadata)
+                self.assertEqual(metadata, file_item.metadata)
 
     def testCopyFromHeader404s(self):
         source_filename = Utils.create_name()
@@ -1666,8 +1667,8 @@ class TestFile(Base):
         for i in range(0, file_length, range_size):
             range_string = 'bytes=%d-%d' % (i, i + range_size - 1)
             hdrs = {'Range': range_string}
-            self.assertTrue(
-                data[i: i + range_size] == file_item.read(hdrs=hdrs),
+            self.assertEqual(
+                data[i: i + range_size], file_item.read(hdrs=hdrs),
                 range_string)
 
             range_string = 'bytes=-%d' % (i)
@@ -1868,7 +1869,7 @@ class TestFile(Base):
         for r in ('BYTES=0-999', 'bytes = 0-999', 'BYTES = 0 - 999',
                   'bytes = 0 - 999', 'bytes=0 - 999', 'bytes=0-999 '):
 
-            self.assertTrue(file_item.read(hdrs={'Range': r}) == data[0:1000])
+            self.assertEqual(file_item.read(hdrs={'Range': r}), data[0:1000])
 
     def testFileSizeLimit(self):
         limit = load_constraint('max_file_size')
@@ -1952,8 +1953,8 @@ class TestFile(Base):
             self.assert_status(405)
 
         # bad range headers
-        self.assertTrue(
-            len(file_item.read(hdrs={'Range': 'parsecs=8-12'})) ==
+        self.assertEqual(
+            len(file_item.read(hdrs={'Range': 'parsecs=8-12'})),
             file_length)
         self.assert_status(200)
 
@@ -1995,7 +1996,7 @@ class TestFile(Base):
             file_item = self.env.container.file(Utils.create_name())
             data = file_item.write_random()
             self.assert_status(201)
-            self.assertTrue(data == file_item.read())
+            self.assertEqual(data, file_item.read())
             self.assert_status(200)
 
     def testHead(self):
@@ -2171,9 +2172,9 @@ class TestFile(Base):
 
         lm_diff = max([f['last_modified'] for f in files]) -\
             min([f['last_modified'] for f in files])
-        self.assertTrue(
-            lm_diff < write_time + 1, 'Diff in last '
-            'modified times should be less than time to write files')
+        self.assertLess(lm_diff, write_time + 1,
+                        'Diff in last modified times '
+                        'should be less than time to write files')
 
         for f in files:
             for format_type in ['json', 'xml']:
@@ -2188,7 +2189,7 @@ class TestFile(Base):
             data = file_item.write_random(512)
             file_item.write(data)
 
-        self.assertTrue(file_item.read() == data)
+        self.assertEqual(file_item.read(), data)
 
     def testTooLongName(self):
         file_item = self.env.container.file('x' * 1025)
@@ -2200,7 +2201,7 @@ class TestFile(Base):
 
         self.assertTrue(file_item.write(''))
         self.assertIn(file_item.name, self.env.container.files())
-        self.assertTrue(file_item.read() == '')
+        self.assertEqual(file_item.read(), '')
 
     def testEtagResponse(self):
         file_item = self.env.container.file(Utils.create_name())
@@ -2235,7 +2236,7 @@ class TestFile(Base):
                 file_item.chunked_write(j)
 
             self.assertTrue(file_item.chunked_write())
-            self.assertTrue(data == file_item.read())
+            self.assertEqual(data, file_item.read())
 
             info = file_item.info()
             self.assertEqual(etag, info['etag'])
@@ -3763,7 +3764,7 @@ class TestObjectVersioning(Base):
                          self.env.versions_container.name)
         self.env.container.update_metadata(
             hdrs={'X-Versions-Location': ''})
-        self.assertEqual(self.env.container.info().get('versions'), None)
+        self.assertIsNone(self.env.container.info().get('versions'))
 
         # set location back to the way it was
         self.env.container.update_metadata(
@@ -3818,7 +3819,7 @@ class TestObjectVersioning(Base):
             self.assertEqual(v, resp_headers[k.lower()])
 
         # make sure the new obj metadata did not leak to the prev. version
-        self.assertTrue('foo' not in prev_version.metadata)
+        self.assertNotIn('foo', prev_version.metadata)
 
         # check that POST does not create a new version
         versioned_obj.sync_metadata(metadata={'fu': 'baz'})
@@ -3832,8 +3833,8 @@ class TestObjectVersioning(Base):
         prev_version.initialize()
         self.assertEqual("bbbbb", prev_version.read())
         self.assertEqual(prev_version.content_type, 'text/jibberish02')
-        self.assertTrue('foo' in prev_version.metadata)
-        self.assertTrue('fu' in prev_version.metadata)
+        self.assertIn('foo', prev_version.metadata)
+        self.assertIn('fu', prev_version.metadata)
 
         # as we delete things, the old contents return
         self.assertEqual("ccccc", versioned_obj.read())
