@@ -231,7 +231,7 @@ class BaseObjectControllerMixin(object):
         # make sure we have enough local nodes (sanity)
         all_local_nodes = [n for n in all_nodes if
                            self.app.write_affinity_is_local_fn(n)]
-        self.assertTrue(len(all_local_nodes) >= self.replicas() + 1)
+        self.assertGreaterEqual(len(all_local_nodes), self.replicas() + 1)
 
         # finally, create the local_first_nodes iter and flatten it out
         local_first_nodes = list(controller.iter_nodes_local_first(
@@ -280,7 +280,7 @@ class BaseObjectControllerMixin(object):
         with set_http_connect(slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
             res = controller._connect_put_node(nodes, '', req, {}, ('', ''))
-        self.assertTrue(res is None)
+        self.assertIsNone(res)
 
     def test_DELETE_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -1143,10 +1143,10 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         self.assertEqual(resp.status_int, 201)
         for given_headers in put_headers:
             self.assertEqual(given_headers.get('X-Delete-At'), t)
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
+            self.assertIn('X-Delete-At-Host', given_headers)
+            self.assertIn('X-Delete-At-Device', given_headers)
+            self.assertIn('X-Delete-At-Partition', given_headers)
+            self.assertIn('X-Delete-At-Container', given_headers)
 
     def test_PUT_converts_delete_after_to_delete_at(self):
         req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
@@ -1168,10 +1168,10 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         for given_headers in put_headers:
             self.assertEqual(given_headers.get('X-Delete-At'),
                              expected_delete_at)
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
+            self.assertIn('X-Delete-At-Host', given_headers)
+            self.assertIn('X-Delete-At-Device', given_headers)
+            self.assertIn('X-Delete-At-Partition', given_headers)
+            self.assertIn('X-Delete-At-Container', given_headers)
 
     def test_container_sync_put_x_timestamp_not_found(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
@@ -1915,9 +1915,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         frag_archives = []
         for connection_id, info in put_requests.items():
             body = unchunk_body(''.join(info['chunks']))
-            self.assertTrue(info['boundary'] is not None,
-                            "didn't get boundary for conn %r" % (
-                                connection_id,))
+            self.assertIsNotNone(info['boundary'],
+                                 "didn't get boundary for conn %r" % (
+                                     connection_id,))
             self.assertTrue(size > int(info['backend-content-length']) > 0,
                             "invalid backend-content-length for conn %r" % (
                                 connection_id,))
@@ -2306,9 +2306,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_with_many_missed_overwrite_will_need_handoff(self):
         obj1 = self._make_ec_object_stub()
@@ -2357,9 +2357,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_succeed(self):
         obj1 = self._make_ec_object_stub()
@@ -2420,9 +2420,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_stop(self):
         obj1 = self._make_ec_object_stub()
@@ -2480,9 +2480,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_mixed_success_with_range(self):
         fragment_size = self.policy.fragment_size
@@ -2682,8 +2682,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         msg = error_lines[0]
-        self.assertTrue('Error decoding fragments' in msg)
-        self.assertTrue('/a/c/o' in msg)
+        self.assertIn('Error decoding fragments', msg)
+        self.assertIn('/a/c/o', msg)
         log_msg_args, log_msg_kwargs = self.logger.log_dict['error'][0]
         self.assertEqual(log_msg_kwargs['exc_info'][0], ECDriverError)
 
@@ -2713,9 +2713,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(self.replicas(), len(error_lines))
         nparity = self.policy.ec_nparity
         for line in error_lines[:nparity]:
-            self.assertTrue('retrying' in line)
+            self.assertIn('retrying', line)
         for line in error_lines[nparity:]:
-            self.assertTrue('ChunkReadTimeout (0.01s)' in line)
+            self.assertIn('ChunkReadTimeout (0.01s)', line)
 
     def test_GET_read_timeout_resume(self):
         segment_size = self.policy.ec_segment_size
@@ -2741,7 +2741,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             self.assertTrue(md5(resp.body).hexdigest(), etag)
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
-        self.assertTrue('retrying' in error_lines[0])
+        self.assertIn('retrying', error_lines[0])
 
     def test_fix_response_HEAD(self):
         headers = {'X-Object-Sysmeta-Ec-Content-Length': '10',
@@ -2799,7 +2799,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             resp = req.get_response(self.app)
             response_time = time.time() - start
         self.assertEqual(resp.status_int, 201)
-        self.assertTrue(response_time < response_sleep)
+        self.assertLess(response_time, response_sleep)
 
     def test_PUT_with_just_enough_durable_responses(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -2861,7 +2861,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body)),
                    'X-Object-Sysmeta-Ec-Etag': body_etag}
         start = int(req_range.split('-')[0])
-        self.assertTrue(start >= 0)  # sanity
+        self.assertGreaterEqual(start, 0)  # sanity
         title, exp = swob.RESPONSE_REASONS[416]
         range_not_satisfiable_body = \
             '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
