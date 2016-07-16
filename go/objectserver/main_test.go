@@ -437,3 +437,132 @@ func TestBasicPutDeleteAt(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 200, resp.StatusCode)
 }
+
+type slowReader struct {
+	readChan chan int
+	id       int
+}
+
+func (s slowReader) Read(p []byte) (i int, err error) {
+	data := <-s.readChan
+	if data == 1 {
+		time.Sleep(100000000)
+	}
+	if data == 2 {
+		return 0, io.EOF
+	}
+	p[0] = byte('a')
+	return 1, nil
+}
+
+func (s *slowReader) Close() error {
+	return nil
+}
+
+func TestAcquireDevice(t *testing.T) {
+	ts, err := makeObjectServer("disk_limit", "1/10")
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	sr1 := slowReader{id: 1, readChan: make(chan int)}
+	req1, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), sr1)
+	assert.Nil(t, err)
+	req1.Header.Set("Content-Type", "text")
+	req1.Header.Set("Content-Length", "1")
+	req1.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+
+	sr2 := slowReader{id: 2, readChan: make(chan int)}
+	req2, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o2", ts.host, ts.port), sr2)
+	assert.Nil(t, err)
+	req2.Header.Set("Content-Type", "text")
+	req2.Header.Set("Content-Length", "1")
+	req2.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+
+	done1 := make(chan bool)
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req1)
+		assert.Equal(t, resp.StatusCode, 201)
+		assert.Nil(t, err)
+		done1 <- true
+
+	}()
+	done2 := make(chan bool)
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req2)
+		assert.Nil(t, err)
+		assert.Equal(t, resp.StatusCode, 503)
+		assert.Equal(t, resp.Header.Get("X-Disk-Usage"), "1")
+		done2 <- true
+
+	}()
+	//sending good read to 1
+	sr1.readChan <- 0
+	//sending sleep to 1
+	sr1.readChan <- 1
+	//sending good read to 2
+	sr2.readChan <- 0
+	//sending EOF to 2
+	sr2.readChan <- 2
+	//2 exiting goroutine
+	<-done2
+	//sending EOF to 1
+	sr1.readChan <- 2
+	//1 exiting goroutine
+	<-done1
+}
+
+func TestAccountAcquireDevice(t *testing.T) {
+	ts, err := makeObjectServer("account_rate_limit", "1/0")
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	sr1 := slowReader{id: 1, readChan: make(chan int)}
+	req1, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/α/c/o", ts.host, ts.port), sr1)
+	assert.Nil(t, err)
+	req1.Header.Set("Content-Type", "text")
+	req1.Header.Set("Content-Length", "1")
+	req1.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+
+	sr2 := slowReader{id: 2, readChan: make(chan int)}
+	req2, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/α/c/o2", ts.host, ts.port), sr2)
+	assert.Nil(t, err)
+	req2.Header.Set("Content-Type", "text")
+	req2.Header.Set("Content-Length", "1")
+	req2.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+
+	done1 := make(chan bool)
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req1)
+		assert.Equal(t, resp.StatusCode, 201)
+		assert.Nil(t, err)
+		done1 <- true
+
+	}()
+	done2 := make(chan bool)
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req2)
+		assert.Nil(t, err)
+		assert.Equal(t, resp.StatusCode, 498)
+		assert.Equal(t, resp.Header.Get("X-Disk-Usage"), "")
+		done2 <- true
+
+	}()
+	//sending good read to 1
+	sr1.readChan <- 0
+	//sending sleep to 1
+	sr1.readChan <- 1
+	//sending good read to 2
+	sr2.readChan <- 0
+	//sending EOF to 2
+	sr2.readChan <- 2
+	//2 exiting goroutine
+	<-done2
+	//sending EOF to 1
+	sr1.readChan <- 2
+	//1 exiting goroutine
+	<-done1
+}

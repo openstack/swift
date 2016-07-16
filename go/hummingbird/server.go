@@ -64,6 +64,7 @@ var responseBodies = map[int]string{
 	416: fmt.Sprintf(responseTemplate, "Requested Range Not Satisfiable", "The Range requested is not available."),
 	417: fmt.Sprintf(responseTemplate, "Expectation Failed", "Expectation failed."),
 	422: fmt.Sprintf(responseTemplate, "Unprocessable Entity", "Unable to process the contained instructions"),
+	498: fmt.Sprintf(responseTemplate, "Ratelimited", "The client is sending too many requests and should slow down."),
 	499: fmt.Sprintf(responseTemplate, "Client Disconnect", "The client was disconnected during request."),
 	500: fmt.Sprintf(responseTemplate, "Internal Error", "The server has either erred or is incapable of performing the requested operation."),
 	501: fmt.Sprintf(responseTemplate, "Not Implemented", "The requested method is not implemented by this server."),

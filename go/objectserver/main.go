@@ -36,18 +36,19 @@ import (
 )
 
 type ObjectServer struct {
-	driveRoot       string
-	hashPathPrefix  string
-	hashPathSuffix  string
-	checkEtags      bool
-	checkMounts     bool
-	allowedHeaders  map[string]bool
-	logger          *syslog.Writer
-	logLevel        string
-	diskInUse       *hummingbird.KeyedLimit
-	expiringDivisor int64
-	updateClient    *http.Client
-	objEngines      map[int]ObjectEngine
+	driveRoot        string
+	hashPathPrefix   string
+	hashPathSuffix   string
+	checkEtags       bool
+	checkMounts      bool
+	allowedHeaders   map[string]bool
+	logger           *syslog.Writer
+	logLevel         string
+	diskInUse        *hummingbird.KeyedLimit
+	accountDiskInUse *hummingbird.KeyedLimit
+	expiringDivisor  int64
+	updateClient     *http.Client
+	objEngines       map[int]ObjectEngine
 }
 
 func (server *ObjectServer) newObject(req *http.Request, vars map[string]string, needData bool) (Object, error) {
@@ -443,6 +444,15 @@ func (server *ObjectServer) AcquireDevice(next http.Handler) http.Handler {
 				return
 			}
 			defer server.diskInUse.Release(device)
+
+			if account, ok := vars["account"]; ok && account != "" {
+				limitKey := fmt.Sprintf("%s/%s", device, account)
+				if concRequests := server.accountDiskInUse.Acquire(limitKey, false); concRequests != 0 {
+					hummingbird.StandardResponse(writer, 498)
+					return
+				}
+				defer server.accountDiskInUse.Release(limitKey)
+			}
 		}
 		next.ServeHTTP(writer, request)
 	}
@@ -517,7 +527,8 @@ func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (bindIP strin
 	server.checkMounts = serverconf.GetBool("app:object-server", "mount_check", true)
 	server.checkEtags = serverconf.GetBool("app:object-server", "check_etags", false)
 	server.logLevel = serverconf.GetDefault("app:object-server", "log_level", "INFO")
-	server.diskInUse = hummingbird.NewKeyedLimit(serverconf.GetLimit("app:object-server", "disk_limit", 25, 10000))
+	server.diskInUse = hummingbird.NewKeyedLimit(serverconf.GetLimit("app:object-server", "disk_limit", 25, 0))
+	server.accountDiskInUse = hummingbird.NewKeyedLimit(serverconf.GetLimit("app:object-server", "account_rate_limit", 20, 0))
 	server.expiringDivisor = serverconf.GetInt("app:object-server", "expiring_objects_container_divisor", 86400)
 	bindIP = serverconf.GetDefault("app:object-server", "bind_ip", "0.0.0.0")
 	bindPort = int(serverconf.GetInt("app:object-server", "bind_port", 6000))
