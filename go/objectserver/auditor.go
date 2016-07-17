@@ -37,6 +37,7 @@ var AuditForeverInterval = 30 * time.Second
 type AuditorDaemon struct {
 	checkMounts       bool
 	driveRoot         string
+	policies          hummingbird.PolicyList
 	logger            hummingbird.SysLogLike
 	bytesPerSecond    int64
 	logTime           int64
@@ -197,7 +198,7 @@ func (a *Auditor) auditDevice(devPath string) {
 		return
 	}
 
-	for _, policy := range hummingbird.LoadPolicies() {
+	for _, policy := range a.policies {
 		if policy.Type != "replication" {
 			continue
 		}
@@ -336,6 +337,7 @@ func NewAuditor(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingbird
 		return nil, fmt.Errorf("Unable to find object-auditor config section")
 	}
 	d := &AuditorDaemon{}
+	d.policies = hummingbird.LoadPolicies()
 	d.driveRoot = serverconf.GetDefault("object-auditor", "devices", "/srv/node")
 	d.checkMounts = serverconf.GetBool("object-auditor", "mount_check", true)
 	d.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-auditor", "log_facility", "LOG_LOCAL0"), "object-auditor", "")
