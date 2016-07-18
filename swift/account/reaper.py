@@ -109,7 +109,7 @@ class AccountReaper(Daemon):
     def run_forever(self, *args, **kwargs):
         """Main entry point when running the reaper in normal daemon mode.
 
-        This repeatedly calls :func:`reap_once` no quicker than the
+        This repeatedly calls :func:`run_once` no quicker than the
         configuration interval.
         """
         self.logger.debug('Daemon started.')
