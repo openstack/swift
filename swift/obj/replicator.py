@@ -434,8 +434,9 @@ class ObjectReplicator(Daemon):
                             node['device'], job['partition'], 'REPLICATE',
                             '', headers=headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                            self.logger.error(_('%(ip)s/%(device)s responded'
-                                                ' as unmounted'), node)
+                            self.logger.error(
+                                _('%(replication_ip)s/%(device)s '
+                                  'responded as unmounted'), node)
                             attempts_left += 1
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
