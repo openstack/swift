@@ -226,7 +226,7 @@ func (r *Replicator) beginReplication(dev *hummingbird.Device, partition string,
 	rChan <- ReplicationData{dev: dev, conn: rc, hashes: brr.Hashes, err: nil}
 }
 
-func (r *Replicator) listObjFiles(objChan chan string, partdir string, needSuffix func(string) bool) {
+func (r *Replicator) listObjFiles(objChan chan string, cancel chan struct{}, partdir string, needSuffix func(string) bool) {
 	defer close(objChan)
 	suffixDirs, err := filepath.Glob(filepath.Join(partdir, "[a-f0-9][a-f0-9][a-f0-9]"))
 	if err != nil {
@@ -268,7 +268,11 @@ func (r *Replicator) listObjFiles(objChan chan string, partdir string, needSuffi
 				return
 			}
 			for _, objFile := range fileList {
-				objChan <- objFile
+				select {
+				case objChan <- objFile:
+				case <-cancel:
+					return
+				}
 			}
 		}
 	}
@@ -411,7 +415,9 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	timeGetHashesLocal := float64(time.Now().Sub(startGetHashesLocal)) / float64(time.Second)
 
 	objChan := make(chan string, 100)
-	go r.listObjFiles(objChan, path, func(suffix string) bool {
+	cancel := make(chan struct{})
+	defer close(cancel)
+	go r.listObjFiles(objChan, cancel, path, func(suffix string) bool {
 		for _, remoteHash := range remoteHashes {
 			if hashes[suffix] != remoteHash[suffix] {
 				return true
@@ -473,7 +479,9 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 	}
 
 	objChan := make(chan string, 100)
-	go r.listObjFiles(objChan, path, func(string) bool { return true })
+	cancel := make(chan struct{})
+	defer close(cancel)
+	go r.listObjFiles(objChan, cancel, path, func(string) bool { return true })
 	for objFile := range objChan {
 		toSync := make([]*syncFileArg, 0)
 		for _, dev := range nodes {
