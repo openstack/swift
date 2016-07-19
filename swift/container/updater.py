@@ -114,7 +114,7 @@ class ContainerUpdater(Daemon):
 
     def run_forever(self, *args, **kwargs):
         """
-        Run the updator continuously.
+        Run the updater continuously.
         """
         time.sleep(random() * self.interval)
         while True:
