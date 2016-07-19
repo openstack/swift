@@ -1783,7 +1783,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             self.assertEqual(ring.min_part_seconds_left, 0)
             self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
             ring = RingBuilder.load(self.tmpfile)
-            self.assertTrue(ring.min_part_seconds_left, 3600)
+            self.assertEqual(ring.min_part_seconds_left, 3600)
 
     def test_rebalance_failure_does_not_reset_last_moves_epoch(self):
         ring = RingBuilder(8, 3, 1)
