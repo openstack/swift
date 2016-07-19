@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev169\n"
+"Project-Id-Version: swift 2.9.1.dev6\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-02 04:58+0000\n"
+"POT-Creation-Date: 2016-07-19 04:02+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -282,10 +282,6 @@ msgstr "HATA %(status)d %(body)s Nesne Sunucu re'den: %(path)s"
 #, python-format
 msgid "ERROR %(status)d Expect: 100-continue From Object Server"
 msgstr "HATA %(status)d Beklenen: 100-Nesne Sunucusundan devam et"
-
-#, python-format
-msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
-msgstr "HATA %(status)d Kap Sunucusundan %(method)s %(path)s denenirken"
 
 #, python-format
 msgid ""
@@ -874,10 +870,6 @@ msgstr "%(method)s %(path)s deneniyor"
 #, python-format
 msgid "Trying to GET %(full_path)s"
 msgstr "%(full_path)s GET deneniyor"
-
-#, python-format
-msgid "Trying to get final status of PUT to %s"
-msgstr "%s'e PUT için son durum alınmaya çalışılıyor"
 
 msgid "Trying to read during GET"
 msgstr "GET sırasında okuma deneniyor"
