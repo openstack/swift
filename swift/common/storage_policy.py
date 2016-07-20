@@ -20,10 +20,10 @@ import textwrap
 import six
 from six.moves.configparser import ConfigParser
 from swift.common.utils import (
-    config_true_value, SWIFT_CONF_FILE, whataremyips, list_from_csv,
+    config_true_value, quorum_size, whataremyips, list_from_csv,
     config_positive_int_value)
 from swift.common.ring import Ring, RingData
-from swift.common.utils import quorum_size
+from swift.common import utils
 from swift.common.exceptions import RingLoadError
 from pyeclib.ec_iface import ECDriver, ECDriverError, VALID_EC_TYPES
 
@@ -925,15 +925,19 @@ class StoragePolicySingleton(object):
 def reload_storage_policies():
     """
     Reload POLICIES from ``swift.conf``.
+
+    :param swift_conf_dir: non-default directory to read swift.conf from
+                           This is by default /etc/swift/swift.conf. If given,
+                           it will also trigger a re-validation of swift.conf
     """
     global _POLICIES
     policy_conf = ConfigParser()
-    policy_conf.read(SWIFT_CONF_FILE)
+    policy_conf.read(utils.SWIFT_CONF_FILE)
     try:
         _POLICIES = parse_storage_policies(policy_conf)
     except PolicyError as e:
         raise SystemExit('ERROR: Invalid Storage Policy Configuration '
-                         'in %s (%s)' % (SWIFT_CONF_FILE, e))
+                         'in %s (%s)' % (utils.SWIFT_CONF_FILE, e))
 
 
 # parse configuration and setup singleton

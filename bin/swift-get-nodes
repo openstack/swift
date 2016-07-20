@@ -19,6 +19,8 @@ from optparse import OptionParser
 from os.path import basename
 
 from swift.common.ring import Ring
+from swift.common.storage_policy import reload_storage_policies
+from swift.common.utils import set_swift_dir
 from swift.cli.info import (parse_get_node_args, print_item_locations,
                             InfoSystemExit)
 
@@ -51,6 +53,10 @@ if __name__ == '__main__':
     parser.add_option('-d', '--swift-dir', default='/etc/swift',
                       dest='swift_dir', help='Path to swift directory')
     options, args = parser.parse_args()
+
+    if set_swift_dir(options.swift_dir):
+        reload_storage_policies()
+
     try:
         ring_path, args = parse_get_node_args(options, args)
     except InfoSystemExit as e:
