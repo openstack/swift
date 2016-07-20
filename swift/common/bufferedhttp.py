@@ -38,7 +38,10 @@ from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
 from six.moves.urllib.parse import quote
 import six
 
-httplib = eventlet.import_patched('httplib')
+if six.PY2:
+    httplib = eventlet.import_patched('httplib')
+else:
+    httplib = eventlet.import_patched('http.client')
 httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 

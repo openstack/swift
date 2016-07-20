@@ -132,7 +132,7 @@ backwards compatibility. At first chance, set ``object_post_as_copy`` to
 """
 
 import os
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 from six.moves.urllib.parse import quote, unquote
 
 from swift.common import utils
