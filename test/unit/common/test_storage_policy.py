@@ -27,6 +27,7 @@ from swift.common.storage_policy import (
     VALID_EC_TYPES, DEFAULT_EC_OBJECT_SEGMENT_SIZE, BindPortsCache)
 from swift.common.ring import RingData
 from swift.common.exceptions import RingValidationError
+from pyeclib.ec_iface import ECDriver
 
 
 @BaseStoragePolicy.register('fake')
@@ -1243,6 +1244,29 @@ class TestStoragePolicies(unittest.TestCase):
             self.assertEqual(policy.get_info(config=True), expected_info)
             expected_info = expected[(int(policy), False)]
             self.assertEqual(policy.get_info(config=False), expected_info)
+
+    def test_ec_fragment_size_cached(self):
+        policy = ECStoragePolicy(
+            0, 'ec2-1', ec_type=DEFAULT_TEST_EC_TYPE,
+            ec_ndata=2, ec_nparity=1, object_ring=FakeRing(replicas=3),
+            ec_segment_size=DEFAULT_EC_OBJECT_SEGMENT_SIZE, is_default=True)
+
+        ec_driver = ECDriver(ec_type=DEFAULT_TEST_EC_TYPE,
+                             k=2, m=1)
+        expected_fragment_size = ec_driver.get_segment_info(
+            DEFAULT_EC_OBJECT_SEGMENT_SIZE,
+            DEFAULT_EC_OBJECT_SEGMENT_SIZE)['fragment_size']
+
+        with mock.patch.object(
+                policy.pyeclib_driver, 'get_segment_info') as fake:
+            fake.return_value = {
+                'fragment_size': expected_fragment_size}
+
+            for x in range(10):
+                self.assertEqual(expected_fragment_size,
+                                 policy.fragment_size)
+                # pyeclib_driver.get_segment_info is called only once
+                self.assertEqual(1, fake.call_count)
 
 
 if __name__ == '__main__':
