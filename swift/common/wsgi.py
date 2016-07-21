@@ -952,12 +952,21 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
         with Timeout(loop_timeout, exception=False):
             try:
-                pid, status = green_os.wait()
-                if os.WIFEXITED(status) or os.WIFSIGNALED(status):
-                    strategy.register_worker_exit(pid)
-            except OSError as err:
-                if err.errno not in (errno.EINTR, errno.ECHILD):
-                    raise
+                try:
+                    pid, status = green_os.wait()
+                    if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+                        strategy.register_worker_exit(pid)
+                except OSError as err:
+                    if err.errno not in (errno.EINTR, errno.ECHILD):
+                        raise
+                    if err.errno == errno.ECHILD:
+                        # If there are no children at all (ECHILD), then
+                        # there's nothing to actually wait on. We sleep
+                        # for a little bit to avoid a tight CPU spin
+                        # and still are able to catch any KeyboardInterrupt
+                        # events that happen. The value of 0.01 matches the
+                        # value in eventlet's waitpid().
+                        sleep(0.01)
             except KeyboardInterrupt:
                 logger.notice('User quit')
                 running[0] = False
