@@ -142,7 +142,7 @@ def format_acl_v1(groups=None, referrers=None, header_name=None):
 
 
 def format_acl_v2(acl_dict):
-    """
+    r"""
     Returns a version-2 Swift ACL JSON string.
 
     HTTP headers for Version 2 ACLs have the following form:
