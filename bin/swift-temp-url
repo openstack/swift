@@ -40,13 +40,13 @@ if __name__ == '__main__':
         print()
         print('This can be used to form a URL to give out for the access ')
         print('allowed. For example:')
-        print('    echo https://swift-cluster.example.com`%s GET 60 '
-              '/v1/AUTH_account/c/o mykey`' % prog)
+        print('    echo \\"https://swift-cluster.example.com`%s GET 60 '
+              '/v1/AUTH_account/c/o mykey`\\"' % prog)
         print()
         print('Might output:')
-        print('    https://swift-cluster.example.com/v1/AUTH_account/c/o?'
+        print('    "https://swift-cluster.example.com/v1/AUTH_account/c/o?'
               'temp_url_sig=34d49efc32fe6e3082e411eeeb85bd8a&'
-              'temp_url_expires=1323482948')
+              'temp_url_expires=1323482948"')
         exit(1)
     method, seconds, path, key = argv[1:5]
     try:
