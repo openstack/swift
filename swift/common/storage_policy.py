@@ -475,6 +475,7 @@ class ECStoragePolicy(BaseStoragePolicy):
         # quorum size in the EC case depends on the choice of EC scheme.
         self._ec_quorum_size = \
             self._ec_ndata + self.pyeclib_driver.min_parity_fragments_needed()
+        self._fragment_size = None
 
     @property
     def ec_type(self):
@@ -511,8 +512,11 @@ class ECStoragePolicy(BaseStoragePolicy):
         # segment_size we'll still only read *the whole one and only last
         # fragment* and pass than into pyeclib who will know what to do with
         # it just as it always does when the last fragment is < fragment_size.
-        return self.pyeclib_driver.get_segment_info(
-            self.ec_segment_size, self.ec_segment_size)['fragment_size']
+        if self._fragment_size is None:
+            self._fragment_size = self.pyeclib_driver.get_segment_info(
+                self.ec_segment_size, self.ec_segment_size)['fragment_size']
+
+        return self._fragment_size
 
     @property
     def ec_scheme_description(self):
