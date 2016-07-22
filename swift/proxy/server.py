@@ -237,8 +237,8 @@ class Application(object):
         """
         if self._read_affinity and self.sorting_method != 'affinity':
             self.logger.warning(
-                "sorting_method is set to '%s', not 'affinity'; "
-                "read_affinity setting will have no effect." %
+                _("sorting_method is set to '%s', not 'affinity'; "
+                  "read_affinity setting will have no effect."),
                 self.sorting_method)
 
     def get_object_ring(self, policy_idx):
@@ -557,17 +557,18 @@ class Application(object):
                     except ValueError:  # not in pipeline; ignore it
                         pass
                 self.logger.info(
-                    'Adding required filter %s to pipeline at position %d' %
-                    (filter_name, insert_at))
+                    _('Adding required filter %(filter_name)s to pipeline at '
+                      'position %(insert_at)d'),
+                    {'filter_name': filter_name, 'insert_at': insert_at})
                 ctx = pipe.create_filter(filter_name)
                 pipe.insert_filter(ctx, index=insert_at)
                 pipeline_was_modified = True
 
         if pipeline_was_modified:
-            self.logger.info("Pipeline was modified. New pipeline is \"%s\".",
-                             pipe)
+            self.logger.info(_("Pipeline was modified. "
+                               "New pipeline is \"%s\"."), pipe)
         else:
-            self.logger.debug("Pipeline is \"%s\"", pipe)
+            self.logger.debug(_("Pipeline is \"%s\""), pipe)
 
 
 def app_factory(global_conf, **local_conf):
