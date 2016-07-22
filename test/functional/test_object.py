@@ -113,7 +113,7 @@ class TestObject(unittest2.TestCase):
                 body = resp.read()
                 if resp.status == 404:
                     break
-                self.assertTrue(resp.status // 100 == 2, resp.status)
+                self.assertEqual(resp.status // 100, 2, resp.status)
                 objs = json.loads(body)
                 if not objs:
                     break
