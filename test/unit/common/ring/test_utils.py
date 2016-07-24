@@ -664,11 +664,18 @@ class TestUtils(unittest.TestCase):
                     'ip': '127.0.0.3', 'port': 10003, 'device': 'sdd1'})
 
         # when the biggest tier has the smallest devices things get ugly
+        # can't move all the part-replicas in one rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 70.3125)
+        self.assertEqual(rb.dispersion, 9.375)
+        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
+        self.assertEqual(report['max_dispersion'], 7.18562874251497)
+        # do a sencond rebalance
+        rb.rebalance(seed=100)
+        report = dispersion_report(rb, verbose=True)
+        self.assertEqual(rb.dispersion, 50.0)
         self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.3')
-        self.assertEqual(report['max_dispersion'], 88.23529411764706)
+        self.assertEqual(report['max_dispersion'], 50.0)
 
         # ... but overload can square it
         rb.set_overload(rb.get_required_overload())

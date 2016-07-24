@@ -723,7 +723,7 @@ class TestRingBuilder(unittest.TestCase):
                     "Partition %d not in zones 0 and 1 (got %r)" %
                     (part, zones))
 
-    def test_min_part_hours_zero_will_move_whatever_it_takes(self):
+    def test_min_part_hours_zero_will_move_one_replica(self):
         rb = ring.RingBuilder(8, 3, 0)
         # there'll be at least one replica in z0 and z1
         rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 0.5,
@@ -745,6 +745,33 @@ class TestRingBuilder(unittest.TestCase):
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf1'})
         rb.rebalance(seed=3)
         rb.validate()
+
+        self.assertEqual(0, rb.dispersion)
+        # Only one replica could move, so some zones are quite unbalanced
+        self.assertAlmostEqual(rb.get_balance(), 66.66, delta=0.5)
+
+        # There was only zone 0 and 1 before adding more devices. Only one
+        # replica should have been moved, therefore we expect 256 parts in zone
+        # 0 and 1, and a total of 256 in zone 2,3, and 4
+        expected = defaultdict(int, {0: 256, 1: 256, 2: 86, 3: 85, 4: 85})
+        self.assertEqual(expected, self._partition_counts(rb, key='zone'))
+
+        parts_with_moved_count = defaultdict(int)
+        for part in range(rb.parts):
+            zones = set()
+            for replica in range(rb.replicas):
+                zones.add(rb.devs[rb._replica2part2dev[replica][part]]['zone'])
+            moved_replicas = len(zones - {0, 1})
+            parts_with_moved_count[moved_replicas] += 1
+
+        # We expect that every partition moved exactly one replica
+        expected = {1: 256}
+        self.assertEqual(parts_with_moved_count, expected)
+
+        # After rebalancing two more times, we expect that everything is in a
+        # good state
+        rb.rebalance(seed=3)
+        rb.rebalance(seed=3)
 
         self.assertEqual(0, rb.dispersion)
         # a balance of w/i a 1% isn't too bad for 3 replicas on 7
