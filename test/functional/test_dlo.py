@@ -15,9 +15,8 @@
 # limitations under the License.
 
 import test.functional as tf
-from test.functional.tests import Utils, Base, Base2
-from test.functional.swift_test_client import Account, Connection, \
-    ResponseError
+from test.functional.tests import Utils, Base, Base2, BaseEnv
+from test.functional.swift_test_client import Connection, ResponseError
 
 
 def setUpModule():
@@ -28,21 +27,15 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestDloEnv(object):
+class TestDloEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-
+        super(TestDloEnv, cls).setUp()
         config2 = tf.config.copy()
         config2['username'] = tf.config['username3']
         config2['password'] = tf.config['password3']
         cls.conn2 = Connection(config2)
         cls.conn2.authenticate()
-
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
         cls.container2 = cls.account.container(Utils.create_name())
@@ -92,7 +85,6 @@ class TestDloEnv(object):
 
 class TestDlo(Base):
     env = TestDloEnv
-    set_up = False
 
     def test_get_manifest(self):
         file_item = self.env.container.file('man1')
@@ -394,4 +386,4 @@ class TestDlo(Base):
 
 
 class TestDloUTF8(Base2, TestDlo):
-    set_up = False
+    pass

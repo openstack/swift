@@ -24,7 +24,7 @@ from unittest2 import SkipTest
 
 import test.functional as tf
 from test.functional import cluster_info
-from test.functional.tests import Utils, Base, Base2
+from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional import requires_acls
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
@@ -38,25 +38,38 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestTempurlEnv(object):
+class TestTempurlBaseEnv(BaseEnv):
+    original_account_meta = None
+
+    @classmethod
+    def setUp(cls):
+        super(TestTempurlBaseEnv, cls).setUp()
+        cls.original_account_meta = cls.account.info()
+
+    @classmethod
+    def tearDown(cls):
+        if cls.original_account_meta:
+            # restore any tempurl keys that the tests may have overwritten
+            cls.account.update_metadata(
+                dict((k, cls.original_account_meta.get(k, ''))
+                     for k in ('temp-url-key', 'temp-url-key-2',)))
+
+
+class TestTempurlEnv(TestTempurlBaseEnv):
     tempurl_enabled = None  # tri-state: None initially, then True/False
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-
         if cls.tempurl_enabled is None:
             cls.tempurl_enabled = 'tempurl' in cluster_info
             if not cls.tempurl_enabled:
                 return
 
+        super(TestTempurlEnv, cls).setUp()
+
         cls.tempurl_key = Utils.create_name()
         cls.tempurl_key2 = Utils.create_name()
 
-        cls.account = Account(
-            cls.conn, tf.config.get('account', tf.config['username']))
-        cls.account.delete_containers()
         cls.account.update_metadata({
             'temp-url-key': cls.tempurl_key,
             'temp-url-key-2': cls.tempurl_key2
@@ -74,7 +87,6 @@ class TestTempurlEnv(object):
 
 class TestTempurl(Base):
     env = TestTempurlEnv
-    set_up = False
 
     def setUp(self):
         super(TestTempurl, self).setUp()
@@ -376,28 +388,23 @@ class TestTempURLPrefix(TestTempurl):
 
 
 class TestTempurlUTF8(Base2, TestTempurl):
-    set_up = False
+    pass
 
 
-class TestContainerTempurlEnv(object):
+class TestContainerTempurlEnv(BaseEnv):
     tempurl_enabled = None  # tri-state: None initially, then True/False
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-
         if cls.tempurl_enabled is None:
             cls.tempurl_enabled = 'tempurl' in cluster_info
             if not cls.tempurl_enabled:
                 return
 
+        super(TestContainerTempurlEnv, cls).setUp()
+
         cls.tempurl_key = Utils.create_name()
         cls.tempurl_key2 = Utils.create_name()
-
-        cls.account = Account(
-            cls.conn, tf.config.get('account', tf.config['username']))
-        cls.account.delete_containers()
 
         # creating another account and connection
         # for ACL tests
@@ -426,7 +433,6 @@ class TestContainerTempurlEnv(object):
 
 class TestContainerTempurl(Base):
     env = TestContainerTempurlEnv
-    set_up = False
 
     def setUp(self):
         super(TestContainerTempurl, self).setUp()
@@ -647,25 +653,20 @@ class TestContainerTempurl(Base):
 
 
 class TestContainerTempurlUTF8(Base2, TestContainerTempurl):
-    set_up = False
+    pass
 
 
-class TestSloTempurlEnv(object):
+class TestSloTempurlEnv(TestTempurlBaseEnv):
     enabled = None  # tri-state: None initially, then True/False
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-
+        super(TestSloTempurlEnv, cls).setUp()
         if cls.enabled is None:
             cls.enabled = 'tempurl' in cluster_info and 'slo' in cluster_info
 
         cls.tempurl_key = Utils.create_name()
 
-        cls.account = Account(
-            cls.conn, tf.config.get('account', tf.config['username']))
-        cls.account.delete_containers()
         cls.account.update_metadata({'temp-url-key': cls.tempurl_key})
 
         cls.manifest_container = cls.account.container(Utils.create_name())
@@ -698,7 +699,6 @@ class TestSloTempurlEnv(object):
 
 class TestSloTempurl(Base):
     env = TestSloTempurlEnv
-    set_up = False
 
     def setUp(self):
         super(TestSloTempurl, self).setUp()
@@ -734,4 +734,4 @@ class TestSloTempurl(Base):
 
 
 class TestSloTempurlUTF8(Base2, TestSloTempurl):
-    set_up = False
+    pass

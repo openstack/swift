@@ -23,9 +23,8 @@ from unittest2 import SkipTest
 
 import test.functional as tf
 from test.functional import cluster_info
-from test.functional.tests import Utils, Base, Base2
-from test.functional.swift_test_client import Account, Connection, \
-    ResponseError
+from test.functional.tests import Utils, Base, Base2, BaseEnv
+from test.functional.swift_test_client import Connection, ResponseError
 
 
 def setUpModule():
@@ -36,7 +35,7 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestSloEnv(object):
+class TestSloEnv(BaseEnv):
     slo_enabled = None  # tri-state: None initially, then True/False
 
     @classmethod
@@ -58,8 +57,13 @@ class TestSloEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
+        if cls.slo_enabled is None:
+            cls.slo_enabled = 'slo' in cluster_info
+            if not cls.slo_enabled:
+                return
+
+        super(TestSloEnv, cls).setUp()
+
         config2 = deepcopy(tf.config)
         config2['account'] = tf.config['account2']
         config2['username'] = tf.config['username2']
@@ -73,15 +77,6 @@ class TestSloEnv(object):
         config3['password'] = tf.config['password3']
         cls.conn3 = Connection(config3)
         cls.conn3.authenticate()
-
-        if cls.slo_enabled is None:
-            cls.slo_enabled = 'slo' in cluster_info
-            if not cls.slo_enabled:
-                return
-
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
         cls.container2 = cls.account.container(Utils.create_name())
@@ -214,7 +209,6 @@ class TestSloEnv(object):
 
 class TestSlo(Base):
     env = TestSloEnv
-    set_up = False
 
     def setUp(self):
         super(TestSlo, self).setUp()
@@ -963,4 +957,4 @@ class TestSlo(Base):
 
 
 class TestSloUTF8(Base2, TestSlo):
-    set_up = False
+    pass

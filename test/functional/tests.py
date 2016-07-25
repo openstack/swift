@@ -67,12 +67,33 @@ class Utils(object):
     create_name = create_ascii_name
 
 
+class BaseEnv(object):
+    account = conn = None
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
+        cls.account.delete_containers()
+
+    @classmethod
+    def tearDown(cls):
+        pass
+
+
 class Base(unittest2.TestCase):
-    def setUp(self):
-        cls = type(self)
-        if not cls.set_up:
-            cls.env.setUp()
-            cls.set_up = True
+    # subclasses may override env class
+    env = BaseEnv
+
+    @classmethod
+    def setUpClass(cls):
+        cls.env.setUp()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.tearDown()
 
     def assert_body(self, body):
         response_body = self.env.conn.response.read()
@@ -105,15 +126,10 @@ class Base2(object):
         Utils.create_name = Utils.create_ascii_name
 
 
-class TestAccountEnv(object):
+class TestAccountEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
-
+        super(TestAccountEnv, cls).setUp()
         cls.containers = []
         for i in range(10):
             cont = cls.account.container(Utils.create_name())
@@ -125,16 +141,14 @@ class TestAccountEnv(object):
 
 class TestAccountDev(Base):
     env = TestAccountEnv
-    set_up = False
 
 
 class TestAccountDevUTF8(Base2, TestAccountDev):
-    set_up = False
+    pass
 
 
 class TestAccount(Base):
     env = TestAccountEnv
-    set_up = False
 
     def testNoAuthToken(self):
         self.assertRaises(ResponseError, self.env.account.info,
@@ -352,23 +366,10 @@ class TestAccount(Base):
 
 
 class TestAccountUTF8(Base2, TestAccount):
-    set_up = False
-
-
-class TestAccountNoContainersEnv(object):
-    @classmethod
-    def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
+    pass
 
 
 class TestAccountNoContainers(Base):
-    env = TestAccountNoContainersEnv
-    set_up = False
-
     def testGetRequest(self):
         for format_type in [None, 'json', 'xml']:
             self.assertFalse(self.env.account.containers(
@@ -381,18 +382,13 @@ class TestAccountNoContainers(Base):
 
 
 class TestAccountNoContainersUTF8(Base2, TestAccountNoContainers):
-    set_up = False
+    pass
 
 
-class TestAccountSortingEnv(object):
+class TestAccountSortingEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
-
+        super(TestAccountSortingEnv, cls).setUp()
         postfix = Utils.create_name()
         cls.cont_items = ('a1', 'a2', 'A3', 'b1', 'B2', 'a10', 'b10', 'zz')
         cls.cont_items = ['%s%s' % (x, postfix) for x in cls.cont_items]
@@ -405,7 +401,6 @@ class TestAccountSortingEnv(object):
 
 class TestAccountSorting(Base):
     env = TestAccountSortingEnv
-    set_up = False
 
     def testAccountContainerListSorting(self):
         # name (byte order) sorting.
@@ -470,15 +465,10 @@ class TestAccountSorting(Base):
         self.assertEqual([], cont_listing)
 
 
-class TestContainerEnv(object):
+class TestContainerEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
-
+        super(TestContainerEnv, cls).setUp()
         cls.container = cls.account.container(Utils.create_name())
         if not cls.container.create():
             raise ResponseError(cls.conn.response)
@@ -494,16 +484,14 @@ class TestContainerEnv(object):
 
 class TestContainerDev(Base):
     env = TestContainerEnv
-    set_up = False
 
 
 class TestContainerDevUTF8(Base2, TestContainerDev):
-    set_up = False
+    pass
 
 
 class TestContainer(Base):
     env = TestContainerEnv
-    set_up = False
 
     def testContainerNameLimit(self):
         limit = load_constraint('max_container_name_length')
@@ -889,18 +877,13 @@ class TestContainer(Base):
 
 
 class TestContainerUTF8(Base2, TestContainer):
-    set_up = False
+    pass
 
 
-class TestContainerSortingEnv(object):
+class TestContainerSortingEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
-
+        super(TestContainerSortingEnv, cls).setUp()
         cls.container = cls.account.container(Utils.create_name())
         if not cls.container.create():
             raise ResponseError(cls.conn.response)
@@ -916,7 +899,6 @@ class TestContainerSortingEnv(object):
 
 class TestContainerSorting(Base):
     env = TestContainerSortingEnv
-    set_up = False
 
     def testContainerFileListSortingReversed(self):
         file_list = list(sorted(self.env.file_items))
@@ -1004,15 +986,10 @@ class TestContainerSorting(Base):
         self.assertEqual(file_list, cont_files)
 
 
-class TestContainerPathsEnv(object):
+class TestContainerPathsEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
-
+        super(TestContainerPathsEnv, cls).setUp()
         cls.file_size = 8
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1082,7 +1059,6 @@ class TestContainerPathsEnv(object):
 
 class TestContainerPaths(Base):
     env = TestContainerPathsEnv
-    set_up = False
 
     def testTraverseContainer(self):
         found_files = []
@@ -1183,13 +1159,10 @@ class TestContainerPaths(Base):
                        ['dir1/subdir with spaces/file B'])
 
 
-class TestFileEnv(object):
+class TestFileEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
+        super(TestFileEnv, cls).setUp()
         # creating another account and connection
         # for account to account copy tests
         config2 = deepcopy(tf.config)
@@ -1199,9 +1172,6 @@ class TestFileEnv(object):
         cls.conn2 = Connection(config2)
         cls.conn2.authenticate()
 
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
         cls.account2 = cls.conn2.get_account()
         cls.account2.delete_containers()
 
@@ -1223,16 +1193,14 @@ class TestFileEnv(object):
 
 class TestFileDev(Base):
     env = TestFileEnv
-    set_up = False
 
 
 class TestFileDevUTF8(Base2, TestFileDev):
-    set_up = False
+    pass
 
 
 class TestFile(Base):
     env = TestFileEnv
-    set_up = False
 
     def testCopy(self):
         # makes sure to test encoded characters
@@ -2505,18 +2473,13 @@ class TestFile(Base):
 
 
 class TestFileUTF8(Base2, TestFile):
-    set_up = False
+    pass
 
 
-class TestFileComparisonEnv(object):
+class TestFileComparisonEnv(BaseEnv):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-        cls.account.delete_containers()
-
+        super(TestFileComparisonEnv, cls).setUp()
         cls.container = cls.account.container(Utils.create_name())
 
         if not cls.container.create():
@@ -2542,7 +2505,6 @@ class TestFileComparisonEnv(object):
 
 class TestFileComparison(Base):
     env = TestFileComparisonEnv
-    set_up = False
 
     def testIfMatch(self):
         for file_item in self.env.files:
@@ -2662,7 +2624,7 @@ class TestFileComparison(Base):
 
 
 class TestFileComparisonUTF8(Base2, TestFileComparison):
-    set_up = False
+    pass
 
 
 class TestServiceToken(unittest2.TestCase):

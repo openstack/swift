@@ -16,11 +16,12 @@
 
 import json
 import time
+import unittest2
 from unittest2 import SkipTest
 
 import test.functional as tf
 from copy import deepcopy
-from test.functional.tests import Base, Base2, Utils
+from test.functional.tests import Base, Base2, BaseEnv, Utils
 from test.functional import cluster_info
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
@@ -34,18 +35,14 @@ def tearDownModule():
     tf.teardown_package()
 
 
-class TestObjectVersioningEnv(object):
+class TestObjectVersioningEnv(BaseEnv):
     versioning_enabled = None  # tri-state: None initially, then True/False
     location_header_key = 'X-Versions-Location'
+    account2 = None
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.storage_url, cls.storage_token = cls.conn.authenticate()
-
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-
+        super(TestObjectVersioningEnv, cls).setUp()
         # Second connection for ACL tests
         config2 = deepcopy(tf.config)
         config2['account'] = tf.config['account2']
@@ -96,22 +93,23 @@ class TestObjectVersioningEnv(object):
 
     @classmethod
     def tearDown(cls):
-        cls.account.delete_containers()
-        cls.account2.delete_containers()
+        if cls.account:
+            cls.account.delete_containers()
+        if cls.account2:
+            cls.account2.delete_containers()
 
 
-class TestCrossPolicyObjectVersioningEnv(object):
+class TestCrossPolicyObjectVersioningEnv(BaseEnv):
     # tri-state: None initially, then True/False
     versioning_enabled = None
     multiple_policies_enabled = None
     policies = None
     location_header_key = 'X-Versions-Location'
+    account2 = None
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-
+        super(TestCrossPolicyObjectVersioningEnv, cls).setUp()
         if cls.multiple_policies_enabled is None:
             try:
                 cls.policies = tf.FunctionalStoragePolicyCollection.from_info()
@@ -130,9 +128,6 @@ class TestCrossPolicyObjectVersioningEnv(object):
 
         policy = cls.policies.select()
         version_policy = cls.policies.exclude(name=policy['name']).select()
-
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
 
         # Second connection for ACL tests
         config2 = deepcopy(tf.config)
@@ -185,8 +180,10 @@ class TestCrossPolicyObjectVersioningEnv(object):
 
     @classmethod
     def tearDown(cls):
-        cls.account.delete_containers()
-        cls.account2.delete_containers()
+        if cls.account:
+            cls.account.delete_containers()
+        if cls.account2:
+            cls.account2.delete_containers()
 
 
 class TestObjectVersioningHistoryModeEnv(TestObjectVersioningEnv):
@@ -195,7 +192,6 @@ class TestObjectVersioningHistoryModeEnv(TestObjectVersioningEnv):
 
 class TestObjectVersioning(Base):
     env = TestObjectVersioningEnv
-    set_up = False
 
     def setUp(self):
         super(TestObjectVersioning, self).setUp()
@@ -487,7 +483,6 @@ class TestObjectVersioning(Base):
 
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
-    set_up = False
 
     def tearDown(self):
         self._tear_down_files()
@@ -496,7 +491,6 @@ class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
 
 class TestCrossPolicyObjectVersioning(TestObjectVersioning):
     env = TestCrossPolicyObjectVersioningEnv
-    set_up = False
 
     def setUp(self):
         super(TestCrossPolicyObjectVersioning, self).setUp()
@@ -511,7 +505,6 @@ class TestCrossPolicyObjectVersioning(TestObjectVersioning):
 
 class TestObjectVersioningHistoryMode(TestObjectVersioning):
     env = TestObjectVersioningHistoryModeEnv
-    set_up = False
 
     # those override tests includes assertions for delete versioned objects
     # behaviors different from default object versioning using
@@ -695,7 +688,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
             self.assertEqual(expected, prev_version.read())
 
 
-class TestSloWithVersioning(Base):
+class TestSloWithVersioning(unittest2.TestCase):
 
     def setUp(self):
         if 'slo' not in cluster_info:
