@@ -1,0 +1,19 @@
+Edit the ``/etc/hosts`` file to contain the following:
+
+.. code-block:: none
+
+   # controller
+   10.0.0.11       controller
+
+   # compute1
+   10.0.0.31       compute1
+
+   # block1
+   10.0.0.41       block1
+
+   # object1
+   10.0.0.51       object1
+
+   # object2
+   10.0.0.52       object2
+
