@@ -21,11 +21,13 @@ import logging
 import errno
 import math
 import time
-from mock import patch, call
 from shutil import rmtree, copy
 from tempfile import mkdtemp, NamedTemporaryFile
-import mock
 import json
+
+import mock
+from mock import patch, call
+from six.moves import reload_module
 
 from swift.container.backend import DATADIR
 from swift.common import db_replicator
@@ -44,7 +46,7 @@ TEST_CONTAINER_NAME = 'c o n'
 
 def teardown_module():
     "clean up my monkey patching"
-    reload(db_replicator)
+    reload_module(db_replicator)
 
 
 @contextmanager

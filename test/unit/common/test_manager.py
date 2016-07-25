@@ -24,6 +24,8 @@ import errno
 from collections import defaultdict
 from time import sleep, time
 
+from six.moves import reload_module
+
 from swift.common import manager
 from swift.common.exceptions import InvalidPidFileException
 
@@ -283,7 +285,7 @@ class TestManagerModule(unittest.TestCase):
 class TestServer(unittest.TestCase):
 
     def tearDown(self):
-        reload(manager)
+        reload_module(manager)
 
     def join_swift_dir(self, path):
         return os.path.join(manager.SWIFT_DIR, path)
