@@ -749,10 +749,17 @@ class BaseDiskFileManager(object):
                     ts_file   -> path to a .ts file or None
                     data_file -> path to a .data file or None
                     meta_file -> path to a .meta file or None
+                    ctype_file -> path to a .meta file or None
                   and may contain keys:
                     ts_info   -> a file info dict for a .ts file
                     data_info -> a file info dict for a .data file
                     meta_info -> a file info dict for a .meta file
+                    ctype_info -> a file info dict for a .meta file which
+                                  contains the content-type value
+                    unexpected -> a list of file paths for unexpected
+                                  files
+                    possible_reclaim -> a list of file info dicts for possible
+                                        reclaimable files
                     obsolete  -> a list of file info dicts for obsolete files
         """
         # Build the exts data structure:
