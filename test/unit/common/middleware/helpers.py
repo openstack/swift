@@ -154,15 +154,23 @@ class FakeSwift(object):
         self._calls.append(
             FakeSwiftCall(method, path, HeaderKeyDict(req.headers)))
 
+        backend_etag_header = req.headers.get('X-Backend-Etag-Is-At')
+        conditional_etag = None
+        if backend_etag_header and backend_etag_header in headers:
+            # Apply conditional etag overrides
+            conditional_etag = headers[backend_etag_header]
+
         # range requests ought to work, hence conditional_response=True
         if isinstance(body, list):
             resp = resp_class(
                 req=req, headers=headers, app_iter=body,
-                conditional_response=req.method in ('GET', 'HEAD'))
+                conditional_response=req.method in ('GET', 'HEAD'),
+                conditional_etag=conditional_etag)
         else:
             resp = resp_class(
                 req=req, headers=headers, body=body,
-                conditional_response=req.method in ('GET', 'HEAD'))
+                conditional_response=req.method in ('GET', 'HEAD'),
+                conditional_etag=conditional_etag)
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
         return LeakTrackingIter(wsgi_iter, self, path)

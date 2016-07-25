@@ -200,15 +200,12 @@ the manifest and the segments it's referring to) in the container and account
 metadata which can be used for stats purposes.
 """
 
-from six.moves import range
-
 from collections import defaultdict
 from datetime import datetime
 import json
 import mimetypes
 import re
 import six
-from six import BytesIO
 from hashlib import md5
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
@@ -219,7 +216,8 @@ from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
     closing_if_possible, LRUCache, StreamingPile
-from swift.common.request_helpers import SegmentedIterable
+from swift.common.request_helpers import SegmentedIterable, \
+    get_sys_meta_prefix, update_etag_is_at_header
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
 from swift.common.wsgi import WSGIContext, make_subrequest
@@ -235,6 +233,9 @@ DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
 REQUIRED_SLO_KEYS = set(['path', 'etag', 'size_bytes'])
 OPTIONAL_SLO_KEYS = set(['range'])
 ALLOWED_SLO_KEYS = REQUIRED_SLO_KEYS | OPTIONAL_SLO_KEYS
+
+SYSMETA_SLO_ETAG = get_sys_meta_prefix('object') + 'slo-etag'
+SYSMETA_SLO_SIZE = get_sys_meta_prefix('object') + 'slo-size'
 
 
 def parse_and_validate_input(req_body, req_path):
@@ -359,25 +360,6 @@ def parse_and_validate_input(req_body, req_path):
                              headers={"Content-Type": "text/plain"})
 
     return parsed_data
-
-
-class SloPutContext(WSGIContext):
-    def __init__(self, slo, slo_etag):
-        super(SloPutContext, self).__init__(slo.app)
-        self.slo_etag = '"' + slo_etag.hexdigest() + '"'
-
-    def handle_slo_put(self, req, start_response):
-        app_resp = self._app_call(req.environ)
-
-        for i in range(len(self._response_headers)):
-            if self._response_headers[i][0].lower() == 'etag':
-                self._response_headers[i] = ('Etag', self.slo_etag)
-                break
-
-        start_response(self._response_status,
-                       self._response_headers,
-                       self._response_exc_info)
-        return app_resp
 
 
 class SloGetContext(WSGIContext):
@@ -539,6 +521,9 @@ class SloGetContext(WSGIContext):
         Note: this assumes that X-Static-Large-Object has already been found.
         """
         if req.method == 'HEAD':
+            # We've already looked for SYSMETA_SLO_ETAG/SIZE in the response
+            # and didn't find them. We have to fetch the whole manifest and
+            # recompute.
             return True
 
         response_status = int(self._response_status[:3])
@@ -581,14 +566,31 @@ class SloGetContext(WSGIContext):
                     what may be a static large object manifest (or may not).
         :param start_response: WSGI start_response callable
         """
+        if req.params.get('multipart-manifest') != 'get':
+            # If this object is an SLO manifest, we may have saved off the
+            # large object etag during the original PUT. Send an
+            # X-Backend-Etag-Is-At header so that, if the SLO etag *was*
+            # saved, we can trust the object-server to respond appropriately
+            # to If-Match/If-None-Match requests.
+            update_etag_is_at_header(req, SYSMETA_SLO_ETAG)
         resp_iter = self._app_call(req.environ)
 
         # make sure this response is for a static large object manifest
+        slo_marker = slo_etag = slo_size = None
         for header, value in self._response_headers:
-            if (header.lower() == 'x-static-large-object' and
-                    config_true_value(value)):
+            header = header.lower()
+            if header == SYSMETA_SLO_ETAG:
+                slo_etag = value
+            elif header == SYSMETA_SLO_SIZE:
+                slo_size = value
+            elif (header == 'x-static-large-object' and
+                  config_true_value(value)):
+                slo_marker = value
+
+            if slo_marker and slo_etag and slo_size:
                 break
-        else:
+
+        if not slo_marker:
             # Not a static large object manifest. Just pass it through.
             start_response(self._response_status,
                            self._response_headers,
@@ -609,6 +611,22 @@ class SloGetContext(WSGIContext):
                     else:
                         new_headers.append((header, value))
                 self._response_headers = new_headers
+            start_response(self._response_status,
+                           self._response_headers,
+                           self._response_exc_info)
+            return resp_iter
+
+        is_conditional = self._response_status.startswith(('304', '412')) and (
+            req.if_match or req.if_none_match)
+        if slo_etag and slo_size and (
+                req.method == 'HEAD' or is_conditional):
+            # Since we have length and etag, we can respond immediately
+            for i, (header, _value) in enumerate(self._response_headers):
+                lheader = header.lower()
+                if lheader == 'etag':
+                    self._response_headers[i] = (header, '"%s"' % slo_etag)
+                elif lheader == 'content-length' and not is_conditional:
+                    self._response_headers[i] = (header, slo_size)
             start_response(self._response_status,
                            self._response_headers,
                            self._response_exc_info)
@@ -659,8 +677,7 @@ class SloGetContext(WSGIContext):
         new_headers = []
         for header, value in resp_headers:
             if header.lower() == 'content-length':
-                new_headers.append(('Content-Length',
-                                    len(json_data)))
+                new_headers.append(('Content-Length', len(json_data)))
             else:
                 new_headers.append((header, value))
         self._response_headers = new_headers
@@ -680,23 +697,36 @@ class SloGetContext(WSGIContext):
     def get_or_head_response(self, req, resp_headers, resp_iter):
         segments = self._get_manifest_read(resp_iter)
 
-        etag = md5()
-        content_length = 0
-        for seg_dict in segments:
-            if seg_dict.get('range'):
-                etag.update('%s:%s;' % (seg_dict['hash'], seg_dict['range']))
-            else:
-                etag.update(seg_dict['hash'])
+        slo_etag = None
+        content_length = None
+        response_headers = []
+        for header, value in resp_headers:
+            lheader = header.lower()
+            if lheader == SYSMETA_SLO_ETAG:
+                slo_etag = value
+            elif lheader == SYSMETA_SLO_SIZE:
+                content_length = value
+            elif lheader not in ('etag', 'content-length'):
+                response_headers.append((header, value))
 
-            if config_true_value(seg_dict.get('sub_slo')):
-                override_bytes_from_content_type(
-                    seg_dict, logger=self.slo.logger)
-            content_length += self._segment_length(seg_dict)
+        if slo_etag is None or content_length is None:
+            etag = md5()
+            content_length = 0
+            for seg_dict in segments:
+                if seg_dict.get('range'):
+                    etag.update('%s:%s;' % (seg_dict['hash'],
+                                            seg_dict['range']))
+                else:
+                    etag.update(seg_dict['hash'])
 
-        response_headers = [(h, v) for h, v in resp_headers
-                            if h.lower() not in ('etag', 'content-length')]
+                if config_true_value(seg_dict.get('sub_slo')):
+                    override_bytes_from_content_type(
+                        seg_dict, logger=self.slo.logger)
+                content_length += self._segment_length(seg_dict)
+            slo_etag = etag.hexdigest()
+
         response_headers.append(('Content-Length', str(content_length)))
-        response_headers.append(('Etag', '"%s"' % etag.hexdigest()))
+        response_headers.append(('Etag', '"%s"' % slo_etag))
 
         if req.method == 'HEAD':
             return self._manifest_head_response(req, response_headers)
@@ -942,7 +972,6 @@ class StaticLargeObject(object):
             resp_body = get_response_body(
                 out_content_type, {}, problem_segments)
             raise HTTPBadRequest(resp_body, content_type=out_content_type)
-        env = req.environ
 
         slo_etag = md5()
         for seg_data in data_for_storage:
@@ -952,20 +981,33 @@ class StaticLargeObject(object):
             else:
                 slo_etag.update(seg_data['hash'])
 
+        slo_etag = slo_etag.hexdigest()
+        req.headers.update({
+            SYSMETA_SLO_ETAG: slo_etag,
+            SYSMETA_SLO_SIZE: total_size,
+            'X-Static-Large-Object': 'True',
+        })
+
+        json_data = json.dumps(data_for_storage)
+        if six.PY3:
+            json_data = json_data.encode('utf-8')
+        req.body = json_data
+
+        env = req.environ
         if not env.get('CONTENT_TYPE'):
             guessed_type, _junk = mimetypes.guess_type(req.path_info)
             env['CONTENT_TYPE'] = guessed_type or 'application/octet-stream'
         env['swift.content_type_overridden'] = True
         env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
-        env['HTTP_X_STATIC_LARGE_OBJECT'] = 'True'
-        json_data = json.dumps(data_for_storage)
-        if six.PY3:
-            json_data = json_data.encode('utf-8')
-        env['CONTENT_LENGTH'] = str(len(json_data))
-        env['wsgi.input'] = BytesIO(json_data)
 
-        slo_put_context = SloPutContext(self, slo_etag)
-        return slo_put_context.handle_slo_put(req, start_response)
+        def start_response_wrapper(status, headers, exc_info=None):
+            for i, (header, _value) in enumerate(headers):
+                if header.lower() == 'etag':
+                    headers[i] = ('Etag', '"%s"' % slo_etag)
+                    break
+            return start_response(status, headers, exc_info)
+
+        return self.app(env, start_response_wrapper)
 
     def get_segments_to_delete_iter(self, req):
         """

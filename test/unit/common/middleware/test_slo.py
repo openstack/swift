@@ -414,7 +414,9 @@ class TestSloPutManifest(SloTestCase):
             '/v1/AUTH_test/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
             body=test_json_data)
-        self.assertNotIn('X-Static-Large-Object', req.headers)
+        for h in ('X-Static-Large-Object', 'X-Object-Sysmeta-Slo-Etag',
+                  'X-Object-Sysmeta-Slo-Size'):
+            self.assertNotIn(h, req.headers)
 
         def my_fake_start_response(*args, **kwargs):
             gen_etag = '"' + md5hex('etagoftheobjectsegment') + '"'
@@ -423,6 +425,11 @@ class TestSloPutManifest(SloTestCase):
         self.slo(req.environ, my_fake_start_response)
         self.assertIn('X-Static-Large-Object', req.headers)
         self.assertEqual(req.headers['X-Static-Large-Object'], 'True')
+        self.assertIn('X-Object-Sysmeta-Slo-Etag', req.headers)
+        self.assertEqual(req.headers['X-Object-Sysmeta-Slo-Etag'],
+                         md5hex('etagoftheobjectsegment'))
+        self.assertIn('X-Object-Sysmeta-Slo-Size', req.headers)
+        self.assertEqual(req.headers['X-Object-Sysmeta-Slo-Size'], '100')
         self.assertIn('Content-Type', req.headers)
         self.assertTrue(
             req.headers['Content-Type'].endswith(';swift_bytes=100'),
@@ -1078,11 +1085,11 @@ class TestSloDeleteManifest(SloTestCase):
                         'man-all-there?multipart-manifest=delete'))]))
 
 
-class TestSloHeadManifest(SloTestCase):
+class TestSloHeadOldManifest(SloTestCase):
     slo_etag = md5hex("seg01-hashseg02-hash")
 
     def setUp(self):
-        super(TestSloHeadManifest, self).setUp()
+        super(TestSloHeadOldManifest, self).setUp()
         manifest_json = json.dumps([
             {'name': '/gettest/seg01',
              'bytes': '100',
@@ -1100,6 +1107,8 @@ class TestSloHeadManifest(SloTestCase):
             'X-Static-Large-Object': 'true',
             'Etag': md5hex(manifest_json)}
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
+        self.manifest_has_sysmeta = all(h in manifest_headers for h in (
+            'X-Object-Sysmeta-Slo-Etag', 'X-Object-Sysmeta-Slo-Size'))
         self.app.register(
             'GET', '/v1/AUTH_test/headtest/man',
             swob.HTTPOk, manifest_headers, manifest_json)
@@ -1116,9 +1125,9 @@ class TestSloHeadManifest(SloTestCase):
         self.assertIn(('Content-Type', 'test/data'), headers)
         self.assertEqual(body, '')  # it's a HEAD request, after all
 
-        expected_app_calls = [
-            ('HEAD', '/v1/AUTH_test/headtest/man'),
-            ('GET', '/v1/AUTH_test/headtest/man')]
+        expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
+        if not self.manifest_has_sysmeta:
+            expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_none_match_etag_matching(self):
@@ -1132,9 +1141,9 @@ class TestSloHeadManifest(SloTestCase):
         self.assertIn(('Content-Length', '0'), headers)
         self.assertIn(('Content-Type', 'test/data'), headers)
 
-        expected_app_calls = [
-            ('HEAD', '/v1/AUTH_test/headtest/man'),
-            ('GET', '/v1/AUTH_test/headtest/man')]
+        expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
+        if not self.manifest_has_sysmeta:
+            expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
 
     def test_if_match_etag_not_matching(self):
@@ -1148,10 +1157,19 @@ class TestSloHeadManifest(SloTestCase):
         self.assertIn(('Content-Length', '0'), headers)
         self.assertIn(('Content-Type', 'test/data'), headers)
 
-        expected_app_calls = [
-            ('HEAD', '/v1/AUTH_test/headtest/man'),
-            ('GET', '/v1/AUTH_test/headtest/man')]
+        expected_app_calls = [('HEAD', '/v1/AUTH_test/headtest/man')]
+        if not self.manifest_has_sysmeta:
+            expected_app_calls.append(('GET', '/v1/AUTH_test/headtest/man'))
         self.assertEqual(self.app.calls, expected_app_calls)
+
+
+class TestSloHeadManifest(TestSloHeadOldManifest):
+    def setUp(self):
+        self.extra_manifest_headers = {
+            'X-Object-Sysmeta-Slo-Etag': self.slo_etag,
+            'X-Object-Sysmeta-Slo-Size': '300',
+        }
+        super(TestSloHeadManifest, self).setUp()
 
 
 class TestSloGetRawManifest(SloTestCase):
@@ -2759,7 +2777,7 @@ class TestSloGetManifest(SloTestCase):
             'ERROR: An error occurred while retrieving segments'))
 
 
-class TestSloConditionalGetManifest(SloTestCase):
+class TestSloConditionalGetOldManifest(SloTestCase):
     slo_data = [
         {'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
          'content_type': 'text/plain', 'bytes': '5'},
@@ -2772,7 +2790,7 @@ class TestSloConditionalGetManifest(SloTestCase):
     slo_etag = md5hex(''.join(seg['hash'] for seg in slo_data))
 
     def setUp(self):
-        super(TestSloConditionalGetManifest, self).setUp()
+        super(TestSloConditionalGetOldManifest, self).setUp()
 
         # some plain old objects
         self.app.register(
@@ -2816,6 +2834,8 @@ class TestSloConditionalGetManifest(SloTestCase):
             'X-Static-Large-Object': 'true',
             'Etag': md5hex(_abcd_manifest_json)}
         manifest_headers.update(getattr(self, 'extra_manifest_headers', {}))
+        self.manifest_has_sysmeta = all(h in manifest_headers for h in (
+            'X-Object-Sysmeta-Slo-Etag', 'X-Object-Sysmeta-Slo-Size'))
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-abcd',
             swob.HTTPOk, manifest_headers,
@@ -2833,13 +2853,16 @@ class TestSloConditionalGetManifest(SloTestCase):
         self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
         self.assertEqual(body, '')
 
-        expected_app_calls = [
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            # Need to verify the first segment
-            ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
-        ]
+        expected_app_calls = [('GET', '/v1/AUTH_test/gettest/manifest-abcd')]
+        if not self.manifest_has_sysmeta:
+            # We *still* verify the first segment
+            expected_app_calls.extend([
+                ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
         self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
+                         'x-object-sysmeta-slo-etag')
 
     def test_if_none_match_does_not_match(self):
         req = Request.blank(
@@ -2863,6 +2886,8 @@ class TestSloConditionalGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get'),
         ]
         self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
+                         'x-object-sysmeta-slo-etag')
 
     def test_if_match_matches(self):
         req = Request.blank(
@@ -2877,17 +2902,21 @@ class TestSloConditionalGetManifest(SloTestCase):
         self.assertEqual(
             body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
 
-        expected_app_calls = [
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+        expected_app_calls = [('GET', '/v1/AUTH_test/gettest/manifest-abcd')]
+        if not self.manifest_has_sysmeta:
             # Manifest never matches -> got back a 412; need to re-fetch
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+            expected_app_calls.append(
+                ('GET', '/v1/AUTH_test/gettest/manifest-abcd'))
+        expected_app_calls.extend([
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get'),
-        ]
+        ])
         self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
+                         'x-object-sysmeta-slo-etag')
 
     def test_if_match_does_not_match(self):
         req = Request.blank(
@@ -2901,15 +2930,18 @@ class TestSloConditionalGetManifest(SloTestCase):
         self.assertIn(('Etag', '"%s"' % self.slo_etag), headers)
         self.assertEqual(body, '')
 
-        expected_app_calls = [
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            # Manifest never matches -> got back a 412; need to re-fetch
-            ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            # We need to verify the first segment
-            ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
-        ]
+        expected_app_calls = [('GET', '/v1/AUTH_test/gettest/manifest-abcd')]
+        if not self.manifest_has_sysmeta:
+            # We *still* verify the first segment
+            expected_app_calls.extend([
+                # Manifest never matches -> got back a 412; need to re-fetch
+                ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+                ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+                ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
+            ])
         self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
+                         'x-object-sysmeta-slo-etag')
 
     def test_if_match_matches_and_range(self):
         req = Request.blank(
@@ -2935,6 +2967,47 @@ class TestSloConditionalGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
         ]
         self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertEqual(self.app.headers[0].get('X-Backend-Etag-Is-At'),
+                         'x-object-sysmeta-slo-etag')
+
+    def test_if_match_matches_passthrough(self):
+        # first fetch and stash the manifest etag
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd?multipart-manifest=get',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        headers = HeaderKeyDict(headers)
+        self.assertEqual('application/json; charset=utf-8',
+                         headers['Content-Type'])
+        manifest_etag = headers['Etag']
+
+        # now use it as a condition and expect to match
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd?multipart-manifest=get',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': manifest_etag})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '200 OK')
+        headers = HeaderKeyDict(headers)
+        self.assertEqual(manifest_etag, headers['Etag'])
+
+        expected_app_calls = [
+            ('GET',
+             '/v1/AUTH_test/gettest/manifest-abcd?multipart-manifest=get')] * 2
+        self.assertEqual(self.app.calls, expected_app_calls)
+        self.assertNotIn('X-Backend-Etag-Is-At', self.app.headers[0])
+        self.assertNotIn('X-Backend-Etag-Is-At', self.app.headers[1])
+
+
+class TestSloConditionalGetNewManifest(TestSloConditionalGetOldManifest):
+    def setUp(self):
+        self.extra_manifest_headers = {
+            'X-Object-Sysmeta-Slo-Etag': self.slo_etag,
+            'X-Object-Sysmeta-Slo-Size': '50',
+        }
+        super(TestSloConditionalGetNewManifest, self).setUp()
 
 
 class TestSloBulkLogger(unittest.TestCase):
