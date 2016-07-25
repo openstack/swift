@@ -741,9 +741,11 @@ class RingBuilder(object):
         255 hours ago and last move epoch to 'the beginning of time'. This can
         be used to force a full rebalance on the next call to rebalance.
         """
+        self._last_part_moves_epoch = 0
+        if not self._last_part_moves:
+            return
         for part in range(self.parts):
             self._last_part_moves[part] = 0xff
-        self._last_part_moves_epoch = 0
 
     def get_part_devices(self, part):
         """

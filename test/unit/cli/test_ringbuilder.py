@@ -1718,6 +1718,23 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring_invalid_re = re.compile("Ring file .*\.ring\.gz is invalid")
         self.assertTrue(ring_invalid_re.findall(mock_stdout.getvalue()))
 
+    def test_pretend_min_part_hours_passed(self):
+        self.run_srb("create", 8, 3, 1)
+        argv_pretend = ["", self.tmpfile, "pretend_min_part_hours_passed"]
+        # pretend_min_part_hours_passed should success, even not rebalanced
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv_pretend)
+        self.run_srb("add",
+                     "r1z1-10.1.1.1:2345/sda", 100.0,
+                     "r1z1-10.1.1.1:2345/sdb", 100.0,
+                     "r1z1-10.1.1.1:2345/sdc", 100.0)
+        argv_rebalance = ["", self.tmpfile, "rebalance"]
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv_rebalance)
+        self.run_srb("add", "r1z1-10.1.1.1:2345/sdd", 100.0)
+        # rebalance fail without pretend_min_part_hours_passed
+        self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv_rebalance)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv_pretend)
+        self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv_rebalance)
+
     def test_rebalance(self):
         self.create_sample_ring()
         argv = ["", self.tmpfile, "rebalance", "3"]
