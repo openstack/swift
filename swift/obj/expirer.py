@@ -65,7 +65,10 @@ class ObjectExpirer(Daemon):
             raise ValueError("concurrency must be set to at least 1")
         self.processes = int(self.conf.get('processes', 0))
         self.process = int(self.conf.get('process', 0))
-        self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
+        # This option defines how long an un-processable expired object
+        # marker will be retried before it is abandoned.  It is not coupled
+        # with the tombstone reclaim age in the consistency engine.
+        self.reclaim_age = int(conf.get('reclaim_age', 604800))
 
     def report(self, final=False):
         """

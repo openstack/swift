@@ -668,30 +668,20 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     self.conf, self.logger)
                 df = self._get_diskfile(policy)
                 df.delete(ts.internal)
-                suffix_dir = os.path.dirname(df._datadir)
-                part_dir = os.path.dirname(suffix_dir)
                 tombstone_file = os.path.join(df._datadir, ts.internal + '.ts')
-                # direct callers of this this method are expect to plumb
-                # reclaim_age as a kwarg
+                # cleanup_ondisk_files always uses the configured value
                 df._manager.cleanup_ondisk_files(
                     os.path.dirname(tombstone_file))
-                # the default is ONE_WEEK
-                if time() - float(ts) > diskfile.ONE_WEEK:
-                    self.assertFalse(os.path.exists(tombstone_file))
-                else:
-                    self.assertTrue(os.path.exists(tombstone_file))
-                # the configured value is plumbed through on REPLICATE calls
-                df._manager._get_hashes(part_dir)
                 self.assertNotEqual(
                     expect_reclaim, os.path.exists(tombstone_file))
 
         # reclaim_age not configured so default should be used
-        do_test(Timestamp(time() - diskfile.ONE_WEEK - 1), True)
-        do_test(Timestamp(time() - diskfile.ONE_WEEK + 100), False)
+        do_test(Timestamp(time() - diskfile.DEFAULT_RECLAIM_AGE - 1), True)
+        do_test(Timestamp(time() - diskfile.DEFAULT_RECLAIM_AGE + 100), False)
 
         # reclaim_age configured value should be used
         self.conf['reclaim_age'] = 1000
-        do_test(Timestamp(time() - diskfile.ONE_WEEK + 100), True)
+        do_test(Timestamp(time() - diskfile.DEFAULT_RECLAIM_AGE + 100), True)
         do_test(Timestamp(time() - 1001), True)
         do_test(Timestamp(time() + 100), False)
 
@@ -736,8 +726,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             expected_after_cleanup = set([f[0] for f in test
                                           if (f[2] if len(f) > 2 else f[1])])
             if reclaim_age:
-                class_under_test.cleanup_ondisk_files(
-                    hashdir, reclaim_age=reclaim_age)
+                class_under_test.reclaim_age = reclaim_age
+                class_under_test.cleanup_ondisk_files(hashdir)
             else:
                 with mock.patch('swift.obj.diskfile.time') as mock_time:
                     # don't reclaim anything
@@ -1098,8 +1088,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 self.df_mgr, '/srv/dev/', '9',
                 'a', 'c', 'o', policy=POLICIES[0])
             cleanup.assert_called_once_with(
-                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
-                604800)
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
             readmeta.assert_called_once_with(
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/'
                 '1381679759.90941.data')
@@ -5960,7 +5949,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_files_purge_old_ts(self):
         for policy in self.iter_policies():
             # A single old .ts file will be removed
-            old_float = time() - (diskfile.ONE_WEEK + 1)
+            old_float = time() - (diskfile.DEFAULT_RECLAIM_AGE + 1)
             file1 = Timestamp(old_float).internal + '.ts'
             file_list = [file1]
             self.check_cleanup_ondisk_files(policy, file_list, [])
@@ -5968,7 +5957,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_files_keep_isolated_meta_purge_old_ts(self):
         for policy in self.iter_policies():
             # A single old .ts file will be removed despite presence of a .meta
-            old_float = time() - (diskfile.ONE_WEEK + 1)
+            old_float = time() - (diskfile.DEFAULT_RECLAIM_AGE + 1)
             file1 = Timestamp(old_float).internal + '.ts'
             file2 = Timestamp(time() + 2).internal + '.meta'
             file_list = [file1, file2]
@@ -5976,7 +5965,7 @@ class TestSuffixHashes(unittest.TestCase):
 
     def test_cleanup_ondisk_files_keep_single_old_data(self):
         for policy in self.iter_policies():
-            old_float = time() - (diskfile.ONE_WEEK + 1)
+            old_float = time() - (diskfile.DEFAULT_RECLAIM_AGE + 1)
             file1 = _make_datafilename(
                 Timestamp(old_float), policy, durable=True)
             file_list = [file1]
@@ -5985,7 +5974,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_drops_old_non_durable_data(self):
         for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                old_float = time() - (diskfile.ONE_WEEK + 1)
+                old_float = time() - (diskfile.DEFAULT_RECLAIM_AGE + 1)
                 file1 = _make_datafilename(
                     Timestamp(old_float), policy, durable=False)
                 file_list = [file1]
@@ -6004,7 +5993,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_files_purges_single_old_meta(self):
         for policy in self.iter_policies():
             # A single old .meta file will be removed
-            old_float = time() - (diskfile.ONE_WEEK + 1)
+            old_float = time() - (diskfile.DEFAULT_RECLAIM_AGE + 1)
             file1 = Timestamp(old_float).internal + '.meta'
             file_list = [file1]
             self.check_cleanup_ondisk_files(policy, file_list, [])
@@ -6259,15 +6248,16 @@ class TestSuffixHashes(unittest.TestCase):
                 'sda1', '0', 'a', 'c', 'o', policy=policy)
             suffix = os.path.basename(os.path.dirname(df._datadir))
             now = time()
-            # scale back the df manager's reclaim age a bit
-            df_mgr.reclaim_age = 1000
             # write a tombstone that's just a *little* older than reclaim time
-            df.delete(Timestamp(now - 10001))
+            df.delete(Timestamp(now - 1001))
             # write a meta file that's not quite so old
             ts_meta = Timestamp(now - 501)
             df.write_metadata({'X-Timestamp': ts_meta.internal})
             # sanity check
             self.assertEqual(2, len(os.listdir(df._datadir)))
+            # scale back the df manager's reclaim age a bit to make the
+            # tombstone reclaimable
+            df_mgr.reclaim_age = 1000
 
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             # the tombstone is reclaimed, the meta file remains, the suffix

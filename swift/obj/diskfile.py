@@ -47,6 +47,7 @@ from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
 from collections import defaultdict
+from datetime import timedelta
 
 from eventlet import Timeout
 from eventlet.hubs import trampoline
@@ -77,7 +78,7 @@ from functools import partial
 
 
 PICKLE_PROTOCOL = 2
-ONE_WEEK = 604800
+DEFAULT_RECLAIM_AGE = timedelta(weeks=1).total_seconds()
 HASH_FILE = 'hashes.pkl'
 HASH_INVALIDATIONS_FILE = 'hashes.invalid'
 METADATA_KEY = 'user.swift.metadata'
@@ -557,7 +558,7 @@ class BaseDiskFileManager(object):
         self.keep_cache_size = int(conf.get('keep_cache_size', 5242880))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        self.reclaim_age = int(conf.get('reclaim_age', ONE_WEEK))
+        self.reclaim_age = int(conf.get('reclaim_age', DEFAULT_RECLAIM_AGE))
         self.replication_one_per_device = config_true_value(
             conf.get('replication_one_per_device', 'true'))
         self.replication_lock_timeout = int(conf.get(
@@ -886,13 +887,12 @@ class BaseDiskFileManager(object):
 
         return results
 
-    def cleanup_ondisk_files(self, hsh_path, reclaim_age=ONE_WEEK, **kwargs):
+    def cleanup_ondisk_files(self, hsh_path, **kwargs):
         """
         Clean up on-disk files that are obsolete and gather the set of valid
         on-disk files for an object.
 
         :param hsh_path: object hash path
-        :param reclaim_age: age in seconds at which to remove tombstones
         :param frag_index: if set, search for a specific fragment index .data
                            file, otherwise accept the first valid .data file
         :returns: a dict that may contain: valid on disk files keyed by their
@@ -901,7 +901,7 @@ class BaseDiskFileManager(object):
                   reverse sorted, stored under the key 'files'.
         """
         def is_reclaimable(timestamp):
-            return (time.time() - float(timestamp)) > reclaim_age
+            return (time.time() - float(timestamp)) > self.reclaim_age
 
         files = listdir(hsh_path)
         files.sort(reverse=True)
@@ -932,11 +932,10 @@ class BaseDiskFileManager(object):
         """
         raise NotImplementedError
 
-    def _hash_suffix_dir(self, path, reclaim_age):
+    def _hash_suffix_dir(self, path):
         """
 
         :param path: full path to directory
-        :param reclaim_age: age in seconds at which to remove tombstones
         """
         hashes = defaultdict(hashlib.md5)
         try:
@@ -948,7 +947,7 @@ class BaseDiskFileManager(object):
         for hsh in path_contents:
             hsh_path = join(path, hsh)
             try:
-                ondisk_info = self.cleanup_ondisk_files(hsh_path, reclaim_age)
+                ondisk_info = self.cleanup_ondisk_files(hsh_path)
             except OSError as err:
                 if err.errno == errno.ENOTDIR:
                     partition_path = dirname(path)
@@ -1006,34 +1005,30 @@ class BaseDiskFileManager(object):
             raise PathNotDir()
         return hashes
 
-    def _hash_suffix(self, path, reclaim_age):
+    def _hash_suffix(self, path):
         """
         Performs reclamation and returns an md5 of all (remaining) files.
 
         :param path: full path to directory
-        :param reclaim_age: age in seconds at which to remove tombstones
         :raises PathNotDir: if given path is not a valid directory
         :raises OSError: for non-ENOTDIR errors
         """
         raise NotImplementedError
 
-    def _get_hashes(self, partition_path, recalculate=None, do_listdir=False,
-                    reclaim_age=None):
+    def _get_hashes(self, partition_path, recalculate=None, do_listdir=False):
         """
         Get hashes for each suffix dir in a partition.  do_listdir causes it to
         mistrust the hash cache for suffix existence at the (unexpectedly high)
-        cost of a listdir.  reclaim_age is just passed on to hash_suffix.
+        cost of a listdir.
 
         :param partition_path: absolute path of partition to get hashes for
         :param recalculate: list of suffixes which should be recalculated when
                             got
         :param do_listdir: force existence check for all hashes in the
                            partition
-        :param reclaim_age: age at which to remove tombstones
 
         :returns: tuple of (number of suffix dirs hashed, dictionary of hashes)
         """
-        reclaim_age = reclaim_age or self.reclaim_age
         hashed = 0
         hashes_file = join(partition_path, HASH_FILE)
         modified = False
@@ -1072,7 +1067,7 @@ class BaseDiskFileManager(object):
             if not hash_:
                 suffix_dir = join(partition_path, suffix)
                 try:
-                    hashes[suffix] = self._hash_suffix(suffix_dir, reclaim_age)
+                    hashes[suffix] = self._hash_suffix(suffix_dir)
                     hashed += 1
                 except PathNotDir:
                     del hashes[suffix]
@@ -1086,8 +1081,7 @@ class BaseDiskFileManager(object):
                     write_pickle(
                         hashes, hashes_file, partition_path, PICKLE_PROTOCOL)
                     return hashed, hashes
-            return self._get_hashes(partition_path, recalculate, do_listdir,
-                                    reclaim_age)
+            return self._get_hashes(partition_path, recalculate, do_listdir)
         else:
             return hashed, hashes
 
@@ -1237,8 +1231,7 @@ class BaseDiskFileManager(object):
             dev_path, get_data_dir(policy), str(partition), object_hash[-3:],
             object_hash)
         try:
-            filenames = self.cleanup_ondisk_files(object_path,
-                                                  self.reclaim_age)['files']
+            filenames = self.cleanup_ondisk_files(object_path)['files']
         except OSError as err:
             if err.errno == errno.ENOTDIR:
                 quar_path = self.quarantine_renamer(dev_path, object_path)
@@ -1369,7 +1362,7 @@ class BaseDiskFileManager(object):
                 object_path = os.path.join(suffix_path, object_hash)
                 try:
                     results = self.cleanup_ondisk_files(
-                        object_path, self.reclaim_age, **kwargs)
+                        object_path, **kwargs)
                     timestamps = {}
                     for ts_key, info_key, info_ts_key in key_preference:
                         if info_key not in results:
@@ -2581,17 +2574,16 @@ class DiskFileManager(BaseDiskFileManager):
             hashes[None].update(
                 file_info['timestamp'].internal + file_info['ext'])
 
-    def _hash_suffix(self, path, reclaim_age):
+    def _hash_suffix(self, path):
         """
         Performs reclamation and returns an md5 of all (remaining) files.
 
         :param path: full path to directory
-        :param reclaim_age: age in seconds at which to remove tombstones
         :raises PathNotDir: if given path is not a valid directory
         :raises OSError: for non-ENOTDIR errors
         :returns: md5 of files in suffix
         """
-        hashes = self._hash_suffix_dir(path, reclaim_age)
+        hashes = self._hash_suffix_dir(path)
         return hashes[None].hexdigest()
 
 
@@ -3197,12 +3189,11 @@ class ECDiskFileManager(BaseDiskFileManager):
             file_info = ondisk_info['durable_frag_set'][0]
             hashes[None].update(file_info['timestamp'].internal + '.durable')
 
-    def _hash_suffix(self, path, reclaim_age):
+    def _hash_suffix(self, path):
         """
         Performs reclamation and returns an md5 of all (remaining) files.
 
         :param path: full path to directory
-        :param reclaim_age: age in seconds at which to remove tombstones
         :raises PathNotDir: if given path is not a valid directory
         :raises OSError: for non-ENOTDIR errors
         :returns: dict of md5 hex digests
@@ -3211,5 +3202,5 @@ class ECDiskFileManager(BaseDiskFileManager):
         # here we flatten out the hashers hexdigest into a dictionary instead
         # of just returning the one hexdigest for the whole suffix
 
-        hash_per_fi = self._hash_suffix_dir(path, reclaim_age)
+        hash_per_fi = self._hash_suffix_dir(path)
         return dict((fi, md5.hexdigest()) for fi, md5 in hash_per_fi.items())

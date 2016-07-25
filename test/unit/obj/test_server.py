@@ -6227,13 +6227,15 @@ class TestObjectController(unittest.TestCase):
             with mock.patch('swift.obj.diskfile.time.time') as mock_time:
                 mock_time.return_value = the_future
                 resp = delete_request.get_response(self.object_controller)
-                # we'll still create the tombstone
-                self.assertTrue(os.path.exists(tombstone_file))
-                # but it will get reaped by REPLICATE
+                # we won't even create the tombstone
+                self.assertFalse(os.path.exists(tombstone_file))
+                # hashdir sticks around tho
+                self.assertTrue(os.path.exists(objfile._datadir))
+                # REPLICATE will clean it all up
                 resp = replicate_request.get_response(self.object_controller)
                 self.assertEqual(resp.status_int, 200)
                 self.assertEqual({}, pickle.loads(resp.body))
-                self.assertFalse(os.path.exists(tombstone_file))
+                self.assertFalse(os.path.exists(objfile._datadir))
 
     def test_SSYNC_can_be_called(self):
         req = Request.blank('/sda1/0',

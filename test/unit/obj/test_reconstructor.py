@@ -1429,7 +1429,7 @@ class TestObjectReconstructor(unittest.TestCase):
         for device in local_devs:
             utils.mkdirs(os.path.join(self.devices, device))
         fake_unlink = mock.MagicMock()
-        self.reconstructor.reclaim_age = 1000
+        self._configure_reconstructor(reclaim_age=1000)
         now = time.time()
         with mock.patch('swift.obj.reconstructor.whataremyips',
                         return_value=[self.ip]), \

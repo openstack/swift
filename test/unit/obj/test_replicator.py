@@ -1751,8 +1751,7 @@ class TestObjectReplicator(unittest.TestCase):
         expected_tpool_calls = [
             mock.call(self.replicator._df_router[job['policy']]._get_hashes,
                       job['path'],
-                      do_listdir=do_listdir,
-                      reclaim_age=self.replicator.reclaim_age)
+                      do_listdir=do_listdir)
             for job, do_listdir in zip(jobs, do_listdir_results)
         ]
         for job in jobs:

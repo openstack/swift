@@ -142,6 +142,9 @@ backend node. The default is 60.
 The default is 65536.
 .IP \fBdisk_chunk_size\fR
 The default is 65536.
+.IP \fBreclaim_age\fR
+Time elapsed in seconds before an object can be reclaimed. The default is
+604800 seconds.
 .IP \fBnice_priority\fR
 Modify scheduling priority of server processes. Niceness values range from -20
 (most favorable to the process) to 19 (least favorable to the process).
@@ -394,9 +397,6 @@ default is 1800 seconds.
 The default is 15.
 .IP \fBrsync_error_log_line_length\fR
 Limits how long rsync error log lines are. 0 (default) means to log the entire line.
-.IP \fBreclaim_age\fR
-Time elapsed in seconds before an object can be reclaimed. The default is
-604800 seconds.
 .IP "\fBrecon_cache_path\fR"
 The recon_cache_path simply sets the directory where stats for a few items will be stored.
 Depending on the method of deployment you may need to create this directory manually
@@ -468,9 +468,6 @@ Attempts to kill all workers if nothing replicates for lockup_timeout seconds. T
 default is 1800 seconds.
 .IP \fBring_check_interval\fR
 The default is 15.
-.IP \fBreclaim_age\fR
-Time elapsed in seconds before an object can be reclaimed. The default is
-604800 seconds.
 .IP "\fBrecon_cache_path\fR"
 The recon_cache_path simply sets the directory where stats for a few items will be stored.
 Depending on the method of deployment you may need to create this directory manually
