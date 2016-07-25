@@ -121,6 +121,7 @@ class TestObjectController(unittest.TestCase):
                                                self.object_controller.logger)
 
         self.logger = debug_logger('test-object-controller')
+        self.ts = make_timestamp_iter()
 
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
@@ -1435,85 +1436,97 @@ class TestObjectController(unittest.TestCase):
         with open(objfile) as fh:
             self.assertEqual(fh.read(), "obj data")
 
-    def test_PUT_container_override_etag_in_footer(self):
-        ts_iter = make_timestamp_iter()
+    def _check_container_override_etag_preference(self, override_headers,
+                                                  override_footers):
+        def mock_container_update(ctlr, op, account, container, obj, req,
+                                  headers_out, objdevice, policy):
+            calls_made.append((headers_out, policy))
+        calls_made = []
+        ts_put = next(self.ts)
 
-        def do_test(override_headers, override_footers):
-            def mock_container_update(ctlr, op, account, container, obj, req,
-                                      headers_out, objdevice, policy):
-                calls_made.append((headers_out, policy))
-            calls_made = []
-            ts_put = next(ts_iter)
+        headers = {
+            'X-Timestamp': ts_put.internal,
+            'Content-Type': 'text/plain',
+            'Transfer-Encoding': 'chunked',
+            'Etag': 'other-etag',
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'}
+        headers.update(override_headers)
+        req = Request.blank(
+            '/sda1/p/a/c/o', headers=headers,
+            environ={'REQUEST_METHOD': 'PUT'})
 
-            headers = {
-                'X-Timestamp': ts_put.internal,
-                'Content-Type': 'text/plain',
-                'Transfer-Encoding': 'chunked',
-                'Etag': 'other-etag',
-                'X-Backend-Obj-Metadata-Footer': 'yes',
-                'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'}
-            headers.update(override_headers)
-            req = Request.blank(
-                '/sda1/p/a/c/o', headers=headers,
-                environ={'REQUEST_METHOD': 'PUT'})
+        obj_etag = md5("obj data").hexdigest()
+        footers = {'Etag': obj_etag}
+        footers.update(override_footers)
+        footer_meta = json.dumps(footers)
+        footer_meta_cksum = md5(footer_meta).hexdigest()
 
-            obj_etag = md5("obj data").hexdigest()
-            footers = {'Etag': obj_etag}
-            footers.update(override_footers)
-            footer_meta = json.dumps(footers)
-            footer_meta_cksum = md5(footer_meta).hexdigest()
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
 
-            req.body = "\r\n".join((
-                "--boundary",
-                "",
-                "obj data",
-                "--boundary",
-                "Content-MD5: " + footer_meta_cksum,
-                "",
-                footer_meta,
-                "--boundary--",
-            ))
-            req.headers.pop("Content-Length", None)
+        with mock.patch(
+                'swift.obj.server.ObjectController.container_update',
+                mock_container_update):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.etag, obj_etag)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(1, len(calls_made))
+        self.assertEqual({
+            'X-Size': str(len('obj data')),
+            'X-Etag': 'update-etag',
+            'X-Content-Type': 'text/plain',
+            'X-Timestamp': ts_put.internal,
+        }, calls_made[0][0])
+        self.assertEqual(POLICIES[0], calls_made[0][1])
 
-            with mock.patch(
-                    'swift.obj.server.ObjectController.container_update',
-                    mock_container_update):
-                resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.etag, obj_etag)
-            self.assertEqual(resp.status_int, 201)
-            self.assertEqual(1, len(calls_made))
-            self.assertEqual({
-                'X-Size': str(len('obj data')),
-                'X-Etag': 'update-etag',
-                'X-Content-Type': 'text/plain',
-                'X-Timestamp': ts_put.internal,
-            }, calls_made[0][0])
-            self.assertEqual(POLICIES[0], calls_made[0][1])
+    def test_lone_header_footer_override_preference(self):
+        self._check_container_override_etag_preference(
+            {'X-Backend-Container-Update-Override-Etag': 'update-etag'}, {})
+        self._check_container_override_etag_preference(
+            {}, {'X-Backend-Container-Update-Override-Etag': 'update-etag'})
+        self._check_container_override_etag_preference(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'update-etag'}, {})
+        self._check_container_override_etag_preference(
+            {}, {'X-Object-Sysmeta-Container-Update-Override-Etag':
+                 'update-etag'}),
 
-        # lone headers/footers work
-        do_test({'X-Backend-Container-Update-Override-Etag': 'update-etag'},
-                {})
-        do_test({},
-                {'X-Backend-Container-Update-Override-Etag': 'update-etag'})
-        do_test({'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 'update-etag'},
-                {})
-        do_test({},
-                {'X-Object-Sysmeta-Container-Update-Override-Etag':
+    def test_footer_trumps_header(self):
+        self._check_container_override_etag_preference(
+            {'X-Backend-Container-Update-Override-Etag': 'ignored-etag'},
+            {'X-Backend-Container-Update-Override-Etag': 'update-etag'})
+        self._check_container_override_etag_preference(
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'ignored-etag'},
+            {'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'update-etag'})
+
+    def test_sysmeta_trumps_backend(self):
+        self._check_container_override_etag_preference(
+            {'X-Backend-Container-Update-Override-Etag': 'ignored-etag',
+             'X-Object-Sysmeta-Container-Update-Override-Etag':
+             'update-etag'}, {})
+        self._check_container_override_etag_preference(
+            {}, {'X-Backend-Container-Update-Override-Etag': 'ignored-etag',
+                 'X-Object-Sysmeta-Container-Update-Override-Etag':
                  'update-etag'})
 
-        # footer trumps header
-        do_test({'X-Backend-Container-Update-Override-Etag': 'ignored-etag'},
-                {'X-Backend-Container-Update-Override-Etag': 'update-etag'})
-        do_test({'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 'ignored-etag'},
-                {'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 'update-etag'})
-
-        # but sysmeta header trumps backend footer
-        do_test({'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 'update-etag'},
-                {'X-Backend-Container-Update-Override-Etag': 'ignored-etag'})
+    def test_sysmeta_header_trumps_backend_footer(self):
+        headers = {'X-Object-Sysmeta-Container-Update-Override-Etag':
+                   'update-etag'}
+        footers = {'X-Backend-Container-Update-Override-Etag':
+                   'ignored-etag'}
+        self._check_container_override_etag_preference(headers, footers)
 
     def test_PUT_etag_in_footer_mismatch(self):
         timestamp = normalize_timestamp(time())
