@@ -59,6 +59,7 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
     MimeInvalid, ThreadPoolDead
 from swift.common import utils
+from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response
@@ -1666,6 +1667,78 @@ class TestUtils(unittest.TestCase):
     def test_storage_directory(self):
         self.assertEqual(utils.storage_directory('objects', '1', 'ABCDEF'),
                          'objects/1/DEF/ABCDEF')
+
+    def test_is_valid_ip(self):
+        self.assertTrue(is_valid_ip("127.0.0.1"))
+        self.assertTrue(is_valid_ip("10.0.0.1"))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80:0:0:0:204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80::204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80:0:0:0:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80::204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80::"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "::1"
+        self.assertTrue(is_valid_ip(ipv6))
+        not_ipv6 = "3ffe:0b00:0000:0001:0000:0000:000a"
+        self.assertFalse(is_valid_ip(not_ipv6))
+        not_ipv6 = "1:2:3:4:5:6::7:8"
+        self.assertFalse(is_valid_ip(not_ipv6))
+
+    def test_is_valid_ipv4(self):
+        self.assertTrue(is_valid_ipv4("127.0.0.1"))
+        self.assertTrue(is_valid_ipv4("10.0.0.1"))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80:0:0:0:204:61ff:fe9d:f156"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80::204:61ff:fe9d:f156"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:254.157.241.86"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80:0:0:0:0204:61ff:254.157.241.86"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80::204:61ff:254.157.241.86"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80::"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "::1"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        not_ipv6 = "3ffe:0b00:0000:0001:0000:0000:000a"
+        self.assertFalse(is_valid_ipv4(not_ipv6))
+        not_ipv6 = "1:2:3:4:5:6::7:8"
+        self.assertFalse(is_valid_ipv4(not_ipv6))
+
+    def test_is_valid_ipv6(self):
+        self.assertFalse(is_valid_ipv6("127.0.0.1"))
+        self.assertFalse(is_valid_ipv6("10.0.0.1"))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80:0:0:0:204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80::204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80:0:0:0:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80::204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80::"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "::1"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        not_ipv6 = "3ffe:0b00:0000:0001:0000:0000:000a"
+        self.assertFalse(is_valid_ipv6(not_ipv6))
+        not_ipv6 = "1:2:3:4:5:6::7:8"
+        self.assertFalse(is_valid_ipv6(not_ipv6))
 
     def test_expand_ipv6(self):
         expanded_ipv6 = "fe80::204:61ff:fe9d:f156"

@@ -1853,6 +1853,35 @@ def parse_options(parser=None, once=False, test_args=None):
     return config, options
 
 
+def is_valid_ip(ip):
+    """
+    Return True if the provided ip is a valid IP-address
+    """
+    return is_valid_ipv4(ip) or is_valid_ipv6(ip)
+
+
+def is_valid_ipv4(ip):
+    """
+    Return True if the provided ip is a valid IPv4-address
+    """
+    try:
+        socket.inet_pton(socket.AF_INET, ip)
+    except socket.error:  # not a valid IPv4 address
+        return False
+    return True
+
+
+def is_valid_ipv6(ip):
+    """
+    Returns True if the provided ip is a valid IPv6-address
+    """
+    try:
+        socket.inet_pton(socket.AF_INET6, ip)
+    except socket.error:  # not a valid IPv6 address
+        return False
+    return True
+
+
 def expand_ipv6(address):
     """
     Expand ipv6 address.
@@ -2889,12 +2918,7 @@ def rsync_ip(ip):
 
     :returns: a string ip address
     """
-    try:
-        socket.inet_pton(socket.AF_INET6, ip)
-    except socket.error:  # it's IPv4
-        return ip
-    else:
-        return '[%s]' % ip
+    return '[%s]' % ip if is_valid_ipv6(ip) else ip
 
 
 def rsync_module_interpolation(template, device):
