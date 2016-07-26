@@ -3429,17 +3429,14 @@ def override_bytes_from_content_type(listing_dict, logger=None):
     Takes a dict from a container listing and overrides the content_type,
     bytes fields if swift_bytes is set.
     """
-    content_type, params = parse_content_type(listing_dict['content_type'])
-    for key, value in params:
-        if key == 'swift_bytes':
-            try:
-                listing_dict['bytes'] = int(value)
-            except ValueError:
-                if logger:
-                    logger.exception("Invalid swift_bytes")
-        else:
-            content_type += ';%s=%s' % (key, value)
-    listing_dict['content_type'] = content_type
+    listing_dict['content_type'], swift_bytes = extract_swift_bytes(
+        listing_dict['content_type'])
+    if swift_bytes is not None:
+        try:
+            listing_dict['bytes'] = int(swift_bytes)
+        except ValueError:
+            if logger:
+                logger.exception("Invalid swift_bytes")
 
 
 def clean_content_type(value):
