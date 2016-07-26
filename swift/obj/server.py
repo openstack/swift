@@ -447,7 +447,8 @@ class ObjectController(BaseStorageServer):
         except ValueError:
             raise HTTPBadRequest("invalid JSON for footer doc")
 
-    def _check_container_override(self, update_headers, metadata):
+    def _check_container_override(self, update_headers, metadata,
+                                  footers=None):
         """
         Applies any overrides to the container update headers.
 
@@ -463,7 +464,10 @@ class ObjectController(BaseStorageServer):
 
         :param update_headers: a dict of headers used in the container update
         :param metadata: a dict that may container override items
+        :param footers: another dict that may container override items, at a
+                        higher priority than metadata
         """
+        footers = footers or {}
         # the order of this list is significant:
         # x-object-sysmeta-container-update-override-* headers take precedence
         # over x-backend-container-update-override-* headers
@@ -471,6 +475,12 @@ class ObjectController(BaseStorageServer):
                              'x-object-sysmeta-container-update-override-']
         for override_prefix in override_prefixes:
             for key, val in metadata.items():
+                if key.lower().startswith(override_prefix):
+                    override = key.lower().replace(override_prefix, 'x-')
+                    update_headers[override] = val
+            # apply x-backend-container-update-override* from footers *before*
+            # x-object-sysmeta-container-update-override-* from headers
+            for key, val in footers.items():
                 if key.lower().startswith(override_prefix):
                     override = key.lower().replace(override_prefix, 'x-')
                     update_headers[override] = val
@@ -829,8 +839,8 @@ class ObjectController(BaseStorageServer):
             'x-timestamp': metadata['X-Timestamp'],
             'x-etag': metadata['ETag']})
         # apply any container update header overrides sent with request
-        self._check_container_override(update_headers, request.headers)
-        self._check_container_override(update_headers, footer_meta)
+        self._check_container_override(update_headers, request.headers,
+                                       footer_meta)
         self.container_update(
             'PUT', account, container, obj, request,
             update_headers,
