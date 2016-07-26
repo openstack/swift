@@ -49,6 +49,7 @@ from collections import defaultdict
 
 from eventlet import Timeout
 from eventlet.hubs import trampoline
+import six
 
 from swift import gettext_ as _
 from swift.common.constraints import check_mount, check_dir
@@ -112,7 +113,7 @@ def read_metadata(fd):
 
     :returns: dictionary of metadata
     """
-    metadata = ''
+    metadata = b''
     key = 0
     try:
         while True:
@@ -281,7 +282,7 @@ def consolidate_hashes(partition_dir):
         # Now that all the invalidations are reflected in hashes.pkl, it's
         # safe to clear out the invalidations file.
         try:
-            with open(invalidations_file, 'w') as inv_fh:
+            with open(invalidations_file, 'wb') as inv_fh:
                 pass
         except OSError as e:
             if e.errno != errno.ENOENT:
@@ -416,7 +417,11 @@ def get_auditor_status(datadir_path, logger, auditor_type):
         datadir_path, "auditor_status_%s.json" % auditor_type)
     status = {}
     try:
-        with open(auditor_status) as statusfile:
+        if six.PY3:
+            statusfile = open(auditor_status, encoding='utf8')
+        else:
+            statusfile = open(auditor_status, 'rb')
+        with statusfile:
             status = statusfile.read()
     except (OSError, IOError) as e:
         if e.errno != errno.ENOENT and logger:
@@ -435,6 +440,8 @@ def get_auditor_status(datadir_path, logger, auditor_type):
 
 def update_auditor_status(datadir_path, logger, partitions, auditor_type):
     status = json.dumps({'partitions': partitions})
+    if six.PY3:
+        status = status.encode('utf8')
     auditor_status = os.path.join(
         datadir_path, "auditor_status_%s.json" % auditor_type)
     try:
@@ -2516,7 +2523,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         exc = None
         try:
             try:
-                with open(durable_file_path, 'w') as _fp:
+                with open(durable_file_path, 'wb') as _fp:
                     fsync(_fp.fileno())
                 fsync_dir(self._datadir)
             except (OSError, IOError) as err:
