@@ -287,6 +287,56 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     return obj_sockets
 
 
+def _load_encryption(proxy_conf_file, **kwargs):
+    """
+    Load encryption configuration and override proxy-server.conf contents.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :returns: Path to the test proxy conf file to use
+    :raises InProcessException: raised if proxy conf contents are invalid
+    """
+    _debug('Setting configuration for encryption')
+
+    # The global conf dict cannot be used to modify the pipeline.
+    # The pipeline loader requires the pipeline to be set in the local_conf.
+    # If pipeline is set in the global conf dict (which in turn populates the
+    # DEFAULTS options) then it prevents pipeline being loaded into the local
+    # conf during wsgi load_app.
+    # Therefore we must modify the [pipeline:main] section.
+
+    conf = ConfigParser()
+    conf.read(proxy_conf_file)
+    try:
+        section = 'pipeline:main'
+        pipeline = conf.get(section, 'pipeline')
+        pipeline = pipeline.replace(
+            "proxy-logging proxy-server",
+            "keymaster encryption proxy-logging proxy-server")
+        conf.set(section, 'pipeline', pipeline)
+        root_secret = os.urandom(32).encode("base64")
+        conf.set('filter:keymaster', 'encryption_root_secret', root_secret)
+    except NoSectionError as err:
+        msg = 'Error problem with proxy conf file %s: %s' % \
+              (proxy_conf_file, err)
+        raise InProcessException(msg)
+
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with open(test_conf_file, 'w') as fp:
+        conf.write(fp)
+
+    return test_conf_file
+
+
+# Mapping from possible values of the variable
+# SWIFT_TEST_IN_PROCESS_CONF_LOADER
+# to the method to call for loading the associated configuration
+# The expected signature for these methods is:
+# conf_filename_to_use loader(input_conf_filename, **kwargs)
+conf_loaders = {
+    'encryption': _load_encryption
+}
+
+
 def in_process_setup(the_object_server=object_server):
     _info('IN-PROCESS SERVERS IN USE FOR FUNCTIONAL TESTS')
     _info('Using object_server class: %s' % the_object_server.__name__)
@@ -317,6 +367,26 @@ def in_process_setup(the_object_server=object_server):
     utils.mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
     utils.mkdirs(os.path.join(_testdir, 'sdb1'))
     utils.mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
+
+    # Call the associated method for the value of
+    # 'SWIFT_TEST_IN_PROCESS_CONF_LOADER', if one exists
+    conf_loader_label = os.environ.get(
+        'SWIFT_TEST_IN_PROCESS_CONF_LOADER')
+    if conf_loader_label is not None:
+        try:
+            conf_loader = conf_loaders[conf_loader_label]
+            _debug('Calling method %s mapped to conf loader %s' %
+                   (conf_loader.__name__, conf_loader_label))
+        except KeyError as missing_key:
+            raise InProcessException('No function mapped for conf loader %s' %
+                                     missing_key)
+
+        try:
+            # Pass-in proxy_conf
+            proxy_conf = conf_loader(proxy_conf)
+            _debug('Now using proxy conf %s' % proxy_conf)
+        except Exception as err:  # noqa
+            raise InProcessException(err)
 
     swift_conf = _in_process_setup_swift_conf(swift_conf_src, _testdir)
     obj_sockets = _in_process_setup_ring(swift_conf, conf_src_dir, _testdir)
