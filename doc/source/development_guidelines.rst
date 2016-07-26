@@ -90,6 +90,11 @@ For example, this command would run the functional tests using policy
 
   SWIFT_TEST_POLICY=silver tox -e func
 
+To run a single functional test, use the ``--no-discover`` option together with
+a path to a specific test method, for example::
+
+  tox -e func -- --no-discover test.functional.tests.TestFile.testCopy
+
 
 In-process functional testing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
