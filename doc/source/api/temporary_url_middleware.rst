@@ -178,3 +178,8 @@ storage host name. For example, prefix the path with
     https://swift-cluster.example.com/v1/my_account/container/object
     ?temp_url_sig=5c4cc8886f36a9d0919d708ade98bf0cc71c9e91
     &temp_url_expires=1374497657
+
+Note that if the above example is copied exactly, and used in a command
+shell, then the ampersand is interpreted as an operator and the URL
+will be truncated. Enclose the URL in quotation marks to avoid this.
+
