@@ -19,6 +19,7 @@ import (
 	"bufio"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -34,6 +35,9 @@ import (
 )
 
 const METADATA_CHUNK_SIZE = 65536
+
+var LockPathError = errors.New("Error locking path")
+var PathNotDirError = errors.New("Path is not a directory")
 
 // AtomicFileWriter saves a new file atomically.
 type AtomicFileWriter interface {
@@ -182,18 +186,17 @@ func InvalidateHash(hashDir string) error {
 	return err
 }
 
-func HashCleanupListDir(hashDir string, reclaimAge int64) ([]string, *hummingbird.BackendError) {
+func HashCleanupListDir(hashDir string, reclaimAge int64) ([]string, error) {
 	fileList, err := hummingbird.ReadDirNames(hashDir)
 	returnList := []string{}
 	if err != nil {
-
 		if os.IsNotExist(err) {
 			return returnList, nil
 		}
 		if hummingbird.IsNotDir(err) {
-			return returnList, &hummingbird.BackendError{Err: err, Code: hummingbird.PathNotDirErrorCode}
+			return returnList, PathNotDirError
 		}
-		return returnList, &hummingbird.BackendError{Err: err, Code: hummingbird.OsErrorCode}
+		return returnList, err
 	}
 	deleteRest := false
 	deleteRestMeta := false
@@ -235,22 +238,22 @@ func HashCleanupListDir(hashDir string, reclaimAge int64) ([]string, *hummingbir
 	return returnList, nil
 }
 
-func RecalculateSuffixHash(suffixDir string, reclaimAge int64) (string, *hummingbird.BackendError) {
+func RecalculateSuffixHash(suffixDir string, reclaimAge int64) (string, error) {
 	// the is hash_suffix in swift
 	h := md5.New()
 
 	hashList, err := hummingbird.ReadDirNames(suffixDir)
 	if err != nil {
 		if hummingbird.IsNotDir(err) {
-			return "", &hummingbird.BackendError{Err: err, Code: hummingbird.PathNotDirErrorCode}
+			return "", PathNotDirError
 		}
-		return "", &hummingbird.BackendError{Err: err, Code: hummingbird.OsErrorCode}
+		return "", err
 	}
 	for _, fullHash := range hashList {
 		hashPath := suffixDir + "/" + fullHash
 		fileList, err := HashCleanupListDir(hashPath, reclaimAge)
 		if err != nil {
-			if err.Code == hummingbird.PathNotDirErrorCode {
+			if err == PathNotDirError {
 				if QuarantineHash(hashPath) == nil {
 					InvalidateHash(hashPath)
 				}
@@ -269,7 +272,7 @@ func RecalculateSuffixHash(suffixDir string, reclaimAge int64) (string, *humming
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func GetHashes(driveRoot string, device string, partition string, recalculate []string, reclaimAge int64, policy int, logger hummingbird.LoggingContext) (map[string]string, *hummingbird.BackendError) {
+func GetHashes(driveRoot string, device string, partition string, recalculate []string, reclaimAge int64, policy int, logger hummingbird.LoggingContext) (map[string]string, error) {
 	partitionDir := filepath.Join(driveRoot, device, PolicyDir(policy), partition)
 	pklFile := filepath.Join(partitionDir, "hashes.pkl")
 	invalidFile := filepath.Join(partitionDir, "hashes.invalid")
@@ -327,15 +330,13 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 			modified = true
 			suffixDir := filepath.Join(partitionDir, suffix)
 			recalc_hash, err := RecalculateSuffixHash(suffixDir, reclaimAge)
-			if err == nil {
+			switch err {
+			case nil:
 				hashes[suffix] = recalc_hash
-			} else {
-				switch {
-				case err.Code == hummingbird.PathNotDirErrorCode:
-					delete(hashes, suffix)
-				case err.Code == hummingbird.OsErrorCode:
-					logger.LogError("Error hashing suffix: %s/%s (%s)", partitionDir, suffix, "asdf")
-				}
+			case PathNotDirError:
+				delete(hashes, suffix)
+			default:
+				logger.LogError("Error hashing suffix: %s/%s (%v)", partitionDir, suffix, err)
 			}
 		}
 	}
@@ -343,7 +344,7 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		partitionLock, err := hummingbird.LockPath(partitionDir, 10)
 		defer partitionLock.Close()
 		if err != nil {
-			return nil, &hummingbird.BackendError{Err: err, Code: hummingbird.LockPathError}
+			return nil, LockPathError
 		} else {
 			fileInfo, err := os.Stat(invalidFile)
 			if lsForSuffixes || os.IsNotExist(err) || mtime == fileInfo.ModTime().Unix() {

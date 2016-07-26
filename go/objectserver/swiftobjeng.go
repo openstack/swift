@@ -227,8 +227,8 @@ func (f *SwiftObjectFactory) objReplicateHandler(writer http.ResponseWriter, req
 	if len(vars["suffixes"]) > 0 {
 		recalculate = strings.Split(vars["suffixes"], "-")
 	}
-	hashes, herr := GetHashes(f.driveRoot, vars["device"], vars["partition"], recalculate, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
-	if herr != nil {
+	hashes, err := GetHashes(f.driveRoot, vars["device"], vars["partition"], recalculate, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
+	if err != nil {
 		hummingbird.GetLogger(request).LogError("Unable to get hashes for %s/%s", vars["device"], vars["partition"])
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
@@ -273,10 +273,9 @@ func (f *SwiftObjectFactory) objRepConnHandler(writer http.ResponseWriter, reque
 	defer f.replicationMan.Done(brr.Device)
 	var hashes map[string]string
 	if brr.NeedHashes {
-		var herr *hummingbird.BackendError
-		hashes, herr = GetHashes(f.driveRoot, brr.Device, brr.Partition, nil, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
-		if herr != nil {
-			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", herr)
+		hashes, err = GetHashes(f.driveRoot, brr.Device, brr.Partition, nil, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
+		if err != nil {
+			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", err)
 			writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}

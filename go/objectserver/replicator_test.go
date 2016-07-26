@@ -548,6 +548,7 @@ func TestCancelListObjFiles(t *testing.T) {
 	go repl.listObjFiles(objChan, cancel, filepath.Join(dir, "objects", "1"), func(string) bool { return true })
 	// so we cancel you and make sure you closed your channel, which you do on exit.
 	close(cancel)
+	time.Sleep(time.Millisecond)
 	_, ok := <-objChan
 	require.False(t, ok)
 }

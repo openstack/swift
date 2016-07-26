@@ -37,23 +37,7 @@ import (
 	"github.com/cactus/go-statsd-client/statsd"
 )
 
-var (
-	PathNotDirErrorCode = 1
-	OsErrorCode         = 2
-	NotMountedErrorCode = 3
-	LockPathError       = 4
-	UnhandledError      = 5
-	ONE_WEEK            = 604800
-)
-
-type BackendError struct {
-	Err  error
-	Code int
-}
-
-func (e BackendError) Error() string {
-	return fmt.Sprintf("%s ( %d )", e.Err, e.Code)
-}
+const ONE_WEEK = 604800
 
 type httpRange struct {
 	Start, End int64
