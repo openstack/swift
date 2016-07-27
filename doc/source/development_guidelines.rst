@@ -109,6 +109,8 @@ set using environment variables:
 - the proxy-server ``object_post_as_copy`` option may be set using the
   environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
 
+- logging to stdout may be enabled by setting ``SWIFT_TEST_DEBUG_LOGS``.
+
 For example, this command would run the in-process mode functional tests with
 the proxy-server using object_post_as_copy=False (the 'fast-POST' mode)::
 
