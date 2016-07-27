@@ -34,7 +34,6 @@ import (
   created for an expiring object*/
 const zeroByteHash = "d41d8cd98f00b204e9800998ecf8427e"
 const deleteAtAccount = ".expiring_objects"
-const waitForContainerUpdate = time.Second / 4
 
 func headerToMap(headers http.Header) map[string]string {
 	ret := make(map[string]string)
@@ -187,9 +186,8 @@ func (server *ObjectServer) containerUpdates(request *http.Request, metadata map
 		server.updateContainer(metadata, request, vars, logger)
 		firstDone <- struct{}{}
 	}()
-	go func() {
-		time.Sleep(waitForContainerUpdate)
-		firstDone <- struct{}{}
-	}()
-	<-firstDone
+	select {
+	case <-firstDone:
+	case <-time.After(server.updateTimeout):
+	}
 }

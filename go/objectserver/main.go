@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log/syslog"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"net/textproto"
@@ -49,6 +50,7 @@ type ObjectServer struct {
 	expiringDivisor  int64
 	updateClient     *http.Client
 	objEngines       map[int]ObjectEngine
+	updateTimeout    time.Duration
 }
 
 func (server *ObjectServer) newObject(req *http.Request, vars map[string]string, needData bool) (Object, error) {
@@ -539,7 +541,13 @@ func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (bindIP strin
 		}
 	}
 	server.logger = hummingbird.SetupLogger(serverconf.GetDefault("app:object-server", "log_facility", "LOG_LOCAL1"), "object-server", "")
-	server.updateClient = &http.Client{Timeout: time.Second * 15}
+	server.updateTimeout = time.Duration(serverconf.GetFloat("app:object-server", "container_update_timeout", 0.25) * float64(time.Second))
+	connTimeout := time.Duration(serverconf.GetFloat("app:object-server", "conn_timeout", 1.0) * float64(time.Second))
+	nodeTimeout := time.Duration(serverconf.GetFloat("app:object-server", "node_timeout", 10.0) * float64(time.Second))
+	server.updateClient = &http.Client{
+		Timeout:   nodeTimeout,
+		Transport: &http.Transport{Dial: (&net.Dialer{Timeout: connTimeout}).Dial},
+	}
 
 	deviceLockUpdateSeconds := serverconf.GetInt("app:object-server", "device_lock_update_seconds", 0)
 	if deviceLockUpdateSeconds > 0 {

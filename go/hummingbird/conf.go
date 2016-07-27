@@ -73,6 +73,17 @@ func (f Config) GetInt(section string, key string, dfl int64) int64 {
 	return dfl
 }
 
+// GetFloat loads an entry from the config, parsed as a floating point value.
+func (f Config) GetFloat(section string, key string, dfl float64) float64 {
+	if value, ok := f.Get(section, key); ok {
+		if val, err := strconv.ParseFloat(value, 64); err == nil {
+			return val
+		}
+		panic(fmt.Sprintf("Error parsing float %s/%s from config.", section, key))
+	}
+	return dfl
+}
+
 // GetLimit loads an entry from the config in the format of %d/%d.
 func (f Config) GetLimit(section string, key string, dfla int64, dflb int64) (int64, int64) {
 	if value, ok := f.Get(section, key); ok {
