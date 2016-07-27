@@ -394,9 +394,9 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	startGetHashesLocal := time.Now()
 
 	recalc := []string{}
-	hashes, herr := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, j.policy, r)
-	if herr != nil {
-		r.LogError("[replicateLocal] error getting local hashes: %v", herr)
+	hashes, err := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, j.policy, r)
+	if err != nil {
+		r.LogError("[replicateLocal] error getting local hashes: %v", err)
 		return
 	}
 	for suffix, localHash := range hashes {
@@ -407,9 +407,9 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 			}
 		}
 	}
-	hashes, herr = GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, j.policy, r)
-	if herr != nil {
-		r.LogError("[replicateLocal] error recalculating local hashes: %v", herr)
+	hashes, err = GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, j.policy, r)
+	if err != nil {
+		r.LogError("[replicateLocal] error recalculating local hashes: %v", err)
 		return
 	}
 	timeGetHashesLocal := float64(time.Now().Sub(startGetHashesLocal)) / float64(time.Second)
