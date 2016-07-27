@@ -610,14 +610,14 @@ class TestServer(unittest.TestCase):
             self.assertEqual(pid_file, self.join_run_dir('proxy-server.pid'))
             self.assertEqual(pid, 1)
             # ... and only one file
-            self.assertRaises(StopIteration, iterator.next)
+            self.assertRaises(StopIteration, next, iterator)
             # test invalid value in pid file
             server = manager.Server('auth', run_dir=t)
             pid_file, pid = next(server.iter_pid_files())
             self.assertIsNone(pid)
             # test object-server doesn't steal pids from object-replicator
             server = manager.Server('object', run_dir=t)
-            self.assertRaises(StopIteration, server.iter_pid_files().next)
+            self.assertRaises(StopIteration, next, server.iter_pid_files())
             # test multi-pid iter
             server = manager.Server('object-replicator', run_dir=t)
             real_map = {
@@ -1129,9 +1129,13 @@ class TestServer(unittest.TestCase):
                     self.assertEqual(len(server.procs), 3)
                     proc = server.procs[2]
                     # assert stdout is /dev/null
-                    self.assertTrue(isinstance(proc.stdout, file))
+                    with open('/dev/null', 'wb+') as fp:
+                        self.assertTrue(isinstance(proc.stdout, type(fp)))
                     self.assertEqual(proc.stdout.name, os.devnull)
-                    self.assertEqual(proc.stdout.mode, 'w+b')
+                    self.assertIn('b', proc.stdout.mode)
+                    self.assertTrue(any(x in proc.stdout.mode for x in 'aw+'),
+                                    'mode must be writable, not %r' %
+                                    proc.stdout.mode)
                     self.assertEqual(proc.stderr, proc.stdout)
                     # test not daemon over-rides wait
                     server.spawn(conf4, wait=False, daemon=False, once=True)
