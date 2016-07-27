@@ -431,7 +431,7 @@ func (k *KeyedLimit) Acquire(key string, force bool) int64 {
 	if k.locked[key] {
 		k.lock.Unlock()
 		return -1
-	} else if v := k.inUse[key]; !force && (v >= k.limitPerKey || k.totalUse > k.totalLimit) {
+	} else if v := k.inUse[key]; !force && ((k.limitPerKey > 0 && v >= k.limitPerKey) || (k.totalLimit > 0 && k.totalUse > k.totalLimit)) {
 		k.lock.Unlock()
 		return v
 	} else {
