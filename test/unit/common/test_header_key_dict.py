@@ -58,6 +58,42 @@ class TestHeaderKeyDict(unittest.TestCase):
         self.assertEqual(headers['Content-Length'], '0')
         self.assertEqual(headers['Content-Type'], 'text/plain')
 
+    def test_set_none(self):
+        headers = HeaderKeyDict()
+        headers['test'] = None
+        self.assertNotIn('test', headers)
+        headers['test'] = 'something'
+        self.assertEqual('something', headers['test'])  # sanity check
+        headers['test'] = None
+        self.assertNotIn('test', headers)
+
+    def test_init_from_dict(self):
+        headers = HeaderKeyDict({'Content-Length': 20,
+                                 'Content-Type': 'text/plain'})
+        self.assertEqual('20', headers['Content-Length'])
+        self.assertEqual('text/plain', headers['Content-Type'])
+        headers = HeaderKeyDict(headers)
+        self.assertEqual('20', headers['Content-Length'])
+        self.assertEqual('text/plain', headers['Content-Type'])
+
+    def test_set(self):
+        # mappings = ((<tuple of input vals>, <expected output val>), ...)
+        mappings = (((1.618, '1.618', b'1.618', u'1.618'), '1.618'),
+                    ((20, '20', b'20', u'20'), '20'),
+                    ((True, 'True', b'True', u'True'), 'True'),
+                    ((False, 'False', b'False', u'False'), 'False'))
+        for vals, expected in mappings:
+            for val in vals:
+                headers = HeaderKeyDict(test=val)
+                actual = headers['test']
+                self.assertEqual(expected, actual,
+                                 'Expected %s but got %s for val %s' %
+                                 (expected, actual, val))
+                self.assertIsInstance(
+                    actual, str,
+                    'Expected type str but got %s for val %s of type %s' %
+                    (type(actual), val, type(val)))
+
     def test_get(self):
         headers = HeaderKeyDict()
         headers['content-length'] = 20
