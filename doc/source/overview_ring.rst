@@ -80,7 +80,8 @@ the list of devices is a dictionary with the following keys:
 
 ======  =======  ==============================================================
 id      integer  The index into the list devices.
-zone    integer  The zone the devices resides in.
+zone    integer  The zone the device resides in.
+region  integer  The region the zone resides in.
 weight  float    The relative weight of the device in comparison to other
                  devices. This usually corresponds directly to the amount of
                  disk space the device has compared to other devices. For
