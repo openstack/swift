@@ -17,7 +17,7 @@
 
 from __future__ import print_function
 
-from eventlet.green import urllib2, socket
+from eventlet.green import socket
 from six.moves.urllib.parse import urlparse
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
@@ -28,7 +28,13 @@ import json
 import optparse
 import time
 import sys
+import six
 import os
+
+if six.PY3:
+    from eventlet.green.urllib import request as urllib2
+else:
+    from eventlet.green import urllib2
 
 
 def seconds2timeunit(seconds):

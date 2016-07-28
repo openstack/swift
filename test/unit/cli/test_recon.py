@@ -22,8 +22,9 @@ import time
 import unittest
 import shutil
 import sys
+import six
 
-from eventlet.green import urllib2, socket
+from eventlet.green import socket
 from six import StringIO
 from six.moves import urllib
 
@@ -33,6 +34,11 @@ from swift.common.ring import builder
 from swift.common.ring import utils as ring_utils
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from test.unit import patch_policies
+
+if six.PY3:
+    from eventlet.green.urllib import request as urllib2
+else:
+    from eventlet.green import urllib2
 
 
 class TestHelpers(unittest.TestCase):

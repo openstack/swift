@@ -81,7 +81,11 @@ presented below::
     from swift.proxy.controllers.base import get_container_info
 
     from eventlet import Timeout
-    from eventlet.green import urllib2
+    import six
+    if six.PY3:
+        from eventlet.green.urllib import request as urllib2
+    else:
+        from eventlet.green import urllib2
 
     # x-container-sysmeta-webhook
     SYSMETA_WEBHOOK = get_sys_meta_prefix('container') + 'webhook'
