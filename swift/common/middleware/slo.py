@@ -1041,6 +1041,9 @@ class StaticLargeObject(object):
         """
         WSGI entry point
         """
+        if env.get('swift.slo_override'):
+            return self.app(env, start_response)
+
         req = Request(env)
         try:
             vrs, account, container, obj = req.split_path(4, 4, True)

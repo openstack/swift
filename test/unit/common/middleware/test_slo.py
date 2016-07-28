@@ -120,6 +120,25 @@ class TestSloMiddleware(SloTestCase):
         self.assertTrue(
             resp.startswith('X-Static-Large-Object is a reserved header'))
 
+    def test_slo_PUT_env_override(self):
+        path = '/v1/a/c/o'
+        body = 'manifest body not checked when override flag set'
+        resp_status = []
+
+        def start_response(status, headers, *args):
+            resp_status.append(status)
+
+        req = Request.blank(
+            path, headers={'x-static-large-object': "true"},
+            environ={'REQUEST_METHOD': 'PUT', 'swift.slo_override': True},
+            body=body)
+        self.app.register('PUT', path, swob.HTTPCreated, {})
+        resp_iter = self.slo(req.environ, start_response)
+        self.assertEqual('', ''.join(resp_iter))
+        self.assertEqual(self.app.calls, [('PUT', path)])
+        self.assertEqual(body, self.app.uploaded[path][1])
+        self.assertEqual(resp_status[0], '201 Created')
+
     def _put_bogus_slo(self, manifest_text,
                        manifest_path='/v1/a/c/the-manifest'):
         with self.assertRaises(HTTPException) as catcher:
