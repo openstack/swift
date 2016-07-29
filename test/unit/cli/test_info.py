@@ -34,7 +34,8 @@ from swift.obj.diskfile import write_metadata
 
 @patch_policies([StoragePolicy(0, 'zero', True),
                  StoragePolicy(1, 'one', False),
-                 StoragePolicy(2, 'two', False)])
+                 StoragePolicy(2, 'two', False),
+                 StoragePolicy(3, 'three', False)])
 class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
@@ -72,6 +73,13 @@ class TestCliInfoBase(unittest.TestCase):
         # ... and another for policy 2
         self.two_ring_path = os.path.join(self.testdir, 'object-2.ring.gz')
         write_fake_ring(self.two_ring_path, *object_devs)
+        # ... and one for policy 3 with some v6 IPs in it
+        object_devs_ipv6 = [
+            {'ip': 'feed:face::dead:beef', 'port': 42},
+            {'ip': 'deca:fc0f:feeb:ad11::1', 'port': 43}
+        ]
+        self.three_ring_path = os.path.join(self.testdir, 'object-3.ring.gz')
+        write_fake_ring(self.three_ring_path, *object_devs_ipv6)
 
     def tearDown(self):
         utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX = self.orig_hp
@@ -568,6 +576,88 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         finally:
             os.chdir(cwd)
         self.assertTrue('X-Backend-Storage-Policy-Index: 1' in out.getvalue())
+
+    def test_print_obj_curl_command_ipv4(self):
+        # Note: policy 2 has IPv4 addresses in its ring
+        datafile2 = os.path.join(
+            self.testdir,
+            'sda', 'objects-2', '1', 'ea8',
+            'db4449e025aca992307c7c804a67eea8', '1402017884.18202.data')
+        utils.mkdirs(os.path.dirname(datafile2))
+        with open(datafile2, 'wb') as fp:
+            md = {'name': '/AUTH_admin/c/obj',
+                  'Content-Type': 'application/octet-stream',
+                  'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
+                  'Content-Length': 0}
+            write_metadata(fp, md)
+
+        object_ring = ring.Ring(self.testdir, ring_name='object-2')
+        part, nodes = object_ring.get_nodes('AUTH_admin', 'c', 'obj')
+        node = nodes[0]
+
+        out = StringIO()
+        hash_dir = os.path.dirname(datafile2)
+        file_name = os.path.basename(datafile2)
+
+        # Change working directory to object hash dir
+        cwd = os.getcwd()
+        try:
+            os.chdir(hash_dir)
+            with mock.patch('sys.stdout', out):
+                print_obj(file_name, swift_dir=self.testdir)
+        finally:
+            os.chdir(cwd)
+
+        exp_curl = (
+            'curl -g -I -XHEAD '
+            '"http://{host}:{port}/{device}/{part}/AUTH_admin/c/obj" '
+            '-H "X-Backend-Storage-Policy-Index: 2"').format(
+                host=node['ip'],
+                port=node['port'],
+                device=node['device'],
+                part=part)
+        self.assertIn(exp_curl, out.getvalue())
+
+    def test_print_obj_curl_command_ipv6(self):
+        # Note: policy 3 has IPv6 addresses in its ring
+        datafile3 = os.path.join(
+            self.testdir,
+            'sda', 'objects-3', '1', 'ea8',
+            'db4449e025aca992307c7c804a67eea8', '1402017884.18202.data')
+        utils.mkdirs(os.path.dirname(datafile3))
+        with open(datafile3, 'wb') as fp:
+            md = {'name': '/AUTH_admin/c/obj',
+                  'Content-Type': 'application/octet-stream',
+                  'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
+                  'Content-Length': 0}
+            write_metadata(fp, md)
+
+        object_ring = ring.Ring(self.testdir, ring_name='object-3')
+        part, nodes = object_ring.get_nodes('AUTH_admin', 'c', 'obj')
+        node = nodes[0]
+
+        out = StringIO()
+        hash_dir = os.path.dirname(datafile3)
+        file_name = os.path.basename(datafile3)
+
+        # Change working directory to object hash dir
+        cwd = os.getcwd()
+        try:
+            os.chdir(hash_dir)
+            with mock.patch('sys.stdout', out):
+                print_obj(file_name, swift_dir=self.testdir)
+        finally:
+            os.chdir(cwd)
+
+        exp_curl = (
+            'curl -g -I -XHEAD '
+            '"http://[{host}]:{port}'
+            '/{device}/{part}/AUTH_admin/c/obj" ').format(
+                host=node['ip'],
+                port=node['port'],
+                device=node['device'],
+                part=part)
+        self.assertIn(exp_curl, out.getvalue())
 
     def test_print_obj_meta_and_ts_files(self):
         # verify that print_obj will also read from meta and ts files
