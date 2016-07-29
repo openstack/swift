@@ -19,8 +19,8 @@ from hashlib import md5
 from six.moves import urllib
 
 from swift.common.utils import hash_path, storage_directory, \
-    Timestamp
-from swift.common.ring import Ring, utils as ring_utils
+    Timestamp, is_valid_ipv6
+from swift.common.ring import Ring
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
@@ -50,7 +50,7 @@ def curl_head_command(ip, port, device, part, target, policy_index):
 
     :returns: a string, a well formatted curl command
     """
-    if ring_utils.is_valid_ipv6(ip):
+    if is_valid_ipv6(ip):
         formatted_ip = '[%s]' % ip
     else:
         formatted_ip = ip
