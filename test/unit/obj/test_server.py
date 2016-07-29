@@ -1489,7 +1489,7 @@ class TestObjectController(unittest.TestCase):
         }, calls_made[0][0])
         self.assertEqual(POLICIES[0], calls_made[0][1])
 
-    def test_lone_header_footer_override_preference(self):
+    def test_override_etag_lone_header_footer(self):
         self._check_container_override_etag_preference(
             {'X-Backend-Container-Update-Override-Etag': 'update-etag'}, {})
         self._check_container_override_etag_preference(
@@ -1501,7 +1501,7 @@ class TestObjectController(unittest.TestCase):
             {}, {'X-Object-Sysmeta-Container-Update-Override-Etag':
                  'update-etag'}),
 
-    def test_footer_trumps_header(self):
+    def test_override_etag_footer_trumps_header(self):
         self._check_container_override_etag_preference(
             {'X-Backend-Container-Update-Override-Etag': 'ignored-etag'},
             {'X-Backend-Container-Update-Override-Etag': 'update-etag'})
@@ -1511,7 +1511,7 @@ class TestObjectController(unittest.TestCase):
             {'X-Object-Sysmeta-Container-Update-Override-Etag':
              'update-etag'})
 
-    def test_sysmeta_trumps_backend(self):
+    def test_override_etag_sysmeta_trumps_backend(self):
         self._check_container_override_etag_preference(
             {'X-Backend-Container-Update-Override-Etag': 'ignored-etag',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
@@ -1521,11 +1521,18 @@ class TestObjectController(unittest.TestCase):
                  'X-Object-Sysmeta-Container-Update-Override-Etag':
                  'update-etag'})
 
-    def test_sysmeta_header_trumps_backend_footer(self):
+    def test_override_etag_sysmeta_header_trumps_backend_footer(self):
         headers = {'X-Object-Sysmeta-Container-Update-Override-Etag':
                    'update-etag'}
         footers = {'X-Backend-Container-Update-Override-Etag':
                    'ignored-etag'}
+        self._check_container_override_etag_preference(headers, footers)
+
+    def test_override_etag_sysmeta_footer_trumps_backend_header(self):
+        headers = {'X-Backend-Container-Update-Override-Etag':
+                   'ignored-etag'}
+        footers = {'X-Object-Sysmeta-Container-Update-Override-Etag':
+                   'update-etag'}
         self._check_container_override_etag_preference(headers, footers)
 
     def test_PUT_etag_in_footer_mismatch(self):
