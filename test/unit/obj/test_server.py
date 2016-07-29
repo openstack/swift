@@ -32,7 +32,6 @@ from shutil import rmtree
 from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5
-import itertools
 import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
@@ -345,8 +344,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_POST_conflicts_with_later_POST(self):
-        ts_iter = make_timestamp_iter()
-        t_put = next(ts_iter).internal
+        t_put = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -355,8 +353,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_post1 = next(ts_iter).internal
-        t_post2 = next(ts_iter).internal
+        t_post1 = next(self.ts).internal
+        t_post2 = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post2})
@@ -499,8 +497,7 @@ class TestObjectController(unittest.TestCase):
 
     def _test_POST_container_updates(self, policy, update_etag=None):
         # Test that POST requests result in correct calls to container_update
-        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
-        t = [ts_iter.next() for _ in range(0, 5)]
+        t = [next(self.ts) for _ in range(0, 5)]
         calls_made = []
         update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
 
@@ -714,14 +711,13 @@ class TestObjectController(unittest.TestCase):
     def test_POST_container_updates_precedence(self):
         # Verify correct etag and size being sent with container updates for a
         # PUT and for a subsequent POST.
-        ts_iter = make_timestamp_iter()
 
         def do_test(body, headers, policy):
             def mock_container_update(ctlr, op, account, container, obj, req,
                                       headers_out, objdevice, policy):
                 calls_made.append((headers_out, policy))
             calls_made = []
-            ts_put = next(ts_iter)
+            ts_put = next(self.ts)
 
             # make PUT with given headers and verify correct etag is sent in
             # container update
@@ -755,7 +751,7 @@ class TestObjectController(unittest.TestCase):
 
             # make a POST and verify container update has the same etag
             calls_made = []
-            ts_post = next(ts_iter)
+            ts_post = next(self.ts)
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
                 headers={'X-Timestamp': ts_post.internal,
@@ -814,8 +810,7 @@ class TestObjectController(unittest.TestCase):
             raise Exception('test')
 
         device_dir = os.path.join(self.testdir, 'sda1')
-        ts_iter = make_timestamp_iter()
-        t_put = ts_iter.next()
+        t_put = next(self.ts)
         update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
 
         put_headers = {
@@ -868,7 +863,7 @@ class TestObjectController(unittest.TestCase):
 
         # POST with newer metadata returns success and container update
         # is expected
-        t_post = ts_iter.next()
+        t_post = next(self.ts)
         post_headers = {
             'X-Trans-Id': 'post_trans_id',
             'X-Timestamp': t_post.internal,
@@ -1163,9 +1158,8 @@ class TestObjectController(unittest.TestCase):
                           'Content-Encoding': 'gzip'})
 
     def test_PUT_overwrite_to_older_ts_succcess(self):
-        ts_iter = make_timestamp_iter()
-        old_timestamp = next(ts_iter)
-        new_timestamp = next(ts_iter)
+        old_timestamp = next(self.ts)
+        new_timestamp = next(self.ts)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
@@ -1201,9 +1195,8 @@ class TestObjectController(unittest.TestCase):
              'Content-Encoding': 'gzip'})
 
     def test_PUT_overwrite_to_newer_ts_failed(self):
-        ts_iter = make_timestamp_iter()
-        old_timestamp = next(ts_iter)
-        new_timestamp = next(ts_iter)
+        old_timestamp = next(self.ts)
+        new_timestamp = next(self.ts)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
@@ -1807,8 +1800,7 @@ class TestObjectController(unittest.TestCase):
                           'X-Object-Transient-Sysmeta-Foo': 'Bar'})
 
     def test_PUT_succeeds_with_later_POST(self):
-        ts_iter = make_timestamp_iter()
-        t_put = next(ts_iter).internal
+        t_put = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -1817,8 +1809,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_put2 = next(ts_iter).internal
-        t_post = next(ts_iter).internal
+        t_put2 = next(self.ts).internal
+        t_post = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post})
@@ -3339,8 +3331,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(len(os.listdir(os.path.dirname(ts_1003_file))), 1)
 
     def test_DELETE_succeeds_with_later_POST(self):
-        ts_iter = make_timestamp_iter()
-        t_put = next(ts_iter).internal
+        t_put = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -3349,8 +3340,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_delete = next(ts_iter).internal
-        t_post = next(ts_iter).internal
+        t_delete = next(self.ts).internal
+        t_post = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post})
@@ -3499,14 +3490,12 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_object_update_with_offset(self):
-        ts = (utils.Timestamp(t).internal for t in
-              itertools.count(int(time())))
         container_updates = []
 
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
         # create a new object
-        create_timestamp = next(ts)
+        create_timestamp = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test1',
                             headers={'X-Timestamp': create_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -3583,7 +3572,7 @@ class TestObjectController(unittest.TestCase):
                          offset_timestamp)
         self.assertEqual(resp.body, 'test2')
         # now overwrite with a newer time
-        overwrite_timestamp = next(ts)
+        overwrite_timestamp = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test3',
                             headers={'X-Timestamp': overwrite_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -3653,7 +3642,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Timestamp'], None)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], offset_delete)
         # and one more delete with a newer timestamp
-        delete_timestamp = next(ts)
+        delete_timestamp = next(self.ts).internal
         req = Request.blank('/sda1/p/a/c/o', method='DELETE',
                             headers={'X-Timestamp': delete_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -4288,17 +4277,15 @@ class TestObjectController(unittest.TestCase):
 
     def test_object_delete_at_async_update(self):
         policy = random.choice(list(POLICIES))
-        ts = (utils.Timestamp(t) for t in
-              itertools.count(int(time())))
 
         container_updates = []
 
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
 
-        put_timestamp = next(ts).internal
+        put_timestamp = next(self.ts).internal
         delete_at_timestamp = utils.normalize_delete_at_timestamp(
-            next(ts).normal)
+            next(self.ts).normal)
         delete_at_container = (
             int(delete_at_timestamp) /
             self.object_controller.expiring_objects_container_divisor *
@@ -4578,7 +4565,6 @@ class TestObjectController(unittest.TestCase):
             'referer': 'PUT http://localhost/sda1/0/a/c/o'}))
 
     def test_PUT_container_update_overrides(self):
-        ts_iter = make_timestamp_iter()
 
         def do_test(override_headers):
             container_updates = []
@@ -4587,7 +4573,7 @@ class TestObjectController(unittest.TestCase):
                     ip, port, method, path, headers, *args, **kwargs):
                 container_updates.append((ip, port, method, path, headers))
 
-            ts_put = next(ts_iter)
+            ts_put = next(self.ts)
             headers = {
                 'X-Timestamp': ts_put.internal,
                 'X-Trans-Id': '123',
@@ -6112,8 +6098,6 @@ class TestObjectController(unittest.TestCase):
 
     def test_storage_policy_index_is_validated(self):
         # sanity check that index for existing policy is ok
-        ts = (utils.Timestamp(t).internal for t in
-              itertools.count(int(time())))
         methods = ('PUT', 'POST', 'GET', 'HEAD', 'REPLICATE', 'DELETE')
         valid_indices = sorted([int(policy) for policy in POLICIES])
         for index in valid_indices:
@@ -6123,7 +6107,7 @@ class TestObjectController(unittest.TestCase):
             self.assertFalse(os.path.isdir(object_dir))
             for method in methods:
                 headers = {
-                    'X-Timestamp': next(ts),
+                    'X-Timestamp': next(self.ts).internal,
                     'Content-Type': 'application/x-test',
                     'X-Backend-Storage-Policy-Index': index}
                 if POLICIES[index].policy_type == EC_POLICY:
@@ -6143,7 +6127,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': method},
                                 headers={
-                                    'X-Timestamp': next(ts),
+                                    'X-Timestamp': next(self.ts).internal,
                                     'Content-Type': 'application/x-test',
                                     'X-Backend-Storage-Policy-Index': index})
             req.body = 'VERIFY'
