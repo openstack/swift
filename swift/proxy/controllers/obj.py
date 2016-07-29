@@ -218,13 +218,13 @@ class BaseObjectController(Controller):
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         container_partition = container_info['partition']
-        containers = container_info['nodes']
+        container_nodes = container_info['nodes']
         req.acl = container_info['write_acl']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not containers:
+        if not container_nodes:
             return HTTPNotFound(request=req)
 
         req, delete_at_container, delete_at_part, \
@@ -241,7 +241,7 @@ class BaseObjectController(Controller):
         req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
         headers = self._backend_requests(
-            req, len(nodes), container_partition, containers,
+            req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes)
         return self._post_object(req, obj_ring, partition, headers)
 
@@ -652,7 +652,7 @@ class BaseObjectController(Controller):
             if aresp:
                 return aresp
 
-        if not container_info['nodes']:
+        if not container_nodes:
             return HTTPNotFound(request=req)
 
         # update content type in case it is missing
@@ -702,14 +702,14 @@ class BaseObjectController(Controller):
         # pass the policy index to storage nodes via req header
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         container_partition = container_info['partition']
-        containers = container_info['nodes']
+        container_nodes = container_info['nodes']
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not containers:
+        if not container_nodes:
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -727,7 +727,7 @@ class BaseObjectController(Controller):
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
         headers = self._backend_requests(
-            req, len(nodes), container_partition, containers)
+            req, len(nodes), container_partition, container_nodes)
         return self._delete_object(req, obj_ring, partition, headers)
 
 
