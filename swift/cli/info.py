@@ -38,6 +38,38 @@ class InfoSystemExit(Exception):
     pass
 
 
+def parse_get_node_args(options, args):
+    """
+    Parse the get_nodes commandline args
+
+    :returns: a tuple, (ring_path, args)
+    """
+    ring_path = None
+
+    if options.policy_name:
+        if POLICIES.get_by_name(options.policy_name) is None:
+            raise InfoSystemExit('No policy named %r' % options.policy_name)
+    elif args and args[0].endswith('ring.gz'):
+        if os.path.exists(args[0]):
+            ring_path = args.pop(0)
+        else:
+            raise InfoSystemExit('Ring file does not exist')
+
+    if len(args) == 1:
+        args = args[0].strip('/').split('/', 2)
+
+    if not ring_path and not options.policy_name:
+        raise InfoSystemExit('Need to specify policy_name or <ring.gz>')
+
+    if not (args or options.partition):
+        raise InfoSystemExit('No target specified')
+
+    if len(args) > 3:
+        raise InfoSystemExit('Invalid arguments')
+
+    return ring_path, args
+
+
 def curl_head_command(ip, port, device, part, target, policy_index):
     """
     Provide a string that is a well formatted curl command to HEAD an object
