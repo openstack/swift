@@ -111,6 +111,11 @@ set using environment variables:
 - the optional in-memory object server may be selected by setting the
   environment variable ``SWIFT_TEST_IN_MEMORY_OBJ`` to a true value.
 
+- encryption may be added to the proxy pipeline by setting the
+  environment variable ``SWIFT_TEST_IN_PROCESS_CONF_LOADER`` to
+  ``encryption``.  Or when using tox, specify the tox environment
+  ``func-in-process-encryption``
+
 - the proxy-server ``object_post_as_copy`` option may be set using the
   environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
 
