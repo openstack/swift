@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/load"
@@ -39,7 +40,7 @@ import (
 func DumpReconCache(reconCachePath string, source string, cacheData map[string]interface{}) error {
 	reconFile := filepath.Join(reconCachePath, source+".recon")
 
-	if lock, err := LockParent(reconFile, 5); err != nil {
+	if lock, err := LockPath(filepath.Dir(reconFile), 5*time.Second); err != nil {
 		return err
 	} else {
 		defer lock.Close()

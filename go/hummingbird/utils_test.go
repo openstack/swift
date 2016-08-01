@@ -298,3 +298,27 @@ func TestGetHashPrefixAndSuffix(t *testing.T) {
 		t.Error("Error prefix and suffix not being set")
 	}
 }
+
+func TestLockPath(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "")
+	defer os.RemoveAll(tempDir)
+	require.Nil(t, err)
+	c := make(chan bool)
+	ended := make(chan struct{})
+	defer close(ended)
+	go func() {
+		f, err := LockPath(tempDir, time.Millisecond)
+		c <- true
+		require.Nil(t, err)
+		require.NotNil(t, f)
+		defer f.Close()
+		select {
+		case <-time.After(time.Second):
+		case <-ended:
+		}
+	}()
+	<-c
+	f, err := LockPath(tempDir, time.Millisecond)
+	require.Nil(t, f)
+	require.NotNil(t, err)
+}
