@@ -111,7 +111,7 @@ For Deployers
 
 Deployer docs are also available at
 http://docs.openstack.org/developer/swift/. A good starting point is at
-http://docs.openstack.org/developer/swift/deployment\_guide.html
+http://docs.openstack.org/developer/swift/deployment_guide.html
 
 There is an `ops runbook <http://docs.openstack.org/developer/swift/ops_runbook/>`__
 that gives information about how to diagnose and troubleshoot common issues
