@@ -35,6 +35,7 @@ var repDialer = (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Seco
 
 const repITimeout = time.Minute * 10
 const repOTimeout = time.Minute
+const repConnBufferSize = 32768
 
 type BeginReplicationRequest struct {
 	Device     string
@@ -72,21 +73,20 @@ type RepConn struct {
 }
 
 func (r *RepConn) SendMessage(v interface{}) error {
-	r.c.SetDeadline(time.Now().Add(repOTimeout))
 	jsoned, err := json.Marshal(v)
 	if err != nil {
 		r.Close()
 		return err
 	}
-	if err := binary.Write(r.rw, binary.BigEndian, uint32(len(jsoned))); err != nil {
+	if err := binary.Write(r, binary.BigEndian, uint32(len(jsoned))); err != nil {
 		r.Close()
 		return err
 	}
-	if _, err := r.rw.Write(jsoned); err != nil {
+	if _, err := r.Write(jsoned); err != nil {
 		r.Close()
 		return err
 	}
-	if err := r.rw.Flush(); err != nil {
+	if err := r.Flush(); err != nil {
 		r.Close()
 		return err
 	}
@@ -96,12 +96,12 @@ func (r *RepConn) SendMessage(v interface{}) error {
 func (r *RepConn) RecvMessage(v interface{}) (err error) {
 	r.c.SetDeadline(time.Now().Add(repITimeout))
 	var length uint32
-	if err = binary.Read(r.rw, binary.BigEndian, &length); err != nil {
+	if err = binary.Read(r, binary.BigEndian, &length); err != nil {
 		r.Close()
 		return
 	}
 	data := make([]byte, length)
-	if _, err = io.ReadFull(r.rw, data); err != nil {
+	if _, err = io.ReadFull(r, data); err != nil {
 		r.Close()
 		return
 	}
@@ -162,5 +162,13 @@ func NewRepConn(dev *hummingbird.Device, partition string, policy int) (*RepConn
 		return nil, RepUnmountedError
 	}
 	newc, _ := hc.Hijack()
-	return &RepConn{rw: bufio.NewReadWriter(bufio.NewReader(newc), bufio.NewWriter(newc)), c: newc}, nil
+	if newc, ok := newc.(*net.TCPConn); ok {
+		newc.SetNoDelay(true)
+	}
+	return &RepConn{
+		rw: bufio.NewReadWriter(
+			bufio.NewReaderSize(newc, repConnBufferSize),
+			bufio.NewWriterSize(newc, repConnBufferSize)),
+		c: newc,
+	}, nil
 }
