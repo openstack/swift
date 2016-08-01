@@ -212,9 +212,6 @@ class BaseObjectController(Controller):
     @delay_denial
     def POST(self, req):
         """HTTP POST request handler."""
-        error_response = check_metadata(req, 'object')
-        if error_response:
-            return error_response
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         container_partition = container_info['partition']
@@ -226,6 +223,9 @@ class BaseObjectController(Controller):
                 return aresp
         if not container_nodes:
             return HTTPNotFound(request=req)
+        error_response = check_metadata(req, 'object')
+        if error_response:
+            return error_response
 
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)

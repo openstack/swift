@@ -3418,6 +3418,25 @@ class TestObjectController(unittest.TestCase):
             res = req.get_response(self.app)
             self.assertEqual(res.status_int, 400)
 
+    def test_POST_meta_authorize(self):
+        def authorize(req):
+            req.headers['X-Object-Meta-Foo'] = 'x' * (limit + 1)
+            return
+        with save_globals():
+            limit = constraints.MAX_META_VALUE_LENGTH
+            self.app.object_post_as_copy = False
+            controller = ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
+            set_http_connect(200, 200, 202, 202, 202)
+            #                acct cont obj  obj  obj
+            req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
+                                headers={'Content-Type': 'foo/bar',
+                                         'X-Object-Meta-Foo': 'x'})
+            req.environ['swift.authorize'] = authorize
+            self.app.update_request(req)
+            res = controller.POST(req)
+            self.assertEqual(res.status_int, 400)
+
     def test_POST_meta_key_len(self):
         with save_globals():
             limit = constraints.MAX_META_NAME_LENGTH
