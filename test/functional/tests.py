@@ -2976,7 +2976,7 @@ class TestSlo(Base):
     def test_slo_container_listing(self):
         # the listing object size should equal the sum of the size of the
         # segments, not the size of the manifest body
-        file_item = self.env.container.file(Utils.create_name)
+        file_item = self.env.container.file(Utils.create_name())
         file_item.write(
             json.dumps([self.env.seg_info['seg_a']]),
             parms={'multipart-manifest': 'put'})
