@@ -1420,8 +1420,8 @@ class StatsdClient(object):
             except IOError as err:
                 if self.logger:
                     self.logger.warning(
-                        'Error sending UDP message to %r: %s',
-                        self._target, err)
+                        _('Error sending UDP message to %(target)r: %(err)s'),
+                        {'target': self._target, 'err': err})
 
     def _open_socket(self):
         return socket.socket(self._sock_family, socket.SOCK_DGRAM)
@@ -2453,7 +2453,8 @@ def audit_location_generator(devices, datadir, suffix='',
             partitions = listdir(datadir_path)
         except OSError as e:
             if logger:
-                logger.warning('Skipping %s because %s', datadir_path, e)
+                logger.warning(_('Skipping %(datadir)s because %(err)s'),
+                               {'datadir': datadir_path, 'err': e})
             continue
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
@@ -3460,7 +3461,7 @@ def override_bytes_from_content_type(listing_dict, logger=None):
             listing_dict['bytes'] = int(swift_bytes)
         except ValueError:
             if logger:
-                logger.exception("Invalid swift_bytes")
+                logger.exception(_("Invalid swift_bytes"))
 
 
 def clean_content_type(value):
@@ -3766,7 +3767,7 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
                 pass
             else:
                 logger.warning(
-                    "More than one part in a single-part response?")
+                    _("More than one part in a single-part response?"))
 
         return string_along(response_body_iter, ranges_iter, logger)
 
