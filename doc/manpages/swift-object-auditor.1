@@ -14,23 +14,23 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-object-auditor 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
-.B swift-object-auditor 
-\- Openstack-swift object auditor
+.B swift-object-auditor
+\- OpenStack Swift object auditor
 
 .SH SYNOPSIS
 .LP
-.B swift-object-auditor 
+.B swift-object-auditor
 [CONFIG] [-h|--help] [-v|--verbose] [-o|--once] [-z|--zero_byte_fps]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
-The object auditor crawls the local object system checking the integrity of objects. 
-If corruption is found (in the case of bit rot, for example), the file is 
+The object auditor crawls the local object system checking the integrity of objects.
+If corruption is found (in the case of bit rot, for example), the file is
 quarantined, and replication will replace the bad file from another replica.
 
 The options are as follows:
@@ -46,7 +46,7 @@ The options are as follows:
 .IP "-o"
 .IP "--once"
 .RS 4
-.IP "only run one pass of daemon" 
+.IP "only run one pass of daemon"
 .RE
 
 .IP "-z ZERO_BYTE_FPS"
@@ -56,13 +56,13 @@ The options are as follows:
 .RE
 .PD
 .RE
-    
-    
+
+
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
-.BI swift-object-auditor 
-and also about Openstack-Swift as a whole can be found at 
+More in depth documentation in regards to
+.BI swift-object-auditor
+and also about OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/index.html
 
 

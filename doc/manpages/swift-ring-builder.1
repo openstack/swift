@@ -20,7 +20,7 @@
 .SH NAME
 .LP
 .B swift-ring-builder
-\- Openstack-swift ring builder
+\- OpenStack Swift ring builder
 
 .SH SYNOPSIS
 .LP
@@ -124,15 +124,15 @@ Shows information about matching devices.
 .IP "\fBadd\fR r<region>z<zone>-<ip>:<port>/<device_name>_<meta> <weight>"
 .IP "\fBadd\fR -r <region> -z <zone> -i <ip> -p <port> -d <device_name> -m <meta> -w <weight>"
 .RS 5
-Adds a device to the ring with the given information. No partitions will be 
-assigned to the new device until after running 'rebalance'. This is so you 
+Adds a device to the ring with the given information. No partitions will be
+assigned to the new device until after running 'rebalance'. This is so you
 can make multiple device changes and rebalance them all just once.
 .RE
 
 
 .IP "\fBcreate\fR <part_power> <replicas> <min_part_hours>"
 .RS 5
-Creates <builder_file> with 2^<part_power> partitions and <replicas>. 
+Creates <builder_file> with 2^<part_power> partitions and <replicas>.
 <min_part_hours> is number of hours to restrict moving a partition more than once.
 .RE
 
@@ -156,37 +156,37 @@ Attempts to rebalance the ring by reassigning partitions that haven't been recen
 
 .IP "\fBremove\fR <search-value> "
 .RS 5
-Removes the device(s) from the ring. This should normally just be used for 
-a device that has failed. For a device you wish to decommission, it's best 
-to set its weight to 0, wait for it to drain all its data, then use this 
-remove command. This will not take effect until after running 'rebalance'. 
+Removes the device(s) from the ring. This should normally just be used for
+a device that has failed. For a device you wish to decommission, it's best
+to set its weight to 0, wait for it to drain all its data, then use this
+remove command. This will not take effect until after running 'rebalance'.
 This is so you can make multiple device changes and rebalance them all just once.
 .RE
 
 
 .IP "\fBset_info\fR <search-value> <ip>:<port>/<device_name>_<meta>"
 .RS 5
-Resets the device's information. This information isn't used to assign 
-partitions, so you can use 'write_ring' afterward to rewrite the current 
-ring with the newer device information. Any of the parts are optional 
-in the final <ip>:<port>/<device_name>_<meta> parameter; just give what you 
-want to change. For instance set_info d74 _"snet: 5.6.7.8" would just 
+Resets the device's information. This information isn't used to assign
+partitions, so you can use 'write_ring' afterward to rewrite the current
+ring with the newer device information. Any of the parts are optional
+in the final <ip>:<port>/<device_name>_<meta> parameter; just give what you
+want to change. For instance set_info d74 _"snet: 5.6.7.8" would just
 update the meta data for device id 74.
 .RE
 
 
 .IP "\fBset_min_part_hours\fR <hours>"
 .RS 5
-Changes the <min_part_hours> to the given <hours>. This should be set to 
-however long a full replication/update cycle takes. We're working on a way 
+Changes the <min_part_hours> to the given <hours>. This should be set to
+however long a full replication/update cycle takes. We're working on a way
 to determine this more easily than scanning logs.
 .RE
 
 
 .IP "\fBset_weight\fR <search-value> <weight>"
 .RS 5
-Resets the device's weight. No partitions will be reassigned to or from the 
-device until after running 'rebalance'. This is so you can make multiple 
+Resets the device's weight. No partitions will be reassigned to or from the
+device until after running 'rebalance'. This is so you can make multiple
 device changes and rebalance them all just once.
 .RE
 
@@ -216,7 +216,7 @@ calls when no rebalance is needed but you want to send out the new device inform
 
 .SH DOCUMENTATION
 .LP
-More in depth documentation about the swift ring and also Openstack-Swift as a
+More in depth documentation about the swift ring and also OpenStack Swift as a
 whole can be found at
 .BI http://swift.openstack.org/overview_ring.html,
 .BI http://swift.openstack.org/admin_guide.html#managing-the-rings

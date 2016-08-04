@@ -14,31 +14,31 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-object-replicator 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
-.B swift-object-replicator 
-\- Openstack-swift object replicator
+.B swift-object-replicator
+\- OpenStack Swift object replicator
 
 .SH SYNOPSIS
 .LP
-.B swift-object-replicator 
+.B swift-object-replicator
 [CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
-Replication is designed to keep the system in a consistent state in the face of 
-temporary error conditions like network outages or drive failures. The replication 
-processes compare local data with each remote copy to ensure they all contain the 
-latest version. Object replication uses a hash list to quickly compare subsections 
+Replication is designed to keep the system in a consistent state in the face of
+temporary error conditions like network outages or drive failures. The replication
+processes compare local data with each remote copy to ensure they all contain the
+latest version. Object replication uses a hash list to quickly compare subsections
 of each partition.
 .PP
-Replication updates are push based. For object replication, updating is just a matter 
+Replication updates are push based. For object replication, updating is just a matter
 of rsyncing files to the peer. The replicator also ensures that data is removed
-from the system. When an object item is deleted a tombstone is set as the latest 
-version of the item. The replicator will see the tombstone and ensure that the item 
+from the system. When an object item is deleted a tombstone is set as the latest
+version of the item. The replicator will see the tombstone and ensure that the item
 is removed from the entire system.
 
 The options are as follows:
@@ -53,17 +53,17 @@ The options are as follows:
 .IP "-o"
 .IP "--once"
 .RS 4
-.IP "only run one pass of daemon" 
+.IP "only run one pass of daemon"
 .RE
 .PD
 .RE
-    
-   
+
+
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
+More in depth documentation in regards to
 .BI swift-object-replicator
-and also about Openstack-Swift as a whole can be found at 
+and also about OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/index.html
 
 
