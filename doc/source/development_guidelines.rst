@@ -132,6 +132,12 @@ tox environment::
 
     tox -e func-in-process-fast-post
 
+To debug the functional tests, use the 'in-process test' mode and pass the
+``--pdb`` flag to tox::
+
+    SWIFT_TEST_IN_PROCESS=1 tox -e func -- --pdb \
+        test.functional.tests.TestFile.testCopy
+
 The 'in-process test' mode searches for ``proxy-server.conf`` and
 ``swift.conf`` config files from which it copies config options and overrides
 some options to suit in process testing. The search will first look for config
@@ -236,4 +242,3 @@ another year added, and date ranges are not needed.::
     # implied.
     # See the License for the specific language governing permissions and
     # limitations under the License.
-
