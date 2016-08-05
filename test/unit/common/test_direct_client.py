@@ -172,7 +172,8 @@ class TestDirectClient(unittest.TestCase):
         with mocked_http_conn(200, stub_headers, body) as conn:
             resp_headers, resp = direct_client.direct_get_account(
                 self.node, self.part, self.account, marker='marker',
-                prefix='prefix', delimiter='delimiter', limit=1000)
+                prefix='prefix', delimiter='delimiter', limit=1000,
+                end_marker='endmarker', reverse='on')
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.account_path)
 
@@ -184,6 +185,8 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('limit=1000' in conn.query_string)
         self.assertTrue('prefix=prefix' in conn.query_string)
         self.assertTrue('format=json' in conn.query_string)
+        self.assertTrue('end_marker=endmarker' in conn.query_string)
+        self.assertTrue('reverse=on' in conn.query_string)
 
     def test_direct_client_exception(self):
         stub_headers = {'X-Trans-Id': 'txb5f59485c578460f8be9e-0053478d09'}
@@ -335,7 +338,7 @@ class TestDirectClient(unittest.TestCase):
             resp_headers, resp = direct_client.direct_get_container(
                 self.node, self.part, self.account, self.container,
                 marker='marker', prefix='prefix', delimiter='delimiter',
-                limit=1000)
+                limit=1000, end_marker='endmarker', reverse='on')
 
         self.assertEqual(conn.req_headers['user-agent'],
                          'direct-client %s' % os.getpid())
@@ -346,6 +349,8 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('limit=1000' in conn.query_string)
         self.assertTrue('prefix=prefix' in conn.query_string)
         self.assertTrue('format=json' in conn.query_string)
+        self.assertTrue('end_marker=endmarker' in conn.query_string)
+        self.assertTrue('reverse=on' in conn.query_string)
 
     def test_direct_get_container_no_content_does_not_decode_body(self):
         headers = {}
