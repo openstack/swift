@@ -181,79 +181,104 @@ class TestObjectController(unittest.TestCase):
         original_headers = self.object_controller.allowed_headers
         test_headers = 'content-encoding foo bar'.split()
         self.object_controller.allowed_headers = set(test_headers)
-        timestamp = normalize_timestamp(time())
+        put_timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': put_timestamp,
+                   'Content-Type': 'application/x-test',
+                   'Foo': 'fooheader',
+                   'Baz': 'bazheader',
+                   'X-Object-Sysmeta-Color': 'blue',
+                   'X-Object-Meta-1': 'One',
+                   'X-Object-Meta-Two': 'Two'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test',
-                                     'Foo': 'fooheader',
-                                     'Baz': 'bazheader',
-                                     'X-Object-Meta-1': 'One',
-                                     'X-Object-Meta-Two': 'Two'})
+                            headers=headers)
         req.body = 'VERIFY'
+        etag = '"%s"' % md5('VERIFY').hexdigest()
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'Etag': etag,
+        })
 
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': post_timestamp,
+                   'X-Object-Meta-3': 'Three',
+                   'X-Object-Meta-4': 'Four',
+                   'Content-Encoding': 'gzip',
+                   'Foo': 'fooheader',
+                   'Bar': 'barheader',
+                   'Content-Type': 'application/x-test'}
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
-                                     'X-Object-Meta-3': 'Three',
-                                     'X-Object-Meta-4': 'Four',
-                                     'Content-Encoding': 'gzip',
-                                     'Foo': 'fooheader',
-                                     'Bar': 'barheader',
-                                     'Content-Type': 'application/x-test'})
+                            headers=headers)
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+        })
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("X-Object-Meta-Two", resp.headers)
-        self.assertIn("X-Object-Meta-3", resp.headers)
-        self.assertIn("X-Object-Meta-4", resp.headers)
-        self.assertIn("Foo", resp.headers)
-        self.assertIn("Bar", resp.headers)
-        self.assertNotIn("Baz", resp.headers)
-        self.assertIn("Content-Encoding", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        expected_headers = {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'blue',
+            'X-Object-Meta-3': 'Three',
+            'X-Object-Meta-4': 'Four',
+            'Foo': 'fooheader',
+            'Bar': 'barheader',
+            'Content-Encoding': 'gzip',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        }
+        self.assertEqual(dict(resp.headers), expected_headers)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("X-Object-Meta-Two", resp.headers)
-        self.assertIn("X-Object-Meta-3", resp.headers)
-        self.assertIn("X-Object-Meta-4", resp.headers)
-        self.assertIn("Foo", resp.headers)
-        self.assertIn("Bar", resp.headers)
-        self.assertNotIn("Baz", resp.headers)
-        self.assertIn("Content-Encoding", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), expected_headers)
 
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': post_timestamp,
+                                     'X-Object-Sysmeta-Color': 'red',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-3", resp.headers)
-        self.assertNotIn("X-Object-Meta-4", resp.headers)
-        self.assertNotIn("Foo", resp.headers)
-        self.assertNotIn("Bar", resp.headers)
-        self.assertNotIn("Content-Encoding", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'blue',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        })
 
         # test defaults
         self.object_controller.allowed_headers = original_headers
-        timestamp = normalize_timestamp(time())
+        put_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': put_timestamp,
                                      'Content-Type': 'application/x-test',
                                      'Foo': 'fooheader',
+                                     'X-Object-Sysmeta-Color': 'red',
                                      'X-Object-Meta-1': 'One',
                                      'X-Object-Manifest': 'c/bar',
                                      'Content-Encoding': 'gzip',
@@ -263,48 +288,90 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'Etag': etag,
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("Foo", resp.headers)
-        self.assertIn("Content-Encoding", resp.headers)
-        self.assertIn("X-Object-Manifest", resp.headers)
-        self.assertIn("Content-Disposition", resp.headers)
-        self.assertIn("X-Static-Large-Object", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'red',
+            'X-Object-Meta-1': 'One',
+            'Content-Encoding': 'gzip',
+            'X-Object-Manifest': 'c/bar',
+            'Content-Disposition': 'bar',
+            'X-Static-Large-Object': 'True',
+            'X-Backend-Timestamp': put_timestamp,
+            'X-Timestamp': put_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(put_timestamp)))),
+        })
 
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': post_timestamp,
                                      'X-Object-Meta-3': 'Three',
                                      'Foo': 'fooheader',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("Foo", resp.headers)
-        self.assertNotIn("Content-Encoding", resp.headers)
-        self.assertNotIn("X-Object-Manifest", resp.headers)
-        self.assertNotIn("Content-Disposition", resp.headers)
-        self.assertIn("X-Object-Meta-3", resp.headers)
-        self.assertIn("X-Static-Large-Object", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'red',
+            'X-Object-Meta-3': 'Three',
+            'X-Static-Large-Object': 'True',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        })
 
         # Test for empty metadata
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': post_timestamp,
                                      'Content-Type': 'application/x-test',
                                      'X-Object-Meta-3': ''})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.headers["x-object-meta-3"], '')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'red',
+            'X-Object-Meta-3': '',
+            'X-Static-Large-Object': 'True',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        })
 
     def test_POST_old_timestamp(self):
         ts = time()
