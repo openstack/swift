@@ -33,8 +33,7 @@ from swift import __version__ as swift_version
 from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent)
 from swift.common import constraints
 from swift.account.server import AccountController
-from swift.common.utils import (normalize_timestamp, replication, public,
-                                mkdirs, storage_directory)
+from swift.common.utils import (normalize_timestamp, replication, public)
 from swift.common.request_helpers import get_sys_meta_prefix
 from test.unit import patch_policies, debug_logger
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -172,12 +171,6 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_REPLICATE_rsync_then_merge_works(self):
-        mkdirs(os.path.join(self.testdir, 'sda1', 'account', 'p', 'a', 'a'))
-        db_file = os.path.join(self.testdir, 'sda1',
-                               storage_directory('account', 'p', 'a'),
-                               'a' + '.db')
-        open(db_file, 'w')
-
         def fake_rsync_then_merge(self, drive, db_file, args):
             return HTTPNoContent()
 
@@ -193,12 +186,6 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int, 204)
 
     def test_REPLICATE_complete_rsync_works(self):
-        mkdirs(os.path.join(self.testdir, 'sda1', 'account', 'p', 'a', 'a'))
-        db_file = os.path.join(self.testdir, 'sda1',
-                               storage_directory('account', 'p', 'a'),
-                               'a' + '.db')
-        open(db_file, 'w')
-
         def fake_complete_rsync(self, drive, db_file, args):
             return HTTPNoContent()
         # check complete_rsync

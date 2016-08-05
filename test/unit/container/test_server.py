@@ -40,7 +40,7 @@ import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
-                                storage_directory, lock_parent_directory)
+                                lock_parent_directory)
 from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -1269,12 +1269,6 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_REPLICATE_rsync_then_merge_works(self):
-        mkdirs(os.path.join(self.testdir, 'sda1', 'containers', 'p', 'a', 'a'))
-        db_file = os.path.join(self.testdir, 'sda1',
-                               storage_directory('containers', 'p', 'a'),
-                               'a' + '.db')
-        open(db_file, 'w')
-
         def fake_rsync_then_merge(self, drive, db_file, args):
             return HTTPNoContent()
 
@@ -1290,12 +1284,6 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 204)
 
     def test_REPLICATE_complete_rsync_works(self):
-        mkdirs(os.path.join(self.testdir, 'sda1', 'containers', 'p', 'a', 'a'))
-        db_file = os.path.join(self.testdir, 'sda1',
-                               storage_directory('containers', 'p', 'a'),
-                               'a' + '.db')
-        open(db_file, 'w')
-
         def fake_complete_rsync(self, drive, db_file, args):
             return HTTPNoContent()
         with mock.patch("swift.container.replicator.ContainerReplicatorRpc."
