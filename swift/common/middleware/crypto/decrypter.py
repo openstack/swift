@@ -72,12 +72,15 @@ class BaseDecrypterContext(CryptoWSGIContext):
             return self.crypto.unwrap_key(wrapping_key,
                                           crypto_meta['body_key'])
         except KeyError as err:
-            err = 'Missing %s' % err
+            self.logger.error(
+                _('Error decrypting %(resp_type)s: Missing %(key)s'),
+                {'resp_type': self.server_type, 'key': err})
         except ValueError as err:
-            pass
-        msg = 'Error decrypting %s' % self.server_type
-        self.logger.error(_('%(msg)s: %(err)s') % {'msg': msg, 'err': err})
-        raise HTTPInternalServerError(body=msg, content_type='text/plain')
+            self.logger.error(_('Error decrypting %(resp_type)s: %(reason)s'),
+                              {'resp_type': self.server_type, 'reason': err})
+        raise HTTPInternalServerError(
+            body='Error decrypting %s' % self.server_type,
+            content_type='text/plain')
 
     def decrypt_value_with_meta(self, value, key, required=False):
         """
@@ -162,11 +165,13 @@ class DecrypterObjContext(BaseDecrypterContext):
         """
         try:
             return self.decrypt_value_with_meta(value, key, required)
-        except EncryptionException as e:
-            msg = "Error decrypting header"
-            self.logger.error(_("%(msg)s %(hdr)s: %(e)s") %
-                              {'msg': msg, 'hdr': header, 'e': e})
-            raise HTTPInternalServerError(body=msg, content_type='text/plain')
+        except EncryptionException as err:
+            self.logger.error(
+                _("Error decrypting header %(header)s: %(error)s"),
+                {'header': header, 'error': err})
+            raise HTTPInternalServerError(
+                body='Error decrypting header',
+                content_type='text/plain')
 
     def decrypt_user_metadata(self, keys):
         prefix = get_object_transient_sysmeta('crypto-meta-')
@@ -286,11 +291,9 @@ class DecrypterObjContext(BaseDecrypterContext):
                 crypto_meta = self.get_crypto_meta(
                     'X-Object-Sysmeta-Crypto-Body-Meta')
             except EncryptionException as err:
-                msg = 'Error decrypting object'
-                self.logger.error(_('%(msg)s: %(err)s') %
-                                  {'msg': msg, 'err': err})
+                self.logger.error(_('Error decrypting object: %s'), err)
                 raise HTTPInternalServerError(
-                    body=msg, content_type='text/plain')
+                    body='Error decrypting object', content_type='text/plain')
 
         if crypto_meta:
             # 2xx response and encrypted body
@@ -363,11 +366,12 @@ class DecrypterContContext(BaseDecrypterContext):
                 try:
                     app_resp = handler(keys['container'], app_resp)
                 except EncryptionException as err:
-                    msg = "Error decrypting container listing"
-                    self.logger.error(_('%(msg)s: %(err)s') %
-                                      {'msg': msg, 'err': err})
+                    self.logger.error(
+                        _("Error decrypting container listing: %s"),
+                        err)
                     raise HTTPInternalServerError(
-                        body=msg, content_type='text/plain')
+                        body='Error decrypting container listing',
+                        content_type='text/plain')
 
         start_response(self._response_status,
                        self._response_headers,
