@@ -1,0 +1,213 @@
+.\"
+.\" Author: Nandini Tata <nandini.tata@intel.com>
+.\" Copyright (c) 2016 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH swift.conf 5 "8/8/2016" "Linux" "OpenStack Swift"
+
+.SH NAME
+.LP
+.B swift.conf
+\- common configuration file for the OpenStack object storage services
+
+
+
+.SH SYNOPSIS
+.LP
+.B swift.conf
+
+
+
+.SH DESCRIPTION
+.PP
+This is the common configuration file used by all services of OpenStack object
+storage services.
+
+The configuration file follows the python-pastedeploy syntax. The file is
+divided into sections, which are enclosed by square brackets. Each section
+will contain a certain number of key/value parameters which are described
+later.
+
+Any line that begins with a '#' symbol is ignored.
+
+You can find more information about python-pastedeploy configuration format at
+\fIhttp://pythonpaste.org/deploy/#config-format\fR
+
+
+
+.SH SWIFT HASH SECTION
+.PD 1
+.RS 0
+This is indicated by section named [swift-hash]. Below are the parameters that
+are acceptable within this section:
+
+.PD 0
+.IP "\fBswift_hash_path_suffix\fR"
+.IP "\fBswift_hash_path_prefix\fR"
+.PD
+
+swift_hash_path_suffix and swift_hash_path_prefix are used as part of the
+hashing algorithm when determining data placement in the cluster.
+These values should remain secret and MUST NOT change once a cluster has been
+deployed.
+
+Use only printable chars (python -c "import string; print(string.printable)").
+
+
+
+.SH STORAGE POLICY SECTION
+.PD 1
+.RS 0
+This is indicated by section name [storage-policy:#]
+
+Storage policies are defined here and they determine various characteristics
+about how objects are stored and treated. Policies are specified by name on
+a per container basis. The policy index is specified in the section header
+and is used internally. The policy with index 0 is always used for legacy
+containers and can be given a name for use in metadata; however, the ring file
+name will always be 'object.ring.gz' for backwards compatibility. If no
+policies are defined, a policy with index 0 will be automatically created for
+backwards compatibility and given the name Policy-0. A default policy is used
+when creating new containers when no policy is specified in the request. If
+no other policies are defined, the policy with index 0 will be declared the
+default. If multiple policies are defined, you must define a policy with index
+0 and you must specify a default. It is recommended you always define a
+section for storage-policy:0. Aliases are not mandatory when defining a
+storage policy.
+
+.IP "\fB[storage-policy:index]\fR"
+Each storage policy is defined in a separate section with an index specified
+in the header. Below are the parameters that are acceptable within this
+section:
+
+.IP "\fBname\fR"
+Name of the storage policy. Policy names are case insensitive.
+.IP "\fBaliases\fR"
+Multiple names can be assigned to one policy using aliases. All names must
+follow the Swift naming rules.
+.IP "\fBpolicy_type\fR"
+Policy type can be replication or erasure_coding. Replication policy
+replicates the objects to specified number of replicas. Erasure coding uses
+PyECLib API library for encode/decode operations. Please refer to Swift
+documentation for details on how erasure coding is implemented.
+.IP "\fBec_type\fR"
+This parameter must be chosen from the list of EC backends supported by
+PyECLib.
+.IP "\fBec_num_data_fragments\fR"
+This parameter is specific to 'erasure coding' policy_type only. It defines
+the number of fragments that will be comprised of data.
+.IP "\fBec_num_parity_fragments\fR"
+This parameter is specific to 'erasure coding' policy_type only. It defines
+the number of fragments that will be comprised of parity.
+.IP "\fBec_object_segment_size\fR"
+This parameter is specific to 'erasure coding' policy_type only. It defines
+the amount of data that will be buffered up before feeding a segment into the
+encoder/decoder. The default value is 1048576.
+.IP "\fIExamples:\fR"
+
+.PD 0
+.IP "[storage-policy:0]"
+.IP "name = Policy-0"
+.IP "default = yes"
+.IP "policy_type = replication"
+.IP "aliases = yellow, orange"
+
+.IP "[storage-policy:1]"
+.IP "name = silver"
+.IP "policy_type = replication"
+
+.IP "[storage-policy:2]"
+.IP "name = deepfreeze10-4"
+.IP "aliases = df10-4"
+.IP "policy_type = erasure_coding"
+.IP "ec_type = liberasurecode_rs_vand"
+.IP "ec_num_data_fragments = 10"
+.IP "ec_num_parity_fragments = 4"
+.IP "ec_object_segment_size = 1048576"
+.PD
+.RE
+.PD
+
+
+
+.SH SWIFT CONSTRAINTS SECTION
+.PD 1
+.RS 0
+This is indicated by section name [swift-constraints]. This section sets the
+basic constraints on data saved in the swift cluster. These constraints are
+automatically published by the proxy server in responses to /info requests.
+Below are the parameters that are acceptable within this section:
+.IP "\fBmax_file_size\fR"
+max_file_size is the largest "normal" object that can be saved in the cluster.
+This is also the limit on the size of each segment of a "large" object when
+using the large object manifest support. This value is set in bytes. Setting
+it to lower than 1MiB will cause some tests to fail. It is STRONGLY
+recommended to leave this value at the default (5 * 2**30 + 2).
+.IP "\fBmax_meta_name_length\fR"
+max_meta_name_length is the max number of bytes in the utf8 encoding of the
+name portion of a metadata header.
+.IP "\fBmax_meta_value_length\fR"
+max_meta_value_length is the max number of bytes in the utf8 encoding of a
+metadata value.
+.IP "\fBmax_meta_count\fR"
+max_meta_count is the max number of metadata keys that can be stored on a
+single account, container, or object.
+.IP "\fBmax_meta_overall_size\fR"
+max_meta_overall_size is the max number of bytes in the utf8 encoding of the
+metadata (keys + values).
+.IP "\fBmax_header_size\fR"
+max_header_size is the max number of bytes in the utf8 encoding of each
+header. Using 8192 as default because eventlet uses 8192 as max size of header
+line. This value may need to be increased when using identity v3 API tokens
+including more than 7 catalog entries.
+.IP "\fBextra_header_count\fR"
+By default the maximum number of allowed headers depends on the number of max
+allowed metadata settings plus a default value of 36 for swift internally
+generated headers and regular http headers. If for some reason this is not
+enough (custom middleware for example) it can be increased with the
+extra_header_count constraint.
+.IP "\fBmax_object_name_length\fR"
+max_object_name_length is the max number of bytes in the utf8 encoding of an
+object name.
+.IP "\fBcontainer_listing_limit\fR"
+container_listing_limit is the default (and max) number of items returned for
+a container listing request.
+.IP "\fBaccount_listing_limit\fR"
+account_listing_limit is the default (and max) number of items returned for an
+account listing request.
+.IP "\fBmax_account_name_length\fR"
+max_account_name_length is the max number of bytes in the utf8 encoding of an
+account name.
+.IP "\fBmax_container_name_length\fR"
+max_container_name_length is the max number of bytes in the utf8 encoding of a
+container name.
+.IP "\fBvalid_api_versions\fR"
+By default, all REST API calls should use "v1" or "v1.0" as the version string,
+for example "/v1/account". This can be manually overridden to make this
+backward-compatible, in case a different version string has been used before.
+Use a comma-separated list in case of multiple allowed versions, for example
+valid_api_versions = v0,v1,v2.
+This is only enforced for account, container and object requests. The allowed
+api versions are by default excluded from /info.
+
+
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation about the swift.conf and also OpenStack-Swift as a
+whole can be found at
+.BI http://swift.openstack.org/admin_guide.html
+and
+.BI http://swift.openstack.org
