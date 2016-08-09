@@ -158,7 +158,7 @@ use = egg:swift#recon
 # seconds; 2592000 = 30 days for example.
 # delay_reaping = 0
 #
-# If the account fails to be be reaped due to a persistent error, the
+# If the account fails to be reaped due to a persistent error, the
 # account reaper will log a message such as:
 #     Account <name> has not been reaped since <date>
 # You can search logs for this message if space is not being reclaimed
