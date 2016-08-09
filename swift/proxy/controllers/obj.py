@@ -1258,11 +1258,11 @@ class ECAppIter(object):
                 pass
             except ChunkReadTimeout:
                 # unable to resume in GetOrHeadHandler
-                self.logger.exception("Timeout fetching fragments for %r" %
+                self.logger.exception(_("Timeout fetching fragments for %r"),
                                       self.path)
             except:  # noqa
-                self.logger.exception("Exception fetching fragments for %r" %
-                                      self.path)
+                self.logger.exception(_("Exception fetching fragments for"
+                                        " %r"), self.path)
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
@@ -1290,8 +1290,8 @@ class ECAppIter(object):
                 try:
                     segment = self.policy.pyeclib_driver.decode(fragments)
                 except ECDriverError:
-                    self.logger.exception("Error decoding fragments for %r" %
-                                          self.path)
+                    self.logger.exception(_("Error decoding fragments for"
+                                            " %r"), self.path)
                     raise
 
                 yield segment

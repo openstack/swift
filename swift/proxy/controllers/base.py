@@ -1747,10 +1747,11 @@ class Controller(object):
                                   self.app.account_ring, partition, 'PUT',
                                   path, [headers] * len(nodes))
         if is_success(resp.status_int):
-            self.app.logger.info('autocreate account %r' % path)
+            self.app.logger.info(_('autocreate account %r'), path)
             clear_info_cache(self.app, req.environ, account)
         else:
-            self.app.logger.warning('Could not autocreate account %r' % path)
+            self.app.logger.warning(_('Could not autocreate account %r'),
+                                    path)
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
                        concurrency=1, client_chunk_size=None):
