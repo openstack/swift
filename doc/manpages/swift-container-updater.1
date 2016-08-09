@@ -14,31 +14,31 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-container-updater 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-container-updater
-\- Openstack-swift container updater
+\- OpenStack Swift container updater
 
 .SH SYNOPSIS
 .LP
-.B swift-container-updater 
+.B swift-container-updater
 [CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
-The container updater is responsible for updating container information in the account database. 
+The container updater is responsible for updating container information in the account database.
 It will walk the container path in the system looking for container DBs and sending updates
-to the account server as needed as it goes along. 
+to the account server as needed as it goes along.
 
-There are times when account data can not be immediately updated. This usually occurs 
-during failure scenarios or periods of high load. This is where an eventual consistency 
-window will most likely come in to play. 
+There are times when account data can not be immediately updated. This usually occurs
+during failure scenarios or periods of high load. This is where an eventual consistency
+window will most likely come in to play.
 
-In practice, the consistency window is only as large as the frequency at which 
-the updater runs and may not even be noticed as the proxy server will route 
+In practice, the consistency window is only as large as the frequency at which
+the updater runs and may not even be noticed as the proxy server will route
 listing requests to the first account server which responds. The server under
 load may not be the one that serves subsequent listing requests – one of the other
 two replicas may handle the listing.
@@ -55,16 +55,16 @@ The options are as follows:
 .IP "-o"
 .IP "--once"
 .RS 4
-.IP "only run one pass of daemon" 
+.IP "only run one pass of daemon"
 .RE
 .PD
 .RE
-       
+
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
+More in depth documentation in regards to
 .BI swift-container-updater
-and also about Openstack-Swift as a whole can be found at 
+and also about OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/index.html
 
 

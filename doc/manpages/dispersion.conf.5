@@ -14,33 +14,33 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH dispersion.conf 5 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B dispersion.conf
-\- configuration file for the openstack-swift dispersion tools 
+\- configuration file for the OpenStack Swift dispersion tools
 
 .SH SYNOPSIS
 .LP
 .B dispersion.conf
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
 This is the configuration file used by the dispersion populate and report tools.
-The file format consists of the '[dispersion]' module as the header and available parameters. 
-Any line that begins with a '#' symbol is ignored. 
+The file format consists of the '[dispersion]' module as the header and available parameters.
+Any line that begins with a '#' symbol is ignored.
 
 
 .SH PARAMETERS
-.PD 1 
+.PD 1
 .RS 0
 .IP "\fBauth_version\fR"
 Authentication system API version. The default is 1.0.
 .IP "\fBauth_url\fR"
-Authentication system URL 
-.IP "\fBauth_user\fR" 
+Authentication system URL
+.IP "\fBauth_user\fR"
 Authentication system account/user name
 .IP "\fBauth_key\fR"
 Authentication system account/user password
@@ -55,7 +55,7 @@ The default is 'publicURL'.
 .IP "\fBkeystone_api_insecure\fR"
 The default is false.
 .IP "\fBswift_dir\fR"
-Location of openstack-swift configuration and ring files
+Location of OpenStack Swift configuration and ring files
 .IP "\fBdispersion_coverage\fR"
 Percentage of partition coverage to use. The default is 1.0.
 .IP "\fBretries\fR"
@@ -76,7 +76,7 @@ Whether to run the object report. The default is yes.
 .PD
 
 .SH SAMPLE
-.PD 0 
+.PD 0
 .RS 0
 .IP "[dispersion]"
 .IP "auth_url = https://127.0.0.1:443/auth/v1.0"
@@ -94,15 +94,15 @@ Whether to run the object report. The default is yes.
 .IP "# container_report = yes"
 .IP "# object_report = yes"
 .RE
-.PD 
+.PD
 
- 
+
 .SH DOCUMENTATION
 .LP
 More in depth documentation about the swift-dispersion utilities and
-also Openstack-Swift as a whole can be found at 
+also OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/admin_guide.html#cluster-health
-and 
+and
 .BI http://swift.openstack.org
 
 

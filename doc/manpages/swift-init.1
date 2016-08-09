@@ -14,25 +14,25 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-init 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-init
-\- Openstack-swift swift-init tool
+\- OpenStack Swift swift-init tool
 
 .SH SYNOPSIS
 .LP
 .B swift-init
  <server> [<server> ...] <command> [options]
- 
-.SH DESCRIPTION 
+
+.SH DESCRIPTION
 .PP
 The swift-init tool can be used to initialize all swift daemons available as part of
-openstack-swift. Instead of calling individual init scripts for each 
-swift daemon, one can just use swift-init. With swift-init you can initialize 
-just one swift service, such as the "proxy", or a combination of them. The tool also 
+OpenStack Swift. Instead of calling individual init scripts for each
+swift daemon, one can just use swift-init. With swift-init you can initialize
+just one swift service, such as the "proxy", or a combination of them. The tool also
 allows one to use the keywords such as "all", "main" and "rest" for the <server> argument.
 
 
@@ -41,7 +41,7 @@ allows one to use the keywords such as "all", "main" and "rest" for the <server>
 .PD 0
 .RS 4
 .IP "\fIproxy\fR" "4"
-.IP "    - Initializes the swift proxy daemon" 
+.IP "    - Initializes the swift proxy daemon"
 .RE
 
 .RS 4
@@ -75,7 +75,7 @@ allows one to use the keywords such as "all", "main" and "rest" for the <server>
 .IP "    - Initializes all the other \fBswift background daemons\fR"
 .IP "      (updater, replicator, auditor, reaper, etc)"
 .RE
-.PD 
+.PD
 
 
 \fBCommands:\fR
@@ -92,14 +92,14 @@ allows one to use the keywords such as "all", "main" and "rest" for the <server>
 .IP "\fIstart\fR: \t\t\t starts a server"
 .IP "\fIstatus\fR: \t\t\t display status of tracked pids for server"
 .IP "\fIstop\fR: \t\t\t stops a server"
-.PD 
+.PD
 .RE
 
 
 
 \fBOptions:\fR
 .RS 4
-.PD 0 
+.PD 0
 .IP "-h, --help \t\t\t show this help message and exit"
 .IP "-v, --verbose \t\t\t display verbose output"
 .IP "-w, --no-wait \t\t\t won't wait for server to start before returning
@@ -112,14 +112,14 @@ allows one to use the keywords such as "all", "main" and "rest" for the <server>
 .IP "--strict return non-zero status code if some config is missing. Default mode if server is explicitly named."
 .IP "--non-strict return zero status code even if some config is missing. Default mode if server is one of aliases `all`, `main` or `rest`."
 .IP "--kill-after-timeout kill daemon and all children after kill-wait period."
-.PD 
+.PD
 .RE
 
 
 
 .SH DOCUMENTATION
 .LP
-More documentation about Openstack-Swift can be found at 
+More documentation about OpenStack Swift can be found at
 .BI http://swift.openstack.org/index.html
 
 

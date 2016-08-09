@@ -14,25 +14,25 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-get-nodes 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-get-nodes
-\- Openstack-swift get-nodes tool
+\- OpenStack Swift get-nodes tool
 
 .SH SYNOPSIS
 .LP
-.B swift-get-nodes 
+.B swift-get-nodes
 \ <ring.gz> <account> [<container> [<object>]]
- 
-.SH DESCRIPTION 
+
+.SH DESCRIPTION
 .PP
 The swift-get-nodes tool can be used to find out the location where
-a particular account, container or object item is located within the 
-swift cluster nodes. For example, if you have the account hash and a container 
-name that belongs to that account, you can use swift-get-nodes to lookup 
+a particular account, container or object item is located within the
+swift cluster nodes. For example, if you have the account hash and a container
+name that belongs to that account, you can use swift-get-nodes to lookup
 where the container resides by using the container ring.
 
 .RS 0
@@ -40,7 +40,7 @@ where the container resides by using the container ring.
 .RE
 
 .RS 4
-.PD 0 
+.PD 0
 .IP "$ swift-get-nodes /etc/swift/account.ring.gz MyAccount-12ac01446be2"
 
 .PD 0
@@ -67,12 +67,12 @@ where the container resides by using the container ring.
 .IP "ssh 172.24.24.32 ls -lah /srv/node/sde/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/"
 .IP "ssh 172.24.24.26 ls -lah /srv/node/sdv/accounts/221082/cce/d7e6ba68cfdce0f0e4ca7890e46cacce/ # [Handoff] "
 
-.PD 
-.RE 
+.PD
+.RE
 
 .SH DOCUMENTATION
 .LP
-More documentation about Openstack-Swift can be found at 
+More documentation about OpenStack Swift can be found at
 .BI http://swift.openstack.org/index.html
 
 

@@ -14,24 +14,24 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-container-auditor 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
-.B swift-container-auditor 
-\- Openstack-swift container auditor
+.B swift-container-auditor
+\- OpenStack Swift container auditor
 
 .SH SYNOPSIS
 .LP
-.B swift-container-auditor 
+.B swift-container-auditor
 [CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
 
-The container auditor crawls the local container system checking the integrity of container 
-objects. If corruption is found (in the case of bit rot, for example), the file is 
+The container auditor crawls the local container system checking the integrity of container
+objects. If corruption is found (in the case of bit rot, for example), the file is
 quarantined, and replication will replace the bad file from another replica.
 
 The options are as follows:
@@ -46,17 +46,17 @@ The options are as follows:
 .IP "-o"
 .IP "--once"
 .RS 4
-.IP "only run one pass of daemon" 
+.IP "only run one pass of daemon"
 .RE
 .PD
 .RE
-     	
-    
+
+
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
-.BI swift-container-auditor 
-and also about Openstack-Swift as a whole can be found at 
+More in depth documentation in regards to
+.BI swift-container-auditor
+and also about OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/index.html
 
 
