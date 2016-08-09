@@ -5335,6 +5335,68 @@ class TestLRUCache(unittest.TestCase):
         self.assertEqual(f.size(), 4)
 
 
+class TestSpliterator(unittest.TestCase):
+    def test_string(self):
+        input_chunks = ["coun", "ter-", "b", "ra", "nch-mater",
+                        "nit", "y-fungusy", "-nummular"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(8)), "counter-")
+        self.assertEqual(''.join(si.take(7)), "branch-")
+        self.assertEqual(''.join(si.take(10)), "maternity-")
+        self.assertEqual(''.join(si.take(8)), "fungusy-")
+        self.assertEqual(''.join(si.take(8)), "nummular")
+
+    def test_big_input_string(self):
+        input_chunks = ["iridium"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(2)), "ir")
+        self.assertEqual(''.join(si.take(1)), "i")
+        self.assertEqual(''.join(si.take(2)), "di")
+        self.assertEqual(''.join(si.take(1)), "u")
+        self.assertEqual(''.join(si.take(1)), "m")
+
+    def test_chunk_boundaries(self):
+        input_chunks = ["soylent", "green", "is", "people"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(7)), "soylent")
+        self.assertEqual(''.join(si.take(5)), "green")
+        self.assertEqual(''.join(si.take(2)), "is")
+        self.assertEqual(''.join(si.take(6)), "people")
+
+    def test_no_empty_strings(self):
+        input_chunks = ["soylent", "green", "is", "people"]
+        si = utils.Spliterator(input_chunks)
+
+        outputs = (list(si.take(7))     # starts and ends on chunk boundary
+                   + list(si.take(2))   # spans two chunks
+                   + list(si.take(3))   # begins but does not end chunk
+                   + list(si.take(2))   # ends but does not begin chunk
+                   + list(si.take(6)))  # whole chunk + EOF
+        self.assertNotIn('', outputs)
+
+    def test_running_out(self):
+        input_chunks = ["not much"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(4)), "not ")
+        self.assertEqual(''.join(si.take(99)), "much")  # short
+        self.assertEqual(''.join(si.take(4)), "")
+        self.assertEqual(''.join(si.take(4)), "")
+
+    def test_overlap(self):
+        input_chunks = ["one fish", "two fish", "red fish", "blue fish"]
+
+        si = utils.Spliterator(input_chunks)
+        t1 = si.take(20)  # longer than first chunk
+        self.assertLess(len(next(t1)), 20)  # it's not exhausted
+
+        t2 = si.take(20)
+        self.assertRaises(ValueError, next, t2)
+
+
 class TestParseContentRange(unittest.TestCase):
     def test_good(self):
         start, end, total = utils.parse_content_range("bytes 100-200/300")

@@ -35,11 +35,11 @@ from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
-    HTTPServiceUnavailable, Range, is_chunked
+    HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv
+    parse_content_range, csv_append, list_from_csv, Spliterator
 
 from swift.common.wsgi import make_subrequest
 
@@ -519,6 +519,25 @@ class SegmentedIterable(object):
         handle the range stuff internally, so we just no-op this out for swob.
         """
         return self
+
+    def app_iter_ranges(self, ranges, content_type, boundary, content_size):
+        """
+        This method assumes that iter(self) yields all the data bytes that
+        go into the response, but none of the MIME stuff. For example, if
+        the response will contain three MIME docs with data "abcd", "efgh",
+        and "ijkl", then iter(self) will give out the bytes "abcdefghijkl".
+
+        This method inserts the MIME stuff around the data bytes.
+        """
+        si = Spliterator(self)
+        mri = multi_range_iterator(
+            ranges, content_type, boundary, content_size,
+            lambda start, end_plus_one: si.take(end_plus_one - start))
+        try:
+            for x in mri:
+                yield x
+        finally:
+            self.close()
 
     def validate_first_segment(self):
         """
