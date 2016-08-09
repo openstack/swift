@@ -6,6 +6,7 @@ Object Storage service
    :maxdepth: 2
 
    get_started.rst
+   environment-networking.rst
    controller-install.rst
    storage-install.rst
    initial-rings.rst
