@@ -390,9 +390,9 @@ class TestSsyncEC(TestBaseSsync):
             tx_objs, policy, frag_index, rx_node_index)
         self._verify_tombstones(tx_tombstones, policy)
 
-    def test_handoff_fragment_only_missing_durable(self):
+    def test_handoff_fragment_only_missing_durable_state(self):
         # test that a sync_revert type job does not PUT when the rx is only
-        # missing a durable file
+        # missing durable state
         policy = POLICIES.default
         rx_node_index = frag_index = 0
         tx_node_index = 1
@@ -405,10 +405,10 @@ class TestSsyncEC(TestBaseSsync):
 
         expected_subreqs = defaultdict(list)
 
-        # o1 in sync on rx but rx missing .durable - no PUT required
-        t1a = next(self.ts_iter)  # older rx .data with .durable
+        # o1 in sync on rx but rx missing durable state - no PUT required
+        t1a = next(self.ts_iter)  # older durable rx .data
         t1b = next(self.ts_iter)  # rx .meta
-        t1c = next(self.ts_iter)  # tx .data with .durable, rx missing .durable
+        t1c = next(self.ts_iter)  # durable tx .data, non-durable rx .data
         obj_name = 'o1'
         tx_objs[obj_name] = self._create_ondisk_files(
             tx_df_mgr, obj_name, policy, t1c, (tx_node_index, rx_node_index,))
@@ -419,7 +419,7 @@ class TestSsyncEC(TestBaseSsync):
         rx_objs[obj_name] = self._create_ondisk_files(
             rx_df_mgr, obj_name, policy, t1c, (rx_node_index, 9), commit=False)
 
-        # o2 on rx has wrong frag_indexes and missing .durable - PUT required
+        # o2 on rx has wrong frag_indexes and is non-durable - PUT required
         t2 = next(self.ts_iter)
         obj_name = 'o2'
         tx_objs[obj_name] = self._create_ondisk_files(
@@ -428,7 +428,7 @@ class TestSsyncEC(TestBaseSsync):
             rx_df_mgr, obj_name, policy, t2, (13, 14), commit=False)
         expected_subreqs['PUT'].append(obj_name)
 
-        # o3 on rx has frag at other time missing .durable - PUT required
+        # o3 on rx has frag at other time and non-durable - PUT required
         t3 = next(self.ts_iter)
         obj_name = 'o3'
         tx_objs[obj_name] = self._create_ondisk_files(
@@ -655,6 +655,79 @@ class TestSsyncEC(TestBaseSsync):
         self.assertIn("Expected status 200; got 400", error_msg)
         self.assertIn("Invalid X-Backend-Ssync-Frag-Index 'Not a number'",
                       error_msg)
+
+    def test_revert_job_with_legacy_durable(self):
+        # test a sync_revert type job using a sender object with a legacy
+        # durable file, that will create a receiver object with durable data
+        policy = POLICIES.default
+        rx_node_index = 0
+        # for a revert job we iterate over frag index that belongs on
+        # remote node
+        frag_index = rx_node_index
+
+        # create non durable tx obj by not committing, then create a legacy
+        # .durable file
+        tx_objs = {}
+        tx_df_mgr = self.daemon._diskfile_router[policy]
+        rx_df_mgr = self.rx_controller._diskfile_router[policy]
+        t1 = next(self.ts_iter)
+        tx_objs['o1'] = self._create_ondisk_files(
+            tx_df_mgr, 'o1', policy, t1, (rx_node_index,), commit=False)
+        tx_datadir = tx_objs['o1'][0]._datadir
+        durable_file = os.path.join(tx_datadir, t1.internal + '.durable')
+        with open(durable_file, 'wb'):
+            pass
+        self.assertEqual(2, len(os.listdir(tx_datadir)))  # sanity check
+
+        suffixes = [os.path.basename(os.path.dirname(tx_datadir))]
+
+        # create ssync sender instance...
+        job = {'device': self.device,
+               'partition': self.partition,
+               'policy': policy,
+               'frag_index': frag_index}
+        node = dict(self.rx_node)
+        node.update({'index': rx_node_index})
+        sender = ssync_sender.Sender(self.daemon, node, job, suffixes)
+        # wrap connection from tx to rx to capture ssync messages...
+        sender.connect, trace = self.make_connect_wrapper(sender)
+
+        # run the sync protocol...
+        sender()
+
+        # verify protocol
+        results = self._analyze_trace(trace)
+        self.assertEqual(1, len(results['tx_missing']))
+        self.assertEqual(1, len(results['rx_missing']))
+        self.assertEqual(1, len(results['tx_updates']))
+        self.assertFalse(results['rx_updates'])
+
+        # sanity check - rx diskfile is durable
+        expected_rx_file = '%s#%s#d.data' % (t1.internal, rx_node_index)
+        rx_df = self._open_rx_diskfile('o1', policy, rx_node_index)
+        self.assertEqual([expected_rx_file], os.listdir(rx_df._datadir))
+
+        # verify on disk files...
+        self._verify_ondisk_files(
+            tx_objs, policy, frag_index, rx_node_index)
+
+        # verify that tx and rx both generate the same suffix hashes...
+        tx_hashes = tx_df_mgr.get_hashes(
+            self.device, self.partition, suffixes, policy)
+        rx_hashes = rx_df_mgr.get_hashes(
+            self.device, self.partition, suffixes, policy)
+        self.assertEqual(suffixes, tx_hashes.keys())  # sanity
+        self.assertEqual(tx_hashes, rx_hashes)
+
+        # sanity check - run ssync again and expect no sync activity
+        sender = ssync_sender.Sender(self.daemon, node, job, suffixes)
+        sender.connect, trace = self.make_connect_wrapper(sender)
+        sender()
+        results = self._analyze_trace(trace)
+        self.assertEqual(1, len(results['tx_missing']))
+        self.assertFalse(results['rx_missing'])
+        self.assertFalse(results['tx_updates'])
+        self.assertFalse(results['rx_updates'])
 
 
 @patch_policies

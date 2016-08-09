@@ -13,7 +13,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import json
 from hashlib import md5
 import unittest
 import uuid
@@ -75,32 +75,44 @@ class TestReconstructorPropDurable(ECProbeTest):
         hasher = md5()
         for chunk in data:
             hasher.update(chunk)
-        return hasher.hexdigest()
+        return headers, hasher.hexdigest()
 
     def _check_node(self, node, part, etag, headers_post):
         # get fragment archive etag
-        fragment_archive_etag = self.direct_get(node, part)
+        headers, fragment_archive_etag = self.direct_get(node, part)
+        self.assertIn('X-Backend-Durable-Timestamp', headers)  # sanity check
+        durable_timestamp = headers['X-Backend-Durable-Timestamp']
 
-        # remove the .durable from the selected node
+        # make the data file non-durable on the selected node
         part_dir = self.storage_dir('object', node, part=part)
         for dirs, subdirs, files in os.walk(part_dir):
             for fname in files:
-                if fname.endswith('.durable'):
-                    durable = os.path.join(dirs, fname)
-                    os.remove(durable)
-                    break
+                if fname.endswith('.data'):
+                    non_durable_fname = fname.replace('#d', '')
+                    os.rename(os.path.join(dirs, fname),
+                              os.path.join(dirs, non_durable_fname))
         try:
             os.remove(os.path.join(part_dir, 'hashes.pkl'))
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
 
-        # fire up reconstructor to propagate the .durable
+        # sanity check that fragment is no longer durable
+        headers = direct_client.direct_head_object(
+            node, part, self.account, self.container_name, self.object_name,
+            headers={'X-Backend-Storage-Policy-Index': int(self.policy),
+                     'X-Backend-Fragment-Preferences': json.dumps([])})
+        self.assertNotIn('X-Backend-Durable-Timestamp', headers)
+
+        # fire up reconstructor to propagate durable state
         self.reconstructor.once()
 
         # fragment is still exactly as it was before!
-        self.assertEqual(fragment_archive_etag,
-                         self.direct_get(node, part))
+        headers, fragment_archive_etag_2 = self.direct_get(node, part)
+        self.assertEqual(fragment_archive_etag, fragment_archive_etag_2)
+        self.assertIn('X-Backend-Durable-Timestamp', headers)
+        self.assertEqual(durable_timestamp,
+                         headers['X-Backend-Durable-Timestamp'])
 
         # check meta
         meta = client.head_object(self.url, self.token,
@@ -132,7 +144,7 @@ class TestReconstructorPropDurable(ECProbeTest):
                            self.object_name, headers=headers_post)
         del headers_post['X-Auth-Token']  # WTF, where did this come from?
 
-        # built up a list of node lists to kill a .durable from,
+        # built up a list of node lists to make non-durable,
         # first try a single node
         # then adjacent nodes and then nodes >1 node apart
         opart, onodes = self.object_ring.get_nodes(

@@ -671,7 +671,7 @@ class TestReceiver(unittest.TestCase):
         self.controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.controller.logger)
 
-        # make rx disk file but don't commit it, so .durable is missing
+        # make rx disk file but don't commit it, so durable state is missing
         ts1 = next(make_timestamp_iter()).internal
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',
@@ -714,7 +714,7 @@ class TestReceiver(unittest.TestCase):
         self.controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.controller.logger)
 
-        # make rx disk file but don't commit it, so .durable is missing
+        # make rx disk file but don't commit it, so durable state is missing
         ts1 = next(make_timestamp_iter()).internal
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',

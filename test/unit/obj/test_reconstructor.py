@@ -41,6 +41,7 @@ from swift.obj.reconstructor import REVERT
 from test.unit import (patch_policies, debug_logger, mocked_http_conn,
                        FabricatedRing, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE)
+from test.unit.obj.common import write_diskfile
 
 
 @contextmanager
@@ -136,6 +137,8 @@ def get_header_frag_index(self, body):
                                  ec_type=DEFAULT_TEST_EC_TYPE,
                                  ec_ndata=2, ec_nparity=1)])
 class TestGlobalSetupObjectReconstructor(unittest.TestCase):
+    # Tests for reconstructor using real objects in test partition directories.
+    legacy_durable = False
 
     def setUp(self):
         self.testdir = tempfile.mkdtemp()
@@ -174,22 +177,16 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # most of the reconstructor test methods require that there be
         # real objects in place, not just part dirs, so we'll create them
         # all here....
-        # part 0: 3C1/hash/xxx-1.data  <-- job: sync_only - parnters (FI 1)
-        #                 /xxx.durable <-- included in earlier job (FI 1)
-        #         061/hash/xxx-1.data  <-- included in earlier job (FI 1)
-        #                 /xxx.durable <-- included in earlier job (FI 1)
-        #                 /xxx-2.data  <-- job: sync_revert to index 2
+        # part 0: 3C1/hash/xxx#1#d.data  <-- job: sync_only - partners (FI 1)
+        #         061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
+        #                 /xxx#2#d.data  <-- job: sync_revert to index 2
 
-        # part 1: 3C1/hash/xxx-0.data  <-- job: sync_only - parnters (FI 0)
-        #                 /xxx-1.data  <-- job: sync_revert to index 1
-        #                 /xxx.durable <-- included in earlier jobs (FI 0, 1)
-        #         061/hash/xxx-1.data  <-- included in earlier job (FI 1)
-        #                 /xxx.durable <-- included in earlier job (FI 1)
+        # part 1: 3C1/hash/xxx#0#d.data  <-- job: sync_only - partners (FI 0)
+        #                 /xxx#1#d.data  <-- job: sync_revert to index 1
+        #         061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
 
-        # part 2: 3C1/hash/xxx-2.data  <-- job: sync_revert to index 2
-        #                 /xxx.durable <-- included in earlier job (FI 2)
-        #         061/hash/xxx-0.data  <-- job: sync_revert to index 0
-        #                 /xxx.durable <-- included in earlier job (FI 0)
+        # part 2: 3C1/hash/xxx#2#d.data  <-- job: sync_revert to index 2
+        #         061/hash/xxx#0#d.data  <-- job: sync_revert to index 0
 
         def _create_frag_archives(policy, obj_path, local_id, obj_set):
             # we'll create 2 sets of objects in different suffix dirs
@@ -202,7 +199,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     # just the local
                     return local_id
                 else:
-                    # onde local and all of another
+                    # one local and all of another
                     if obj_num == 0:
                         return local_id
                     else:
@@ -239,7 +236,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     timestamp=utils.Timestamp(t))
 
             for part_num in self.part_nums:
-                # create 3 unique objcets per part, each part
+                # create 3 unique objects per part, each part
                 # will then have a unique mix of FIs for the
                 # possible scenarios
                 for obj_num in range(0, 3):
@@ -285,18 +282,10 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         df_mgr = self.reconstructor._df_router[policy]
         df = df_mgr.get_diskfile('sda1', part, 'a', 'c', object_name,
                                  policy=policy)
-        with df.create() as writer:
-            timestamp = timestamp or utils.Timestamp(time.time())
-            test_data = test_data or 'test data'
-            writer.write(test_data)
-            metadata = {
-                'X-Timestamp': timestamp.internal,
-                'Content-Length': len(test_data),
-                'Etag': md5(test_data).hexdigest(),
-                'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
-            }
-            writer.put(metadata)
-            writer.commit(timestamp)
+        timestamp = timestamp or utils.Timestamp(time.time())
+        test_data = test_data or 'test data'
+        write_diskfile(df, timestamp, data=test_data, frag_index=frag_index,
+                       legacy_durable=self.legacy_durable)
         return df
 
     def assert_expected_jobs(self, part_num, jobs):
@@ -1003,7 +992,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         hash_gen = self.reconstructor._df_router[policy].yield_hashes(
             'sda1', '2', policy)
         for path, hash_, ts in hash_gen:
-            self.fail('found %s with %s in %s', (hash_, ts, path))
+            self.fail('found %s with %s in %s' % (hash_, ts, path))
         # but the partition directory and hashes pkl still exist
         self.assertTrue(os.access(part_path, os.F_OK))
         hashes_path = os.path.join(self.objects_1, '2', diskfile.HASH_FILE)
@@ -1115,6 +1104,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
         self.assertEqual(len(found_jobs), 6)
+
+
+class TestGlobalSetupObjectReconstructorLegacyDurable(
+        TestGlobalSetupObjectReconstructor):
+    # Tests for reconstructor using real objects in test partition directories.
+    legacy_durable = True
 
 
 @patch_policies(with_ec_default=True)
@@ -2444,10 +2439,9 @@ class TestObjectReconstructor(unittest.TestCase):
         ], [
             (r['ip'], r['path']) for r in request_log.requests
         ])
-        # hashpath is still there, but only the durable remains
+        # hashpath is still there, but all files have been purged
         files = os.listdir(df._datadir)
-        self.assertEqual(1, len(files))
-        self.assertTrue(files[0].endswith('.durable'))
+        self.assertFalse(files)
 
         # and more to the point, the next suffix recalc will clean it up
         df_mgr = self.reconstructor._df_router[self.policy]
