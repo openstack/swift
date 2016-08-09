@@ -39,9 +39,10 @@ def encrypt_header_val(crypto, value, key):
     :returns: a tuple of (encrypted value, crypto_meta) where crypto_meta is a
         dict of form returned by
         :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
+    :raises ValueError: if value is empty
     """
     if not value:
-        return '', None
+        raise ValueError('empty value is not acceptable')
 
     crypto_meta = crypto.create_crypto_meta()
     crypto_ctxt = crypto.create_encryption_ctxt(key, crypto_meta['iv'])
