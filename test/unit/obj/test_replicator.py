@@ -234,7 +234,7 @@ class TestObjectReplicator(unittest.TestCase):
                                  config,
                              ))
 
-    def _write_disk_data(self, disk_name):
+    def _write_disk_data(self, disk_name, with_json=False):
         os.mkdir(os.path.join(self.devices, disk_name))
         objects = os.path.join(self.devices, disk_name,
                                diskfile.get_data_dir(POLICIES[0]))
@@ -249,6 +249,13 @@ class TestObjectReplicator(unittest.TestCase):
             os.mkdir(parts[part])
             parts_1[part] = os.path.join(objects_1, part)
             os.mkdir(parts_1[part])
+
+        if with_json:
+            for json_file in ['auditor_status_ZBF.json',
+                              'auditor_status_ALL.json']:
+                for obj_dir in [objects, objects_1]:
+                    with open(os.path.join(obj_dir, json_file), 'w'):
+                        pass
 
         return objects, objects_1, parts, parts_1
 
@@ -416,6 +423,32 @@ class TestObjectReplicator(unittest.TestCase):
                 self.assertEqual(node['device'], 'sda')
             self.assertEqual(jobs_by_pol_part[part]['path'],
                              os.path.join(self.objects_1, part[1:]))
+
+    def test_collect_jobs_failure_report_with_auditor_stats_json(self):
+        devs = [
+            {'id': 0, 'device': 'sda', 'zone': 0,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            {'id': 1, 'device': 'sdb', 'zone': 1,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            {'id': 2, 'device': 'sdc', 'zone': 2,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+            {'id': 3, 'device': 'sdd', 'zone': 3,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+        ]
+        objects_sdb, objects_1_sdb, _, _ = \
+            self._write_disk_data('sdb', with_json=True)
+        objects_sdc, objects_1_sdc, _, _ = \
+            self._write_disk_data('sdc', with_json=True)
+        objects_sdd, objects_1_sdd, _, _ = \
+            self._write_disk_data('sdd', with_json=True)
+        _create_test_rings(self.testdir, devs)
+
+        self.replicator.collect_jobs()
+        self.assertEqual(self.replicator.stats['failure'], 0)
 
     @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
     def test_collect_jobs_multi_disk(self, mock_shuffle):
@@ -1555,7 +1588,7 @@ class TestObjectReplicator(unittest.TestCase):
                 return 2, {'abc': 'def'}
 
             def fake_exc(tester, *args, **kwargs):
-                if 'Error syncing partition' in args[0]:
+                if 'Error syncing partition timeout' in args[0]:
                     tester.i_failed = True
 
             self.i_failed = False
