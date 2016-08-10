@@ -565,27 +565,38 @@ class Container(Base):
                 files = json.loads(self.conn.response.read())
 
                 for file_item in files:
-                    file_item['name'] = file_item['name'].encode('utf-8')
-                    file_item['content_type'] = file_item['content_type'].\
-                        encode('utf-8')
+                    for key in ('name', 'subdir', 'content_type'):
+                        if key in file_item:
+                            file_item[key] = file_item[key].encode('utf-8')
                 return files
             elif format_type == 'xml':
                 files = []
                 tree = minidom.parseString(self.conn.response.read())
-                for x in tree.getElementsByTagName('object'):
+                container = tree.getElementsByTagName('container')[0]
+                for x in container.childNodes:
                     file_item = {}
-                    for key in ['name', 'hash', 'bytes', 'content_type',
-                                'last_modified']:
-
-                        file_item[key] = x.getElementsByTagName(key)[0].\
-                            childNodes[0].nodeValue
+                    if x.tagName == 'object':
+                        for key in ['name', 'hash', 'bytes', 'content_type',
+                                    'last_modified']:
+                            file_item[key] = x.getElementsByTagName(key)[0].\
+                                childNodes[0].nodeValue
+                    elif x.tagName == 'subdir':
+                        file_item['subdir'] = x.getElementsByTagName(
+                            'name')[0].childNodes[0].nodeValue
+                    else:
+                        raise ValueError('Found unexpected element %s'
+                                         % x.tagName)
                     files.append(file_item)
 
                 for file_item in files:
-                    file_item['name'] = file_item['name'].encode('utf-8')
-                    file_item['content_type'] = file_item['content_type'].\
-                        encode('utf-8')
-                    file_item['bytes'] = int(file_item['bytes'])
+                    if 'subdir' in file_item:
+                        file_item['subdir'] = file_item['subdir'].\
+                            encode('utf-8')
+                    else:
+                        file_item['name'] = file_item['name'].encode('utf-8')
+                        file_item['content_type'] = file_item['content_type'].\
+                            encode('utf-8')
+                        file_item['bytes'] = int(file_item['bytes'])
                 return files
             else:
                 content = self.conn.response.read()

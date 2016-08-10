@@ -874,6 +874,8 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         pt_etag2 = 'ac0374ed4d43635f803c82469d0b5a10'
         key = fetch_crypto_keys()['container']
 
+        subdir = {"subdir": "pseudo-dir/"}
+
         obj_dict_1 = {"bytes": 16,
                       "last_modified": "2015-04-14T23:33:06.439040",
                       "hash": encrypt_and_append_meta(
@@ -888,7 +890,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
                       "name": "testfile2",
                       "content_type": content_type_2}
 
-        listing = [obj_dict_1, obj_dict_2]
+        listing = [subdir, obj_dict_1, obj_dict_2]
         fake_body = json.dumps(listing)
 
         resp = self._make_cont_get_req(fake_body, 'json')
@@ -897,11 +899,12 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         body = resp.body
         self.assertEqual(len(body), int(resp.headers['Content-Length']))
         body_json = json.loads(body)
-        self.assertEqual(2, len(body_json))
+        self.assertEqual(3, len(body_json))
+        self.assertDictEqual(subdir, body_json[0])
         obj_dict_1['hash'] = pt_etag1
-        self.assertDictEqual(obj_dict_1, body_json[0])
+        self.assertDictEqual(obj_dict_1, body_json[1])
         obj_dict_2['hash'] = pt_etag2
-        self.assertDictEqual(obj_dict_2, body_json[1])
+        self.assertDictEqual(obj_dict_2, body_json[2])
 
     def test_GET_container_json_with_crypto_override(self):
         content_type_1 = 'image/jpeg'
@@ -958,6 +961,10 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertIn("Cipher must be AES_CTR_256",
                       self.decrypter.logger.get_lines_for_level('error')[0])
 
+    def _assert_element(self, name, expected, element):
+        self.assertEqual(element.tagName, name)
+        self._assert_element_contains_dict(expected, element)
+
     def _assert_element_contains_dict(self, expected, element):
         for k, v in expected.items():
             entry = element.getElementsByTagName(k)
@@ -976,6 +983,7 @@ class TestDecrypterContainerRequests(unittest.TestCase):
 
         fake_body = '''<?xml version="1.0" encoding="UTF-8"?>
 <container name="testc">\
+<subdir name="test-subdir"><name>test-subdir</name></subdir>\
 <object><hash>\
 ''' + encrypt_and_append_meta(pt_etag1.encode('utf8'), key) + '''\
 </hash><content_type>\
@@ -1001,21 +1009,23 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertEqual('testc',
                          containers[0].attributes.getNamedItem("name").value)
 
-        objs = tree.getElementsByTagName('object')
-        self.assertEqual(2, len(objs))
+        results = containers[0].childNodes
+        self.assertEqual(3, len(results))
+
+        self._assert_element('subdir', {"name": "test-subdir"}, results[0])
 
         obj_dict_1 = {"bytes": "16",
                       "last_modified": "2015-04-19T02:37:39.601660",
                       "hash": pt_etag1,
                       "name": "testfile",
                       "content_type": content_type_1}
-        self._assert_element_contains_dict(obj_dict_1, objs[0])
+        self._assert_element('object', obj_dict_1, results[1])
         obj_dict_2 = {"bytes": "24",
                       "last_modified": "2015-04-19T02:37:39.684740",
                       "hash": pt_etag2,
                       "name": "testfile2",
                       "content_type": content_type_2}
-        self._assert_element_contains_dict(obj_dict_2, objs[1])
+        self._assert_element('object', obj_dict_2, results[2])
 
     def test_GET_container_xml_with_crypto_override(self):
         content_type_1 = 'image/jpeg'
