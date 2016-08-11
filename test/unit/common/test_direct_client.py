@@ -221,7 +221,7 @@ class TestDirectClient(unittest.TestCase):
             'X-Account-Object-Count': '1',
             'X-Account-Bytes-Used': '1',
             'X-Timestamp': '1234567890',
-            'X-PUT-Timestamp': '1234567890'}
+            'X-Put-Timestamp': '1234567890'}
         with mocked_http_conn(204, headers) as conn:
             resp_headers, resp = direct_client.direct_get_account(
                 self.node, self.part, self.account)
@@ -229,7 +229,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.account_path)
 
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
-        self.assertEqual(resp_headers, resp_headers)
+        self.assertDictEqual(resp_headers, headers)
         self.assertEqual([], resp)
 
     def test_direct_get_account_error(self):
