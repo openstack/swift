@@ -101,7 +101,18 @@ the DLO docs for :ref:`dlo-doc` further details.
 Encryption
 ==========
 
+Encryption middleware should be deployed in conjunction with the
+:ref:`keymaster` middleware.
+
 .. automodule:: swift.common.middleware.crypto
+    :members:
+    :show-inheritance:
+
+.. automodule:: swift.common.middleware.crypto.encrypter
+    :members:
+    :show-inheritance:
+
+.. automodule:: swift.common.middleware.crypto.decrypter
     :members:
     :show-inheritance:
 
@@ -132,8 +143,13 @@ Healthcheck
     :members:
     :show-inheritance:
 
+.. _keymaster:
+
 Keymaster
 =========
+
+Keymaster middleware should be deployed in conjunction with the
+:ref:`encryption` middleware.
 
 .. automodule:: swift.common.middleware.crypto.keymaster
     :members:

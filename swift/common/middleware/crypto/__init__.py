@@ -14,7 +14,8 @@
 # limitations under the License.
 """
 Implements middleware for object encryption which comprises an instance of a
-Decrypter combined with an instance of an Encrypter.
+:class:`~swift.common.middleware.crypto.decrypter.Decrypter` combined with an
+instance of an :class:`~swift.common.middleware.crypto.encrypter.Encrypter`.
 """
 from swift.common.middleware.crypto.decrypter import Decrypter
 from swift.common.middleware.crypto.encrypter import Encrypter
