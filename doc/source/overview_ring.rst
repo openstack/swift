@@ -22,7 +22,7 @@ number, each replica will be assigned to a different device in the ring.
 
 Devices are added to the ring to describe the capacity available for
 part-replica assignment.  Devices are placed into failure domains consisting
-of region, zone, and server.  Regions can be used to describe geo-graphically
+of region, zone, and server.  Regions can be used to describe geographical
 systems characterized by lower-bandwidth or higher latency between machines in
 different regions.  Many rings will consist of only a single region.  Zones
 can be used to group devices based on physical locations, power separations,
