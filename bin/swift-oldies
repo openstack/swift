@@ -43,8 +43,10 @@ Lists old Swift processes.
         if not args.startswith((
                 '/usr/bin/python /usr/bin/swift-',
                 '/usr/bin/python /usr/local/bin/swift-',
+                '/bin/python /usr/bin/swift-',
                 '/usr/bin/python3 /usr/bin/swift-',
-                '/usr/bin/python3 /usr/local/bin/swift-')):
+                '/usr/bin/python3 /usr/local/bin/swift-',
+                '/bin/python3 /usr/bin/swift-')):
             continue
         args = args.split('-', 1)[1]
         etime = etime.split('-')
