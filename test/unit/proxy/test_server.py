@@ -6229,6 +6229,9 @@ class TestContainerController(unittest.TestCase):
                 if expected < 400:
                     self.assertIn('x-works', res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
+                if expected < 300:
+                    self.assertIn('last-modified', res.headers)
+                    self.assertEqual(res.headers['last-modified'], '1')
                 if c_expected:
                     self.assertIn('container/a/c', infocache)
                     self.assertEqual(
@@ -6254,6 +6257,9 @@ class TestContainerController(unittest.TestCase):
                 if expected < 400:
                     self.assertTrue('x-works' in res.headers)
                     self.assertEqual(res.headers['x-works'], 'yes')
+                if expected < 300:
+                    self.assertIn('last-modified', res.headers)
+                    self.assertEqual(res.headers['last-modified'], '1')
                 if c_expected:
                     self.assertIn('container/a/c', infocache)
                     self.assertEqual(

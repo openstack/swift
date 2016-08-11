@@ -851,6 +851,45 @@ class TestContainer(Base):
         file_item = cont.file(Utils.create_name())
         file_item.write_random()
 
+    def testContainerLastModified(self):
+        container = self.env.account.container(Utils.create_name())
+        self.assertTrue(container.create())
+        info = container.info()
+        t0 = info['last_modified']
+        # last modified header is in date format which supports in second
+        # so we need to wait to increment a sec in the header.
+        eventlet.sleep(1)
+
+        # POST container change last modified timestamp
+        self.assertTrue(
+            container.update_metadata({'x-container-meta-japan': 'mitaka'}))
+        info = container.info()
+        t1 = info['last_modified']
+        self.assertNotEqual(t0, t1)
+        eventlet.sleep(1)
+
+        # PUT container (overwrite) also change last modified
+        self.assertTrue(container.create())
+        info = container.info()
+        t2 = info['last_modified']
+        self.assertNotEqual(t1, t2)
+        eventlet.sleep(1)
+
+        # PUT object doesn't change container last modified timestamp
+        obj = container.file(Utils.create_name())
+        self.assertTrue(
+            obj.write("aaaaa", hdrs={'Content-Type': 'text/plain'}))
+        info = container.info()
+        t3 = info['last_modified']
+        self.assertEqual(t2, t3)
+
+        # POST object also doesn't change container last modified timestamp
+        self.assertTrue(
+            obj.sync_metadata({'us': 'austin'}))
+        info = container.info()
+        t4 = info['last_modified']
+        self.assertEqual(t2, t4)
+
 
 class TestContainerUTF8(Base2, TestContainer):
     set_up = False
