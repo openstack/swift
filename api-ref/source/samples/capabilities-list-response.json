@@ -2,6 +2,11 @@
     "swift": {
         "version": "1.11.0"
     },
+    "slo": {
+        "max_manifest_segments": 1000,
+        "max_manifest_size": 2097152,
+        "min_segment_size": 1
+    },
     "staticweb": {},
     "tempurl": {}
 }
