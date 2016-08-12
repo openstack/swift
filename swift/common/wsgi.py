@@ -42,7 +42,7 @@ from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
-    CloseableChain
+    reiterate
 
 # Set maximum line size of message headers to be accepted.
 wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
@@ -1053,16 +1053,11 @@ class WSGIContext(object):
         self._response_headers = None
         self._response_exc_info = None
         resp = self.app(env, self._start_response)
-        # if start_response has been called, just return the iter
-        if self._response_status is not None:
-            return resp
-        resp = iter(resp)
-        try:
-            first_chunk = next(resp)
-        except StopIteration:
-            return iter([])
-        else:  # We got a first_chunk
-            return CloseableChain([first_chunk], resp)
+        # if start_response has not been called, iterate until we've got a
+        # non-empty chunk, by which time the app *should* have called it
+        if self._response_status is None:
+            resp = reiterate(resp)
+        return resp
 
     def _get_status_int(self):
         """
