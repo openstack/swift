@@ -1,0 +1,58 @@
+.\"
+.\" Copyright (c) 2016 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH SWIFT-RECONCILER-ENQUEUE "1" "August 2016" "OpenStack Swift"
+
+.SH NAME
+swift\-reconciler\-enqueue \- OpenStack Swift reconciler enqueue
+.SH SYNOPSIS
+.B swift\-reconciler\-enqueue
+\fIpolicy_index\fR \fI/a/c/o\fR \fItimestamp\fR \fR[\fIoptions\fR]
+
+.SH DESCRIPTION
+.PP
+This script enqueues an object to be evaluated by the reconciler.
+
+.SH OPTIONS
+.TP
+\fIpolicy_index\fR
+The policy the object is currently stored in.
+.TP
+\fI/a/c/o\fR
+The full path of the object \- UTF\-8
+.TP
+\fItimestamp\fR
+The timestamp of the datafile/tombstone.
+
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message and exit
+.TP
+\fB\-X\fR \fIOP\fR, \fB\-\-op\fR=\fIOP\fR
+The method of the misplaced operation
+.TP
+\fB\-f\fR, \fB\-\-force\fR
+Force an object to be re\-enqueued
+.PP
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift\-reconciler\-enqueue
+and also about OpenStack Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+and 
+.BI http://docs.openstack.org

@@ -1,0 +1,38 @@
+.\"
+.\" Copyright (c) 2016 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH SWIFT-DRIVE-AUDIT "1" "August 2016" "OpenStack Swift"
+
+.SH NAME
+swift\-drive\-audit \- OpenStack Swift drive audit cron job
+
+.SH SYNOPSIS
+.B swift\-drive\-audit
+\fICONFIG\fR
+
+.SH DESCRIPTION
+.PP
+Tool that can be run by using cron to watch for bad drives. If errors are
+detected, it unmounts the bad drive, so that Swift can work around it.
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift\-drive\-audit
+and also about OpenStack Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+and 
+.BI http://docs.openstack.org
