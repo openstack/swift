@@ -1157,7 +1157,7 @@ class TestObjectController(unittest.TestCase):
                           'name': '/a/c/o',
                           'Content-Encoding': 'gzip'})
 
-    def test_PUT_overwrite_to_older_ts_succcess(self):
+    def test_PUT_overwrite_to_older_ts_success(self):
         old_timestamp = next(self.ts)
         new_timestamp = next(self.ts)
 
