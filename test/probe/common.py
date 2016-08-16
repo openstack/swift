@@ -266,6 +266,11 @@ def get_policy(**kwargs):
 def resetswift():
     p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
+    if p.returncode:
+        raise AssertionError(
+            'Cleanup with "resetswift" failed: stdout: %s, stderr: %s'
+            % (stdout, _stderr))
+
     print(stdout)
     Manager(['all']).stop()
 
