@@ -840,13 +840,22 @@ multipart-manifest_1:
   in: query
   required: false
   type: string
-multipart-manifest_2:
+multipart-manifest_get:
   description: |
     If you include the ``multipart-manifest=get``
     query parameter and the object is a large object, the object
     contents are not returned. Instead, the manifest is returned in
     the ``X-Object-Manifest`` response header for dynamic large
     objects or in the response body for static large objects.
+  in: query
+  required: false
+  type: string
+multipart-manifest_head:
+  description: |
+    If you include the ``multipart-manifest=get`` query parameter and the
+    object is a large object, the object metadata is not returned. Instead, the
+    response headers will include the manifest metadata and for dynamic large
+    objects the ``X-Object-Manifest`` response header.
   in: query
   required: false
   type: string
