@@ -57,12 +57,6 @@ class TestAccountReaper(ReplProbeTest):
         for node in nodes:
             direct_delete_account(node, part, self.account)
 
-    def test_sync(self):
-        # run the reaper
-        Manager(['account-reaper']).once()
-
-        self._verify_account_reaped()
-
     def _verify_account_reaped(self):
         for policy, container, obj in self.all_objects:
             # verify that any container deletes were at same timestamp
@@ -152,6 +146,12 @@ class TestAccountReaper(ReplProbeTest):
                               (self.account, container, obj, node, policy))
             self.assertEqual(1, len(delete_times))
 
+    def test_reap(self):
+        # run the reaper
+        Manager(['account-reaper']).once()
+
+        self._verify_account_reaped()
+
     def test_delayed_reap(self):
         # define reapers which are supposed to operate 3 seconds later
         account_reapers = []
@@ -174,7 +174,8 @@ class TestAccountReaper(ReplProbeTest):
                     direct_head_container(cnode, cpart, self.account,
                                           container)
                 except ClientException:
-                    self.fail("Nothing should be reaped. Object should exist")
+                    self.fail(
+                        "Nothing should be reaped. Container should exist")
 
             part, nodes = policy.object_ring.get_nodes(self.account,
                                                        container, obj)
