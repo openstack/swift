@@ -1242,6 +1242,8 @@ class TestWSGIContext(unittest.TestCase):
     def test_app_iter_is_closable(self):
 
         def app(env, start_response):
+            yield ''
+            yield ''
             start_response('200 OK', [('Content-Length', '25')])
             yield 'aaaaa'
             yield 'bbbbb'
