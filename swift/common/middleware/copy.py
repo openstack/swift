@@ -489,8 +489,9 @@ class ServerSideCopyMiddleware(object):
                 params['multipart-manifest'] = 'put'
             if 'X-Object-Manifest' in source_resp.headers:
                 del params['multipart-manifest']
-                sink_req.headers['X-Object-Manifest'] = \
-                    source_resp.headers['X-Object-Manifest']
+                if 'swift.post_as_copy' not in sink_req.environ:
+                    sink_req.headers['X-Object-Manifest'] = \
+                        source_resp.headers['X-Object-Manifest']
             sink_req.params = params
 
         # Set data source, content length and etag for the PUT request
