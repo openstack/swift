@@ -22,7 +22,6 @@ import inspect
 import os
 import signal
 import time
-import mimetools
 from swift import gettext_ as _
 from textwrap import dedent
 
@@ -35,6 +34,8 @@ import six
 from six import BytesIO
 from six import StringIO
 from six.moves.urllib.parse import unquote
+if six.PY2:
+    import mimetools
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
@@ -147,6 +148,9 @@ def monkey_patch_mimetools():
     mimetools.Message defaults content-type to "text/plain"
     This changes it to default to None, so we can detect missing headers.
     """
+    if six.PY3:
+        # The mimetools has been removed from Python 3
+        return
 
     orig_parsetype = mimetools.Message.parsetype
 
