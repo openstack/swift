@@ -1,3 +1,5 @@
 #!/bin/bash
 
+set -e
+
 swift-init rest start

@@ -1,33 +1,22 @@
 #!/bin/bash
 
+set -e
+
 TOP_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
 
 echo "==== Unit tests ===="
 resetswift
 $TOP_DIR/.unittests $@
-rvalue=$?
-if [ $rvalue != 0 ] ; then
-    exit $rvalue
-fi
 
 echo "==== Func tests ===="
 resetswift
 startmain
 $TOP_DIR/.functests $@
-rvalue=$?
-if [ $rvalue != 0 ] ; then
-    exit $rvalue
-fi
 
 echo "==== Probe tests ===="
 resetswift
 $TOP_DIR/.probetests $@
-rvalue=$?
-if [ $rvalue != 0 ] ; then
-    exit $rvalue
-fi
 
 echo "All tests runs fine"
 
 exit 0
-
