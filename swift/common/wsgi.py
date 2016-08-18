@@ -877,6 +877,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         print(e)
         return 1
 
+    # optional nice/ionice priority scheduling
+    utils.modify_priority(conf, logger)
+
     servers_per_port = int(conf.get('servers_per_port', '0') or 0)
 
     # NOTE: for now servers_per_port is object-server-only; future work could

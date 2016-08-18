@@ -125,6 +125,18 @@ You can set fallocate_reserve to the number of bytes or percentage of disk
 space you'd like fallocate to reserve, whether there is space for the given
 file size or not. Percentage will be used if the value ends with a '%'.
 The default is 1%.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 .PD
 
@@ -172,6 +184,18 @@ To handle all verbs, including replication verbs, do not specify
 set to a true value (e.g. "true" or "1"). To handle only non-replication
 verbs, set to "false". Unless you have a separate replication network, you
 should not specify any value for "replication_server". The default is empty.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 .PD
 
@@ -281,6 +305,18 @@ Format of the rysnc module where the replicator will send data. See
 etc/rsyncd.conf-sample for some usage examples.
 .IP \fBrecon_cache_path\fR
 Path to recon cache directory. The default is /var/cache/swift.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 
 
@@ -303,6 +339,18 @@ Will audit, at most, 1 account per device per interval. The default is 1800 seco
 Maximum accounts audited per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 200.
 .IP \fBrecon_cache_path\fR
 Path to recon cache directory. The default is /var/cache/swift.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 
 
@@ -339,6 +387,18 @@ You can search logs for this message if space is not being reclaimed
 after you delete account(s).
 Default is 2592000 seconds (30 days). This is in addition to any time
 requested by delay_reaping.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 .PD
 

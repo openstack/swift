@@ -57,6 +57,18 @@ bind_port = 6201
 # space you'd like fallocate to reserve, whether there is space for the given
 # file size or not. Percentage will be used if the value ends with a '%'.
 # fallocate_reserve = 1%
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [pipeline:main]
 pipeline = healthcheck recon container-server
@@ -82,6 +94,18 @@ use = egg:swift#container
 # verbs, set to "False". Unless you have a separate replication network, you
 # should not specify any value for "replication_server".
 # replication_server = false
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
@@ -136,6 +160,18 @@ use = egg:swift#recon
 # rsync_module = {replication_ip}::container
 #
 # recon_cache_path = /var/cache/swift
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [container-updater]
 # You can override the default log routing for this app here (don't use set!):
@@ -156,6 +192,18 @@ use = egg:swift#recon
 # account_suppression_time = 60
 #
 # recon_cache_path = /var/cache/swift
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [container-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -169,6 +217,18 @@ use = egg:swift#recon
 #
 # containers_per_second = 200
 # recon_cache_path = /var/cache/swift
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [container-sync]
 # You can override the default log routing for this app here (don't use set!):
@@ -195,6 +255,18 @@ use = egg:swift#recon
 #
 # Internal client config file path
 # internal_client_conf_path = /etc/swift/internal-client.conf
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 # Note: Put it at the beginning of the pipeline to profile all middleware. But
 # it is safer to put this after healthcheck.
