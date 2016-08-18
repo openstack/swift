@@ -256,16 +256,12 @@ class VersionedWritesContext(WSGIContext):
             yield sublisting
 
     def _get_source_object(self, req, path_info):
-        # make a GET request to check object versions
-        _headers = {'X-Newest': 'True',
-                    'x-auth-token': req.headers.get('x-auth-token')}
-
         # make a pre_auth request in case the user has write access
         # to container, but not READ. This was allowed in previous version
         # (i.e., before middleware) so keeping the same behavior here
         get_req = make_pre_authed_request(
             req.environ, path=path_info,
-            headers=_headers, method='GET', swift_source='VW')
+            headers={'X-Newest': 'True'}, method='GET', swift_source='VW')
         source_resp = get_req.get_response(self.app)
 
         if source_resp.content_length is None or \
@@ -282,7 +278,6 @@ class VersionedWritesContext(WSGIContext):
             swift_source='VW')
         copy_header_subset(source_resp, put_req,
                            lambda k: k.lower() != 'x-timestamp')
-        put_req.headers['x-auth-token'] = req.headers.get('x-auth-token')
         put_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         return put_req.get_response(self.app)
 
