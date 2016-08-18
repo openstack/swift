@@ -2668,6 +2668,41 @@ class TestDlo(Base):
             contents,
             "ffffffffffgggggggggghhhhhhhhhhiiiiiiiiiijjjjjjjjjj")
 
+    def test_dlo_post_with_manifest_header(self):
+        # verify that performing a POST to a DLO manifest
+        # preserves the fact that it is a manifest file.
+
+        # create a new manifest for this test to avoid test coupling.
+        x_o_m = self.env.container.file('man1').info()['x_object_manifest']
+        file_item = self.env.container.file(Utils.create_name())
+        file_item.write('manifest-contents', hdrs={"X-Object-Manifest": x_o_m})
+
+        # sanity checks
+        manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual('manifest-contents', manifest_contents)
+        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        contents = file_item.read(parms={})
+        self.assertEqual(expected_contents, contents)
+
+        # POST to the manifest file
+        # include the x-object-manifest in case running with fast-post
+        file_item.post({'x-object-meta-foo': 'bar',
+                        'x-object-manifest': x_o_m})
+
+        # Verify x-object-manifest still intact
+        file_item.info()
+        resp_headers = file_item.conn.response.getheaders()
+        self.assertIn(('x-object-manifest', x_o_m), resp_headers)
+        self.assertIn(('x-object-meta-foo', 'bar'), resp_headers)
+
+        # verify that manifest content was not changed
+        manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual('manifest-contents', manifest_contents)
+
+        # verify that manifest still points to original content
+        contents = file_item.read(parms={})
+        self.assertEqual(expected_contents, contents)
+
 
 class TestDloUTF8(Base2, TestDlo):
     set_up = False
