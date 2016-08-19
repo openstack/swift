@@ -119,15 +119,15 @@ class TestObjectSysmeta(unittest.TestCase):
 
     def _assertInHeaders(self, resp, expected):
         for key, val in expected.items():
-            self.assertTrue(key in resp.headers,
-                            'Header %s missing from %s' % (key, resp.headers))
+            self.assertIn(key, resp.headers,
+                          'Header %s missing from %s' % (key, resp.headers))
             self.assertEqual(val, resp.headers[key],
                              'Expected header %s:%s, got %s:%s'
                              % (key, val, key, resp.headers[key]))
 
     def _assertNotInHeaders(self, resp, unexpected):
         for key, val in unexpected.items():
-            self.assertFalse(key in resp.headers,
+            self.assertNotIn(key, resp.headers,
                              'Header %s not expected in %s'
                              % (key, resp.headers))
 

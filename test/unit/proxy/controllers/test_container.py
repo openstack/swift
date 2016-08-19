@@ -122,7 +122,7 @@ class TestContainerController(TestRingBase):
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
-            self.assertTrue(key not in resp.headers)
+            self.assertNotIn(key, resp.headers)
 
         req = Request.blank('/v1/a/c', environ={'swift_owner': True})
         with mock.patch('swift.proxy.controllers.base.http_connect',
@@ -130,7 +130,7 @@ class TestContainerController(TestRingBase):
             resp = controller.HEAD(req)
         self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
-            self.assertTrue(key in resp.headers)
+            self.assertIn(key, resp.headers)
 
     def test_sys_meta_headers_PUT(self):
         # check that headers in sys meta namespace make it through
@@ -150,9 +150,9 @@ class TestContainerController(TestRingBase):
                         fake_http_connect(200, 200, give_connect=callback)):
             controller.PUT(req)
         self.assertEqual(context['method'], 'PUT')
-        self.assertTrue(sys_meta_key in context['headers'])
+        self.assertIn(sys_meta_key, context['headers'])
         self.assertEqual(context['headers'][sys_meta_key], 'foo')
-        self.assertTrue(user_meta_key in context['headers'])
+        self.assertIn(user_meta_key, context['headers'])
         self.assertEqual(context['headers'][user_meta_key], 'bar')
         self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
 
@@ -173,9 +173,9 @@ class TestContainerController(TestRingBase):
                         fake_http_connect(200, 200, give_connect=callback)):
             controller.POST(req)
         self.assertEqual(context['method'], 'POST')
-        self.assertTrue(sys_meta_key in context['headers'])
+        self.assertIn(sys_meta_key, context['headers'])
         self.assertEqual(context['headers'][sys_meta_key], 'foo')
-        self.assertTrue(user_meta_key in context['headers'])
+        self.assertIn(user_meta_key, context['headers'])
         self.assertEqual(context['headers'][user_meta_key], 'bar')
         self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
 
