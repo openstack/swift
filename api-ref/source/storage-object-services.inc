@@ -103,7 +103,7 @@ Request
    - temp_url_sig: temp_url_sig
    - temp_url_expires: temp_url_expires
    - filename: filename
-   - multipart-manifest: multipart-manifest
+   - multipart-manifest: multipart-manifest_get
    - Range: Range
    - If-Match: If-Match
    - If-None-Match: If-None-Match
@@ -524,6 +524,7 @@ Request
    - temp_url_sig: temp_url_sig
    - temp_url_expires: temp_url_expires
    - filename: filename
+   - multipart-manifest: multipart-manifest_head
    - X-Newest: X-Newest
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
