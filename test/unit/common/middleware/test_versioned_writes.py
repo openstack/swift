@@ -402,8 +402,12 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
+        # Versioned writes middleware now calls auth on the incoming request
+        # before we try the GET and then at the proxy, so there are 2
+        # atuhorized for the same request.
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertRequestEqual(req, self.authorized[1])
         self.assertEqual(2, self.app.call_count)
         self.assertEqual(['VW', None], self.app.swift_sources)
         self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
@@ -456,8 +460,12 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 1)
+        # The middleware now auths the request before the inital GET, the
+        # same GET that gets the X-Object-Manifest back. So a second auth is
+        # now done.
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
+        self.assertRequestEqual(req, self.authorized[1])
         self.assertEqual(2, self.app.call_count)
 
     def test_delete_object_no_versioning_with_container_config_true(self):
@@ -497,7 +505,9 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 1)
+        # authorized twice now because versioned_writes now makes a check on
+        # PUT
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
         self.assertEqual(['VW', 'VW', None], self.app.swift_sources)
         self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
@@ -577,7 +587,9 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
-        self.assertEqual(len(self.authorized), 1)
+        # authorized twice now because versioned_writes now makes a check on
+        # PUT
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
         # check that sysmeta header was used
@@ -869,7 +881,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '0'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '404 Not Found')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
 
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
@@ -903,7 +915,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '204 No Content')
         self.assertEqual('', body)
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
 
         req.environ['REQUEST_METHOD'] = 'PUT'
         self.assertRequestEqual(req, self.authorized[0])
@@ -1043,6 +1055,32 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', prefix_listing_prefix + 'marker=&reverse=on'),
         ])
+
+    def test_denied_PUT_of_versioned_object(self):
+        authorize_call = []
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT'}, 'passed')
+
+        def fake_authorize(req):
+            # we should deny the object PUT
+            authorize_call.append(req)
+            return swob.HTTPForbidden()
+
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
+                     'swift.authorize': fake_authorize,
+                     'CONTENT_LENGTH': '0'})
+        # Save off a copy, as the middleware may modify the original
+        expected_req = Request(req.environ.copy())
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '403 Forbidden')
+        self.assertEqual(len(authorize_call), 1)
+        self.assertRequestEqual(expected_req, authorize_call[0])
+
+        self.assertEqual(self.app.calls, [])
 
 
 class VersionedWritesOldContainersTestCase(VersionedWritesBaseTestCase):
@@ -1379,11 +1417,17 @@ class VersionedWritesCopyingTestCase(VersionedWritesBaseTestCase):
             headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_filter(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual(len(self.authorized), 3)
         self.assertEqual('GET', self.authorized[0].method)
         self.assertEqual('/v1/a/src_cont/src_obj', self.authorized[0].path)
+        # At the moment we are calling authorize on the incoming request in
+        # the middleware before we do the PUT (and the source GET) and again
+        # on the incoming request when it gets to the proxy. So the 2nd and
+        # 3rd auths look the same.
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/tgt_cont/tgt_obj', self.authorized[1].path)
+        self.assertEqual('PUT', self.authorized[2].method)
+        self.assertEqual('/v1/a/tgt_cont/tgt_obj', self.authorized[2].path)
         # note the GET on tgt_cont/tgt_obj is pre-authed
         self.assertEqual(3, self.app.call_count, self.app.calls)
 
@@ -1407,7 +1451,7 @@ class VersionedWritesCopyingTestCase(VersionedWritesBaseTestCase):
             headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_filter(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual(len(self.authorized), 3)
         self.assertEqual('GET', self.authorized[0].method)
         self.assertEqual('/v1/a/src_cont/src_obj', self.authorized[0].path)
         self.assertEqual('PUT', self.authorized[1].method)
@@ -1435,7 +1479,7 @@ class VersionedWritesCopyingTestCase(VersionedWritesBaseTestCase):
                      'Destination-Account': 'tgt_a'})
         status, headers, body = self.call_filter(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual(len(self.authorized), 3)
         self.assertEqual('GET', self.authorized[0].method)
         self.assertEqual('/v1/src_a/src_cont/src_obj', self.authorized[0].path)
         self.assertEqual('PUT', self.authorized[1].method)
