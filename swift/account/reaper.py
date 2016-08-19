@@ -84,6 +84,7 @@ class AccountReaper(Daemon):
         reap_warn_after = float(conf.get('reap_warn_after') or 86400 * 30)
         self.reap_not_done_after = reap_warn_after + self.delay_reaping
         self.start_time = time()
+        self.reset_stats()
 
     def get_account_ring(self):
         """The account :class:`swift.common.ring.Ring` for the cluster."""
