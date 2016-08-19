@@ -94,12 +94,14 @@ Modify scheduling priority of server processes. Niceness values range from -20
 The default does not modify priority.
 .IP \fBionice_class\fR
 Modify I/O scheduling class of server processes. I/O niceness class values
-are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
 Work only with ionice_priority.
 .IP \fBionice_priority\fR
 Modify I/O scheduling priority of server processes. I/O niceness priority
 is a number which goes from 0 to 7. The higher the value, the lower
 the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
@@ -133,12 +135,14 @@ Modify scheduling priority of server processes. Niceness values range from -20
 The default does not modify priority.
 .IP \fBionice_class\fR
 Modify I/O scheduling class of server processes. I/O niceness class values
-are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
 Work only with ionice_priority.
 .IP \fBionice_priority\fR
 Modify I/O scheduling priority of server processes. I/O niceness priority
 is a number which goes from 0 to 7. The higher the value, the lower
 the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 

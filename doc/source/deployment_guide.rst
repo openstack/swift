@@ -521,8 +521,9 @@ nice_priority                    None        Scheduling priority of server proce
                                              favorable to the process). The default
                                              does not modify priority.
 ionice_class                     None        I/O scheduling class of server processes.
-                                             I/O niceness class values are IOPRIO_CLASS_RT,
-                                             IOPRIO_CLASS_BE, and IOPRIO_CLASS_IDLE.
+                                             I/O niceness class values are IOPRIO_CLASS_RT
+                                             (realtime), IOPRIO_CLASS_BE (best-effort),
+                                             and IOPRIO_CLASS_IDLE (idle).
                                              The default does not modify class and
                                              priority. Linux supports io scheduling
                                              priorities and classes since 2.6.13 with
@@ -534,6 +535,7 @@ ionice_priority                  None        I/O scheduling priority of server
                                              The higher the value, the lower the I/O
                                              priority of the process. Work only with
                                              ionice_class.
+                                             Ignored if IOPRIO_CLASS_IDLE is set.
 ================================ ==========  ==========================================
 
 .. _object-server-options:
@@ -618,6 +620,27 @@ splice                         no                     Use splice() for zero-copy
                                                       will appear in the object server
                                                       logs at startup, but your object
                                                       servers should continue to function.
+nice_priority                  None                   Scheduling priority of server processes.
+                                                      Niceness values range from -20 (most
+                                                      favorable to the process) to 19 (least
+                                                      favorable to the process). The default
+                                                      does not modify priority.
+ionice_class                   None                   I/O scheduling class of server processes.
+                                                      I/O niceness class values are IOPRIO_CLASS_RT
+                                                      (realtime), IOPRIO_CLASS_BE (best-effort),
+                                                      and IOPRIO_CLASS_IDLE (idle).
+                                                      The default does not modify class and
+                                                      priority. Linux supports io scheduling
+                                                      priorities and classes since 2.6.13 with
+                                                      the CFQ io scheduler.
+                                                      Work only with ionice_priority.
+ionice_priority                None                   I/O scheduling priority of server
+                                                      processes. I/O niceness priority is
+                                                      a number which goes from 0 to 7.
+                                                      The higher the value, the lower the I/O
+                                                      priority of the process. Work only with
+                                                      ionice_class.
+                                                      Ignored if IOPRIO_CLASS_IDLE is set.
 =============================  ====================== ===============================================
 
 [object-replicator]
@@ -710,6 +733,33 @@ rsync_error_log_line_length  0                         Limits how long rsync err
 ring_check_interval          15                        Interval for checking new ring
                                                        file
 recon_cache_path             /var/cache/swift          Path to recon cache
+nice_priority                None                      Scheduling priority of server
+                                                       processes. Niceness values
+                                                       range from -20 (most favorable
+                                                       to the process) to 19 (least
+                                                       favorable to the process).
+                                                       The default does not modify
+                                                       priority.
+ionice_class                 None                      I/O scheduling class of server
+                                                       processes. I/O niceness class
+                                                       values are IOPRIO_CLASS_RT (realtime),
+                                                       IOPRIO_CLASS_BE (best-effort),
+                                                       and IOPRIO_CLASS_IDLE (idle).
+                                                       The default does not modify
+                                                       class and priority.
+                                                       Linux supports io scheduling
+                                                       priorities and classes since
+                                                       2.6.13 with the CFQ io scheduler.
+                                                       Work only with ionice_priority.
+ionice_priority              None                      I/O scheduling priority of server
+                                                       processes. I/O niceness priority
+                                                       is a number which goes from
+                                                       0 to 7. The higher the value,
+                                                       the lower the I/O priority of
+                                                       the process.
+                                                       Work only with ionice_class.
+                                                       Ignored if IOPRIO_CLASS_IDLE
+                                                       is set.
 ===========================  ========================  ================================
 
 [object-updater]
@@ -729,6 +779,27 @@ node_timeout        DEFAULT or 10       Request timeout to external services. Th
                                         sections use 3 as the final default).
 slowdown            0.01                Time in seconds to wait between objects
 recon_cache_path    /var/cache/swift    Path to recon cache
+nice_priority       None                Scheduling priority of server processes.
+                                        Niceness values range from -20 (most
+                                        favorable to the process) to 19 (least
+                                        favorable to the process). The default
+                                        does not modify priority.
+ionice_class        None                I/O scheduling class of server processes.
+                                        I/O niceness class values are IOPRIO_CLASS_RT
+                                        (realtime), IOPRIO_CLASS_BE (best-effort),
+                                        and IOPRIO_CLASS_IDLE (idle).
+                                        The default does not modify class and
+                                        priority. Linux supports io scheduling
+                                        priorities and classes since 2.6.13 with
+                                        the CFQ io scheduler.
+                                        Work only with ionice_priority.
+ionice_priority     None                I/O scheduling priority of server
+                                        processes. I/O niceness priority is
+                                        a number which goes from 0 to 7.
+                                        The higher the value, the lower the I/O
+                                        priority of the process. Work only with
+                                        ionice_class.
+                                        Ignored if IOPRIO_CLASS_IDLE is set.
 ==================  =================== ==========================================
 
 [object-auditor]
@@ -760,6 +831,27 @@ rsync_tempfile_timeout      auto                Time elapsed in seconds before r
                                                 of "auto" try to use object-replicator's
                                                 rsync_timeout + 900 or fallback to 86400
                                                 (1 day).
+nice_priority               None                Scheduling priority of server processes.
+                                                Niceness values range from -20 (most
+                                                favorable to the process) to 19 (least
+                                                favorable to the process). The default
+                                                does not modify priority.
+ionice_class                None                I/O scheduling class of server processes.
+                                                I/O niceness class values are IOPRIO_CLASS_RT
+                                                (realtime), IOPRIO_CLASS_BE (best-effort),
+                                                and IOPRIO_CLASS_IDLE (idle).
+                                                The default does not modify class and
+                                                priority. Linux supports io scheduling
+                                                priorities and classes since 2.6.13 with
+                                                the CFQ io scheduler.
+                                                Work only with ionice_priority.
+ionice_priority             None                I/O scheduling priority of server
+                                                processes. I/O niceness priority is
+                                                a number which goes from 0 to 7.
+                                                The higher the value, the lower the I/O
+                                                priority of the process. Work only with
+                                                ionice_class.
+                                                Ignored if IOPRIO_CLASS_IDLE is set.
 =========================== =================== ==========================================
 
 ------------------------------
@@ -846,8 +938,9 @@ nice_priority                    None        Scheduling priority of server proce
                                              favorable to the process). The default
                                              does not modify priority.
 ionice_class                     None        I/O scheduling class of server processes.
-                                             I/O niceness class values are IOPRIO_CLASS_RT,
-                                             IOPRIO_CLASS_BE, and IOPRIO_CLASS_IDLE.
+                                             I/O niceness class values are IOPRIO_CLASS_RT
+                                             (realtime), IOPRIO_CLASS_BE (best-effort),
+                                             and IOPRIO_CLASS_IDLE (idle).
                                              The default does not modify class and
                                              priority. Linux supports io scheduling
                                              priorities and classes since 2.6.13
@@ -858,6 +951,7 @@ ionice_priority                  None        I/O scheduling priority of server p
                                              goes from 0 to 7. The higher the value,
                                              the lower the I/O priority of the process.
                                              Work only with ionice_class.
+                                             Ignored if IOPRIO_CLASS_IDLE is set.
 ===============================  ==========  ============================================
 
 [container-server]
@@ -890,6 +984,28 @@ replication_server                                Configure parameter for creati
                                                   have a separate replication network, you
                                                   should not specify any value for
                                                   "replication_server".
+nice_priority                   None              Scheduling priority of server processes.
+                                                  Niceness values range from -20 (most
+                                                  favorable to the process) to 19 (least
+                                                  favorable to the process). The default
+                                                  does not modify priority.
+ionice_class                    None              I/O scheduling class of server processes.
+                                                  I/O niceness class values are
+                                                  IOPRIO_CLASS_RT (realtime),
+                                                  IOPRIO_CLASS_BE (best-effort),
+                                                  and IOPRIO_CLASS_IDLE (idle).
+                                                  The default does not modify class and
+                                                  priority. Linux supports io scheduling
+                                                  priorities and classes since 2.6.13 with
+                                                  the CFQ io scheduler.
+                                                  Work only with ionice_priority.
+ionice_priority                 None              I/O scheduling priority of server
+                                                  processes. I/O niceness priority is
+                                                  a number which goes from 0 to 7.
+                                                  The higher the value, the lower the I/O
+                                                  priority of the process. Work only with
+                                                  ionice_class.
+                                                  Ignored if IOPRIO_CLASS_IDLE is set.
 ==============================  ================  ========================================
 
 [container-replicator]
@@ -952,6 +1068,35 @@ rsync_compress      no                           Allow rsync to compress data
                                                  example: .tar.gz, mp3) might
                                                  slow down the syncing process.
 recon_cache_path    /var/cache/swift             Path to recon cache
+nice_priority       None                         Scheduling priority of server
+                                                 processes. Niceness values
+                                                 range from -20 (most favorable
+                                                 to the process) to 19 (least
+                                                 favorable to the process).
+                                                 The default does not modify
+                                                 priority.
+ionice_class        None                         I/O scheduling class of server
+                                                 processes. I/O niceness class
+                                                 values are
+                                                 IOPRIO_CLASS_RT (realtime),
+                                                 IOPRIO_CLASS_BE (best-effort),
+                                                 and IOPRIO_CLASS_IDLE (idle).
+                                                 The default does not modify
+                                                 class and priority. Linux
+                                                 supports io scheduling
+                                                 priorities and classes since
+                                                 2.6.13 with the CFQ io
+                                                 scheduler.
+                                                 Work only with ionice_priority.
+ionice_priority     None                         I/O scheduling priority of
+                                                 server processes. I/O niceness
+                                                 priority is a number which goes
+                                                 from 0 to 7.
+                                                 The higher the value, the lower
+                                                 the I/O priority of the process.
+                                                 Work only with ionice_class.
+                                                 Ignored if IOPRIO_CLASS_IDLE
+                                                 is set.
 ==================  ===========================  =============================
 
 [container-updater]
@@ -976,6 +1121,29 @@ account_suppression_time  60                 Seconds to suppress updating an
                                              error (timeout, not yet found,
                                              etc.)
 recon_cache_path          /var/cache/swift   Path to recon cache
+nice_priority             None               Scheduling priority of server
+                                             processes. Niceness values range
+                                             from -20 (most favorable to the
+                                             process) to 19 (least favorable
+                                             to the process). The default does
+                                             not modify priority.
+ionice_class              None               I/O scheduling class of server
+                                             processes. I/O niceness class
+                                             values are IOPRIO_CLASS_RT (realtime),
+                                             IOPRIO_CLASS_BE (best-effort),
+                                             and IOPRIO_CLASS_IDLE (idle).
+                                             The default does not modify class and
+                                             priority. Linux supports io scheduling
+                                             priorities and classes since 2.6.13 with
+                                             the CFQ io scheduler.
+                                             Work only with ionice_priority.
+ionice_priority           None               I/O scheduling priority of server
+                                             processes. I/O niceness priority is
+                                             a number which goes from 0 to 7.
+                                             The higher the value, the lower
+                                             the I/O priority of the process.
+                                             Work only with ionice_class.
+                                             Ignored if IOPRIO_CLASS_IDLE is set.
 ========================  =================  ==================================
 
 [container-auditor]
@@ -992,6 +1160,28 @@ containers_per_second  200                Maximum containers audited per second.
                                           Should be tuned according to individual
                                           system specs. 0 is unlimited.
 recon_cache_path       /var/cache/swift   Path to recon cache
+nice_priority          None               Scheduling priority of server processes.
+                                          Niceness values range from -20 (most
+                                          favorable to the process) to 19 (least
+                                          favorable to the process). The default
+                                          does not modify priority.
+ionice_class           None               I/O scheduling class of server processes.
+                                          I/O niceness class values are
+                                          IOPRIO_CLASS_RT (realtime),
+                                          IOPRIO_CLASS_BE (best-effort),
+                                          and IOPRIO_CLASS_IDLE (idle).
+                                          The default does not modify class and
+                                          priority. Linux supports io scheduling
+                                          priorities and classes since 2.6.13 with
+                                          the CFQ io scheduler.
+                                          Work only with ionice_priority.
+ionice_priority        None               I/O scheduling priority of server
+                                          processes. I/O niceness priority is
+                                          a number which goes from 0 to 7.
+                                          The higher the value, the lower the I/O
+                                          priority of the process. Work only with
+                                          ionice_class.
+                                          Ignored if IOPRIO_CLASS_IDLE is set.
 =====================  =================  =======================================
 
 ----------------------------
@@ -1078,8 +1268,9 @@ nice_priority                    None        Scheduling priority of server proce
                                              favorable to the process). The default
                                              does not modify priority.
 ionice_class                     None        I/O scheduling class of server processes.
-                                             I/O niceness class values are IOPRIO_CLASS_RT,
-                                             IOPRIO_CLASS_BE, and IOPRIO_CLASS_IDLE.
+                                             I/O niceness class values are IOPRIO_CLASS_RT
+                                             (realtime), IOPRIO_CLASS_BE (best-effort),
+                                             and IOPRIO_CLASS_IDLE (idle).
                                              The default does not modify class and
                                              priority. Linux supports io scheduling
                                              priorities and classes since 2.6.13 with
@@ -1090,6 +1281,7 @@ ionice_priority                  None        I/O scheduling priority of server p
                                              goes from 0 to 7. The higher the value,
                                              the lower the I/O priority of the process.
                                              Work only with ionice_class.
+                                             Ignored if IOPRIO_CLASS_IDLE is set.
 ===============================  ==========  =============================================
 
 [account-server]
@@ -1120,6 +1312,27 @@ replication_server                             Configure parameter for creating
                                                have a separate replication network, you
                                                should not specify any value for
                                                "replication_server".
+nice_priority                  None            Scheduling priority of server processes.
+                                               Niceness values range from -20 (most
+                                               favorable to the process) to 19 (least
+                                               favorable to the process). The default
+                                               does not modify priority.
+ionice_class                   None            I/O scheduling class of server processes.
+                                               I/O niceness class values are IOPRIO_CLASS_RT
+                                               (realtime), IOPRIO_CLASS_BE (best-effort),
+                                               and IOPRIO_CLASS_IDLE (idle).
+                                               The default does not modify class and
+                                               priority. Linux supports io scheduling
+                                               priorities and classes since 2.6.13 with
+                                               the CFQ io scheduler.
+                                               Work only with ionice_priority.
+ionice_priority                None            I/O scheduling priority of server
+                                               processes. I/O niceness priority is
+                                               a number which goes from 0 to 7.
+                                               The higher the value, the lower the I/O
+                                               priority of the process. Work only with
+                                               ionice_class.
+                                               Ignored if IOPRIO_CLASS_IDLE is set.
 =============================  ==============  ==========================================
 
 [account-replicator]
@@ -1180,6 +1393,32 @@ rsync_compress      no                         Allow rsync to compress data
                                                .tar.gz, mp3) might slow down
                                                the syncing process.
 recon_cache_path    /var/cache/swift           Path to recon cache
+nice_priority       None                       Scheduling priority of server
+                                               processes. Niceness values
+                                               range from -20 (most favorable
+                                               to the process) to 19 (least
+                                               favorable to the process).
+                                               The default does not modify
+                                               priority.
+ionice_class        None                       I/O scheduling class of server
+                                               processes. I/O niceness class
+                                               values are IOPRIO_CLASS_RT
+                                               (realtime), IOPRIO_CLASS_BE
+                                               (best-effort), and IOPRIO_CLASS_IDLE
+                                               (idle).
+                                               The default does not modify
+                                               class and priority. Linux supports
+                                               io scheduling priorities and classes
+                                               since 2.6.13 with the CFQ io scheduler.
+                                               Work only with ionice_priority.
+ionice_priority     None                       I/O scheduling priority of server
+                                               processes. I/O niceness priority
+                                               is a number which goes from 0 to 7.
+                                               The higher the value, the lower
+                                               the I/O priority of the process.
+                                               Work only with ionice_class.
+                                               Ignored if IOPRIO_CLASS_IDLE
+                                               is set.
 ==================  =========================  ===============================
 
 [account-auditor]
@@ -1196,6 +1435,28 @@ accounts_per_second   200               Maximum accounts audited per second.
                                         Should be tuned according to individual
                                         system specs. 0 is unlimited.
 recon_cache_path      /var/cache/swift  Path to recon cache
+nice_priority         None              Scheduling priority of server processes.
+                                        Niceness values range from -20 (most
+                                        favorable to the process) to 19 (least
+                                        favorable to the process). The default
+                                        does not modify priority.
+ionice_class          None              I/O scheduling class of server processes.
+                                        I/O niceness class values are
+                                        IOPRIO_CLASS_RT (realtime),
+                                        IOPRIO_CLASS_BE (best-effort),
+                                        and IOPRIO_CLASS_IDLE (idle).
+                                        The default does not modify class and
+                                        priority. Linux supports io scheduling
+                                        priorities and classes since 2.6.13 with
+                                        the CFQ io scheduler.
+                                        Work only with ionice_priority.
+ionice_priority       None              I/O scheduling priority of server
+                                        processes. I/O niceness priority is
+                                        a number which goes from 0 to 7.
+                                        The higher the value, the lower the I/O
+                                        priority of the process. Work only with
+                                        ionice_class.
+                                        Ignored if IOPRIO_CLASS_IDLE is set.
 ====================  ================  =======================================
 
 [account-reaper]
@@ -1224,6 +1485,27 @@ reap_warn_after     2892000          If the account fails to be be reaped due
                                      space is not being reclaimed after you
                                      delete account(s). This is in addition to
                                      any time requested by delay_reaping.
+nice_priority       None             Scheduling priority of server processes.
+                                     Niceness values range from -20 (most
+                                     favorable to the process) to 19 (least
+                                     favorable to the process). The default
+                                     does not modify priority.
+ionice_class        None             I/O scheduling class of server processes.
+                                     I/O niceness class values are IOPRIO_CLASS_RT
+                                     (realtime), IOPRIO_CLASS_BE (best-effort),
+                                     and IOPRIO_CLASS_IDLE (idle).
+                                     The default does not modify class and
+                                     priority. Linux supports io scheduling
+                                     priorities and classes since 2.6.13 with
+                                     the CFQ io scheduler.
+                                     Work only with ionice_priority.
+ionice_priority     None             I/O scheduling priority of server
+                                     processes. I/O niceness priority is
+                                     a number which goes from 0 to 7.
+                                     The higher the value, the lower the I/O
+                                     priority of the process. Work only with
+                                     ionice_class.
+                                     Ignored if IOPRIO_CLASS_IDLE is set.
 ==================  ===============  =========================================
 
 .. _proxy-server-config:
@@ -1339,8 +1621,9 @@ nice_priority                         None                      Scheduling prior
                                                                 does not modify priority.
 ionice_class                          None                      I/O scheduling class of server
                                                                 processes. I/O niceness class values
-                                                                are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and
-                                                                IOPRIO_CLASS_IDLE.
+                                                                are IOPRIO_CLASS_RT (realtime),
+                                                                IOPRIO_CLASS_BE (best-effort) and
+                                                                IOPRIO_CLASS_IDLE (idle).
                                                                 The default does not
                                                                 modify class and priority. Linux
                                                                 supports io scheduling priorities
@@ -1353,6 +1636,7 @@ ionice_priority                       None                      I/O scheduling p
                                                                 The higher the value, the lower
                                                                 the I/O priority of the process.
                                                                 Work only with ionice_class.
+                                                                Ignored if IOPRIO_CLASS_IDLE is set.
 ====================================  ========================  ========================================
 
 [proxy-server]
@@ -1479,6 +1763,29 @@ concurrency_timeout           conn_timeout     This parameter controls how long
                                                firing of the threads. This number
                                                should be between 0 and node_timeout.
                                                The default is conn_timeout (0.5).
+nice_priority                 None             Scheduling priority of server
+                                               processes.
+                                               Niceness values range from -20 (most
+                                               favorable to the process) to 19 (least
+                                               favorable to the process). The default
+                                               does not modify priority.
+ionice_class                  None             I/O scheduling class of server
+                                               processes. I/O niceness class values
+                                               are IOPRIO_CLASS_RT (realtime),
+                                               IOPRIO_CLASS_BE (best-effort),
+                                               and IOPRIO_CLASS_IDLE (idle).
+                                               The default does not modify class and
+                                               priority. Linux supports io scheduling
+                                               priorities and classes since 2.6.13
+                                               with the CFQ io scheduler.
+                                               Work only with ionice_priority.
+ionice_priority               None             I/O scheduling priority of server
+                                               processes. I/O niceness priority is
+                                               a number which goes from 0 to 7.
+                                               The higher the value, the lower the
+                                               I/O priority of the process. Work
+                                               only with ionice_class.
+                                               Ignored if IOPRIO_CLASS_IDLE is set.
 ============================  ===============  =====================================
 
 [tempauth]
@@ -1627,7 +1934,8 @@ Fair Queuing (CFQ) I/O scheduler. If you run your Storage servers all together
 on the same servers, you can slow down the auditors or prioritize
 object-server I/O via these parameters (but probably do not need to change
 it on the proxy). It is a new feature and the best practices are still
-being developed.
+being developed. On some systems it may be required to run the daemons as root.
+For more info also see setpriority(2) and ioprio_set(2).
 
 The above configuration setting should be taken as suggestions and testing
 of configuration settings should be done to ensure best utilization of CPU,
