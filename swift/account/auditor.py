@@ -140,7 +140,7 @@ class AccountAuditor(Daemon):
                 self.validate_per_policy_counts(broker)
                 self.logger.increment('passes')
                 self.account_passes += 1
-                self.logger.debug('Audit passed for %s' % broker)
+                self.logger.debug(_('Audit passed for %s'), broker)
         except InvalidAccountInfo as e:
             self.logger.increment('failures')
             self.account_failures += 1
