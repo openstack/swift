@@ -26,10 +26,24 @@ import re
 
 import mock
 import nose
+import six
 
 from swift.common.splice import splice, tee
 
 LOGGER = logging.getLogger(__name__)
+
+
+def NamedTemporaryFile():
+    '''Wrapper to tempfile.NamedTemporaryFile() disabling bufferring.
+
+    The wrapper is used to support Python 2 and Python 3 in the same
+    code base.
+    '''
+
+    if six.PY3:
+        return tempfile.NamedTemporaryFile(buffering=0)
+    else:
+        return tempfile.NamedTemporaryFile(bufsize=0)
 
 
 def safe_close(fd):
@@ -80,18 +94,18 @@ class TestSplice(unittest.TestCase):
 
         with pipe() as (p1a, p1b):
             with pipe() as (p2a, p2b):
-                os.write(p1b, 'abcdef')
+                os.write(p1b, b'abcdef')
                 res = splice(p1a, None, p2b, None, 3, 0)
                 self.assertEqual(res, (3, None, None))
-                self.assertEqual(os.read(p2a, 3), 'abc')
-                self.assertEqual(os.read(p1a, 3), 'def')
+                self.assertEqual(os.read(p2a, 3), b'abc')
+                self.assertEqual(os.read(p1a, 3), b'def')
 
     def test_splice_file_to_pipe(self):
         '''Test `splice` from a file to a pipe'''
 
-        with tempfile.NamedTemporaryFile(bufsize=0) as fd:
+        with NamedTemporaryFile() as fd:
             with pipe() as (pa, pb):
-                fd.write('abcdef')
+                fd.write(b'abcdef')
                 fd.seek(0, os.SEEK_SET)
 
                 res = splice(fd, None, pb, None, 3, 0)
@@ -104,14 +118,14 @@ class TestSplice(unittest.TestCase):
                 self.assertEqual(res, (3, 6, None))
                 self.assertEqual(os.lseek(fd.fileno(), 0, os.SEEK_CUR), 0)
 
-                self.assertEqual(os.read(pa, 6), 'abcdef')
+                self.assertEqual(os.read(pa, 6), b'abcdef')
 
     def test_splice_pipe_to_file(self):
         '''Test `splice` from a pipe to a file'''
 
-        with tempfile.NamedTemporaryFile(bufsize=0) as fd:
+        with NamedTemporaryFile() as fd:
             with pipe() as (pa, pb):
-                os.write(pb, 'abcdef')
+                os.write(pb, b'abcdef')
 
                 res = splice(pa, None, fd, None, 3, 0)
                 self.assertEqual(res, (3, None, None))
@@ -123,7 +137,7 @@ class TestSplice(unittest.TestCase):
                 self.assertEqual(res, (3, None, 6))
                 self.assertEqual(fd.tell(), 0)
 
-                self.assertEqual(fd.read(6), 'abcdef')
+                self.assertEqual(fd.read(6), b'abcdef')
 
     @mock.patch.object(splice, '_c_splice')
     def test_fileno(self, mock_splice):
@@ -227,11 +241,11 @@ class TestTee(unittest.TestCase):
 
         with pipe() as (p1a, p1b):
             with pipe() as (p2a, p2b):
-                os.write(p1b, 'abcdef')
+                os.write(p1b, b'abcdef')
                 res = tee(p1a, p2b, 3, 0)
                 self.assertEqual(res, 3)
-                self.assertEqual(os.read(p2a, 3), 'abc')
-                self.assertEqual(os.read(p1a, 6), 'abcdef')
+                self.assertEqual(os.read(p2a, 3), b'abc')
+                self.assertEqual(os.read(p1a, 6), b'abcdef')
 
     @mock.patch.object(tee, '_c_tee')
     def test_fileno(self, mock_tee):
