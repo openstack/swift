@@ -208,27 +208,27 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertTrue("X-Object-Meta-1" not in resp.headers and
-                        "X-Object-Meta-Two" not in resp.headers and
-                        "X-Object-Meta-3" in resp.headers and
-                        "X-Object-Meta-4" in resp.headers and
-                        "Foo" in resp.headers and
-                        "Bar" in resp.headers and
-                        "Baz" not in resp.headers and
-                        "Content-Encoding" in resp.headers)
+        self.assertNotIn("X-Object-Meta-1", resp.headers)
+        self.assertNotIn("X-Object-Meta-Two", resp.headers)
+        self.assertIn("X-Object-Meta-3", resp.headers)
+        self.assertIn("X-Object-Meta-4", resp.headers)
+        self.assertIn("Foo", resp.headers)
+        self.assertIn("Bar", resp.headers)
+        self.assertNotIn("Baz", resp.headers)
+        self.assertIn("Content-Encoding", resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertTrue("X-Object-Meta-1" not in resp.headers and
-                        "X-Object-Meta-Two" not in resp.headers and
-                        "X-Object-Meta-3" in resp.headers and
-                        "X-Object-Meta-4" in resp.headers and
-                        "Foo" in resp.headers and
-                        "Bar" in resp.headers and
-                        "Baz" not in resp.headers and
-                        "Content-Encoding" in resp.headers)
+        self.assertNotIn("X-Object-Meta-1", resp.headers)
+        self.assertNotIn("X-Object-Meta-Two", resp.headers)
+        self.assertIn("X-Object-Meta-3", resp.headers)
+        self.assertIn("X-Object-Meta-4", resp.headers)
+        self.assertIn("Foo", resp.headers)
+        self.assertIn("Bar", resp.headers)
+        self.assertNotIn("Baz", resp.headers)
+        self.assertIn("Content-Encoding", resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -240,11 +240,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertTrue("X-Object-Meta-3" not in resp.headers and
-                        "X-Object-Meta-4" not in resp.headers and
-                        "Foo" not in resp.headers and
-                        "Bar" not in resp.headers and
-                        "Content-Encoding" not in resp.headers)
+        self.assertNotIn("X-Object-Meta-3", resp.headers)
+        self.assertNotIn("X-Object-Meta-4", resp.headers)
+        self.assertNotIn("Foo", resp.headers)
+        self.assertNotIn("Bar", resp.headers)
+        self.assertNotIn("Content-Encoding", resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         # test defaults
@@ -265,12 +265,12 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertTrue("X-Object-Meta-1" in resp.headers and
-                        "Foo" not in resp.headers and
-                        "Content-Encoding" in resp.headers and
-                        "X-Object-Manifest" in resp.headers and
-                        "Content-Disposition" in resp.headers and
-                        "X-Static-Large-Object" in resp.headers)
+        self.assertIn("X-Object-Meta-1", resp.headers)
+        self.assertNotIn("Foo", resp.headers)
+        self.assertIn("Content-Encoding", resp.headers)
+        self.assertIn("X-Object-Manifest", resp.headers)
+        self.assertIn("Content-Disposition", resp.headers)
+        self.assertIn("X-Static-Large-Object", resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -284,13 +284,13 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertTrue("X-Object-Meta-1" not in resp.headers and
-                        "Foo" not in resp.headers and
-                        "Content-Encoding" not in resp.headers and
-                        "X-Object-Manifest" not in resp.headers and
-                        "Content-Disposition" not in resp.headers and
-                        "X-Object-Meta-3" in resp.headers and
-                        "X-Static-Large-Object" in resp.headers)
+        self.assertNotIn("X-Object-Meta-1", resp.headers)
+        self.assertNotIn("Foo", resp.headers)
+        self.assertNotIn("Content-Encoding", resp.headers)
+        self.assertNotIn("X-Object-Manifest", resp.headers)
+        self.assertNotIn("Content-Disposition", resp.headers)
+        self.assertIn("X-Object-Meta-3", resp.headers)
+        self.assertIn("X-Static-Large-Object", resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         # Test for empty metadata
