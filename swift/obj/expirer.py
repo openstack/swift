@@ -252,7 +252,7 @@ class ObjectExpirer(Daemon):
 
         if self.processes and self.process >= self.processes:
             raise ValueError(
-                'process must be less than or equal to processes')
+                'process must be less than processes')
 
     def delete_object(self, actual_obj, timestamp, container, obj):
         start_time = time()
