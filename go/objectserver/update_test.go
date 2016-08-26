@@ -67,7 +67,7 @@ func TestUpdateDeleteAt(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
 	server := ts.objServer
-	ts.Close()
+	defer ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
 
@@ -116,7 +116,7 @@ func TestUpdateDeleteAtNoHeaders(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
 	server := ts.objServer
-	ts.Close()
+	defer ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
 	req, err := http.NewRequest("PUT", "/I/dont/think/this/matters", nil)
@@ -145,7 +145,7 @@ func TestUpdateContainer(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
 	server := ts.objServer
-	ts.Close()
+	defer ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
 
@@ -200,7 +200,7 @@ func TestUpdateContainerNoHeaders(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
 	server := ts.objServer
-	ts.Close()
+	defer ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
 
