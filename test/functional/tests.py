@@ -3901,6 +3901,7 @@ class TestSloUTF8(Base2, TestSlo):
 
 class TestObjectVersioningEnv(object):
     versioning_enabled = None  # tri-state: None initially, then True/False
+    location_header_key = 'X-Versions-Location'
 
     @classmethod
     def setUp(cls):
@@ -3927,15 +3928,16 @@ class TestObjectVersioningEnv(object):
             raise ResponseError(cls.conn.response)
 
         cls.container = cls.account.container(prefix + "-objs")
-        if not cls.container.create(
-                hdrs={'X-Versions-Location': cls.versions_container.name}):
+        container_headers = {
+            cls.location_header_key: cls.versions_container.name}
+        if not cls.container.create(hdrs=container_headers):
             if cls.conn.response.status == 412:
                 cls.versioning_enabled = False
                 return
             raise ResponseError(cls.conn.response)
 
         container_info = cls.container.info()
-        # if versioning is off, then X-Versions-Location won't persist
+        # if versioning is off, then cls.location_header_key won't persist
         cls.versioning_enabled = 'versions' in container_info
 
         # setup another account to test ACLs
@@ -4051,6 +4053,10 @@ class TestCrossPolicyObjectVersioningEnv(object):
         cls.account2.delete_containers()
 
 
+class TestObjectVersioningHistoryModeEnv(TestObjectVersioningEnv):
+    location_header_key = 'X-History-Location'
+
+
 class TestObjectVersioning(Base):
     env = TestObjectVersioningEnv
     set_up = False
@@ -4083,12 +4089,13 @@ class TestObjectVersioning(Base):
         self.assertEqual(self.env.container.info()['versions'],
                          self.env.versions_container.name)
         self.env.container.update_metadata(
-            hdrs={'X-Versions-Location': ''})
+            hdrs={self.env.location_header_key: ''})
         self.assertIsNone(self.env.container.info().get('versions'))
 
         # set location back to the way it was
         self.env.container.update_metadata(
-            hdrs={'X-Versions-Location': self.env.versions_container.name})
+            hdrs={self.env.location_header_key:
+                  self.env.versions_container.name})
         self.assertEqual(self.env.container.info()['versions'],
                          self.env.versions_container.name)
 
@@ -4247,15 +4254,16 @@ class TestObjectVersioning(Base):
 
         # check account2 cannot set X-Versions-Location on container
         self.assertRaises(ResponseError, container.update_metadata, hdrs={
-            'X-Versions-Location': versions_container},
+            self.env.location_header_key: versions_container},
             cfg={'use_token': self.env.storage_token2})
 
         # good! now let admin set the X-Versions-Location
         # p.s.: sticking a 'x-remove' header here to test precedence
         # of both headers. Setting the location should succeed.
         self.assertTrue(container.update_metadata(hdrs={
-            'X-Remove-Versions-Location': versions_container,
-            'X-Versions-Location': versions_container}))
+            'X-Remove-' + self.env.location_header_key[len('X-'):]:
+            versions_container,
+            self.env.location_header_key: versions_container}))
 
         # write object twice to container and check version
         obj_name = Utils.create_name()
@@ -4361,6 +4369,188 @@ class TestCrossPolicyObjectVersioning(TestObjectVersioning):
             raise Exception("Expected multiple_policies_enabled "
                             "to be True/False, got %r" % (
                                 self.env.versioning_enabled,))
+
+
+class TestObjectVersioningHistoryMode(TestObjectVersioning):
+    env = TestObjectVersioningHistoryModeEnv
+    set_up = False
+
+    # those override tests includes assertions for delete versioned objects
+    # behaviors different from default object versioning using
+    # x-versions-location.
+
+    # The difference from the parent is since below delete
+    def test_overwriting(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        cont_info = container.info()
+        self.assertEqual(cont_info['versions'], versions_container.name)
+        expected_content_types = []
+        obj_name = Utils.create_name()
+
+        versioned_obj = container.file(obj_name)
+        put_headers = {'Content-Type': 'text/jibberish01',
+                       'Content-Encoding': 'gzip',
+                       'Content-Disposition': 'attachment; filename=myfile'}
+        versioned_obj.write("aaaaa", hdrs=put_headers)
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/jibberish01', obj_info['content_type'])
+        expected_content_types.append('text/jibberish01')
+
+        # the allowed headers are configurable in object server, so we cannot
+        # assert that content-encoding or content-disposition get *copied* to
+        # the object version unless they were set on the original PUT, so
+        # populate expected_headers by making a HEAD on the original object
+        resp_headers = dict(versioned_obj.conn.response.getheaders())
+        expected_headers = {}
+        for k, v in put_headers.items():
+            if k.lower() in resp_headers:
+                expected_headers[k] = v
+
+        self.assertEqual(0, versions_container.info()['object_count'])
+        versioned_obj.write("bbbbb", hdrs={'Content-Type': 'text/jibberish02',
+                            'X-Object-Meta-Foo': 'Bar'})
+        versioned_obj.initialize()
+        self.assertEqual(versioned_obj.content_type, 'text/jibberish02')
+        expected_content_types.append('text/jibberish02')
+        self.assertEqual(versioned_obj.metadata['foo'], 'Bar')
+
+        # the old version got saved off
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish01')
+
+        resp_headers = dict(prev_version.conn.response.getheaders())
+        for k, v in expected_headers.items():
+            self.assertIn(k.lower(), resp_headers)
+            self.assertEqual(v, resp_headers[k.lower()])
+
+        # make sure the new obj metadata did not leak to the prev. version
+        self.assertNotIn('foo', prev_version.metadata)
+
+        # check that POST does not create a new version
+        versioned_obj.sync_metadata(metadata={'fu': 'baz'})
+        self.assertEqual(1, versions_container.info()['object_count'])
+        expected_content_types.append('text/jibberish02')
+
+        # if we overwrite it again, there are two versions
+        versioned_obj.write("ccccc")
+        self.assertEqual(2, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[1]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("bbbbb", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish02')
+        self.assertIn('foo', prev_version.metadata)
+        self.assertIn('fu', prev_version.metadata)
+
+        # versioned_obj keeps the newest content
+        self.assertEqual("ccccc", versioned_obj.read())
+
+        # test copy from a different container
+        src_container = self.env.account.container(Utils.create_name())
+        self.assertTrue(src_container.create())
+        src_name = Utils.create_name()
+        src_obj = src_container.file(src_name)
+        src_obj.write("ddddd", hdrs={'Content-Type': 'text/jibberish04'})
+        src_obj.copy(container.name, obj_name)
+
+        self.assertEqual("ddddd", versioned_obj.read())
+        versioned_obj.initialize()
+        self.assertEqual(versioned_obj.content_type, 'text/jibberish04')
+        expected_content_types.append('text/jibberish04')
+
+        # make sure versions container has the previous version
+        self.assertEqual(3, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[2]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("ccccc", prev_version.read())
+
+        # test delete
+        # at first, delete will succeed with 204
+        versioned_obj.delete()
+        expected_content_types.append(
+            'application/x-deleted;swift_versions_deleted=1')
+        # after that, any time the delete doesn't restore the old version
+        # and we will get 404 NotFound
+        for x in range(3):
+            with self.assertRaises(ResponseError) as cm:
+                versioned_obj.delete()
+            self.assertEqual(404, cm.exception.status)
+            expected_content_types.append(
+                'application/x-deleted;swift_versions_deleted=1')
+        # finally, we have 4 versioned items and 4 delete markers total in
+        # the versions container
+        self.assertEqual(8, versions_container.info()['object_count'])
+        self.assertEqual(expected_content_types, [
+            o['content_type'] for o in versions_container.files(
+                parms={'format': 'json'})])
+
+        # update versioned_obj
+        versioned_obj.write("eeee", hdrs={'Content-Type': 'text/thanksgiving',
+                            'X-Object-Meta-Bar': 'foo'})
+        # verify the PUT object is kept successfully
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/thanksgiving', obj_info['content_type'])
+
+        # we still have delete-marker there
+        self.assertEqual(8, versions_container.info()['object_count'])
+
+        # update versioned_obj
+        versioned_obj.write("ffff", hdrs={'Content-Type': 'text/teriyaki',
+                            'X-Object-Meta-Food': 'chickin'})
+        # verify the PUT object is kept successfully
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/teriyaki', obj_info['content_type'])
+
+        # new obj will be inserted after delete-marker there
+        self.assertEqual(9, versions_container.info()['object_count'])
+
+        versioned_obj.delete()
+        with self.assertRaises(ResponseError) as cm:
+            versioned_obj.read()
+        self.assertEqual(404, cm.exception.status)
+        self.assertEqual(11, versions_container.info()['object_count'])
+
+    # the difference from the parent is since below delete
+    def test_versioning_check_acl(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        versions_container.create(hdrs={'X-Container-Read': '.r:*,.rlistings'})
+
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+        versioned_obj.write("aaaaa")
+        self.assertEqual("aaaaa", versioned_obj.read())
+
+        versioned_obj.write("bbbbb")
+        self.assertEqual("bbbbb", versioned_obj.read())
+
+        # Use token from second account and try to delete the object
+        org_token = self.env.account.conn.storage_token
+        self.env.account.conn.storage_token = self.env.conn2.storage_token
+        try:
+            self.assertRaises(ResponseError, versioned_obj.delete)
+        finally:
+            self.env.account.conn.storage_token = org_token
+
+        # Verify with token from first account
+        self.assertEqual("bbbbb", versioned_obj.read())
+
+        versioned_obj.delete()
+        self.assertRaises(ResponseError, versioned_obj.read)
+
+        # we have 3 objects in the versions_container, 'aaaaa', 'bbbbb'
+        # and delete-marker with empty content
+        self.assertEqual(3, versions_container.info()['object_count'])
+        files = versions_container.files()
+        for actual, expected in zip(files, ['aaaaa', 'bbbbb', '']):
+            prev_version = versions_container.file(actual)
+            self.assertEqual(expected, prev_version.read())
 
 
 class TestSloWithVersioning(Base):

@@ -431,6 +431,7 @@ def in_process_setup(the_object_server=object_server):
         'allow_account_management': 'true',
         'account_autocreate': 'true',
         'allow_versions': 'True',
+        'allow_versioned_writes': 'True',
         # Below are values used by the functional test framework, as well as
         # by the various in-process swift servers
         'auth_host': '127.0.0.1',
