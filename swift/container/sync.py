@@ -429,8 +429,6 @@ class ContainerSync(Daemon):
                         sync_stage_time = time()
                     self.container_syncs += 1
                     self.logger.increment('syncs')
-                except Exception as ex:
-                    raise ex
                 finally:
                     self.container_report(start_at, sync_stage_time,
                                           sync_point1,

@@ -386,8 +386,8 @@ class HTMLViewer(object):
             else:
                 data = stats.print_stats()
             return data, [('content-type', self.format_dict[output_format])]
-        except ODFLIBNotInstalled as ex:
-            raise ex
+        except ODFLIBNotInstalled:
+            raise
         except Exception as ex:
             raise ProfileException(_('Data download error: %s') % ex)
 
