@@ -720,21 +720,24 @@ X-Trans-Id-Extra:
   type: string
 X-Versions-Location:
   description: |
-    Enables versioning on this container. The value
-    is the name of another container. You must UTF-8-encode and then
-    URL-encode the name before you include it in the header. To
-    disable versioning, set the header to an empty string.
+    The URL-encoded UTF-8 representation of the container that stores
+    previous versions of objects. If not set, versioning is disabled
+    for this container. For more information about object versioning,
+    see `Object versioning <http://docs.openstack.org/developer/
+    swift/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
-X-Versions-Location_1:
+X-Versions-Mode:
   description: |
-    Enables versioning on this container. The value
-    is the name of another container. You must UTF-8-encode and then
-    URL-encode the name before you include it in the header. To
-    disable versioning, set the header to an empty string.
+    The versioning mode for this container. The value must be either
+    ``stack`` or ``history``. If not set, ``stack`` mode will be used.
+    This setting has no impact unless ``X-Versions-Location`` is set
+    for the container. For more information about object versioning,
+    see `Object versioning <http://docs.openstack.org/developer/
+    swift/api/object_versioning.html>`_.
   in: header
-  required: true
+  required: false
   type: string
 
 # variables in path

@@ -172,6 +172,7 @@ Request
    - X-Container-Sync-To: X-Container-Sync-To
    - X-Container-Sync-Key: X-Container-Sync-Key
    - X-Versions-Location: X-Versions-Location
+   - X-Versions-Mode: X-Versions-Mode
    - X-Container-Meta-name: X-Container-Meta-name
    - X-Container-Meta-Access-Control-Allow-Origin: X-Container-Meta-Access-Control-Allow-Origin
    - X-Container-Meta-Access-Control-Max-Age: X-Container-Meta-Access-Control-Max-Age
@@ -302,6 +303,7 @@ Request
    - X-Container-Sync-To: X-Container-Sync-To
    - X-Container-Sync-Key: X-Container-Sync-Key
    - X-Versions-Location: X-Versions-Location
+   - X-Versions-Mode: X-Versions-Mode
    - X-Remove-Versions-Location: X-Remove-Versions-Location
    - X-Container-Meta-name: X-Container-Meta-name
    - X-Container-Meta-Access-Control-Allow-Origin: X-Container-Meta-Access-Control-Allow-Origin
@@ -409,6 +411,7 @@ Response Parameters
    - Content-Type: Content-Type
    - X-Container-Meta-Quota-Bytes: X-Container-Meta-Quota-Bytes
    - X-Versions-Location: X-Versions-Location
+   - X-Versions-Mode: X-Versions-Mode
 
 
 

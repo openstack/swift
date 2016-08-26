@@ -15,7 +15,7 @@
 
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from hashlib import md5
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
@@ -39,6 +39,9 @@ class LeakTrackingIter(object):
 
     def close(self):
         self.fake_swift.mark_closed(self.path)
+
+
+FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
 
 
 class FakeSwift(object):
@@ -148,7 +151,8 @@ class FakeSwift(object):
 
         # note: tests may assume this copy of req_headers is case insensitive
         # so we deliberately use a HeaderKeyDict
-        self._calls.append((method, path, HeaderKeyDict(req.headers)))
+        self._calls.append(
+            FakeSwiftCall(method, path, HeaderKeyDict(req.headers)))
 
         # range requests ought to work, hence conditional_response=True
         if isinstance(body, list):
