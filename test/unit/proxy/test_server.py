@@ -24,7 +24,7 @@ import sys
 import traceback
 import unittest
 from contextlib import contextmanager
-from shutil import rmtree
+from shutil import rmtree, copyfile
 import gc
 import time
 from textwrap import dedent
@@ -3017,6 +3017,96 @@ class TestObjectController(unittest.TestCase):
                                                  'text/html', 'text/html']))
             test_content_type('test.css', iter(['', '', 'text/css',
                                                 'text/css', 'text/css']))
+
+    @unpatch_policies
+    def test_reload_ring_ec(self):
+        policy = POLICIES[3]
+        self.put_container("ec", "ec-con")
+
+        orig_rtime = policy.object_ring._rtime
+        # save original file as back up
+        copyfile(policy.object_ring.serialized_path,
+                 policy.object_ring.serialized_path + '.bak')
+
+        try:
+            # overwrite with 2 replica, 2 devices ring
+            obj_devs = []
+            obj_devs.append(
+                {'port': _test_sockets[-3].getsockname()[1],
+                 'device': 'sdg1'})
+            obj_devs.append(
+                {'port': _test_sockets[-2].getsockname()[1],
+                 'device': 'sdh1'})
+            write_fake_ring(policy.object_ring.serialized_path,
+                            *obj_devs)
+
+            def get_ring_reloaded_response(method):
+                # force to reload at the request
+                policy.object_ring._rtime = 0
+
+                trans_data = ['%s /v1/a/ec-con/o2 HTTP/1.1\r\n' % method,
+                              'Host: localhost\r\n',
+                              'Connection: close\r\n',
+                              'X-Storage-Token: t\r\n']
+
+                if method == 'PUT':
+                    # small, so we don't get multiple EC stripes
+                    obj = 'abCD' * 10
+
+                    extra_trans_data = [
+                        'Etag: "%s"\r\n' % md5(obj).hexdigest(),
+                        'Content-Length: %d\r\n' % len(obj),
+                        'Content-Type: application/octet-stream\r\n',
+                        '\r\n%s' % obj
+                    ]
+                    trans_data.extend(extra_trans_data)
+                else:
+                    trans_data.append('\r\n')
+
+                prolis = _test_sockets[0]
+                sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+                fd = sock.makefile()
+                fd.write(''.join(trans_data))
+                fd.flush()
+                headers = readuntil2crlfs(fd)
+
+                # use older ring with rollbacking
+                return headers
+
+            for method in ('PUT', 'HEAD', 'GET', 'POST', 'DELETE'):
+                headers = get_ring_reloaded_response(method)
+                exp = 'HTTP/1.1 20'
+                self.assertEqual(headers[:len(exp)], exp)
+
+                # proxy didn't load newest ring, use older one
+                self.assertEqual(3, policy.object_ring.replica_count)
+
+                if method == 'POST':
+                    # Take care fast post here!
+                    orig_post_as_copy = getattr(
+                        _test_servers[0], 'object_post_as_copy', None)
+                    try:
+                        _test_servers[0].object_post_as_copy = False
+                        with mock.patch.object(
+                                _test_servers[0],
+                                'object_post_as_copy', False):
+                            headers = get_ring_reloaded_response(method)
+                    finally:
+                        if orig_post_as_copy is None:
+                            del _test_servers[0].object_post_as_copy
+                        else:
+                            _test_servers[0].object_post_as_copy = \
+                                orig_post_as_copy
+
+                    exp = 'HTTP/1.1 20'
+                    self.assertEqual(headers[:len(exp)], exp)
+                    # sanity
+                    self.assertEqual(3, policy.object_ring.replica_count)
+
+        finally:
+            policy.object_ring._rtime = orig_rtime
+            os.rename(policy.object_ring.serialized_path + '.bak',
+                      policy.object_ring.serialized_path)
 
     def test_custom_mime_types_files(self):
         swift_dir = mkdtemp()

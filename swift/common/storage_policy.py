@@ -21,7 +21,7 @@ from swift.common.utils import (
     config_true_value, SWIFT_CONF_FILE, whataremyips, list_from_csv)
 from swift.common.ring import Ring, RingData
 from swift.common.utils import quorum_size
-from swift.common.exceptions import RingValidationError
+from swift.common.exceptions import RingLoadError
 from pyeclib.ec_iface import ECDriver, ECDriverError, VALID_EC_TYPES
 
 LEGACY_POLICY_NAME = 'Policy-0'
@@ -350,13 +350,6 @@ class BaseStoragePolicy(object):
             self._validate_policy_name(name)
         self.alias_list.insert(0, name)
 
-    def _validate_ring(self):
-        """
-        Hook, called when the ring is loaded.  Can be used to
-        validate the ring against the StoragePolicy configuration.
-        """
-        pass
-
     def load_ring(self, swift_dir):
         """
         Load the ring for this policy immediately.
@@ -366,9 +359,6 @@ class BaseStoragePolicy(object):
         if self.object_ring:
             return
         self.object_ring = Ring(swift_dir, ring_name=self.ring_name)
-
-        # Validate ring to make sure it conforms to policy requirements
-        self._validate_ring()
 
     @property
     def quorum(self):
@@ -552,25 +542,6 @@ class ECStoragePolicy(BaseStoragePolicy):
             info.pop('ec_type')
         return info
 
-    def _validate_ring(self):
-        """
-        EC specific validation
-
-        Replica count check - we need _at_least_ (#data + #parity) replicas
-        configured.  Also if the replica count is larger than exactly that
-        number there's a non-zero risk of error for code that is considering
-        the number of nodes in the primary list from the ring.
-        """
-        if not self.object_ring:
-            raise PolicyError('Ring is not loaded')
-        nodes_configured = self.object_ring.replica_count
-        if nodes_configured != (self.ec_ndata + self.ec_nparity):
-            raise RingValidationError(
-                'EC ring for policy %s needs to be configured with '
-                'exactly %d nodes. Got %d.' % (
-                    self.name, self.ec_ndata + self.ec_nparity,
-                    nodes_configured))
-
     @property
     def quorum(self):
         """
@@ -592,6 +563,37 @@ class ECStoragePolicy(BaseStoragePolicy):
         min_parity_fragments_needed()
         """
         return self._ec_quorum_size
+
+    def load_ring(self, swift_dir):
+        """
+        Load the ring for this policy immediately.
+
+        :param swift_dir: path to rings
+        """
+        if self.object_ring:
+            return
+
+        def validate_ring_data(ring_data):
+            """
+            EC specific validation
+
+            Replica count check - we need _at_least_ (#data + #parity) replicas
+            configured.  Also if the replica count is larger than exactly that
+            number there's a non-zero risk of error for code that is
+            considering the number of nodes in the primary list from the ring.
+            """
+
+            nodes_configured = len(ring_data._replica2part2dev_id)
+            if nodes_configured != (self.ec_ndata + self.ec_nparity):
+                raise RingLoadError(
+                    'EC ring for policy %s needs to be configured with '
+                    'exactly %d replicas. Got %d.' % (
+                        self.name, self.ec_ndata + self.ec_nparity,
+                        nodes_configured))
+
+        self.object_ring = Ring(
+            swift_dir, ring_name=self.ring_name,
+            validation_hook=validate_ring_data)
 
 
 class StoragePolicyCollection(object):
