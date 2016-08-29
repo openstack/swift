@@ -73,16 +73,22 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb.version, 0)
 
     def test_overlarge_part_powers(self):
-        ring.RingBuilder(32, 3, 1)  # passes by not crashing
-        self.assertRaises(ValueError, ring.RingBuilder, 33, 3, 1)
+        expected_msg = 'part_power must be at most 32 (was 33)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(33, 3, 1)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_insufficient_replicas(self):
-        ring.RingBuilder(8, 1.0, 1)  # passes by not crashing
-        self.assertRaises(ValueError, ring.RingBuilder, 8, 0.999, 1)
+        expected_msg = 'replicas must be at least 1 (was 0.999000)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(8, 0.999, 1)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_negative_min_part_hours(self):
-        ring.RingBuilder(8, 3, 0)  # passes by not crashing
-        self.assertRaises(ValueError, ring.RingBuilder, 8, 3, -1)
+        expected_msg = 'min_part_hours must be non-negative (was -1)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(8, 3, -1)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_deepcopy(self):
         rb = ring.RingBuilder(8, 3, 1)
