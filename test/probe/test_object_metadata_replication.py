@@ -49,9 +49,6 @@ class Test(ReplProbeTest):
                                              self.container_name)
         self.int_client = self.make_internal_client(object_post_as_copy=False)
 
-    def tearDown(self):
-        super(Test, self).tearDown()
-
     def _get_object_info(self, account, container, obj, number):
         obj_conf = self.configs['object-server']
         config_path = obj_conf[number]
