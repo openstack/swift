@@ -118,6 +118,23 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         self.assertRaises(ValueError, x.get_process_values, vals)
 
+    def test_get_process_values_process_equal_to_processes(self):
+        vals = {
+            'processes': 5,
+            'process': 5,
+        }
+        # from config
+        x = expirer.ObjectExpirer(vals)
+        expected_msg = 'process must be less than processes'
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values({})
+        self.assertEqual(str(ctx.exception), expected_msg)
+        # from kwargs
+        x = expirer.ObjectExpirer({})
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values(vals)
+        self.assertEqual(str(ctx.exception), expected_msg)
+
     def test_init_concurrency_too_small(self):
         conf = {
             'concurrency': 0,
