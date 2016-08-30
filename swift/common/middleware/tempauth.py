@@ -156,8 +156,8 @@ class TempAuth(object):
                      format_acl(version=2, acl_dict=acl_data)}
           header_str = ' '.join(["-H '%s: %s'" % (k, v)
                                  for k, v in headers.items()])
-          print ('curl -D- -X POST -H "x-auth-token: $token" %s '
-                 '$storage_url' % header_str)
+          print('curl -D- -X POST -H "x-auth-token: $token" %s '
+                '$storage_url' % header_str)
         '
 
     :param app: The next WSGI app in the pipeline
