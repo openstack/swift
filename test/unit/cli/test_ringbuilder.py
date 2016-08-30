@@ -482,7 +482,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # Check that ring was created with sane value for region
         ring = RingBuilder.load(self.tmpfile)
         dev = ring.devs[-1]
-        self.assertTrue(dev['region'] > 0)
+        self.assertGreater(dev['region'], 0)
 
     def test_remove_device(self):
         for search_value in self.search_values:
@@ -1305,8 +1305,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         out, err = self.run_srb(*argv)
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.overload, 0.1)
-        self.assertTrue('10.00%' in out)
-        self.assertTrue('0.100000' in out)
+        self.assertIn('10.00%', out)
+        self.assertIn('0.100000', out)
 
     def test_set_overload_percent_strange_input(self):
         self.create_sample_ring()
@@ -1314,8 +1314,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         out, err = self.run_srb(*argv)
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.overload, 0.26)
-        self.assertTrue('26.00%' in out)
-        self.assertTrue('0.260000' in out)
+        self.assertIn('26.00%', out)
+        self.assertIn('0.260000', out)
 
     def test_server_overload_crazy_high(self):
         self.create_sample_ring()
@@ -1323,17 +1323,17 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         out, err = self.run_srb(*argv)
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.overload, 10.0)
-        self.assertTrue('Warning overload is greater than 100%' in out)
-        self.assertTrue('1000.00%' in out)
-        self.assertTrue('10.000000' in out)
+        self.assertIn('Warning overload is greater than 100%', out)
+        self.assertIn('1000.00%', out)
+        self.assertIn('10.000000', out)
         # but it's cool if you do it on purpose
         argv[-1] = '1000%'
         out, err = self.run_srb(*argv)
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.overload, 10.0)
-        self.assertTrue('Warning overload is greater than 100%' not in out)
-        self.assertTrue('1000.00%' in out)
-        self.assertTrue('10.000000' in out)
+        self.assertNotIn('Warning overload is greater than 100%', out)
+        self.assertIn('1000.00%', out)
+        self.assertIn('10.000000', out)
 
     def test_set_overload_number_of_arguments(self):
         self.create_sample_ring()
@@ -1855,7 +1855,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         ring = RingBuilder.load(self.tmpfile)
         self.assertTrue(ring.validate())
-        self.assertEqual(ring.devs[3], None)
+        self.assertIsNone(ring.devs[3])
 
     def test_rebalance_resets_time_remaining(self):
         self.create_sample_ring()
@@ -1960,7 +1960,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         os.remove(self.tmpfile)  # loses file...
 
         argv = ["", backup_file, "write_builder", "24"]
-        self.assertEqual(ringbuilder.main(argv), None)
+        self.assertIsNone(ringbuilder.main(argv))
 
     def test_warn_at_risk(self):
         # when the number of total part replicas (3 * 2 ** 4 = 48 in
@@ -2147,7 +2147,7 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
                      "r1z1-10.1.1.1:2345/sdc", 100.0,
                      "r1z1-10.1.1.1:2345/sdd", 100.0)
         out, err = self.run_srb("rebalance")
-        self.assertTrue("rebalance/repush" not in out)
+        self.assertNotIn("rebalance/repush", out)
 
         # 2 machines of equal size: balanceable, but not in one pass due to
         # min_part_hours > 0
@@ -2158,12 +2158,12 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
                      "r1z1-10.1.1.2:2345/sdd", 100.0)
         self.run_srb("pretend_min_part_hours_passed")
         out, err = self.run_srb("rebalance")
-        self.assertTrue("rebalance/repush" in out)
+        self.assertIn("rebalance/repush", out)
 
         # after two passes, it's all balanced out
         self.run_srb("pretend_min_part_hours_passed")
         out, err = self.run_srb("rebalance")
-        self.assertTrue("rebalance/repush" not in out)
+        self.assertNotIn("rebalance/repush", out)
 
     def test_rebalance_warning_with_overload(self):
         self.run_srb("create", 8, 3, 24)
@@ -2175,14 +2175,14 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
                      "r1z1-10.1.1.1:2345/sdb", 100.0,
                      "r1z1-10.1.1.1:2345/sdc", 120.0)
         out, err = self.run_srb("rebalance")
-        self.assertTrue("rebalance/repush" not in out)
+        self.assertNotIn("rebalance/repush", out)
 
         # Now we add in a really big device, but not enough partitions move
         # to fill it in one pass, so we see the rebalance warning.
         self.run_srb("add", "r1z1-10.1.1.1:2345/sdd", 99999.0)
         self.run_srb("pretend_min_part_hours_passed")
         out, err = self.run_srb("rebalance")
-        self.assertTrue("rebalance/repush" in out)
+        self.assertIn("rebalance/repush", out)
 
     def test_cached_dispersion_value(self):
         self.run_srb("create", 8, 3, 24)
@@ -2193,18 +2193,18 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
                      "r1z1-10.1.1.1:2345/sdd", 100.0)
         self.run_srb('rebalance')
         out, err = self.run_srb()  # list devices
-        self.assertTrue('dispersion' in out)
+        self.assertIn('dispersion', out)
         # remove cached dispersion value
         builder = RingBuilder.load(self.tempfile)
         builder.dispersion = None
         builder.save(self.tempfile)
         # now dispersion output is suppressed
         out, err = self.run_srb()  # list devices
-        self.assertFalse('dispersion' in out)
+        self.assertNotIn('dispersion', out)
         # but will show up after rebalance
         self.run_srb('rebalance', '-f')
         out, err = self.run_srb()  # list devices
-        self.assertTrue('dispersion' in out)
+        self.assertIn('dispersion', out)
 
 
 if __name__ == '__main__':

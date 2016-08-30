@@ -74,7 +74,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = urllib2.URLError("")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, urllib2.URLError))
+        self.assertIsInstance(content, urllib2.URLError)
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
@@ -85,7 +85,7 @@ class TestScout(unittest.TestCase):
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.url)
-        self.assertTrue(isinstance(content, urllib2.HTTPError))
+        self.assertIsInstance(content, urllib2.HTTPError)
         self.assertEqual(status, 404)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
@@ -93,7 +93,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = socket.timeout("timeout")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertIsInstance(content, socket.timeout)
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
@@ -114,7 +114,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = urllib2.URLError("")
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, urllib2.URLError))
+        self.assertIsInstance(content, urllib2.URLError)
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(status, -1)
 
@@ -125,7 +125,7 @@ class TestScout(unittest.TestCase):
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.server_type_url)
-        self.assertTrue(isinstance(content, urllib2.HTTPError))
+        self.assertIsInstance(content, urllib2.HTTPError)
         self.assertEqual(status, 404)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
@@ -133,7 +133,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = socket.timeout("timeout")
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertIsInstance(content, socket.timeout)
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(status, -1)
 
@@ -596,8 +596,8 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
-        self.assertTrue(res_container in output.splitlines())
-        self.assertTrue(res_account in output.splitlines())
+        self.assertIn(res_container, output.splitlines())
+        self.assertIn(res_account, output.splitlines())
         stdout.truncate(0)
 
         # Test ok for object server type - default
@@ -607,7 +607,7 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check([hosts[0]])
 
         output = stdout.getvalue()
-        self.assertTrue(valid in output.splitlines())
+        self.assertIn(valid, output.splitlines())
         stdout.truncate(0)
 
         # Test for account server type
@@ -618,8 +618,8 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
-        self.assertTrue(res_container in output.splitlines())
-        self.assertTrue(res_object in output.splitlines())
+        self.assertIn(res_container, output.splitlines())
+        self.assertIn(res_object, output.splitlines())
         stdout.truncate(0)
 
         # Test ok for account server type
@@ -630,7 +630,7 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check([hosts[2]])
 
         output = stdout.getvalue()
-        self.assertTrue(valid in output.splitlines())
+        self.assertIn(valid, output.splitlines())
         stdout.truncate(0)
 
         # Test for container server type
@@ -641,8 +641,8 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
-        self.assertTrue(res_account in output.splitlines())
-        self.assertTrue(res_object in output.splitlines())
+        self.assertIn(res_account, output.splitlines())
+        self.assertIn(res_object, output.splitlines())
         stdout.truncate(0)
 
         # Test ok for container server type
@@ -653,7 +653,7 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check([hosts[1]])
 
         output = stdout.getvalue()
-        self.assertTrue(valid in output.splitlines())
+        self.assertIn(valid, output.splitlines())
 
     def test_get_swiftconfmd5(self):
         hosts = set([('10.1.1.1', 10000),
@@ -672,7 +672,7 @@ class TestReconCommands(unittest.TestCase):
                 self.recon.get_swiftconfmd5(hosts, printfn=printed.append)
 
         output = '\n'.join(printed) + '\n'
-        self.assertTrue("2/2 hosts matched" in output)
+        self.assertIn("2/2 hosts matched", output)
 
     def test_get_swiftconfmd5_mismatch(self):
         hosts = set([('10.1.1.1', 10000),
@@ -691,9 +691,9 @@ class TestReconCommands(unittest.TestCase):
                 self.recon.get_swiftconfmd5(hosts, printfn=printed.append)
 
         output = '\n'.join(printed) + '\n'
-        self.assertTrue("1/2 hosts matched" in output)
-        self.assertTrue("http://10.2.2.2:10000/recon/swiftconfmd5 (bogus) "
-                        "doesn't match on disk md5sum" in output)
+        self.assertIn("1/2 hosts matched", output)
+        self.assertIn("http://10.2.2.2:10000/recon/swiftconfmd5 (bogus) "
+                      "doesn't match on disk md5sum", output)
 
     def test_object_auditor_check(self):
         # Recon middleware response from an object server
@@ -738,7 +738,7 @@ class TestReconCommands(unittest.TestCase):
             computed = response.get(name)
             self.assertTrue(computed)
             for key in keys:
-                self.assertTrue(key in computed)
+                self.assertIn(key, computed)
 
     def test_disk_usage(self):
         def dummy_request(*args, **kwargs):
