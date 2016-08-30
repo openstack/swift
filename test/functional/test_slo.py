@@ -473,9 +473,36 @@ class TestSlo(Base):
 
     def test_slo_missing_etag(self):
         file_item = self.env.container.file("manifest-a-missing-etag")
+        file_item.write(
+            json.dumps([{
+                'size_bytes': 1024 * 1024,
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_missing_size(self):
+        file_item = self.env.container.file("manifest-a-missing-size")
+        file_item.write(
+            json.dumps([{
+                'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_path_only(self):
+        file_item = self.env.container.file("manifest-a-path-only")
+        file_item.write(
+            json.dumps([{
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_typo_etag(self):
+        file_item = self.env.container.file("manifest-a-typo-etag")
         try:
             file_item.write(
                 json.dumps([{
+                    'teag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
                     'size_bytes': 1024 * 1024,
                     'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
                 parms={'multipart-manifest': 'put'})
@@ -484,12 +511,13 @@ class TestSlo(Base):
         else:
             self.fail("Expected ResponseError but didn't get it")
 
-    def test_slo_missing_size(self):
-        file_item = self.env.container.file("manifest-a-missing-size")
+    def test_slo_typo_size(self):
+        file_item = self.env.container.file("manifest-a-typo-size")
         try:
             file_item.write(
                 json.dumps([{
                     'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'siz_bytes': 1024 * 1024,
                     'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
                 parms={'multipart-manifest': 'put'})
         except ResponseError as err:

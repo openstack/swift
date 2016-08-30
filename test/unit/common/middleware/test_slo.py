@@ -168,6 +168,18 @@ class TestSloMiddleware(SloTestCase):
                   'size_bytes': 100,
                   'foo': 'bar', 'baz': 'quux'}])))
 
+        # This also catches typos
+        self.assertEqual(
+            'Index 0: extraneous keys "egat"\n',
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'egat': 'etagoftheobjectsegment',
+                  'size_bytes': 100}])))
+        self.assertEqual(
+            'Index 0: extraneous keys "siez_bytes"\n',
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'etagoftheobjectsegment',
+                  'siez_bytes': 100}])))
+
     def test_bogus_input_ranges(self):
         self.assertEqual(
             "Index 0: invalid range\n",
@@ -568,9 +580,11 @@ class TestSloPutManifest(SloTestCase):
         ], sorted(errors))
 
     def test_handle_multipart_put_skip_size_check(self):
-        good_data = json.dumps(
-            [{'path': '/checktest/a_1', 'etag': 'a', 'size_bytes': None},
-             {'path': '/checktest/b_2', 'etag': 'b', 'size_bytes': None}])
+        good_data = json.dumps([
+            # Explicit None will skip it
+            {'path': '/checktest/a_1', 'etag': 'a', 'size_bytes': None},
+            # ...as will omitting it entirely
+            {'path': '/checktest/b_2', 'etag': 'b'}])
         req = Request.blank(
             '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
@@ -618,9 +632,11 @@ class TestSloPutManifest(SloTestCase):
         self.assertIn('Etag Mismatch', cm.exception.body)
 
     def test_handle_multipart_put_skip_etag_check(self):
-        good_data = json.dumps(
-            [{'path': '/checktest/a_1', 'etag': None, 'size_bytes': 1},
-             {'path': '/checktest/b_2', 'etag': None, 'size_bytes': 2}])
+        good_data = json.dumps([
+            # Explicit None will skip it
+            {'path': '/checktest/a_1', 'etag': None, 'size_bytes': 1},
+            # ...as will omitting it entirely
+            {'path': '/checktest/b_2', 'size_bytes': 2}])
         req = Request.blank(
             '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
@@ -686,6 +702,7 @@ class TestSloPutManifest(SloTestCase):
             '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
         status, headers, body = self.call_slo(req)
+        self.assertEqual(('201 Created', ''), (status, body))
         expected_etag = '"%s"' % md5hex('ab:1-1;b:0-0;aetagoftheobjectsegment:'
                                         '10-40;')
         self.assertEqual(expected_etag, dict(headers)['Etag'])

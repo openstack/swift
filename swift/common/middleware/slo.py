@@ -39,10 +39,10 @@ Key         Description
 =========== ========================================================
 path        the path to the segment object (not including account)
             /container/object_name
-etag        the ETag given back when the segment object was PUT,
-            or null
-size_bytes  the size of the complete segment object in
-            bytes, or null
+etag        (optional) the ETag given back when the segment object
+            was PUT
+size_bytes  (optional) the size of the complete segment object in
+            bytes
 range       (optional) the (inclusive) range within the object to
             use as a segment. If omitted, the entire object is used.
 =========== ========================================================
@@ -67,8 +67,8 @@ head every segment passed in to verify:
  5. if the user provided a range, it is a singular, syntactically correct range
     that is satisfiable given the size of the object.
 
-Note that the etag and size_bytes keys are still required; this acts as a guard
-against user errors such as typos. If any of the objects fail to verify (not
+Note that the etag and size_bytes keys are optional; if ommitted, the
+verification is not performed. If any of the objects fail to verify (not
 found, size/etag mismatch, below minimum size, invalid range) then the user
 will receive a 4xx error response. If everything does match, the user will
 receive a 2xx response and the SLO object is ready for downloading.
@@ -106,12 +106,10 @@ If a user uploads this manifest:
 
   .. code::
 
-     [{"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
-       "range": "0-1048576"},
-      {"path": "/con/obj_seg_2", "etag": null, "size_bytes": 2097152,
+     [{"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "0-1048576"},
+      {"path": "/con/obj_seg_2", "size_bytes": 2097152,
        "range": "512-1550000"},
-      {"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
-       "range": "-2048"}]
+      {"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "-2048"}]
 
 The segment will consist of the first 1048576 bytes of /con/obj_seg_1,
 followed by bytes 513 through 1550000 (inclusive) of /con/obj_seg_2, and
@@ -230,8 +228,8 @@ DEFAULT_MAX_MANIFEST_SEGMENTS = 1000
 DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
 
 
-REQUIRED_SLO_KEYS = set(['path', 'etag', 'size_bytes'])
-OPTIONAL_SLO_KEYS = set(['range'])
+REQUIRED_SLO_KEYS = set(['path'])
+OPTIONAL_SLO_KEYS = set(['range', 'etag', 'size_bytes'])
 ALLOWED_SLO_KEYS = REQUIRED_SLO_KEYS | OPTIONAL_SLO_KEYS
 
 SYSMETA_SLO_ETAG = get_sys_meta_prefix('object') + 'slo-etag'
@@ -301,10 +299,10 @@ def parse_and_validate_input(req_body, req_path):
         if not isinstance(seg_dict['path'], six.string_types):
             errors.append("Index %d: \"path\" must be a string" % seg_index)
             continue
-        if not (seg_dict['etag'] is None or
+        if not (seg_dict.get('etag') is None or
                 isinstance(seg_dict['etag'], six.string_types)):
-            errors.append(
-                "Index %d: \"etag\" must be a string or null" % seg_index)
+            errors.append('Index %d: "etag" must be a string or null '
+                          '(if provided)' % seg_index)
             continue
 
         if '/' not in seg_dict['path'].strip('/'):
@@ -313,7 +311,7 @@ def parse_and_validate_input(req_body, req_path):
                 "the form /container/object." % seg_index)
             continue
 
-        seg_size = seg_dict['size_bytes']
+        seg_size = seg_dict.get('size_bytes')
         if seg_size is not None:
             try:
                 seg_size = int(seg_size)
@@ -932,10 +930,10 @@ class StaticLargeObject(object):
                 problem_segments.append(
                     [quote(obj_name),
                      'Too small; each segment must be at least 1 byte.'])
-            if seg_dict['size_bytes'] is not None and \
+            if seg_dict.get('size_bytes') is not None and \
                     seg_dict['size_bytes'] != head_seg_resp.content_length:
                 problem_segments.append([quote(obj_name), 'Size Mismatch'])
-            if seg_dict['etag'] is not None and \
+            if seg_dict.get('etag') is not None and \
                     seg_dict['etag'] != head_seg_resp.etag:
                 problem_segments.append([quote(obj_name), 'Etag Mismatch'])
             if head_seg_resp.last_modified:

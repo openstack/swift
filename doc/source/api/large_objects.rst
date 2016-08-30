@@ -50,29 +50,31 @@ Static large objects
 To create a static large object, divide your content into pieces and
 create (upload) a segment object to contain each piece.
 
-You must record the ``ETag`` response header that the **PUT** operation
-returns. Alternatively, you can calculate the MD5 checksum of the
-segment prior to uploading and include this in the ``ETag`` request
-header. This ensures that the upload cannot corrupt your data.
-
-List the name of each segment object along with its size and MD5
-checksum in order.
-
 Create a manifest object. Include the ``multipart-manifest=put``
 query string at the end of the manifest object name to indicate that
 this is a manifest object.
 
 The body of the **PUT** request on the manifest object comprises a json
-list, where each element contains the following attributes:
+list, where each element is an object representing a segment. These objects
+may contain the following attributes:
 
--  ``path``. The container and object name in the format:
+-  ``path`` (required). The container and object name in the format:
    ``{container-name}/{object-name}``
 
--  ``etag``. The MD5 checksum of the content of the segment object. This
-   value must match the ``ETag`` of that object.
+-  ``etag`` (optional). If provided, this value must match the ``ETag``
+   of the segment object. This was included in the response headers when
+   the segment was created. Generally, this will be the MD5 sum of the
+   segment.
 
--  ``size_bytes``. The size of the segment object. This value must match
-   the ``Content-Length`` of that object.
+-  ``size_bytes`` (optional). The size of the segment object. If provided,
+   this value must match the ``Content-Length`` of that object.
+
+-  ``range`` (optional). The subset of the referenced object that should
+   be used for segment data. This behaves similar to the ``Range`` header.
+   If omitted, the entire object will be used.
+
+Providing the optional ``etag`` and ``size_bytes`` attributes for each
+segment ensures that the upload cannot corrupt your data.
 
 **Example Static large object manifest list**
 
