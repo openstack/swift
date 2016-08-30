@@ -49,7 +49,7 @@ Containers and Policies
 Policies are implemented at the container level.  There are many advantages to
 this approach, not the least of which is how easy it makes life on
 applications that want to take advantage of them.  It also ensures that
-Storage Policies remain a core feature of swift independent of the auth
+Storage Policies remain a core feature of Swift independent of the auth
 implementation.  Policies were not implemented at the account/auth layer
 because it would require changes to all auth systems in use by Swift
 deployers.  Each container has a new special immutable metadata element called

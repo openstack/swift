@@ -17,7 +17,8 @@ import optparse
 import re
 import socket
 
-from swift.common.utils import expand_ipv6
+from swift.common.utils import expand_ipv6, is_valid_ip, is_valid_ipv4, \
+    is_valid_ipv6
 
 
 def tiers_for_dev(dev):
@@ -186,35 +187,6 @@ def validate_and_normalize_address(address):
         return new_address
     else:
         raise ValueError('Invalid address %s' % address)
-
-
-def is_valid_ip(ip):
-    """
-    Return True if the provided ip is a valid IP-address
-    """
-    return is_valid_ipv4(ip) or is_valid_ipv6(ip)
-
-
-def is_valid_ipv4(ip):
-    """
-    Return True if the provided ip is a valid IPv4-address
-    """
-    try:
-        socket.inet_pton(socket.AF_INET, ip)
-    except socket.error:
-        return False
-    return True
-
-
-def is_valid_ipv6(ip):
-    """
-    Return True if the provided ip is a valid IPv6-address
-    """
-    try:
-        socket.inet_pton(socket.AF_INET6, ip)
-    except socket.error:  # not a valid address
-        return False
-    return True
 
 
 def is_valid_hostname(hostname):
@@ -616,7 +588,7 @@ def build_dev_from_opts(opts):
                                          ['port', '-p', '--port'],
                                          ['device', '-d', '--device'],
                                          ['weight', '-w', '--weight']):
-        if not getattr(opts, attribute, None):
+        if getattr(opts, attribute, None) is None:
             raise ValueError('Required argument %s/%s not specified.' %
                              (shortopt, longopt))
 

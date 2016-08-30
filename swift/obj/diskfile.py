@@ -49,6 +49,7 @@ from collections import defaultdict
 
 from eventlet import Timeout
 from eventlet.hubs import trampoline
+import six
 
 from swift import gettext_ as _
 from swift.common.constraints import check_mount, check_dir
@@ -58,7 +59,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
-    tpool_reraise
+    tpool_reraise, MD5_OF_EMPTY_STRING
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -86,7 +87,6 @@ TMP_BASE = 'tmp'
 get_data_dir = partial(get_policy_string, DATADIR_BASE)
 get_async_dir = partial(get_policy_string, ASYNCDIR_BASE)
 get_tmp_dir = partial(get_policy_string, TMP_BASE)
-MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
 
 
 def _get_filename(fd):
@@ -113,7 +113,7 @@ def read_metadata(fd):
 
     :returns: dictionary of metadata
     """
-    metadata = ''
+    metadata = b''
     key = 0
     try:
         while True:
@@ -282,7 +282,7 @@ def consolidate_hashes(partition_dir):
         # Now that all the invalidations are reflected in hashes.pkl, it's
         # safe to clear out the invalidations file.
         try:
-            with open(invalidations_file, 'w') as inv_fh:
+            with open(invalidations_file, 'wb') as inv_fh:
                 pass
         except OSError as e:
             if e.errno != errno.ENOENT:
@@ -417,7 +417,11 @@ def get_auditor_status(datadir_path, logger, auditor_type):
         datadir_path, "auditor_status_%s.json" % auditor_type)
     status = {}
     try:
-        with open(auditor_status) as statusfile:
+        if six.PY3:
+            statusfile = open(auditor_status, encoding='utf8')
+        else:
+            statusfile = open(auditor_status, 'rb')
+        with statusfile:
             status = statusfile.read()
     except (OSError, IOError) as e:
         if e.errno != errno.ENOENT and logger:
@@ -436,6 +440,8 @@ def get_auditor_status(datadir_path, logger, auditor_type):
 
 def update_auditor_status(datadir_path, logger, partitions, auditor_type):
     status = json.dumps({'partitions': partitions})
+    if six.PY3:
+        status = status.encode('utf8')
     auditor_status = os.path.join(
         datadir_path, "auditor_status_%s.json" % auditor_type)
     try:
@@ -1115,12 +1121,14 @@ class BaseDiskFileManager(object):
         """
         device_path = self.construct_dev_path(device)
         async_dir = os.path.join(device_path, get_async_dir(policy))
+        tmp_dir = os.path.join(device_path, get_tmp_dir(policy))
+        mkdirs(tmp_dir)
         ohash = hash_path(account, container, obj)
         write_pickle(
             data,
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
                          Timestamp(timestamp).internal),
-            os.path.join(device_path, get_tmp_dir(policy)))
+            tmp_dir)
         self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
@@ -2515,7 +2523,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         exc = None
         try:
             try:
-                with open(durable_file_path, 'w') as _fp:
+                with open(durable_file_path, 'wb') as _fp:
                     fsync(_fp.fileno())
                 fsync_dir(self._datadir)
             except (OSError, IOError) as err:

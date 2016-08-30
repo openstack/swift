@@ -46,7 +46,8 @@ from swift.common.http import is_success
 from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
-    is_user_meta, is_sys_or_user_meta
+    is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
+    resolve_etag_is_at_header
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -446,12 +447,43 @@ class ObjectController(BaseStorageServer):
         except ValueError:
             raise HTTPBadRequest("invalid JSON for footer doc")
 
-    def _check_container_override(self, update_headers, metadata):
-        for key, val in metadata.items():
-            override_prefix = 'x-backend-container-update-override-'
-            if key.lower().startswith(override_prefix):
-                override = key.lower().replace(override_prefix, 'x-')
-                update_headers[override] = val
+    def _check_container_override(self, update_headers, metadata,
+                                  footers=None):
+        """
+        Applies any overrides to the container update headers.
+
+        Overrides may be in the x-object-sysmeta-container-update- namespace or
+        the x-backend-container-update-override- namespace. The former is
+        preferred and is used by proxy middlewares. The latter is historical
+        but is still used with EC policy PUT requests; for backwards
+        compatibility the header names used with EC policy requests have not
+        been changed to the sysmeta namespace - that way the EC PUT path of a
+        newer proxy will remain compatible with an object server that pre-dates
+        the introduction of the x-object-sysmeta-container-update- namespace
+        and vice-versa.
+
+        :param update_headers: a dict of headers used in the container update
+        :param metadata: a dict that may container override items
+        :param footers: another dict that may container override items, at a
+                        higher priority than metadata
+        """
+        footers = footers or {}
+        # the order of this list is significant:
+        # x-object-sysmeta-container-update-override-* headers take precedence
+        # over x-backend-container-update-override-* headers
+        override_prefixes = ['x-backend-container-update-override-',
+                             'x-object-sysmeta-container-update-override-']
+        for override_prefix in override_prefixes:
+            for key, val in metadata.items():
+                if key.lower().startswith(override_prefix):
+                    override = key.lower().replace(override_prefix, 'x-')
+                    update_headers[override] = val
+            # apply x-backend-container-update-override* from footers *before*
+            # x-object-sysmeta-container-update-override-* from headers
+            for key, val in footers.items():
+                if key.lower().startswith(override_prefix):
+                    override = key.lower().replace(override_prefix, 'x-')
+                    update_headers[override] = val
 
     def _preserve_slo_manifest(self, update_metadata, orig_metadata):
         if 'X-Static-Large-Object' in orig_metadata:
@@ -499,7 +531,8 @@ class ObjectController(BaseStorageServer):
             metadata = {'X-Timestamp': req_timestamp.internal}
             self._preserve_slo_manifest(metadata, orig_metadata)
             metadata.update(val for val in request.headers.items()
-                            if is_user_meta('object', val[0]))
+                            if (is_user_meta('object', val[0]) or
+                                is_object_transient_sysmeta(val[0])))
             headers_to_copy = (
                 request.headers.get(
                     'X-Backend-Replication-Headers', '').split() +
@@ -746,9 +779,11 @@ class ObjectController(BaseStorageServer):
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.items()
-                                if is_sys_or_user_meta('object', val[0]))
+                                if (is_sys_or_user_meta('object', val[0]) or
+                                    is_object_transient_sysmeta(val[0])))
                 metadata.update(val for val in footer_meta.items()
-                                if is_sys_or_user_meta('object', val[0]))
+                                if (is_sys_or_user_meta('object', val[0]) or
+                                    is_object_transient_sysmeta(val[0])))
                 headers_to_copy = (
                     request.headers.get(
                         'X-Backend-Replication-Headers', '').split() +
@@ -804,8 +839,8 @@ class ObjectController(BaseStorageServer):
             'x-timestamp': metadata['X-Timestamp'],
             'x-etag': metadata['ETag']})
         # apply any container update header overrides sent with request
-        self._check_container_override(update_headers, request.headers)
-        self._check_container_override(update_headers, footer_meta)
+        self._check_container_override(update_headers, request.headers,
+                                       footer_meta)
         self.container_update(
             'PUT', account, container, obj, request,
             update_headers,
@@ -832,10 +867,7 @@ class ObjectController(BaseStorageServer):
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
-                conditional_etag = None
-                if 'X-Backend-Etag-Is-At' in request.headers:
-                    conditional_etag = metadata.get(
-                        request.headers['X-Backend-Etag-Is-At'])
+                conditional_etag = resolve_etag_is_at_header(request, metadata)
                 response = Response(
                     app_iter=disk_file.reader(keep_cache=keep_cache),
                     request=request, conditional_response=True,
@@ -843,8 +875,9 @@ class ObjectController(BaseStorageServer):
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.items():
-                    if is_sys_or_user_meta('object', key) or \
-                            key.lower() in self.allowed_headers:
+                    if (is_sys_or_user_meta('object', key) or
+                            is_object_transient_sysmeta(key) or
+                            key.lower() in self.allowed_headers):
                         response.headers[key] = value
                 response.etag = metadata['ETag']
                 response.last_modified = math.ceil(float(file_x_ts))
@@ -889,17 +922,15 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
-        conditional_etag = None
-        if 'X-Backend-Etag-Is-At' in request.headers:
-            conditional_etag = metadata.get(
-                request.headers['X-Backend-Etag-Is-At'])
+        conditional_etag = resolve_etag_is_at_header(request, metadata)
         response = Response(request=request, conditional_response=True,
                             conditional_etag=conditional_etag)
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.items():
-            if is_sys_or_user_meta('object', key) or \
-                    key.lower() in self.allowed_headers:
+            if (is_sys_or_user_meta('object', key) or
+                    is_object_transient_sysmeta(key) or
+                    key.lower() in self.allowed_headers):
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = Timestamp(metadata['X-Timestamp'])
@@ -1031,14 +1062,10 @@ class ObjectController(BaseStorageServer):
         else:
             try:
                 # disallow methods which have not been marked 'public'
-                try:
-                    if req.method not in self.allowed_methods:
-                        raise AttributeError('Not allowed method.')
-                except AttributeError:
+                if req.method not in self.allowed_methods:
                     res = HTTPMethodNotAllowed()
                 else:
-                    method = getattr(self, req.method)
-                    res = method(req)
+                    res = getattr(self, req.method)(req)
             except DiskFileCollision:
                 res = HTTPForbidden(request=req)
             except HTTPException as error_response:

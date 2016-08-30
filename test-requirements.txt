@@ -8,8 +8,10 @@ coverage
 nose
 nosexcover
 nosehtmloutput
+openstackdocstheme>=1.0.3 # Apache-2.0
 oslosphinx
-sphinx>=1.1.2,<1.2
+sphinx>=1.1.2,!=1.2.0,!=1.3b1,<1.3  # BSD
+os-api-ref>=0.1.0 # Apache-2.0
 os-testr>=0.4.1
 mock>=1.0
 python-swiftclient

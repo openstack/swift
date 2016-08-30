@@ -114,3 +114,4 @@ Other
 * `Swift Browser <https://github.com/zerovm/swift-browser>`_ - JavaScript interface for Swift
 * `swift-ui <https://github.com/fanatic/swift-ui>`_ - OpenStack Swift web browser
 * `Swift Durability Calculator <https://github.com/enovance/swift-durability-calculator>`_ - Data Durability Calculation Tool for Swift
+* `swiftbackmeup <https://github.com/redhat-cip/swiftbackmeup>`_ -  Utility that allows one to create backups and upload them to OpenStack Swift

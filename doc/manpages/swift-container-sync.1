@@ -14,25 +14,25 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-container-sync 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-container-sync
-\- Openstack-swift container sync
+\- OpenStack Swift container sync
 
 .SH SYNOPSIS
 .LP
 .B swift-container-sync
 [CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
 Swift has a feature where all the contents of a container can be mirrored to
 another container through background synchronization. Swift cluster operators
 configure their cluster to allow/accept sync requests to/from other clusters,
-and the user specifies where to sync their container to along with a secret 
+and the user specifies where to sync their container to along with a secret
 synchronization key.
 .PP
 The swift-container-sync does the job of sending updates to the remote container.
@@ -42,14 +42,14 @@ newer rows since the last sync will trigger PUTs or DELETEs to the other contain
 
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
+More in depth documentation in regards to
 .BI swift-container-sync
-and also about Openstack-Swift as a whole can be found at 
+and also about OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/overview_container_sync.html
-and 
+and
 .BI http://docs.openstack.org
 
-.LP 
+.LP
 
 .SH "SEE ALSO"
 .BR container-server.conf(5)

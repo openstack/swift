@@ -113,7 +113,7 @@ class TestObject(unittest2.TestCase):
                 body = resp.read()
                 if resp.status == 404:
                     break
-                self.assertTrue(resp.status // 100 == 2, resp.status)
+                self.assertEqual(resp.status // 100, 2, resp.status)
                 objs = json.loads(body)
                 if not objs:
                     break
@@ -132,6 +132,145 @@ class TestObject(unittest2.TestCase):
             resp = retry(delete, container)
             resp.read()
             self.assertIn(resp.status, (204, 404))
+
+    def test_metadata(self):
+        obj = 'test_metadata'
+        req_metadata = {}
+
+        def put(url, token, parsed, conn):
+            headers = {'X-Auth-Token': token}
+            headers.update(req_metadata)
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, obj
+            ), '', headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn):
+            conn.request(
+                'GET',
+                '%s/%s/%s' % (parsed.path, self.container, obj),
+                '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post(url, token, parsed, conn):
+            headers = {'X-Auth-Token': token}
+            headers.update(req_metadata)
+            conn.request('POST', '%s/%s/%s' % (
+                parsed.path, self.container, obj
+            ), '', headers)
+            return check_response(conn)
+
+        def metadata(resp):
+            metadata = {}
+            for k, v in resp.headers.items():
+                if 'meta' in k.lower():
+                    metadata[k] = v
+            return metadata
+
+        # empty put
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {})
+        # empty post
+        resp = retry(post)
+        resp.read()
+        self.assertEqual(resp.status, 202)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {})
+
+        # metadata put
+        req_metadata = {
+            'x-object-meta-Color': 'blUe',
+            'X-Object-Meta-food': 'PizZa',
+        }
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {
+            'X-Object-Meta-Color': 'blUe',
+            'X-Object-Meta-Food': 'PizZa',
+        })
+        # metadata post
+        req_metadata = {'X-Object-Meta-color': 'oraNge'}
+        resp = retry(post)
+        resp.read()
+        self.assertEqual(resp.status, 202)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {
+            'X-Object-Meta-Color': 'oraNge'
+        })
+
+        # sysmeta put
+        req_metadata = {
+            'X-Object-Meta-Color': 'Red',
+            'X-Object-Sysmeta-Color': 'Green',
+            'X-Object-Transient-Sysmeta-Color': 'Blue',
+        }
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {
+            'X-Object-Meta-Color': 'Red',
+        })
+        # sysmeta post
+        req_metadata = {
+            'X-Object-Meta-Food': 'Burger',
+            'X-Object-Meta-Animal': 'Cat',
+            'X-Object-Sysmeta-Animal': 'Cow',
+            'X-Object-Transient-Sysmeta-Food': 'Burger',
+        }
+        resp = retry(post)
+        resp.read()
+        self.assertEqual(resp.status, 202)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {
+            'X-Object-Meta-Food': 'Burger',
+            'X-Object-Meta-Animal': 'Cat',
+        })
+
+        # non-ascii put
+        req_metadata = {
+            'X-Object-Meta-Foo': u'B\u00e2r',
+        }
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {
+            'X-Object-Meta-Foo': 'B\xc3\xa2r',
+        })
+        # non-ascii post
+        req_metadata = {
+            'X-Object-Meta-Foo': u'B\u00e5z',
+        }
+        resp = retry(post)
+        resp.read()
+        self.assertEqual(resp.status, 202)
+        resp = retry(get)
+        self.assertEqual('', resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(metadata(resp), {
+            'X-Object-Meta-Foo': 'B\xc3\xa5z',
+        })
 
     def test_if_none_match(self):
         def put(url, token, parsed, conn):

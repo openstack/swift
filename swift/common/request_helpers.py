@@ -27,6 +27,7 @@ import time
 
 import six
 from six.moves.urllib.parse import unquote
+from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
@@ -38,9 +39,12 @@ from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range
+    parse_content_range, csv_append, list_from_csv
 
 from swift.common.wsgi import make_subrequest
+
+
+OBJECT_TRANSIENT_SYSMETA_PREFIX = 'x-object-transient-sysmeta-'
 
 
 def get_param(req, name, default=None):
@@ -174,6 +178,19 @@ def is_sys_or_user_meta(server_type, key):
     return is_user_meta(server_type, key) or is_sys_meta(server_type, key)
 
 
+def is_object_transient_sysmeta(key):
+    """
+    Tests if a header key starts with and is longer than the prefix for object
+    transient system metadata.
+
+    :param key: header key
+    :returns: True if the key satisfies the test, False otherwise
+    """
+    if len(key) <= len(OBJECT_TRANSIENT_SYSMETA_PREFIX):
+        return False
+    return key.lower().startswith(OBJECT_TRANSIENT_SYSMETA_PREFIX)
+
+
 def strip_user_meta_prefix(server_type, key):
     """
     Removes the user metadata prefix for a given server type from the start
@@ -196,6 +213,17 @@ def strip_sys_meta_prefix(server_type, key):
     :returns: stripped header key
     """
     return key[len(get_sys_meta_prefix(server_type)):]
+
+
+def strip_object_transient_sysmeta_prefix(key):
+    """
+    Removes the object transient system metadata prefix from the start of a
+    header key.
+
+    :param key: header key
+    :returns: stripped header key
+    """
+    return key[len(OBJECT_TRANSIENT_SYSMETA_PREFIX):]
 
 
 def get_user_meta_prefix(server_type):
@@ -222,6 +250,20 @@ def get_sys_meta_prefix(server_type):
     :returns: prefix string for server type's system metadata headers
     """
     return 'x-%s-%s-' % (server_type.lower(), 'sysmeta')
+
+
+def get_object_transient_sysmeta(key):
+    """
+    Returns the Object Transient System Metadata header for key.
+    The Object Transient System Metadata namespace will be persisted by
+    backend object servers. These headers are treated in the same way as
+    object user metadata i.e. all headers in this namespace will be
+    replaced on every POST request.
+
+    :param key: metadata key
+    :returns: the entire object transient system metadata header for key
+    """
+    return '%s%s' % (OBJECT_TRANSIENT_SYSMETA_PREFIX, key)
 
 
 def remove_items(headers, condition):
@@ -262,10 +304,18 @@ class SegmentedIterable(object):
 
     :param req: original request object
     :param app: WSGI application from which segments will come
+
     :param listing_iter: iterable yielding the object segments to fetch,
-                         along with the byte subranges to fetch, in the
-                         form of a tuple (object-path, first-byte, last-byte)
-                         or (object-path, None, None) to fetch the whole thing.
+        along with the byte subranges to fetch, in the form of a 5-tuple
+        (object-path, object-etag, object-size, first-byte, last-byte).
+
+        If object-etag is None, no MD5 verification will be done.
+
+        If object-size is None, no length verification will be done.
+
+        If first-byte and last-byte are None, then the entire object will be
+        fetched.
+
     :param max_get_time: maximum permitted duration of a GET request (seconds)
     :param logger: logger object
     :param swift_source: value of swift.source in subrequest environ
@@ -544,3 +594,66 @@ def http_response_to_document_iters(response, read_chunk_size=4096):
         params = dict(params_list)
         return multipart_byteranges_to_document_iters(
             response, params['boundary'], read_chunk_size)
+
+
+def update_etag_is_at_header(req, name):
+    """
+    Helper function to update an X-Backend-Etag-Is-At header whose value is a
+    list of alternative header names at which the actual object etag may be
+    found. This informs the object server where to look for the actual object
+    etag when processing conditional requests.
+
+    Since the proxy server and/or middleware may set alternative etag header
+    names, the value of X-Backend-Etag-Is-At is a comma separated list which
+    the object server inspects in order until it finds an etag value.
+
+    :param req: a swob Request
+    :param name: name of a sysmeta where alternative etag may be found
+    """
+    if ',' in name:
+        # HTTP header names should not have commas but we'll check anyway
+        raise ValueError('Header name must not contain commas')
+    existing = req.headers.get("X-Backend-Etag-Is-At")
+    req.headers["X-Backend-Etag-Is-At"] = csv_append(
+        existing, name)
+
+
+def resolve_etag_is_at_header(req, metadata):
+    """
+    Helper function to resolve an alternative etag value that may be stored in
+    metadata under an alternate name.
+
+    The value of the request's X-Backend-Etag-Is-At header (if it exists) is a
+    comma separated list of alternate names in the metadata at which an
+    alternate etag value may be found. This list is processed in order until an
+    alternate etag is found.
+
+    The left most value in X-Backend-Etag-Is-At will have been set by the left
+    most middleware, or if no middleware, by ECObjectController, if an EC
+    policy is in use. The left most middleware is assumed to be the authority
+    on what the etag value of the object content is.
+
+    The resolver will work from left to right in the list until it finds a
+    value that is a name in the given metadata. So the left most wins, IF it
+    exists in the metadata.
+
+    By way of example, assume the encrypter middleware is installed. If an
+    object is *not* encrypted then the resolver will not find the encrypter
+    middleware's alternate etag sysmeta (X-Object-Sysmeta-Crypto-Etag) but will
+    then find the EC alternate etag (if EC policy). But if the object *is*
+    encrypted then X-Object-Sysmeta-Crypto-Etag is found and used, which is
+    correct because it should be preferred over X-Object-Sysmeta-Crypto-Etag.
+
+    :param req: a swob Request
+    :param metadata: a dict containing object metadata
+    :return: an alternate etag value if any is found, otherwise None
+    """
+    alternate_etag = None
+    metadata = HeaderKeyDict(metadata)
+    if "X-Backend-Etag-Is-At" in req.headers:
+        names = list_from_csv(req.headers["X-Backend-Etag-Is-At"])
+        for name in names:
+            if name in metadata:
+                alternate_etag = metadata[name]
+                break
+    return alternate_etag

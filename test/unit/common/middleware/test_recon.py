@@ -300,7 +300,7 @@ class TestReconSuccess(TestCase):
                 array.array('H', [4, 2, 4, 3])]
         }
 
-        for ringfn, replica_map in rings.iteritems():
+        for ringfn, replica_map in rings.items():
             ringpath = os.path.join(self.tempdir, ringfn)
             self._create_ring(ringpath, replica_map, self.ring_devs,
                               self.ring_part_shift)

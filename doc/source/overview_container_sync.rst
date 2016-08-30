@@ -14,9 +14,19 @@ synchronization key.
 
 .. note::
 
-    If you are using the large objects feature you will need to ensure both
-    your manifest file and your segment files are synced if they happen to be
-    in different containers.
+    If you are using the large objects feature and syncing to another cluster
+    then you will need to ensure that manifest files and segment files are
+    synced. If segment files are in a different container than their manifest
+    then both the manifest's container and the segments' container must be
+    synced. The target container for synced segment files must always have the
+    same name as their source container in order for them to be resolved by
+    synced manifests.
+
+.. note::
+
+    If you are using encryption middleware in the cluster from which objects
+    are being synced, then you should follow the instructions to configure
+    :ref:`container_sync_client_config` to be compatible with encryption.
 
 --------------------------
 Configuring Container Sync

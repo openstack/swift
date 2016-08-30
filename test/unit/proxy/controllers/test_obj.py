@@ -31,6 +31,7 @@ from six.moves import range
 
 import swift
 from swift.common import utils, swob, exceptions
+from swift.common.exceptions import ChunkWriteTimeout
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
@@ -122,6 +123,27 @@ class PatchedObjControllerApp(proxy_server.Application):
                 PatchedObjControllerApp, self).__call__(*args, **kwargs)
 
 
+def make_footers_callback(body=None):
+    # helper method to create a footers callback that will generate some fake
+    # footer metadata
+    cont_etag = 'container update etag may differ'
+    crypto_etag = '20242af0cd21dd7195a10483eb7472c9'
+    etag_crypto_meta = \
+        '{"cipher": "AES_CTR_256", "iv": "sD+PSw/DfqYwpsVGSo0GEw=="}'
+    etag = md5(body).hexdigest() if body is not None else None
+    footers_to_add = {
+        'X-Object-Sysmeta-Container-Update-Override-Etag': cont_etag,
+        'X-Object-Sysmeta-Crypto-Etag': crypto_etag,
+        'X-Object-Sysmeta-Crypto-Meta-Etag': etag_crypto_meta,
+        'X-I-Feel-Lucky': 'Not blocked',
+        'Etag': etag}
+
+    def footers_callback(footers):
+        footers.update(footers_to_add)
+
+    return footers_callback
+
+
 class BaseObjectControllerMixin(object):
     container_info = {
         'status': 200,
@@ -209,7 +231,7 @@ class BaseObjectControllerMixin(object):
         # make sure we have enough local nodes (sanity)
         all_local_nodes = [n for n in all_nodes if
                            self.app.write_affinity_is_local_fn(n)]
-        self.assertTrue(len(all_local_nodes) >= self.replicas() + 1)
+        self.assertGreaterEqual(len(all_local_nodes), self.replicas() + 1)
 
         # finally, create the local_first_nodes iter and flatten it out
         local_first_nodes = list(controller.iter_nodes_local_first(
@@ -253,11 +275,12 @@ class BaseObjectControllerMixin(object):
     def test_connect_put_node_timeout(self):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
         self.app.conn_timeout = 0.05
         with set_http_connect(slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
-            res = controller._connect_put_node(nodes, '', '', {}, ('', ''))
-        self.assertTrue(res is None)
+            res = controller._connect_put_node(nodes, '', req, {}, ('', ''))
+        self.assertIsNone(res)
 
     def test_DELETE_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -564,6 +587,163 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
 
+    def test_PUT_error_with_footers(self):
+        footers_callback = make_footers_callback('')
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              environ=env)
+        req.headers['content-length'] = '0'
+        codes = [503] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes'
+        }
+
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def _test_PUT_with_no_footers(self, test_body='', chunked=False):
+        # verify that when no footers are required then the PUT uses a regular
+        # single part body
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              body=test_body)
+        if chunked:
+            req.headers['Transfer-Encoding'] = 'chunked'
+        etag = md5(test_body).hexdigest()
+        req.headers['Etag'] = etag
+
+        put_requests = defaultdict(
+            lambda: {'headers': None, 'chunks': [], 'connection': None})
+
+        def capture_body(conn, chunk):
+            put_requests[conn.connection_id]['chunks'].append(chunk)
+            put_requests[conn.connection_id]['connection'] = conn
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            conn_id = kwargs['connection_id']
+            put_requests[conn_id]['headers'] = headers
+
+        codes = [201] * self.replicas()
+        expect_headers = {'X-Obj-Metadata-Footer': 'yes'}
+        with set_http_connect(*codes, expect_headers=expect_headers,
+                              give_send=capture_body,
+                              give_connect=capture_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 201)
+        for connection_id, info in put_requests.items():
+            body = ''.join(info['chunks'])
+            headers = info['headers']
+            if chunked:
+                body = unchunk_body(body)
+                self.assertEqual('100-continue', headers['Expect'])
+                self.assertEqual('chunked', headers['Transfer-Encoding'])
+            else:
+                self.assertNotIn('Transfer-Encoding', headers)
+            if body:
+                self.assertEqual('100-continue', headers['Expect'])
+            else:
+                self.assertNotIn('Expect', headers)
+            self.assertNotIn('X-Backend-Obj-Multipart-Mime-Boundary', headers)
+            self.assertNotIn('X-Backend-Obj-Metadata-Footer', headers)
+            self.assertNotIn('X-Backend-Obj-Multiphase-Commit', headers)
+            self.assertEqual(etag, headers['Etag'])
+
+            self.assertEqual(test_body, body)
+            self.assertTrue(info['connection'].closed)
+
+    def test_PUT_with_chunked_body_and_no_footers(self):
+        self._test_PUT_with_no_footers(test_body='asdf', chunked=True)
+
+    def test_PUT_with_body_and_no_footers(self):
+        self._test_PUT_with_no_footers(test_body='asdf', chunked=False)
+
+    def test_PUT_with_no_body_and_no_footers(self):
+        self._test_PUT_with_no_footers(test_body='', chunked=False)
+
+    def _test_PUT_with_footers(self, test_body=''):
+        # verify that when footers are required the PUT body is multipart
+        # and the footers are appended
+        footers_callback = make_footers_callback(test_body)
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              environ=env)
+        req.body = test_body
+        # send bogus Etag header to differentiate from footer value
+        req.headers['Etag'] = 'header_etag'
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes'
+        }
+
+        put_requests = defaultdict(
+            lambda: {'headers': None, 'chunks': [], 'connection': None})
+
+        def capture_body(conn, chunk):
+            put_requests[conn.connection_id]['chunks'].append(chunk)
+            put_requests[conn.connection_id]['connection'] = conn
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            conn_id = kwargs['connection_id']
+            put_requests[conn_id]['headers'] = headers
+
+        with set_http_connect(*codes, expect_headers=expect_headers,
+                              give_send=capture_body,
+                              give_connect=capture_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 201)
+        for connection_id, info in put_requests.items():
+            body = unchunk_body(''.join(info['chunks']))
+            headers = info['headers']
+            boundary = headers['X-Backend-Obj-Multipart-Mime-Boundary']
+            self.assertTrue(boundary is not None,
+                            "didn't get boundary for conn %r" % (
+                                connection_id,))
+            self.assertEqual('chunked', headers['Transfer-Encoding'])
+            self.assertEqual('100-continue', headers['Expect'])
+            self.assertEqual('yes', headers['X-Backend-Obj-Metadata-Footer'])
+            self.assertNotIn('X-Backend-Obj-Multiphase-Commit', headers)
+            self.assertEqual('header_etag', headers['Etag'])
+
+            # email.parser.FeedParser doesn't know how to take a multipart
+            # message and boundary together and parse it; it only knows how
+            # to take a string, parse the headers, and figure out the
+            # boundary on its own.
+            parser = email.parser.FeedParser()
+            parser.feed(
+                "Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n" %
+                boundary)
+            parser.feed(body)
+            message = parser.close()
+
+            self.assertTrue(message.is_multipart())  # sanity check
+            mime_parts = message.get_payload()
+            # notice, no commit confirmation
+            self.assertEqual(len(mime_parts), 2)
+            obj_part, footer_part = mime_parts
+
+            self.assertEqual(obj_part['X-Document'], 'object body')
+            self.assertEqual(test_body, obj_part.get_payload())
+
+            # validate footer metadata
+            self.assertEqual(footer_part['X-Document'], 'object metadata')
+            footer_metadata = json.loads(footer_part.get_payload())
+            self.assertTrue(footer_metadata)
+            expected = {}
+            footers_callback(expected)
+            self.assertDictEqual(expected, footer_metadata)
+
+            self.assertTrue(info['connection'].closed)
+
+    def test_PUT_with_body_and_footers(self):
+        self._test_PUT_with_footers(test_body='asdf')
+
+    def test_PUT_with_no_body_and_footers(self):
+        self._test_PUT_with_footers()
+
     def test_txn_id_logging_on_PUT(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         self.app.logger.txn_id = req.environ['swift.trans_id'] = 'test-txn-id'
@@ -585,11 +765,15 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['Content-Length'] = '0'
         req.headers['Etag'] = '"catbus"'
 
-        # The 2-tuple here makes getexpect() return 422, not 100. For
-        # objects that are >0 bytes, you get a 100 Continue and then a 422
-        # Unprocessable Entity after sending the body. For zero-byte
-        # objects, though, you get the 422 right away.
-        codes = [FakeStatus((422, 422))
+        # The 2-tuple here makes getexpect() return 422, not 100. For objects
+        # that are >0 bytes, you get a 100 Continue and then a 422
+        # Unprocessable Entity after sending the body. For zero-byte objects,
+        # though, you get the 422 right away because no Expect header is sent
+        # with zero-byte PUT. The second status in the tuple should not be
+        # consumed, it's just there to make the FakeStatus treat the first as
+        # an expect status, but we'll make it something other than a 422 so
+        # that if it is consumed then the test should fail.
+        codes = [FakeStatus((422, 200))
                  for _junk in range(self.replicas())]
 
         with set_http_connect(*codes):
@@ -673,6 +857,152 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             node_error_count(self.app, object_ring.devs[1]),
             self.app.error_suppression_limit + 1)
 
+    def test_PUT_connect_exception_with_unicode_path(self):
+        expected = 201
+        statuses = (
+            Exception('Connection refused: Please insert ten dollars'),
+            201, 201, 201)
+
+        req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 method='PUT',
+                                 body='life is utf-gr8')
+        self.app.logger.clear()
+        with set_http_connect(*statuses):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, expected)
+        log_lines = self.app.logger.get_lines_for_level('error')
+        self.assertFalse(log_lines[1:])
+        self.assertIn('ERROR with Object server', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn('re: Expect: 100-continue', log_lines[0])
+
+    def test_PUT_get_expect_errors_with_unicode_path(self):
+        def do_test(statuses):
+            req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                     method='PUT',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(*statuses):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            return log_lines
+
+        log_lines = do_test((201, (507, None), 201, 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        log_lines = do_test((201, (503, None), 201, 201))
+        self.assertIn('ERROR 503 Expect: 100-continue From Object Server',
+                      log_lines[0])
+
+    def test_PUT_send_exception_with_unicode_path(self):
+        def do_test(exc):
+            conns = set()
+
+            def capture_send(conn, data):
+                conns.add(conn)
+                if len(conns) == 2:
+                    raise exc
+
+            req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                     method='PUT',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(201, 201, 201, give_send=capture_send):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            self.assertIn('ERROR with Object server', log_lines[0])
+            self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+            self.assertIn('Trying to write to', log_lines[0])
+
+        do_test(Exception('Exception while sending data on connection'))
+        do_test(ChunkWriteTimeout())
+
+    def test_PUT_final_response_errors_with_unicode_path(self):
+        def do_test(statuses):
+            req = swob.Request.blank('/v1/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                     method='PUT',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(*statuses):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            return req, log_lines
+
+        req, log_lines = do_test((201, (100, Exception('boom')), 201))
+        self.assertIn('ERROR with Object server', log_lines[0])
+        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        self.assertIn('Trying to get final status of PUT', log_lines[0])
+
+        req, log_lines = do_test((201, (100, Timeout()), 201))
+        self.assertIn('ERROR with Object server', log_lines[0])
+        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+        self.assertIn('Trying to get final status of PUT', log_lines[0])
+
+        req, log_lines = do_test((201, (100, 507), 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        req, log_lines = do_test((201, (100, 500), 201))
+        self.assertIn('ERROR 500  From Object Server', log_lines[0])
+        self.assertIn(req.path.decode('utf-8'), log_lines[0])
+
+    def test_DELETE_errors(self):
+        # verify logged errors with and without non-ascii characters in path
+        def do_test(path, statuses):
+
+            req = swob.Request.blank('/v1' + path,
+                                     method='DELETE',
+                                     body='life is utf-gr8')
+            self.app.logger.clear()
+            with set_http_connect(*statuses):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            log_lines = self.app.logger.get_lines_for_level('error')
+            self.assertFalse(log_lines[1:])
+            return req, log_lines
+
+        req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
+                                 (201, 500, 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(' From Object Server', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 (201, 500, 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn(' From Object Server', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
+                                 (201, 507, 201, 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 (201, 507, 201, 201))
+        self.assertIn('ERROR Insufficient Storage', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/ascii/ascii',
+                                 (201, Exception(), 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn('ERROR with Object server', log_lines[0])
+
+        req, log_lines = do_test('/AUTH_kilroy/%ED%88%8E/%E9%90%89',
+                                 (201, Exception(), 201, 201))
+        self.assertIn('Trying to DELETE', log_lines[0])
+        self.assertIn(req.swift_entity_path.decode('utf-8'), log_lines[0])
+        self.assertIn('ERROR with Object server', log_lines[0])
+
     def test_PUT_error_during_transfer_data(self):
         class FakeReader(object):
             def read(self, size):
@@ -707,16 +1037,24 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         class FakeReader(object):
             def read(self, size):
                 raise Timeout()
+        conns = []
+
+        def capture_expect(conn):
+            # stash connections so that we can verify they all get closed
+            conns.append(conn)
 
         req = swob.Request.blank('/v1/a/c/o.jpg', method='PUT',
                                  body='test body')
 
         req.environ['wsgi.input'] = FakeReader()
         req.headers['content-length'] = '6'
-        with set_http_connect(201, 201, 201):
+        with set_http_connect(201, 201, 201, give_expect=capture_expect):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 499)
+        self.assertEqual(self.replicas(), len(conns))
+        for conn in conns:
+            self.assertTrue(conn.closed)
 
     def test_PUT_exception_during_transfer_data(self):
         class FakeReader(object):
@@ -805,10 +1143,10 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         self.assertEqual(resp.status_int, 201)
         for given_headers in put_headers:
             self.assertEqual(given_headers.get('X-Delete-At'), t)
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
+            self.assertIn('X-Delete-At-Host', given_headers)
+            self.assertIn('X-Delete-At-Device', given_headers)
+            self.assertIn('X-Delete-At-Partition', given_headers)
+            self.assertIn('X-Delete-At-Container', given_headers)
 
     def test_PUT_converts_delete_after_to_delete_at(self):
         req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
@@ -830,10 +1168,10 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         for given_headers in put_headers:
             self.assertEqual(given_headers.get('X-Delete-At'),
                              expected_delete_at)
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
+            self.assertIn('X-Delete-At-Host', given_headers)
+            self.assertIn('X-Delete-At-Device', given_headers)
+            self.assertIn('X-Delete-At-Partition', given_headers)
+            self.assertIn('X-Delete-At-Container', given_headers)
 
     def test_container_sync_put_x_timestamp_not_found(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
@@ -1131,6 +1469,108 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
 
+    def _test_if_match(self, method):
+        num_responses = self.policy.ec_ndata if method == 'GET' else 1
+
+        def _do_test(match_value, backend_status,
+                     etag_is_at='X-Object-Sysmeta-Does-Not-Exist'):
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method=method,
+                headers={'If-Match': match_value,
+                         'X-Backend-Etag-Is-At': etag_is_at})
+            get_resp = [backend_status] * num_responses
+            resp_headers = {'Etag': 'frag_etag',
+                            'X-Object-Sysmeta-Ec-Etag': 'data_etag',
+                            'X-Object-Sysmeta-Alternate-Etag': 'alt_etag'}
+            with set_http_connect(*get_resp, headers=resp_headers):
+                resp = req.get_response(self.app)
+            self.assertEqual('data_etag', resp.headers['Etag'])
+            return resp
+
+        # wildcard
+        resp = _do_test('*', 200)
+        self.assertEqual(resp.status_int, 200)
+
+        # match
+        resp = _do_test('"data_etag"', 200)
+        self.assertEqual(resp.status_int, 200)
+
+        # no match
+        resp = _do_test('"frag_etag"', 412)
+        self.assertEqual(resp.status_int, 412)
+
+        # match wildcard against an alternate etag
+        resp = _do_test('*', 200,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 200)
+
+        # match against an alternate etag
+        resp = _do_test('"alt_etag"', 200,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 200)
+
+        # no match against an alternate etag
+        resp = _do_test('"data_etag"', 412,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 412)
+
+    def test_GET_if_match(self):
+        self._test_if_match('GET')
+
+    def test_HEAD_if_match(self):
+        self._test_if_match('HEAD')
+
+    def _test_if_none_match(self, method):
+        num_responses = self.policy.ec_ndata if method == 'GET' else 1
+
+        def _do_test(match_value, backend_status,
+                     etag_is_at='X-Object-Sysmeta-Does-Not-Exist'):
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method=method,
+                headers={'If-None-Match': match_value,
+                         'X-Backend-Etag-Is-At': etag_is_at})
+            get_resp = [backend_status] * num_responses
+            resp_headers = {'Etag': 'frag_etag',
+                            'X-Object-Sysmeta-Ec-Etag': 'data_etag',
+                            'X-Object-Sysmeta-Alternate-Etag': 'alt_etag'}
+            with set_http_connect(*get_resp, headers=resp_headers):
+                resp = req.get_response(self.app)
+            self.assertEqual('data_etag', resp.headers['Etag'])
+            return resp
+
+        # wildcard
+        resp = _do_test('*', 304)
+        self.assertEqual(resp.status_int, 304)
+
+        # match
+        resp = _do_test('"data_etag"', 304)
+        self.assertEqual(resp.status_int, 304)
+
+        # no match
+        resp = _do_test('"frag_etag"', 200)
+        self.assertEqual(resp.status_int, 200)
+
+        # match wildcard against an alternate etag
+        resp = _do_test('*', 304,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 304)
+
+        # match against an alternate etag
+        resp = _do_test('"alt_etag"', 304,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 304)
+
+        # no match against an alternate etag
+        resp = _do_test('"data_etag"', 200,
+                        etag_is_at='X-Object-Sysmeta-Alternate-Etag')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_GET_if_none_match(self):
+        self._test_if_none_match('GET')
+
+    def test_HEAD_if_none_match(self):
+        self._test_if_none_match('HEAD')
+
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
                                               headers={'X-Newest': 'true'})
@@ -1193,6 +1633,42 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def test_PUT_with_body_and_bad_etag(self):
+        segment_size = self.policy.ec_segment_size
+        test_body = ('asdf' * segment_size)[:-10]
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        conns = []
+
+        def capture_expect(conn):
+            # stash the backend connection so we can verify that it is closed
+            # (no data will be sent)
+            conns.append(conn)
+
+        # send a bad etag in the request headers
+        headers = {'Etag': 'bad etag'}
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers=headers, body=test_body)
+        with set_http_connect(*codes, expect_headers=expect_headers,
+                              give_expect=capture_expect):
+            resp = req.get_response(self.app)
+        self.assertEqual(422, resp.status_int)
+        self.assertEqual(self.replicas(), len(conns))
+        for conn in conns:
+            self.assertTrue(conn.closed)
+
+        # make the footers callback send a bad Etag footer
+        footers_callback = make_footers_callback('not the test body')
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='PUT', environ=env, body=test_body)
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(422, resp.status_int)
 
     def test_txn_id_logging_ECPUT(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1399,9 +1875,15 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 500)
 
     def test_PUT_with_body(self):
-        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         segment_size = self.policy.ec_segment_size
         test_body = ('asdf' * segment_size)[:-10]
+        # make the footers callback not include Etag footer so that we can
+        # verify that the correct EC-calculated Etag is included in footers
+        # sent to backend
+        footers_callback = make_footers_callback()
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='PUT', environ=env)
         etag = md5(test_body).hexdigest()
         size = len(test_body)
         req.body = test_body
@@ -1413,8 +1895,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
         put_requests = defaultdict(lambda: {'boundary': None, 'chunks': []})
 
-        def capture_body(conn_id, chunk):
-            put_requests[conn_id]['chunks'].append(chunk)
+        def capture_body(conn, chunk):
+            put_requests[conn.connection_id]['chunks'].append(chunk)
 
         def capture_headers(ip, port, device, part, method, path, headers,
                             **kwargs):
@@ -1433,9 +1915,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         frag_archives = []
         for connection_id, info in put_requests.items():
             body = unchunk_body(''.join(info['chunks']))
-            self.assertTrue(info['boundary'] is not None,
-                            "didn't get boundary for conn %r" % (
-                                connection_id,))
+            self.assertIsNotNone(info['boundary'],
+                                 "didn't get boundary for conn %r" % (
+                                     connection_id,))
             self.assertTrue(size > int(info['backend-content-length']) > 0,
                             "invalid backend-content-length for conn %r" % (
                                 connection_id,))
@@ -1471,13 +1953,16 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             self.assertEqual(footer_part['X-Document'], 'object metadata')
             footer_metadata = json.loads(footer_part.get_payload())
             self.assertTrue(footer_metadata)
-            expected = {
-                'X-Object-Sysmeta-EC-Content-Length': str(size),
+            expected = {}
+            # update expected with footers from the callback...
+            footers_callback(expected)
+            expected.update({
+                'X-Object-Sysmeta-Ec-Content-Length': str(size),
                 'X-Backend-Container-Update-Override-Size': str(size),
-                'X-Object-Sysmeta-EC-Etag': etag,
+                'X-Object-Sysmeta-Ec-Etag': etag,
                 'X-Backend-Container-Update-Override-Etag': etag,
-                'X-Object-Sysmeta-EC-Segment-Size': str(segment_size),
-            }
+                'X-Object-Sysmeta-Ec-Segment-Size': str(segment_size),
+                'Etag': md5(obj_part.get_payload()).hexdigest()})
             for header, value in expected.items():
                 self.assertEqual(footer_metadata[header], value)
 
@@ -1503,6 +1988,118 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
         self.assertEqual(len(test_body), len(expected_body))
         self.assertEqual(test_body, expected_body)
+
+    def test_PUT_with_footers(self):
+        # verify footers supplied by a footers callback being added to
+        # trailing metadata
+        segment_size = self.policy.ec_segment_size
+        test_body = ('asdf' * segment_size)[:-10]
+        etag = md5(test_body).hexdigest()
+        size = len(test_body)
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+
+        def do_test(footers_to_add, expect_added):
+            put_requests = defaultdict(
+                lambda: {'boundary': None, 'chunks': []})
+
+            def capture_body(conn, chunk):
+                put_requests[conn.connection_id]['chunks'].append(chunk)
+
+            def capture_headers(ip, port, device, part, method, path, headers,
+                                **kwargs):
+                conn_id = kwargs['connection_id']
+                put_requests[conn_id]['boundary'] = headers[
+                    'X-Backend-Obj-Multipart-Mime-Boundary']
+
+            def footers_callback(footers):
+                footers.update(footers_to_add)
+            env = {'swift.callback.update_footers': footers_callback}
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT', environ=env, body=test_body)
+
+            with set_http_connect(*codes, expect_headers=expect_headers,
+                                  give_send=capture_body,
+                                  give_connect=capture_headers):
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 201)
+            for connection_id, info in put_requests.items():
+                body = unchunk_body(''.join(info['chunks']))
+                # email.parser.FeedParser doesn't know how to take a multipart
+                # message and boundary together and parse it; it only knows how
+                # to take a string, parse the headers, and figure out the
+                # boundary on its own.
+                parser = email.parser.FeedParser()
+                parser.feed(
+                    "Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n"
+                    % info['boundary'])
+                parser.feed(body)
+                message = parser.close()
+
+                self.assertTrue(message.is_multipart())  # sanity check
+                mime_parts = message.get_payload()
+                self.assertEqual(len(mime_parts), 3)
+                obj_part, footer_part, commit_part = mime_parts
+
+                # validate EC footer metadata - should always be present
+                self.assertEqual(footer_part['X-Document'], 'object metadata')
+                footer_metadata = json.loads(footer_part.get_payload())
+                self.assertIsNotNone(
+                    footer_metadata.pop('X-Object-Sysmeta-Ec-Frag-Index'))
+                expected = {
+                    'X-Object-Sysmeta-Ec-Scheme':
+                        self.policy.ec_scheme_description,
+                    'X-Object-Sysmeta-Ec-Content-Length': str(size),
+                    'X-Object-Sysmeta-Ec-Etag': etag,
+                    'X-Object-Sysmeta-Ec-Segment-Size': str(segment_size),
+                    'Etag': md5(obj_part.get_payload()).hexdigest()}
+                expected.update(expect_added)
+                for header, value in expected.items():
+                    self.assertIn(header, footer_metadata)
+                    self.assertEqual(value, footer_metadata[header])
+                    footer_metadata.pop(header)
+                self.assertFalse(footer_metadata)
+
+        # sanity check - middleware sets no footer, expect EC overrides
+        footers_to_add = {}
+        expect_added = {
+            'X-Backend-Container-Update-Override-Size': str(size),
+            'X-Backend-Container-Update-Override-Etag': etag}
+        do_test(footers_to_add, expect_added)
+
+        # middleware cannot overwrite any EC sysmeta
+        footers_to_add = {
+            'X-Object-Sysmeta-Ec-Content-Length': str(size + 1),
+            'X-Object-Sysmeta-Ec-Etag': 'other etag',
+            'X-Object-Sysmeta-Ec-Segment-Size': str(segment_size + 1),
+            'X-Object-Sysmeta-Ec-Unused-But-Reserved': 'ignored'}
+        do_test(footers_to_add, expect_added)
+
+        # middleware can add x-object-sysmeta- headers including
+        # x-object-sysmeta-container-update-override headers
+        footers_to_add = {
+            'X-Object-Sysmeta-Foo': 'bar',
+            'X-Object-Sysmeta-Container-Update-Override-Size':
+                str(size + 1),
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'other etag',
+            'X-Object-Sysmeta-Container-Update-Override-Ping': 'pong'
+        }
+        expect_added.update(footers_to_add)
+        do_test(footers_to_add, expect_added)
+
+        # middleware can also overwrite x-backend-container-update-override
+        # headers
+        override_footers = {
+            'X-Backend-Container-Update-Override-Wham': 'bam',
+            'X-Backend-Container-Update-Override-Size': str(size + 2),
+            'X-Backend-Container-Update-Override-Etag': 'another etag'}
+        footers_to_add.update(override_footers)
+        expect_added.update(override_footers)
+        do_test(footers_to_add, expect_added)
 
     def test_PUT_old_obj_server(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1709,9 +2306,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_with_many_missed_overwrite_will_need_handoff(self):
         obj1 = self._make_ec_object_stub()
@@ -1760,9 +2357,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_succeed(self):
         obj1 = self._make_ec_object_stub()
@@ -1823,9 +2420,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_stop(self):
         obj1 = self._make_ec_object_stub()
@@ -1883,9 +2480,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                     len(frags), etag))
 
     def test_GET_mixed_success_with_range(self):
         fragment_size = self.policy.fragment_size
@@ -2085,8 +2682,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         msg = error_lines[0]
-        self.assertTrue('Error decoding fragments' in msg)
-        self.assertTrue('/a/c/o' in msg)
+        self.assertIn('Error decoding fragments', msg)
+        self.assertIn('/a/c/o', msg)
         log_msg_args, log_msg_kwargs = self.logger.log_dict['error'][0]
         self.assertEqual(log_msg_kwargs['exc_info'][0], ECDriverError)
 
@@ -2116,9 +2713,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(self.replicas(), len(error_lines))
         nparity = self.policy.ec_nparity
         for line in error_lines[:nparity]:
-            self.assertTrue('retrying' in line)
+            self.assertIn('retrying', line)
         for line in error_lines[nparity:]:
-            self.assertTrue('ChunkReadTimeout (0.01s)' in line)
+            self.assertIn('ChunkReadTimeout (0.01s)', line)
 
     def test_GET_read_timeout_resume(self):
         segment_size = self.policy.ec_segment_size
@@ -2144,7 +2741,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             self.assertTrue(md5(resp.body).hexdigest(), etag)
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
-        self.assertTrue('retrying' in error_lines[0])
+        self.assertIn('retrying', error_lines[0])
 
     def test_fix_response_HEAD(self):
         headers = {'X-Object-Sysmeta-Ec-Content-Length': '10',
@@ -2202,7 +2799,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             resp = req.get_response(self.app)
             response_time = time.time() - start
         self.assertEqual(resp.status_int, 201)
-        self.assertTrue(response_time < response_sleep)
+        self.assertLess(response_time, response_sleep)
 
     def test_PUT_with_just_enough_durable_responses(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -2264,7 +2861,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body)),
                    'X-Object-Sysmeta-Ec-Etag': body_etag}
         start = int(req_range.split('-')[0])
-        self.assertTrue(start >= 0)  # sanity
+        self.assertGreaterEqual(start, 0)  # sanity
         title, exp = swob.RESPONSE_REASONS[416]
         range_not_satisfiable_body = \
             '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)

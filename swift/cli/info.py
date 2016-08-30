@@ -19,7 +19,7 @@ from hashlib import md5
 from six.moves import urllib
 
 from swift.common.utils import hash_path, storage_directory, \
-    Timestamp
+    Timestamp, is_valid_ipv6
 from swift.common.ring import Ring
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix
@@ -35,6 +35,32 @@ class InfoSystemExit(Exception):
     Indicates to the caller that a sys.exit(1) should be performed.
     """
     pass
+
+
+def curl_head_command(ip, port, device, part, target, policy_index):
+    """
+    Provide a string that is a well formatted curl command to HEAD an object
+    on a storage node.
+
+    :param ip: the ip of the node
+    :param port: the port of the node
+    :param device: the device of the node
+    :param target: the path of the target resource
+    :param policy_index: the policy_index of the target resource (can be None)
+
+    :returns: a string, a well formatted curl command
+    """
+    if is_valid_ipv6(ip):
+        formatted_ip = '[%s]' % ip
+    else:
+        formatted_ip = ip
+
+    cmd = 'curl -g -I -XHEAD "http://%s:%s/%s/%s/%s"' % (
+        formatted_ip, port, device, part, urllib.parse.quote(target))
+    if policy_index is not None:
+        cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
+                                 policy_index)
+    return cmd
 
 
 def print_ring_locations(ring, datadir, account, container=None, obj=None,
@@ -99,20 +125,12 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
     print("\n")
 
     for node in primary_nodes:
-        cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
-            % (node['ip'], node['port'], node['device'], part,
-               urllib.parse.quote(target))
-        if policy_index is not None:
-            cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
-                                     policy_index)
+        cmd = curl_head_command(node['ip'], node['port'], node['device'],
+                                part, target, policy_index)
         print(cmd)
     for node in handoff_nodes:
-        cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
-            % (node['ip'], node['port'], node['device'], part,
-               urllib.parse.quote(target))
-        if policy_index is not None:
-            cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
-                                     policy_index)
+        cmd = curl_head_command(node['ip'], node['port'], node['device'],
+                                part, target, policy_index)
         cmd += ' # [Handoff]'
         print(cmd)
 

@@ -18,7 +18,7 @@ account-server.conf to delay the actual deletion of data. At this time, there
 is no utility to undelete an account; one would have to update the account
 database replicas directly, setting the status column to an empty string and
 updating the put_timestamp to be greater than the delete_timestamp. (On the
-TODO list is writing a utility to perform this task, preferably through a ReST
+TODO list is writing a utility to perform this task, preferably through a REST
 call.)
 
 The account reaper runs on each account server and scans the server
@@ -53,7 +53,7 @@ History
 At first, a simple approach of deleting an account through completely external
 calls was considered as it required no changes to the system. All data would
 simply be deleted in the same way the actual user would, through the public
-ReST API. However, the downside was that it would use proxy resources and log
+REST API. However, the downside was that it would use proxy resources and log
 everything when it didn't really need to. Also, it would likely need a
 dedicated server or two, just for issuing the delete requests.
 

@@ -316,7 +316,7 @@ class Manager(object):
                         except OSError as e:
                             # PID died before kill_group can take action?
                             if e.errno != errno.ESRCH:
-                                raise e
+                                raise
                 else:
                     print(_('Waited %(kill_wait)s seconds for %(server)s '
                             'to die; giving up') %
@@ -378,9 +378,8 @@ class Manager(object):
 
         """
         cmd = cmd.lower().replace('-', '_')
-        try:
-            f = getattr(self, cmd)
-        except AttributeError:
+        f = getattr(self, cmd, None)
+        if f is None:
             raise UnknownCommandError(cmd)
         if not hasattr(f, 'publicly_accessible'):
             raise UnknownCommandError(cmd)
@@ -441,6 +440,9 @@ class Server(object):
             return self.server == other.server
         except AttributeError:
             return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def get_pid_file_name(self, conf_file):
         """Translate conf_file to a corresponding pid_file
@@ -557,7 +559,7 @@ class Server(object):
         pids = {}
         for pid_file, pid in self.iter_pid_files(**kwargs):
             if not pid:  # Catches None and 0
-                print (_('Removing pid file %s with invalid pid') % pid_file)
+                print(_('Removing pid file %s with invalid pid') % pid_file)
                 remove_file(pid_file)
                 continue
             try:
@@ -643,7 +645,7 @@ class Server(object):
         :param wait: boolean, if true capture stdout with a pipe
         :param daemon: boolean, if false ask server to log to console
 
-        :returns : the pid of the spawned process
+        :returns: the pid of the spawned process
         """
         args = [self.cmd, conf_file]
         if once:

@@ -22,6 +22,18 @@
 # log_statsd_default_sample_rate = 1.0
 # log_statsd_sample_rate_factor = 1.0
 # log_statsd_metric_prefix =
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [container-reconciler]
 # The reconciler will re-attempt reconciliation if the source object is not
@@ -32,6 +44,18 @@
 # interval = 30
 # Server errors from requests will be retried by default
 # request_tries = 3
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [pipeline:main]
 pipeline = catch_errors proxy-logging cache proxy-server

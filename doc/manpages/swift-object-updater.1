@@ -14,36 +14,36 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-object-updater 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-object-updater
-\- Openstack-swift object updater
+\- OpenStack Swift object updater
 
 .SH SYNOPSIS
 .LP
 .B swift-object-updater
 [CONFIG] [-h|--help] [-v|--verbose] [-o|--once]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
-The object updater is responsible for updating object information in container listings. 
-It will check to see if there are any locally queued updates on the filesystem of each 
-devices, what is also known as async pending file(s), walk each one and update the 
+The object updater is responsible for updating object information in container listings.
+It will check to see if there are any locally queued updates on the filesystem of each
+devices, what is also known as async pending file(s), walk each one and update the
 container listing.
 
-For example, suppose a container server is under load and a new object is put 
-into the system. The object will be immediately available for reads as soon as 
-the proxy server responds to the client with success. However, the object 
-server has not been able to update the object listing in the container server. 
-Therefore, the update would be queued locally for a later update. Container listings, 
+For example, suppose a container server is under load and a new object is put
+into the system. The object will be immediately available for reads as soon as
+the proxy server responds to the client with success. However, the object
+server has not been able to update the object listing in the container server.
+Therefore, the update would be queued locally for a later update. Container listings,
 therefore, may not immediately contain the object. This is where an eventual consistency
-window will most likely come in to play. 
+window will most likely come in to play.
 
-In practice, the consistency window is only as large as the frequency at which 
-the updater runs and may not even be noticed as the proxy server will route 
+In practice, the consistency window is only as large as the frequency at which
+the updater runs and may not even be noticed as the proxy server will route
 listing requests to the first container server which responds. The server under
 load may not be the one that serves subsequent listing requests – one of the other
 two replicas may handle the listing.
@@ -60,17 +60,17 @@ The options are as follows:
 .IP "-o"
 .IP "--once"
 .RS 4
-.IP "only run one pass of daemon" 
+.IP "only run one pass of daemon"
 .RE
-.PD 
+.PD
 .RE
-    
-    
+
+
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
+More in depth documentation in regards to
 .BI swift-object-updater
-and also about Openstack-Swift as a whole can be found at 
+and also about OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/index.html
 
 

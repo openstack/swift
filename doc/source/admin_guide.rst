@@ -286,6 +286,96 @@ using the format `regex_pattern_X = regex_expression`, where `X` is a number.
 This script has been tested on Ubuntu 10.04 and Ubuntu 12.04, so if you are
 using a different distro or OS, some care should be taken before using in production.
 
+------------------------------
+Preventing Disk Full Scenarios
+------------------------------
+
+Prevent disk full scenarios by ensuring that the ``proxy-server`` blocks PUT
+requests and rsync prevents replication to the specific drives.
+
+You can prevent `proxy-server` PUT requests to low space disks by ensuring
+``fallocate_reserve`` is set in the ``object-server.conf``. By default,
+``fallocate_reserve`` is set to 1%. This blocks PUT requests that leave the
+free disk space below 1% of the disk.
+
+In order to prevent rsync replication to specific drives, firstly
+setup ``rsync_module`` per disk in your ``object-replicator``.
+Set this in ``object-server.conf``:
+
+.. code::
+
+    [object-replicator]
+    rsync_module = {replication_ip}::object_{device}
+
+Set the individual drives in ``rsync.conf``. For example:
+
+.. code::
+
+    [object_sda]
+    max connections = 4
+    lock file = /var/lock/object_sda.lock
+
+    [object_sdb]
+    max connections = 4
+    lock file = /var/lock/object_sdb.lock
+
+Finally, monitor the disk space of each disk and adjust the rsync
+``max connections`` per drive to ``-1``. We recommend utilising your existing
+monitoring solution to achieve this. The following is an example script:
+
+.. code-block:: python
+
+    #!/usr/bin/env python
+    import os
+    import errno
+
+    RESERVE = 500 * 2 ** 20  # 500 MiB
+
+    DEVICES = '/srv/node1'
+
+    path_template = '/etc/rsync.d/disable_%s.conf'
+    config_template = '''
+    [object_%s]
+    max connections = -1
+    '''
+
+    def disable_rsync(device):
+        with open(path_template % device, 'w') as f:
+            f.write(config_template.lstrip() % device)
+
+
+    def enable_rsync(device):
+        try:
+            os.unlink(path_template % device)
+        except OSError as e:
+            # ignore file does not exist
+            if e.errno != errno.ENOENT:
+                raise
+
+
+    for device in os.listdir(DEVICES):
+        path = os.path.join(DEVICES, device)
+        st = os.statvfs(path)
+        free = st.f_bavail * st.f_frsize
+        if free < RESERVE:
+            disable_rsync(device)
+        else:
+            enable_rsync(device)
+
+For the above script to work, ensure ``/etc/rsync.d/`` conf files are
+included, by specifying ``&include`` in your ``rsync.conf`` file:
+
+.. code::
+
+    &include /etc/rsync.d
+
+Use this in conjunction with a cron job to periodically run the script, for example:
+
+.. code::
+
+    # /etc/cron.d/devicecheck
+    * * * * * root /some/path/to/disable_rsync.py
+
 .. _dispersion_report:
 
 -----------------
@@ -406,132 +496,141 @@ When you specify a policy the containers created also include the policy index,
 thus even when running a container_only report, you will need to specify the
 policy not using the default.
 
------------------------------------
-Geographically Distributed Clusters
------------------------------------
+-----------------------------------------------
+Geographically Distributed Swift Considerations
+-----------------------------------------------
 
-Swift's default configuration is currently designed to work in a
-single region, where a region is defined as a group of machines with
-high-bandwidth, low-latency links between them. However, configuration
-options exist that make running a performant multi-region Swift
-cluster possible.
+Swift provides two features that may be used to distribute replicas of objects
+across multiple geographically distributed data-centers: with
+:doc:`overview_global_cluster` object replicas may be dispersed across devices
+from different data-centers by using `regions` in ring device descriptors; with
+:doc:`overview_container_sync` objects may be copied between independent Swift
+clusters in each data-center. The operation and configuration of each are
+described in their respective documentation. The following points should be
+considered when selecting the feature that is most appropriate for a particular
+use case:
 
-For the rest of this section, we will assume a two-region Swift
-cluster: region 1 in San Francisco (SF), and region 2 in New York
-(NY). Each region shall contain within it 3 zones, numbered 1, 2, and
-3, for a total of 6 zones.
+  #. Global Clusters allows the distribution of object replicas across
+     data-centers to be controlled by the cluster operator on per-policy basis,
+     since the distribution is determined by the assignment of devices from
+     each data-center in each policy's ring file. With Container Sync the end
+     user controls the distribution of objects across clusters on a
+     per-container basis.
 
-~~~~~~~~~~~~~
-read_affinity
-~~~~~~~~~~~~~
+  #. Global Clusters requires an operator to coordinate ring deployments across
+     multiple data-centers. Container Sync allows for independent management of
+     separate Swift clusters in each data-center, and for existing Swift
+     clusters to be used as peers in Container Sync relationships without
+     deploying new policies/rings.
 
-This setting, combined with sorting_method setting, makes the proxy server prefer local backend servers for
-GET and HEAD requests over non-local ones. For example, it is
-preferable for an SF proxy server to service object GET requests
-by talking to SF object servers, as the client will receive lower
-latency and higher throughput.
+  #. Global Clusters seamlessly supports features that may rely on
+     cross-container operations such as large objects and versioned writes.
+     Container Sync requires the end user to ensure that all required
+     containers are sync'd for these features to work in all data-centers.
 
-By default, Swift randomly chooses one of the three replicas to give
-to the client, thereby spreading the load evenly. In the case of a
-geographically-distributed cluster, the administrator is likely to
-prioritize keeping traffic local over even distribution of results.
-This is where the read_affinity setting comes in.
+  #. Global Clusters makes objects available for GET or HEAD requests in both
+     data-centers even if a replica of the object has not yet been
+     asynchronously migrated between data-centers, by forwarding requests
+     between data-centers. Container Sync is unable to serve requests for an
+     object in a particular data-center until the asynchronous sync process has
+     copied the object to that data-center.
 
-Example::
+  #. Global Clusters may require less storage capacity than Container Sync to
+     achieve equivalent durability of objects in each data-center. Global
+     Clusters can restore replicas that are lost or corrupted in one
+     data-center using replicas from other data-centers. Container Sync
+     requires each data-center to independently manage the durability of
+     objects, which may result in each data-center storing more replicas than
+     with Global Clusters.
 
-    [app:proxy-server]
-    sorting_method = affinity
-    read_affinity = r1=100
+  #. Global Clusters execute all account/container metadata updates
+     synchronously to account/container replicas in all data-centers, which may
+     incur delays when making updates across WANs. Container Sync only copies
+     objects between data-centers and all Swift internal traffic is
+     confined to each data-center.
 
-This will make the proxy attempt to service GET and HEAD requests from
-backends in region 1 before contacting any backends in region 2.
-However, if no region 1 backends are available (due to replica
-placement, failed hardware, or other reasons), then the proxy will
-fall back to backend servers in other regions.
+  #. Global Clusters does not yet guarantee the availability of objects stored
+     in Erasure Coded policies when one data-center is offline. With Container
+     Sync the availability of objects in each data-center is independent of the
+     state of other data-centers once objects have been synced. Container Sync
+     also allows objects to be stored using different policy types in different
+     data-centers.
 
-Example::
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Checking handoff partition distribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    [app:proxy-server]
-    sorting_method = affinity
-    read_affinity = r1z1=100, r1=200
+You can check if handoff partitions are piling up on a server by
+comparing the expected number of partitions with the actual number on
+your disks. First get the number of partitions that are currently
+assigned to a server using the ``dispersion`` command from
+``swift-ring-builder``::
 
-This will make the proxy attempt to service GET and HEAD requests from
-backends in region 1 zone 1, then backends in region 1, then any other
-backends. If a proxy is physically close to a particular zone or
-zones, this can provide bandwidth savings. For example, if a zone
-corresponds to servers in a particular rack, and the proxy server is
-in that same rack, then setting read_affinity to prefer reads from
-within the rack will result in less traffic between the top-of-rack
-switches.
+    swift-ring-builder sample.builder dispersion --verbose
+    Dispersion is 0.000000, Balance is 0.000000, Overload is 0.00%
+    Required overload is 0.000000%
+    --------------------------------------------------------------------------
+    Tier                           Parts      %    Max     0     1     2     3
+    --------------------------------------------------------------------------
+    r1                              8192   0.00      2     0     0  8192     0
+    r1z1                            4096   0.00      1  4096  4096     0     0
+    r1z1-172.16.10.1                4096   0.00      1  4096  4096     0     0
+    r1z1-172.16.10.1/sda1           4096   0.00      1  4096  4096     0     0
+    r1z2                            4096   0.00      1  4096  4096     0     0
+    r1z2-172.16.10.2                4096   0.00      1  4096  4096     0     0
+    r1z2-172.16.10.2/sda1           4096   0.00      1  4096  4096     0     0
+    r1z3                            4096   0.00      1  4096  4096     0     0
+    r1z3-172.16.10.3                4096   0.00      1  4096  4096     0     0
+    r1z3-172.16.10.3/sda1           4096   0.00      1  4096  4096     0     0
+    r1z4                            4096   0.00      1  4096  4096     0     0
+    r1z4-172.16.20.4                4096   0.00      1  4096  4096     0     0
+    r1z4-172.16.20.4/sda1           4096   0.00      1  4096  4096     0     0
+    r2                              8192   0.00      2     0  8192     0     0
+    r2z1                            4096   0.00      1  4096  4096     0     0
+    r2z1-172.16.20.1                4096   0.00      1  4096  4096     0     0
+    r2z1-172.16.20.1/sda1           4096   0.00      1  4096  4096     0     0
+    r2z2                            4096   0.00      1  4096  4096     0     0
+    r2z2-172.16.20.2                4096   0.00      1  4096  4096     0     0
+    r2z2-172.16.20.2/sda1           4096   0.00      1  4096  4096     0     0
 
-The read_affinity setting may contain any number of region/zone
-specifiers; the priority number (after the equals sign) determines the
-ordering in which backend servers will be contacted. A lower number
-means higher priority.
+As you can see from the output, each server should store 4096 partitions, and
+each region should store 8192 partitions. This example used a partition power
+of 13 and 3 replicas.
 
-Note that read_affinity only affects the ordering of primary nodes
-(see ring docs for definition of primary node), not the ordering of
-handoff nodes.
+With write_affinity enabled it is expected to have a higher number of
+partitions on disk compared to the value reported by the
+swift-ring-builder dispersion command. The number of additional (handoff)
+partitions in region r1 depends on your cluster size, the amount
+of incoming data as well as the replication speed.
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-write_affinity and write_affinity_node_count
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Let's use the example from above with 6 nodes in 2 regions, and write_affinity
+configured to write to region r1 first. `swift-ring-builder` reported that
+each node should store 4096 partitions::
 
-This setting makes the proxy server prefer local backend servers for
-object PUT requests over non-local ones. For example, it may be
-preferable for an SF proxy server to service object PUT requests
-by talking to SF object servers, as the client will receive lower
-latency and higher throughput. However, if this setting is used, note
-that a NY proxy server handling a GET request for an object that was
-PUT using write affinity may have to fetch it across the WAN link, as
-the object won't immediately have any replicas in NY. However,
-replication will move the object's replicas to their proper homes in
-both SF and NY.
+ Expected partitions for region r2:                                      8192
+ Handoffs stored across 4 nodes in region r1:                 8192 / 4 = 2048
+ Maximum number of partitions on each server in region r1: 2048 + 4096 = 6144
 
-Note that only object PUT requests are affected by the write_affinity
-setting; POST, GET, HEAD, DELETE, OPTIONS, and account/container PUT
-requests are not affected.
+Worst case is that handoff partitions in region 1 are populated with new
+object replicas faster than replication is able to move them to region 2.
+In that case you will see ~ 6144 partitions per
+server in region r1. Your actual number should be lower and
+between 4096 and 6144 partitions (preferably on the lower side).
 
-This setting lets you trade data distribution for throughput. If
-write_affinity is enabled, then object replicas will initially be
-stored all within a particular region or zone, thereby decreasing the
-quality of the data distribution, but the replicas will be distributed
-over fast WAN links, giving higher throughput to clients. Note that
-the replicators will eventually move objects to their proper,
-well-distributed homes.
+Now count the number of object partitions on a given server in region 1,
+for example on 172.16.10.1.  Note that the pathnames might be
+different; `/srv/node/` is the default mount location, and `objects`
+applies only to storage policy 0 (storage policy 1 would use
+`objects-1` and so on)::
 
-The write_affinity setting is useful only when you don't typically
-read objects immediately after writing them. For example, consider a
-workload of mainly backups: if you have a bunch of machines in NY that
-periodically write backups to Swift, then odds are that you don't then
-immediately read those backups in SF. If your workload doesn't look
-like that, then you probably shouldn't use write_affinity.
+    find -L /srv/node/ -maxdepth 3 -type d -wholename "*objects/*" | wc -l
 
-The write_affinity_node_count setting is only useful in conjunction
-with write_affinity; it governs how many local object servers will be
-tried before falling back to non-local ones.
-
-Example::
-
-    [app:proxy-server]
-    write_affinity = r1
-    write_affinity_node_count = 2 * replicas
-
-Assuming 3 replicas, this configuration will make object PUTs try
-storing the object's replicas on up to 6 disks ("2 * replicas") in
-region 1 ("r1"). Proxy server tries to find 3 devices for storing the 
-object. While a device is unavailable, it queries the ring for the 4th 
-device and so on until 6th device. If the 6th disk is still unavailable,
-the last replica will be sent to other region. It doesn't mean there'll 
-have 6 replicas in region 1. 
-
-
-You should be aware that, if you have data coming into SF faster than
-your link to NY can transfer it, then your cluster's data distribution
-will get worse and worse over time as objects pile up in SF. If this
-happens, it is recommended to disable write_affinity and simply let
-object PUTs traverse the WAN link, as that will naturally limit the
-object growth rate to what your WAN link can handle.
+If this number is always on the upper end of the expected partition
+number range (4096 to 6144) or increasing you should check your
+replication speed and maybe even disable write_affinity.
+Please refer to the next section how to collect metrics from Swift, and
+especially :ref:`swift-recon -r <recon-replication>` how to check replication
+stats.
 
 
 --------------------------------
@@ -657,6 +756,8 @@ This information can also be queried via the swift-recon command line utility::
       -t SECONDS, --timeout=SECONDS
                             Time to wait for a response from a server
       --swiftdir=SWIFTDIR   Default = /etc/swift
+
+.. _recon-replication:
 
 For example, to obtain container replication info from all hosts in zone "3"::
 

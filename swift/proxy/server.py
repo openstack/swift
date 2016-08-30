@@ -237,8 +237,8 @@ class Application(object):
         """
         if self._read_affinity and self.sorting_method != 'affinity':
             self.logger.warning(
-                "sorting_method is set to '%s', not 'affinity'; "
-                "read_affinity setting will have no effect." %
+                _("sorting_method is set to '%s', not 'affinity'; "
+                  "read_affinity setting will have no effect."),
                 self.sorting_method)
 
     def get_object_ring(self, policy_idx):
@@ -382,13 +382,12 @@ class Application(object):
             req.headers['x-trans-id'] = req.environ['swift.trans_id']
             controller.trans_id = req.environ['swift.trans_id']
             self.logger.client_ip = get_remote_client(req)
-            try:
-                handler = getattr(controller, req.method)
-                getattr(handler, 'publicly_accessible')
-            except AttributeError:
-                allowed_methods = getattr(controller, 'allowed_methods', set())
-                return HTTPMethodNotAllowed(
-                    request=req, headers={'Allow': ', '.join(allowed_methods)})
+
+            if req.method not in controller.allowed_methods:
+                return HTTPMethodNotAllowed(request=req, headers={
+                    'Allow': ', '.join(controller.allowed_methods)})
+            handler = getattr(controller, req.method)
+
             old_authorize = None
             if 'swift.authorize' in req.environ:
                 # We call authorize before the handler, always. If authorized,
@@ -510,7 +509,7 @@ class Application(object):
         """
         self._incr_node_errors(node)
         self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
-                          {'msg': msg, 'ip': node['ip'],
+                          {'msg': msg.decode('utf-8'), 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
 
     def iter_nodes(self, ring, partition, node_iter=None):
@@ -536,7 +535,7 @@ class Application(object):
               ' re: %(info)s'),
             {'type': typ, 'ip': node['ip'],
              'port': node['port'], 'device': node['device'],
-             'info': additional_info},
+             'info': additional_info.decode('utf-8')},
             **kwargs)
 
     def modify_wsgi_pipeline(self, pipe):
@@ -558,17 +557,18 @@ class Application(object):
                     except ValueError:  # not in pipeline; ignore it
                         pass
                 self.logger.info(
-                    'Adding required filter %s to pipeline at position %d' %
-                    (filter_name, insert_at))
+                    _('Adding required filter %(filter_name)s to pipeline at '
+                      'position %(insert_at)d'),
+                    {'filter_name': filter_name, 'insert_at': insert_at})
                 ctx = pipe.create_filter(filter_name)
                 pipe.insert_filter(ctx, index=insert_at)
                 pipeline_was_modified = True
 
         if pipeline_was_modified:
-            self.logger.info("Pipeline was modified. New pipeline is \"%s\".",
-                             pipe)
+            self.logger.info(_("Pipeline was modified. "
+                               "New pipeline is \"%s\"."), pipe)
         else:
-            self.logger.debug("Pipeline is \"%s\"", pipe)
+            self.logger.debug(_("Pipeline is \"%s\""), pipe)
 
 
 def app_factory(global_conf, **local_conf):

@@ -74,7 +74,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = urllib2.URLError("")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, urllib2.URLError))
+        self.assertIsInstance(content, urllib2.URLError)
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
@@ -85,7 +85,7 @@ class TestScout(unittest.TestCase):
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.url)
-        self.assertTrue(isinstance(content, urllib2.HTTPError))
+        self.assertIsInstance(content, urllib2.HTTPError)
         self.assertEqual(status, 404)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
@@ -93,7 +93,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = socket.timeout("timeout")
         url, content, status, ts_start, ts_end = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertIsInstance(content, socket.timeout)
         self.assertEqual(url, self.url)
         self.assertEqual(status, -1)
 
@@ -114,7 +114,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = urllib2.URLError("")
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, urllib2.URLError))
+        self.assertIsInstance(content, urllib2.URLError)
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(status, -1)
 
@@ -125,7 +125,7 @@ class TestScout(unittest.TestCase):
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.server_type_url)
-        self.assertTrue(isinstance(content, urllib2.HTTPError))
+        self.assertIsInstance(content, urllib2.HTTPError)
         self.assertEqual(status, 404)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
@@ -133,7 +133,7 @@ class TestScout(unittest.TestCase):
         mock_urlopen.side_effect = socket.timeout("timeout")
         url, content, status = self.scout_instance.scout_server_type(
             ("127.0.0.1", "8080"))
-        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertIsInstance(content, socket.timeout)
         self.assertEqual(url, self.server_type_url)
         self.assertEqual(status, -1)
 
@@ -348,6 +348,81 @@ class TestRecon(unittest.TestCase):
                                  % ex)
         self.assertFalse(expected)
 
+    def test_async_check(self):
+        hosts = [('127.0.0.1', 6011), ('127.0.0.1', 6021),
+                 ('127.0.0.1', 6031), ('127.0.0.1', 6041)]
+        # sample json response from http://<host>:<port>/recon/async
+        responses = {6011: {'async_pending': 15},
+                     6021: {'async_pending': 0},
+                     6031: {'async_pending': 257},
+                     6041: {'async_pending': 56}}
+        # <low> <high> <avg> <total> <Failed> <no_result> <reported>
+        expected = (0, 257, 82.0, 328, 0.0, 0, 4)
+
+        def mock_scout_async(app, host):
+            url = 'http://%s:%s/recon/async' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status, 0, 0
+
+        stdout = StringIO()
+        with mock.patch('swift.cli.recon.Scout.scout',
+                        mock_scout_async), \
+                mock.patch('sys.stdout', new=stdout):
+            self.recon_instance.async_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\[async_pending(.*)\](.*)")
+        lines = output.splitlines()
+        self.assertTrue(lines)
+        for line in lines:
+            m = r.match(line)
+            if m:
+                self.assertEqual(m.group(2),
+                                 " low: %s, high: %s, avg: %s, total: %s,"
+                                 " Failed: %s%%, no_result: %s, reported: %s"
+                                 % expected)
+                break
+        else:
+            self.fail('The expected line is not found')
+
+    def test_umount_check(self):
+        hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
+                 ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
+        # sample json response from http://<host>:<port>/recon/unmounted
+        responses = {6010: [{'device': 'sdb1', 'mounted': False}],
+                     6020: [{'device': 'sdb2', 'mounted': False}],
+                     6030: [{'device': 'sdb3', 'mounted': False}],
+                     6040: [{'device': 'sdb4', 'mounted': 'bad'}]}
+
+        expected = ['Not mounted: sdb1 on 127.0.0.1:6010',
+                    'Not mounted: sdb2 on 127.0.0.1:6020',
+                    'Not mounted: sdb3 on 127.0.0.1:6030',
+                    'Device errors: sdb4 on 127.0.0.1:6040']
+
+        def mock_scout_umount(app, host):
+            url = 'http://%s:%s/recon/unmounted' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status, 0, 0
+
+        stdout = StringIO()
+        with mock.patch('swift.cli.recon.Scout.scout',
+                        mock_scout_umount), \
+                mock.patch('sys.stdout', new=stdout):
+            self.recon_instance.umount_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\Not mounted:|Device errors: .*")
+        lines = output.splitlines()
+        self.assertTrue(lines)
+        for line in lines:
+            m = r.match(line)
+            if m:
+                self.assertIn(line, expected)
+                expected.remove(line)
+        self.assertFalse(expected)
+
     def test_drive_audit_check(self):
         hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
                  ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
@@ -521,8 +596,8 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
-        self.assertTrue(res_container in output.splitlines())
-        self.assertTrue(res_account in output.splitlines())
+        self.assertIn(res_container, output.splitlines())
+        self.assertIn(res_account, output.splitlines())
         stdout.truncate(0)
 
         # Test ok for object server type - default
@@ -532,7 +607,7 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check([hosts[0]])
 
         output = stdout.getvalue()
-        self.assertTrue(valid in output.splitlines())
+        self.assertIn(valid, output.splitlines())
         stdout.truncate(0)
 
         # Test for account server type
@@ -543,8 +618,8 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
-        self.assertTrue(res_container in output.splitlines())
-        self.assertTrue(res_object in output.splitlines())
+        self.assertIn(res_container, output.splitlines())
+        self.assertIn(res_object, output.splitlines())
         stdout.truncate(0)
 
         # Test ok for account server type
@@ -555,7 +630,7 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check([hosts[2]])
 
         output = stdout.getvalue()
-        self.assertTrue(valid in output.splitlines())
+        self.assertIn(valid, output.splitlines())
         stdout.truncate(0)
 
         # Test for container server type
@@ -566,8 +641,8 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
-        self.assertTrue(res_account in output.splitlines())
-        self.assertTrue(res_object in output.splitlines())
+        self.assertIn(res_account, output.splitlines())
+        self.assertIn(res_object, output.splitlines())
         stdout.truncate(0)
 
         # Test ok for container server type
@@ -578,7 +653,7 @@ class TestReconCommands(unittest.TestCase):
             self.recon.server_type_check([hosts[1]])
 
         output = stdout.getvalue()
-        self.assertTrue(valid in output.splitlines())
+        self.assertIn(valid, output.splitlines())
 
     def test_get_swiftconfmd5(self):
         hosts = set([('10.1.1.1', 10000),
@@ -597,7 +672,7 @@ class TestReconCommands(unittest.TestCase):
                 self.recon.get_swiftconfmd5(hosts, printfn=printed.append)
 
         output = '\n'.join(printed) + '\n'
-        self.assertTrue("2/2 hosts matched" in output)
+        self.assertIn("2/2 hosts matched", output)
 
     def test_get_swiftconfmd5_mismatch(self):
         hosts = set([('10.1.1.1', 10000),
@@ -616,9 +691,9 @@ class TestReconCommands(unittest.TestCase):
                 self.recon.get_swiftconfmd5(hosts, printfn=printed.append)
 
         output = '\n'.join(printed) + '\n'
-        self.assertTrue("1/2 hosts matched" in output)
-        self.assertTrue("http://10.2.2.2:10000/recon/swiftconfmd5 (bogus) "
-                        "doesn't match on disk md5sum" in output)
+        self.assertIn("1/2 hosts matched", output)
+        self.assertIn("http://10.2.2.2:10000/recon/swiftconfmd5 (bogus) "
+                      "doesn't match on disk md5sum", output)
 
     def test_object_auditor_check(self):
         # Recon middleware response from an object server
@@ -663,7 +738,7 @@ class TestReconCommands(unittest.TestCase):
             computed = response.get(name)
             self.assertTrue(computed)
             for key in keys:
-                self.assertTrue(key in computed)
+                self.assertIn(key, computed)
 
     def test_disk_usage(self):
         def dummy_request(*args, **kwargs):
@@ -878,3 +953,27 @@ class TestReconCommands(unittest.TestCase):
         # We need any_order=True because the order of calls depends on the dict
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('six.moves.builtins.print')
+    @mock.patch('swift.cli.recon.SwiftRecon.get_hosts')
+    def test_multiple_server_types(self, mock_get_hosts, mock_print):
+        mock_get_hosts.return_value = set([('127.0.0.1', 10000)])
+
+        self.recon.object_auditor_check = mock.MagicMock()
+        self.recon.auditor_check = mock.MagicMock()
+
+        with mock.patch.object(
+                sys, 'argv',
+                ["prog", "account", "container", "object", "--auditor"]):
+            self.recon.main()
+        expected_calls = [
+            mock.call("--> Starting reconnaissance on 1 hosts (account)"),
+            mock.call("--> Starting reconnaissance on 1 hosts (container)"),
+            mock.call("--> Starting reconnaissance on 1 hosts (object)"),
+        ]
+        mock_print.assert_has_calls(expected_calls, any_order=True)
+
+        expected = mock.call(set([('127.0.0.1', 10000)]))
+        self.recon.object_auditor_check.assert_has_calls([expected])
+        # Two calls expected - one account, one container
+        self.recon.auditor_check.assert_has_calls([expected, expected])

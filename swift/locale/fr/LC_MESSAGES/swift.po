@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev169\n"
+"Project-Id-Version: swift 2.9.1.dev6\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-02 04:58+0000\n"
+"POT-Creation-Date: 2016-07-19 04:02+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -294,12 +294,6 @@ msgstr "ERREUR %(status)d %(body)s depuis le serveur d'objets. Réf. : %(path)s"
 msgid "ERROR %(status)d Expect: 100-continue From Object Server"
 msgstr ""
 "ERREUR %(status)d Attendu(s) : 100 - poursuivre depuis le serveur d'objets"
-
-#, python-format
-msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
-msgstr ""
-"ERREUR %(status)d Tentative d'exécution de %(method)s %(path)s à partir du "
-"serveur de conteneur"
 
 #, python-format
 msgid ""
@@ -947,10 +941,6 @@ msgstr "Tentative d'exécution de %(method)s %(path)s"
 #, python-format
 msgid "Trying to GET %(full_path)s"
 msgstr "Tentative de lecture de %(full_path)s"
-
-#, python-format
-msgid "Trying to get final status of PUT to %s"
-msgstr "Tentative d'obtention du statut final de l'opération PUT sur %s"
 
 msgid "Trying to read during GET"
 msgstr "Tentative de lecture pendant une opération GET"

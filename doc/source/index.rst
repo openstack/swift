@@ -52,11 +52,13 @@ Overview and Concepts
     ratelimit
     overview_large_objects
     overview_object_versioning
+    overview_global_cluster
     overview_container_sync
     overview_expiring_objects
     cors
     crossdomain
     overview_erasure_code
+    overview_encryption
     overview_backing_store
     ring_background
     associated_projects

@@ -110,10 +110,11 @@ FORMAT2CONTENT_TYPE = {'plain': 'text/plain', 'json': 'application/json',
 
 
 # By default the maximum number of allowed headers depends on the number of max
-# allowed metadata settings plus a default value of 32 for regular http
-# headers.  If for some reason this is not enough (custom middleware for
-# example) it can be increased with the extra_header_count constraint.
-MAX_HEADER_COUNT = MAX_META_COUNT + 32 + max(EXTRA_HEADER_COUNT, 0)
+# allowed metadata settings plus a default value of 36 for swift internally
+# generated headers and regular http headers.  If for some reason this is not
+# enough (custom middleware for example) it can be increased with the
+# extra_header_count constraint.
+MAX_HEADER_COUNT = MAX_META_COUNT + 36 + max(EXTRA_HEADER_COUNT, 0)
 
 
 def check_metadata(req, target_type):
@@ -156,16 +157,16 @@ def check_metadata(req, target_type):
             return HTTPBadRequest(
                 body='Metadata name too long: %s%s' % (prefix, key),
                 request=req, content_type='text/plain')
-        elif len(value) > MAX_META_VALUE_LENGTH:
+        if len(value) > MAX_META_VALUE_LENGTH:
             return HTTPBadRequest(
                 body='Metadata value longer than %d: %s%s' % (
                     MAX_META_VALUE_LENGTH, prefix, key),
                 request=req, content_type='text/plain')
-        elif meta_count > MAX_META_COUNT:
+        if meta_count > MAX_META_COUNT:
             return HTTPBadRequest(
                 body='Too many metadata items; max %d' % MAX_META_COUNT,
                 request=req, content_type='text/plain')
-        elif meta_size > MAX_META_OVERALL_SIZE:
+        if meta_size > MAX_META_OVERALL_SIZE:
             return HTTPBadRequest(
                 body='Total metadata too large; max %d'
                 % MAX_META_OVERALL_SIZE,
@@ -179,12 +180,12 @@ def check_object_creation(req, object_name):
 
     :param req: HTTP request object
     :param object_name: name of object to be created
-    :returns HTTPRequestEntityTooLarge: the object is too large
-    :returns HTTPLengthRequired: missing content-length header and not
-                                 a chunked request
-    :returns HTTPBadRequest: missing or bad content-type header, or
-                             bad metadata
-    :returns HTTPNotImplemented: unsupported transfer-encoding header value
+    :returns: HTTPRequestEntityTooLarge -- the object is too large
+    :returns: HTTPLengthRequired -- missing content-length header and not
+                                    a chunked request
+    :returns: HTTPBadRequest -- missing or bad content-type header, or
+                                bad metadata
+    :returns: HTTPNotImplemented -- unsupported transfer-encoding header value
     """
     try:
         ml = req.message_length()

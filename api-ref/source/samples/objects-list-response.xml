@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<container name="marktwain">
+    <object>
+        <name>goodbye</name>
+        <hash>451e372e48e0f6b1114fa0724aa79fa1</hash>
+        <bytes>14</bytes>
+        <content_type>application/octet-stream</content_type>
+        <last_modified>2014-01-15T16:41:49.390270</last_modified>
+    </object>
+    <object>
+        <name>helloworld</name>
+        <hash>ed076287532e86365e841e92bfc50d8c</hash>
+        <bytes>12</bytes>
+        <content_type>application/octet-stream</content_type>
+        <last_modified>2014-01-15T16:37:43.427570</last_modified>
+    </object>
+</container>

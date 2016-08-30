@@ -79,8 +79,9 @@ def _make_req(node, part, method, path, _headers, stype,
 
 def _get_direct_account_container(path, stype, node, part,
                                   marker=None, limit=None,
-                                  prefix=None, delimiter=None, conn_timeout=5,
-                                  response_timeout=15):
+                                  prefix=None, delimiter=None,
+                                  conn_timeout=5, response_timeout=15,
+                                  end_marker=None, reverse=None):
     """Base class for get direct account and container.
 
     Do not use directly use the get_direct_account or
@@ -95,6 +96,10 @@ def _get_direct_account_container(path, stype, node, part,
         qs += '&prefix=%s' % quote(prefix)
     if delimiter:
         qs += '&delimiter=%s' % quote(delimiter)
+    if end_marker:
+        qs += '&end_marker=%s' % quote(end_marker)
+    if reverse:
+        qs += '&reverse=%s' % quote(reverse)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             'GET', path, query_string=qs,
@@ -124,7 +129,7 @@ def gen_headers(hdrs_in=None, add_ts=False):
 
 def direct_get_account(node, part, account, marker=None, limit=None,
                        prefix=None, delimiter=None, conn_timeout=5,
-                       response_timeout=15):
+                       response_timeout=15, end_marker=None, reverse=None):
     """
     Get listings directly from the account server.
 
@@ -137,6 +142,8 @@ def direct_get_account(node, part, account, marker=None, limit=None,
     :param delimiter: delimiter for the query
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
+    :param end_marker: end_marker query
+    :param reverse: reverse the returned listing
     :returns: a tuple of (response headers, a list of containers) The response
               headers will HeaderKeyDict.
     """
@@ -145,6 +152,8 @@ def direct_get_account(node, part, account, marker=None, limit=None,
                                          marker=marker,
                                          limit=limit, prefix=prefix,
                                          delimiter=delimiter,
+                                         end_marker=end_marker,
+                                         reverse=reverse,
                                          conn_timeout=conn_timeout,
                                          response_timeout=response_timeout)
 
@@ -185,7 +194,8 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
 
 def direct_get_container(node, part, account, container, marker=None,
                          limit=None, prefix=None, delimiter=None,
-                         conn_timeout=5, response_timeout=15):
+                         conn_timeout=5, response_timeout=15, end_marker=None,
+                         reverse=None):
     """
     Get container listings directly from the container server.
 
@@ -199,6 +209,8 @@ def direct_get_container(node, part, account, container, marker=None,
     :param delimiter: delimiter for the query
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
+    :param end_marker: end_marker query
+    :param reverse: reverse the returned listing
     :returns: a tuple of (response headers, a list of objects) The response
               headers will be a HeaderKeyDict.
     """
@@ -207,6 +219,8 @@ def direct_get_container(node, part, account, container, marker=None,
                                          part, marker=marker,
                                          limit=limit, prefix=prefix,
                                          delimiter=delimiter,
+                                         end_marker=end_marker,
+                                         reverse=reverse,
                                          conn_timeout=conn_timeout,
                                          response_timeout=response_timeout)
 

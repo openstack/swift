@@ -252,7 +252,7 @@ class ObjectExpirer(Daemon):
 
         if self.processes and self.process >= self.processes:
             raise ValueError(
-                'process must be less than or equal to processes')
+                'process must be less than processes')
 
     def delete_object(self, actual_obj, timestamp, container, obj):
         start_time = time()
@@ -260,7 +260,8 @@ class ObjectExpirer(Daemon):
             try:
                 self.delete_actual_object(actual_obj, timestamp)
             except UnexpectedResponse as err:
-                if err.resp.status_int != HTTP_NOT_FOUND:
+                if err.resp.status_int not in {HTTP_NOT_FOUND,
+                                               HTTP_PRECONDITION_FAILED}:
                     raise
                 if float(timestamp) > time() - self.reclaim_age:
                     # we'll have to retry the DELETE later
@@ -301,4 +302,4 @@ class ObjectExpirer(Daemon):
         self.swift.make_request('DELETE', path,
                                 {'X-If-Delete-At': str(timestamp),
                                  'X-Timestamp': str(timestamp)},
-                                (2, HTTP_PRECONDITION_FAILED))
+                                (2,))

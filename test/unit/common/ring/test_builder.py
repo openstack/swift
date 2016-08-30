@@ -69,20 +69,26 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb.min_part_hours, 1)
         self.assertEqual(rb.parts, 2 ** 8)
         self.assertEqual(rb.devs, [])
-        self.assertEqual(rb.devs_changed, False)
+        self.assertFalse(rb.devs_changed)
         self.assertEqual(rb.version, 0)
 
     def test_overlarge_part_powers(self):
-        ring.RingBuilder(32, 3, 1)  # passes by not crashing
-        self.assertRaises(ValueError, ring.RingBuilder, 33, 3, 1)
+        expected_msg = 'part_power must be at most 32 (was 33)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(33, 3, 1)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_insufficient_replicas(self):
-        ring.RingBuilder(8, 1.0, 1)  # passes by not crashing
-        self.assertRaises(ValueError, ring.RingBuilder, 8, 0.999, 1)
+        expected_msg = 'replicas must be at least 1 (was 0.999000)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(8, 0.999, 1)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_negative_min_part_hours(self):
-        ring.RingBuilder(8, 3, 0)  # passes by not crashing
-        self.assertRaises(ValueError, ring.RingBuilder, 8, 3, -1)
+        expected_msg = 'min_part_hours must be non-negative (was -1)'
+        with self.assertRaises(ValueError) as ctx:
+            ring.RingBuilder(8, 3, -1)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_deepcopy(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -110,11 +116,11 @@ class TestRingBuilder(unittest.TestCase):
         rb_copy = copy.deepcopy(rb)
 
         self.assertEqual(rb.to_dict(), rb_copy.to_dict())
-        self.assertTrue(rb.devs is not rb_copy.devs)
-        self.assertTrue(rb._replica2part2dev is not rb_copy._replica2part2dev)
-        self.assertTrue(rb._last_part_moves is not rb_copy._last_part_moves)
-        self.assertTrue(rb._remove_devs is not rb_copy._remove_devs)
-        self.assertTrue(rb._dispersion_graph is not rb_copy._dispersion_graph)
+        self.assertIsNot(rb.devs, rb_copy.devs)
+        self.assertIsNot(rb._replica2part2dev, rb_copy._replica2part2dev)
+        self.assertIsNot(rb._last_part_moves, rb_copy._last_part_moves)
+        self.assertIsNot(rb._remove_devs, rb_copy._remove_devs)
+        self.assertIsNot(rb._dispersion_graph, rb_copy._dispersion_graph)
 
     def test_get_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -129,14 +135,14 @@ class TestRingBuilder(unittest.TestCase):
         rb.remove_dev(1)
         rb.rebalance()
         r = rb.get_ring()
-        self.assertTrue(isinstance(r, ring.RingData))
+        self.assertIsInstance(r, ring.RingData)
         r2 = rb.get_ring()
-        self.assertTrue(r is r2)
+        self.assertIs(r, r2)
         rb.rebalance()
         r3 = rb.get_ring()
-        self.assertTrue(r3 is not r2)
+        self.assertIsNot(r3, r2)
         r4 = rb.get_ring()
-        self.assertTrue(r3 is r4)
+        self.assertIs(r3, r4)
 
     def test_rebalance_with_seed(self):
         devs = [(0, 10000), (1, 10001), (2, 10002), (1, 10003)]
@@ -157,7 +163,7 @@ class TestRingBuilder(unittest.TestCase):
         rb2 = ring_builders[2]
 
         r0 = rb0.get_ring()
-        self.assertTrue(rb0.get_ring() is r0)
+        self.assertIs(rb0.get_ring(), r0)
 
         rb0.rebalance()  # NO SEED
         rb1.rebalance(seed=10)
@@ -166,7 +172,7 @@ class TestRingBuilder(unittest.TestCase):
         r1 = rb1.get_ring()
         r2 = rb2.get_ring()
 
-        self.assertFalse(rb0.get_ring() is r0)
+        self.assertIsNot(rb0.get_ring(), r0)
         self.assertNotEqual(r0.to_dict(), r1.to_dict())
         self.assertEqual(r1.to_dict(), r2.to_dict())
 
@@ -391,7 +397,7 @@ class TestRingBuilder(unittest.TestCase):
         _, balance, _ = rb.rebalance(seed=2)
 
         # maybe not *perfect*, but should be close
-        self.assertTrue(balance <= 1)
+        self.assertLessEqual(balance, 1)
 
     def test_multitier_partial(self):
         # Multitier test, nothing full
@@ -2063,8 +2069,8 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(counts, {0: 128, 1: 128, 2: 256, 3: 256})
 
         dev_usage, worst = rb.validate()
-        self.assertTrue(dev_usage is None)
-        self.assertTrue(worst is None)
+        self.assertIsNone(dev_usage)
+        self.assertIsNone(worst)
 
         dev_usage, worst = rb.validate(stats=True)
         self.assertEqual(list(dev_usage), [32, 32, 64, 64,
@@ -2153,13 +2159,6 @@ class TestRingBuilder(unittest.TestCase):
         rb.validate()  # sanity
         # now double up a device assignment
         rb._replica2part2dev[1][200] = rb._replica2part2dev[2][200]
-
-        class SubStringMatcher(object):
-            def __init__(self, substr):
-                self.substr = substr
-
-            def __eq__(self, other):
-                return self.substr in other
 
         with self.assertRaises(exceptions.RingValidationError) as e:
             rb.validate()
@@ -2401,7 +2400,7 @@ class TestRingBuilder(unittest.TestCase):
         new_dev_id = rb.add_dev({'region': 0, 'zone': 0, 'ip': '127.0.0.1',
                                  'port': 6200, 'weight': 1.0,
                                  'device': 'sda'})
-        self.assertTrue(new_dev_id < add_dev_count)
+        self.assertLess(new_dev_id, add_dev_count)
 
         # try with non-contiguous holes
         # [0, 1, None, 3, 4, None]
@@ -2501,7 +2500,7 @@ class TestRingBuilder(unittest.TestCase):
             # Due to the increased partition power, the partition each object
             # is assigned to has changed. If the old partition was X, it will
             # now be either located in 2*X or 2*X+1
-            self.assertTrue(new_part in [old_part * 2, old_part * 2 + 1])
+            self.assertIn(new_part, [old_part * 2, old_part * 2 + 1])
 
             # Importantly, we expect the objects to be placed on the same
             # nodes after increasing the partition power

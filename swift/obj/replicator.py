@@ -357,12 +357,12 @@ class ObjectReplicator(Daemon):
                 handoff_partition_deleted = True
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))
+            self._add_failure_stats(failure_devs_info)
         finally:
             target_devs_info = set([(target_dev['replication_ip'],
                                      target_dev['device'])
                                     for target_dev in job['nodes']])
             self.stats['success'] += len(target_devs_info - failure_devs_info)
-            self._add_failure_stats(failure_devs_info)
             if not handoff_partition_deleted:
                 self.handoffs_remaining += 1
             self.partition_times.append(time.time() - begin)
@@ -434,8 +434,9 @@ class ObjectReplicator(Daemon):
                             node['device'], job['partition'], 'REPLICATE',
                             '', headers=headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                            self.logger.error(_('%(ip)s/%(device)s responded'
-                                                ' as unmounted'), node)
+                            self.logger.error(
+                                _('%(replication_ip)s/%(device)s '
+                                  'responded as unmounted'), node)
                             attempts_left += 1
                             failure_devs_info.add((node['replication_ip'],
                                                    node['device']))
@@ -490,10 +491,10 @@ class ObjectReplicator(Daemon):
             self.suffix_count += len(local_hash)
         except (Exception, Timeout):
             failure_devs_info.update(target_devs_info)
+            self._add_failure_stats(failure_devs_info)
             self.logger.exception(_("Error syncing partition"))
         finally:
             self.stats['success'] += len(target_devs_info - failure_devs_info)
-            self._add_failure_stats(failure_devs_info)
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.update.timing', begin)
 
@@ -610,6 +611,11 @@ class ObjectReplicator(Daemon):
             for partition in os.listdir(obj_path):
                 if (override_partitions is not None
                         and partition not in override_partitions):
+                    continue
+
+                if (partition.startswith('auditor_status_') and
+                        partition.endswith('.json')):
+                    # ignore auditor status files
                     continue
 
                 part_nodes = None

@@ -163,8 +163,7 @@ class ContainerController(Controller):
                 self.account_info(self.account_name, req)
         if not accounts:
             return HTTPNotFound(request=req)
-        if self.app.max_containers_per_account > 0 and \
-                container_count >= self.app.max_containers_per_account and \
+        if 0 < self.app.max_containers_per_account <= container_count and \
                 self.account_name not in self.app.max_containers_whitelist:
             container_info = \
                 self.container_info(self.account_name, self.container_name,

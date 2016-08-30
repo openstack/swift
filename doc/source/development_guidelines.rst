@@ -90,6 +90,11 @@ For example, this command would run the functional tests using policy
 
   SWIFT_TEST_POLICY=silver tox -e func
 
+To run a single functional test, use the ``--no-discover`` option together with
+a path to a specific test method, for example::
+
+  tox -e func -- --no-discover test.functional.tests.TestFile.testCopy
+
 
 In-process functional testing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -106,8 +111,15 @@ set using environment variables:
 - the optional in-memory object server may be selected by setting the
   environment variable ``SWIFT_TEST_IN_MEMORY_OBJ`` to a true value.
 
+- encryption may be added to the proxy pipeline by setting the
+  environment variable ``SWIFT_TEST_IN_PROCESS_CONF_LOADER`` to
+  ``encryption``.  Or when using tox, specify the tox environment
+  ``func-in-process-encryption``
+
 - the proxy-server ``object_post_as_copy`` option may be set using the
   environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
+
+- logging to stdout may be enabled by setting ``SWIFT_TEST_DEBUG_LOGS``.
 
 For example, this command would run the in-process mode functional tests with
 the proxy-server using object_post_as_copy=False (the 'fast-POST' mode)::
@@ -119,6 +131,12 @@ This particular example may also be run using the ``func-in-process-fast-post``
 tox environment::
 
     tox -e func-in-process-fast-post
+
+To debug the functional tests, use the 'in-process test' mode and pass the
+``--pdb`` flag to tox::
+
+    SWIFT_TEST_IN_PROCESS=1 tox -e func -- --pdb \
+        test.functional.tests.TestFile.testCopy
 
 The 'in-process test' mode searches for ``proxy-server.conf`` and
 ``swift.conf`` config files from which it copies config options and overrides
@@ -224,4 +242,3 @@ another year added, and date ranges are not needed.::
     # implied.
     # See the License for the specific language governing permissions and
     # limitations under the License.
-

@@ -14,26 +14,26 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-dispersion-populate 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-dispersion-populate
-\- Openstack-swift dispersion populate 
+\- OpenStack Swift dispersion populate
 
 .SH SYNOPSIS
 .LP
 .B swift-dispersion-populate [--container-suffix-start] [--object-suffix-start] [--container-only|--object-only] [--insecure] [conf_file]
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
 This is one of the swift-dispersion utilities that is used to evaluate the
-overall cluster health. This is accomplished by checking if a set of 
+overall cluster health. This is accomplished by checking if a set of
 deliberately distributed containers and objects are currently in their
 proper places within the cluster.
 
-.PP 
+.PP
 For instance, a common deployment has three replicas of each object.
 The health of that object can be measured by checking if each replica
 is in its proper place. If only 2 of the 3 is in place the object's health
@@ -48,13 +48,13 @@ we need to run the \fBswift-dispersion-report\fR tool to check the health of eac
 of these containers and objects.
 
 .PP
-These tools need direct access to the entire cluster and to the ring files. 
-Installing them on a proxy server will probably do or a box used for swift 
-administration purposes that also contains the common swift packages and ring. 
-Both \fBswift-dispersion-populate\fR and \fBswift-dispersion-report\fR use the 
+These tools need direct access to the entire cluster and to the ring files.
+Installing them on a proxy server will probably do or a box used for swift
+administration purposes that also contains the common swift packages and ring.
+Both \fBswift-dispersion-populate\fR and \fBswift-dispersion-report\fR use the
 same configuration file, /etc/swift/dispersion.conf . The account used by these
 tool should be a dedicated account for the dispersion stats and also have admin
-privileges. 
+privileges.
 
 .SH OPTIONS
 .RS 0
@@ -70,14 +70,14 @@ Start object suffix at NUMBER and resume population at this point; default: 0
 Only run object population
 .IP "\fB--container-only\fR"
 Only run container population
-.IP "\fB--object-only\fR"
-Only run object population
 .IP "\fB--no-overlap\fR"
 Increase coverage by amount in dispersion_coverage option with no overlap of existing partitions (if run more than once)
+.IP "\fB-P, --policy-name\fR"
+Specify storage policy name
 
 .SH CONFIGURATION
-.PD 0 
-Example \fI/etc/swift/dispersion.conf\fR: 
+.PD 0
+Example \fI/etc/swift/dispersion.conf\fR:
 
 .RS 3
 .IP "[dispersion]"
@@ -93,10 +93,10 @@ Example \fI/etc/swift/dispersion.conf\fR:
 .IP "# concurrency = 25"
 .IP "# endpoint_type = publicURL"
 .RE
-.PD 
+.PD
 
 .SH EXAMPLE
-.PP 
+.PP
 .PD 0
 $ swift-dispersion-populate
 .RS 1
@@ -105,17 +105,17 @@ $ swift-dispersion-populate
 .RE
 
 .PD
- 
+
 
 .SH DOCUMENTATION
 .LP
 More in depth documentation about the swift-dispersion utilities and
-also Openstack-Swift as a whole can be found at 
-.BI http://swift.openstack.org/admin_guide.html#cluster-health
-and 
+also OpenStack Swift as a whole can be found at
+.BI http://swift.openstack.org/admin_guide.html#dispersion-report
+and
 .BI http://swift.openstack.org
 
 
 .SH "SEE ALSO"
 .BR swift-dispersion-report(1),
-.BR dispersion.conf (5)
+.BR dispersion.conf(5)

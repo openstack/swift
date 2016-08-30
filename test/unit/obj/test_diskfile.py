@@ -246,10 +246,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertFalse(os.path.isdir(tmp_path))
             pickle_args = (self.existing_device, 'a', 'c', 'o',
                            'data', 0.0, policy)
-            # async updates don't create their tmpdir on their own
-            self.assertRaises(OSError, self.df_mgr.pickle_async_update,
-                              *pickle_args)
-            os.makedirs(tmp_path)
             # now create a async update
             self.df_mgr.pickle_async_update(*pickle_args)
             # check tempdir
@@ -2374,6 +2370,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_disk_file_default_disallowed_metadata(self):
         # build an object with some meta (at t0+1s)
         orig_metadata = {'X-Object-Meta-Key1': 'Value1',
+                         'X-Object-Transient-Sysmeta-KeyA': 'ValueA',
                          'Content-Type': 'text/garbage'}
         df = self._get_open_disk_file(ts=self.ts().internal,
                                       extra_metadata=orig_metadata)
@@ -2382,6 +2379,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # write some new metadata (fast POST, don't send orig meta, at t0+1)
         df = self._simple_get_diskfile()
         df.write_metadata({'X-Timestamp': self.ts().internal,
+                           'X-Object-Transient-Sysmeta-KeyB': 'ValueB',
                            'X-Object-Meta-Key2': 'Value2'})
         df = self._simple_get_diskfile()
         with df.open():
@@ -2389,8 +2387,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual('text/garbage', df._metadata['Content-Type'])
             # original fast-post updateable keys are removed
             self.assertNotIn('X-Object-Meta-Key1', df._metadata)
+            self.assertNotIn('X-Object-Transient-Sysmeta-KeyA', df._metadata)
             # new fast-post updateable keys are added
             self.assertEqual('Value2', df._metadata['X-Object-Meta-Key2'])
+            self.assertEqual('ValueB',
+                             df._metadata['X-Object-Transient-Sysmeta-KeyB'])
 
     def test_disk_file_preserves_sysmeta(self):
         # build an object with some meta (at t0)

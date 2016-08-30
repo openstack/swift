@@ -17,8 +17,8 @@
 import os
 import json
 import mock
+from six import StringIO
 import unittest
-from StringIO import StringIO
 from test.unit import with_tempdir
 
 from swift.cli.ring_builder_analyzer import parse_scenario, run_scenario
@@ -46,7 +46,7 @@ class TestRunScenario(unittest.TestCase):
         # Just test that it produced some output as it ran; the fact that
         # this doesn't crash and produces output that resembles something
         # useful is good enough.
-        self.assertTrue('Rebalance' in fake_stdout.getvalue())
+        self.assertIn('Rebalance', fake_stdout.getvalue())
         self.assertTrue(os.path.exists(builder_path))
 
 

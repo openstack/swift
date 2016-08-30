@@ -49,7 +49,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('403 Forbidden', str(resp))
 
     def test_get_info(self):
@@ -60,12 +60,12 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
         info = json.loads(resp.body)
-        self.assertTrue('admin' not in info)
-        self.assertTrue('foo' in info)
-        self.assertTrue('bar' in info['foo'])
+        self.assertNotIn('admin', info)
+        self.assertIn('foo', info)
+        self.assertIn('bar', info['foo'])
         self.assertEqual(info['foo']['bar'], 'baz')
 
     def test_options_info(self):
@@ -74,9 +74,9 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.OPTIONS(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
-        self.assertTrue('Allow' in resp.headers)
+        self.assertIn('Allow', resp.headers)
 
     def test_get_info_cors(self):
         controller = self.get_controller(expose_info=True)
@@ -87,15 +87,15 @@ class TestInfoController(unittest.TestCase):
             '/info', environ={'REQUEST_METHOD': 'GET'},
             headers={'Origin': 'http://example.com'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
         info = json.loads(resp.body)
-        self.assertTrue('admin' not in info)
-        self.assertTrue('foo' in info)
-        self.assertTrue('bar' in info['foo'])
+        self.assertNotIn('admin', info)
+        self.assertIn('foo', info)
+        self.assertIn('bar', info['foo'])
         self.assertEqual(info['foo']['bar'], 'baz')
-        self.assertTrue('Access-Control-Allow-Origin' in resp.headers)
-        self.assertTrue('Access-Control-Expose-Headers' in resp.headers)
+        self.assertIn('Access-Control-Allow-Origin', resp.headers)
+        self.assertIn('Access-Control-Expose-Headers', resp.headers)
 
     def test_head_info(self):
         controller = self.get_controller(expose_info=True)
@@ -105,7 +105,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'HEAD'})
         resp = controller.HEAD(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
 
     def test_disallow_info(self):
@@ -118,13 +118,13 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             '/info', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
         info = json.loads(resp.body)
-        self.assertTrue('foo' in info)
-        self.assertTrue('bar' in info['foo'])
+        self.assertIn('foo', info)
+        self.assertIn('bar', info['foo'])
         self.assertEqual(info['foo']['bar'], 'baz')
-        self.assertTrue('foo2' not in info)
+        self.assertNotIn('foo2', info)
 
     def test_disabled_admin_info(self):
         controller = self.get_controller(expose_info=True, admin_key='')
@@ -138,7 +138,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('403 Forbidden', str(resp))
 
     def test_get_admin_info(self):
@@ -154,12 +154,12 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
         info = json.loads(resp.body)
-        self.assertTrue('admin' in info)
-        self.assertTrue('qux' in info['admin'])
-        self.assertTrue('quux' in info['admin']['qux'])
+        self.assertIn('admin', info)
+        self.assertIn('qux', info['admin'])
+        self.assertIn('quux', info['admin']['qux'])
         self.assertEqual(info['admin']['qux']['quux'], 'corge')
 
     def test_head_admin_info(self):
@@ -175,7 +175,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'HEAD'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
 
         expires = int(time.time() + 86400)
@@ -185,7 +185,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'HEAD'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
 
     def test_get_admin_info_invalid_method(self):
@@ -201,7 +201,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('401 Unauthorized', str(resp))
 
     def test_get_admin_info_invalid_expires(self):
@@ -217,7 +217,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('401 Unauthorized', str(resp))
 
         expires = 'abc'
@@ -227,7 +227,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('401 Unauthorized', str(resp))
 
     def test_get_admin_info_invalid_path(self):
@@ -243,7 +243,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('401 Unauthorized', str(resp))
 
     def test_get_admin_info_invalid_key(self):
@@ -259,7 +259,7 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('401 Unauthorized', str(resp))
 
     def test_admin_disallow_info(self):
@@ -277,15 +277,15 @@ class TestInfoController(unittest.TestCase):
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'GET'})
         resp = controller.GET(req)
-        self.assertTrue(isinstance(resp, HTTPException))
+        self.assertIsInstance(resp, HTTPException)
         self.assertEqual('200 OK', str(resp))
         info = json.loads(resp.body)
-        self.assertTrue('foo2' not in info)
-        self.assertTrue('admin' in info)
-        self.assertTrue('disallowed_sections' in info['admin'])
-        self.assertTrue('foo2' in info['admin']['disallowed_sections'])
-        self.assertTrue('qux' in info['admin'])
-        self.assertTrue('quux' in info['admin']['qux'])
+        self.assertNotIn('foo2', info)
+        self.assertIn('admin', info)
+        self.assertIn('disallowed_sections', info['admin'])
+        self.assertIn('foo2', info['admin']['disallowed_sections'])
+        self.assertIn('qux', info['admin'])
+        self.assertIn('quux', info['admin']['qux'])
         self.assertEqual(info['admin']['qux']['quux'], 'corge')
 
 

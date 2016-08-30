@@ -145,6 +145,10 @@ class LockTimeout(MessageTimeout):
     pass
 
 
+class RingLoadError(SwiftException):
+    pass
+
+
 class RingBuilderError(SwiftException):
     pass
 
@@ -204,6 +208,10 @@ class MimeInvalid(SwiftException):
 
 
 class APIVersionError(SwiftException):
+    pass
+
+
+class EncryptionException(SwiftException):
     pass
 
 

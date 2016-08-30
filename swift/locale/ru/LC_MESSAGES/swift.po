@@ -6,9 +6,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.7.1.dev169\n"
+"Project-Id-Version: swift 2.9.1.dev6\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-06-02 04:58+0000\n"
+"POT-Creation-Date: 2016-07-19 04:02+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -288,12 +288,6 @@ msgstr "Ошибка %(status)d %(body)s, ответ от сервера объ�
 #, python-format
 msgid "ERROR %(status)d Expect: 100-continue From Object Server"
 msgstr "Ошибка %(status)d. Ожидаемое значение от сервера объекта: 100-continue"
-
-#, python-format
-msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
-msgstr ""
-"Ошибка %(status)d. попытка выполнить метод %(method)s %(path)s из сервера "
-"контейнера"
 
 #, python-format
 msgid ""
@@ -929,10 +923,6 @@ msgstr "Попытка выполнения метода %(method)s %(path)s"
 #, python-format
 msgid "Trying to GET %(full_path)s"
 msgstr "Попытка GET-запроса %(full_path)s"
-
-#, python-format
-msgid "Trying to get final status of PUT to %s"
-msgstr "Попытка получения конечного состояния PUT в %s"
 
 msgid "Trying to read during GET"
 msgstr "Попытка чтения во время операции GET"

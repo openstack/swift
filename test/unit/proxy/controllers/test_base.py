@@ -29,7 +29,9 @@ from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
-from swift.common.request_helpers import get_sys_meta_prefix
+from swift.common.request_helpers import (
+    get_sys_meta_prefix, get_object_transient_sysmeta
+)
 
 from test.unit import patch_policies
 
@@ -430,8 +432,8 @@ class TestFuncs(unittest.TestCase):
     def test_headers_to_container_info_missing(self):
         resp = headers_to_container_info({}, 404)
         self.assertEqual(resp['status'], 404)
-        self.assertEqual(resp['read_acl'], None)
-        self.assertEqual(resp['write_acl'], None)
+        self.assertIsNone(resp['read_acl'])
+        self.assertIsNone(resp['write_acl'])
 
     def test_headers_to_container_info_meta(self):
         headers = {'X-Container-Meta-Whatevs': 14,
@@ -480,8 +482,8 @@ class TestFuncs(unittest.TestCase):
     def test_headers_to_account_info_missing(self):
         resp = headers_to_account_info({}, 404)
         self.assertEqual(resp['status'], 404)
-        self.assertEqual(resp['bytes'], None)
-        self.assertEqual(resp['container_count'], None)
+        self.assertIsNone(resp['bytes'])
+        self.assertIsNone(resp['container_count'])
 
     def test_headers_to_account_info_meta(self):
         headers = {'X-Account-Meta-Whatevs': 14,
@@ -517,8 +519,8 @@ class TestFuncs(unittest.TestCase):
     def test_headers_to_object_info_missing(self):
         resp = headers_to_object_info({}, 404)
         self.assertEqual(resp['status'], 404)
-        self.assertEqual(resp['length'], None)
-        self.assertEqual(resp['etag'], None)
+        self.assertIsNone(resp['length'])
+        self.assertIsNone(resp['etag'])
 
     def test_headers_to_object_info_meta(self):
         headers = {'X-Object-Meta-Whatevs': 14,
@@ -537,6 +539,14 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['sysmeta']['whatevs'], 14)
         self.assertEqual(resp['sysmeta']['somethingelse'], 0)
 
+    def test_headers_to_object_info_transient_sysmeta(self):
+        headers = {get_object_transient_sysmeta('Whatevs'): 14,
+                   get_object_transient_sysmeta('somethingelse'): 0}
+        resp = headers_to_object_info(headers.items(), 200)
+        self.assertEqual(len(resp['transient_sysmeta']), 2)
+        self.assertEqual(resp['transient_sysmeta']['whatevs'], 14)
+        self.assertEqual(resp['transient_sysmeta']['somethingelse'], 0)
+
     def test_headers_to_object_info_values(self):
         headers = {
             'content-length': '1024',
@@ -554,18 +564,18 @@ class TestFuncs(unittest.TestCase):
     def test_base_have_quorum(self):
         base = Controller(self.app)
         # just throw a bunch of test cases at it
-        self.assertEqual(base.have_quorum([201, 404], 3), False)
-        self.assertEqual(base.have_quorum([201, 201], 4), True)
-        self.assertEqual(base.have_quorum([201], 4), False)
-        self.assertEqual(base.have_quorum([201, 201, 404, 404], 4), True)
-        self.assertEqual(base.have_quorum([201, 302, 418, 503], 4), False)
-        self.assertEqual(base.have_quorum([201, 503, 503, 201], 4), True)
-        self.assertEqual(base.have_quorum([201, 201], 3), True)
-        self.assertEqual(base.have_quorum([404, 404], 3), True)
-        self.assertEqual(base.have_quorum([201, 201], 2), True)
-        self.assertEqual(base.have_quorum([201, 404], 2), True)
-        self.assertEqual(base.have_quorum([404, 404], 2), True)
-        self.assertEqual(base.have_quorum([201, 404, 201, 201], 4), True)
+        self.assertFalse(base.have_quorum([201, 404], 3))
+        self.assertTrue(base.have_quorum([201, 201], 4))
+        self.assertFalse(base.have_quorum([201], 4))
+        self.assertTrue(base.have_quorum([201, 201, 404, 404], 4))
+        self.assertFalse(base.have_quorum([201, 302, 418, 503], 4))
+        self.assertTrue(base.have_quorum([201, 503, 503, 201], 4))
+        self.assertTrue(base.have_quorum([201, 201], 3))
+        self.assertTrue(base.have_quorum([404, 404], 3))
+        self.assertTrue(base.have_quorum([201, 201], 2))
+        self.assertTrue(base.have_quorum([201, 404], 2))
+        self.assertTrue(base.have_quorum([404, 404], 2))
+        self.assertTrue(base.have_quorum([201, 404, 201, 201], 4))
 
     def test_best_response_overrides(self):
         base = Controller(self.app)
@@ -675,9 +685,9 @@ class TestFuncs(unittest.TestCase):
                             'x-base-meta-size': '151M',
                             'connection': 'close'}
         for k, v in expected_headers.items():
-            self.assertTrue(k in dst_headers)
+            self.assertIn(k, dst_headers)
             self.assertEqual(v, dst_headers[k])
-        self.assertFalse('new-owner' in dst_headers)
+        self.assertNotIn('new-owner', dst_headers)
 
     def test_generate_request_headers_with_sysmeta(self):
         base = Controller(self.app)
@@ -689,10 +699,10 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', headers=hdrs)
         dst_headers = base.generate_request_headers(req, transfer=True)
         for k, v in good_hdrs.items():
-            self.assertTrue(k.lower() in dst_headers)
+            self.assertIn(k.lower(), dst_headers)
             self.assertEqual(v, dst_headers[k.lower()])
         for k, v in bad_hdrs.items():
-            self.assertFalse(k.lower() in dst_headers)
+            self.assertNotIn(k.lower(), dst_headers)
 
     def test_generate_request_headers_with_no_orig_req(self):
         base = Controller(self.app)

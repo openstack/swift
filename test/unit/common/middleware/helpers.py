@@ -15,11 +15,12 @@
 
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
-from collections import defaultdict
-from copy import deepcopy
+from collections import defaultdict, namedtuple
 from hashlib import md5
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.request_helpers import is_user_meta, \
+    is_object_transient_sysmeta
 from swift.common.swob import HTTPNotImplemented
 from swift.common.utils import split_path
 
@@ -38,6 +39,9 @@ class LeakTrackingIter(object):
 
     def close(self):
         self.fake_swift.mark_closed(self.path)
+
+
+FakeSwiftCall = namedtuple('FakeSwiftCall', ['method', 'path', 'headers'])
 
 
 class FakeSwift(object):
@@ -88,7 +92,7 @@ class FakeSwift(object):
             if resp:
                 return resp(env, start_response)
 
-        req_headers = swob.Request(env).headers
+        req = swob.Request(env)
         self.swift_sources.append(env.get('swift.source'))
         self.txn_ids.append(env.get('swift.trans_id'))
 
@@ -113,24 +117,52 @@ class FakeSwift(object):
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
 
-        self._calls.append((method, path, req_headers))
-
         # simulate object PUT
         if method == 'PUT' and obj:
-            input = env['wsgi.input'].read()
-            etag = md5(input).hexdigest()
+            put_body = ''.join(iter(env['wsgi.input'].read, ''))
+            if 'swift.callback.update_footers' in env:
+                footers = HeaderKeyDict()
+                env['swift.callback.update_footers'](footers)
+                req.headers.update(footers)
+            etag = md5(put_body).hexdigest()
             headers.setdefault('Etag', etag)
-            headers.setdefault('Content-Length', len(input))
+            headers.setdefault('Content-Length', len(put_body))
 
             # keep it for subsequent GET requests later
-            self.uploaded[path] = (deepcopy(headers), input)
+            self.uploaded[path] = (dict(req.headers), put_body)
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
 
-        # range requests ought to work, which require conditional_response=True
-        req = swob.Request(env)
-        resp = resp_class(req=req, headers=headers, body=body,
-                          conditional_response=req.method in ('GET', 'HEAD'))
+        # simulate object POST
+        elif method == 'POST' and obj:
+            metadata, data = self.uploaded.get(path, ({}, None))
+            # select items to keep from existing...
+            new_metadata = dict(
+                (k, v) for k, v in metadata.items()
+                if (not is_user_meta('object', k) and not
+                    is_object_transient_sysmeta(k)))
+            # apply from new
+            new_metadata.update(
+                dict((k, v) for k, v in req.headers.items()
+                     if (is_user_meta('object', k) or
+                         is_object_transient_sysmeta(k) or
+                         k.lower == 'content-type')))
+            self.uploaded[path] = new_metadata, data
+
+        # note: tests may assume this copy of req_headers is case insensitive
+        # so we deliberately use a HeaderKeyDict
+        self._calls.append(
+            FakeSwiftCall(method, path, HeaderKeyDict(req.headers)))
+
+        # range requests ought to work, hence conditional_response=True
+        if isinstance(body, list):
+            resp = resp_class(
+                req=req, headers=headers, app_iter=body,
+                conditional_response=req.method in ('GET', 'HEAD'))
+        else:
+            resp = resp_class(
+                req=req, headers=headers, body=body,
+                conditional_response=req.method in ('GET', 'HEAD'))
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
         return LeakTrackingIter(wsgi_iter, self, path)
@@ -168,3 +200,13 @@ class FakeSwift(object):
 
     def register_responses(self, method, path, responses):
         self._responses[(method, path)] = list(responses)
+
+
+class FakeAppThatExcepts(object):
+    MESSAGE = "We take exception to that!"
+
+    def __init__(self, exception_class=Exception):
+        self.exception_class = exception_class
+
+    def __call__(self, env, start_response):
+        raise self.exception_class(self.MESSAGE)

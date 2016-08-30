@@ -20,7 +20,7 @@
 .SH NAME
 .LP
 .B proxy-server.conf
-\- configuration file for the openstack-swift proxy server
+\- configuration file for the OpenStack Swift proxy server
 
 
 
@@ -143,6 +143,20 @@ This is very useful when one is managing more than one swift cluster.
 Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
 .IP \fBstrict_cors_mode\fR
 The default is true.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
@@ -1030,13 +1044,33 @@ These are the headers whose values will only be shown to swift_owners. The
 exact definition of a swift_owner is up to the auth system in use, but
 usually indicates administrative responsibilities.
 The default is 'x-container-read, x-container-write, x-container-sync-key, x-container-sync-to, x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, x-container-meta-temp-url-key, x-container-meta-temp-url-key-2, x-account-access-control'.
+.IP \fBrate_limit_after_segment\fR
+Start rate-limiting object segments after the Nth segment of a segmented
+object.  The default is 10 segments.
+.IP \fBrate_limit_segments_per_sec\fR
+Once segment rate-limiting kicks in for an object, limit segments served to N
+per second.  The default is 1.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
 .SH DOCUMENTATION
 .LP
 More in depth documentation about the swift-proxy-server and
-also Openstack-Swift as a whole can be found at
+also OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/admin_guide.html
 and
 .BI http://swift.openstack.org

@@ -74,13 +74,16 @@ class TestGatekeeper(unittest.TestCase):
     x_backend_headers = {'X-Backend-Replication': 'true',
                          'X-Backend-Replication-Headers': 'stuff'}
 
+    object_transient_sysmeta_headers = {
+        'x-object-transient-sysmeta-': 'value',
+        'x-object-transient-sysmeta-foo': 'value'}
     x_timestamp_headers = {'X-Timestamp': '1455952805.719739'}
 
-    forbidden_headers_out = dict(sysmeta_headers.items() +
-                                 x_backend_headers.items())
-    forbidden_headers_in = dict(sysmeta_headers.items() +
-                                x_backend_headers.items())
-    shunted_headers_in = dict(x_timestamp_headers.items())
+    forbidden_headers_out = dict(sysmeta_headers)
+    forbidden_headers_out.update(x_backend_headers)
+    forbidden_headers_out.update(object_transient_sysmeta_headers)
+    forbidden_headers_in = dict(forbidden_headers_out)
+    shunted_headers_in = dict(x_timestamp_headers)
 
     def _assertHeadersEqual(self, expected, actual):
         for key in expected:
@@ -121,8 +124,8 @@ class TestGatekeeper(unittest.TestCase):
         expected_headers.update({'X-Backend-Inbound-' + k: v
                                  for k, v in self.shunted_headers_in.items()})
         self._assertHeadersEqual(expected_headers, fake_app.req.headers)
-        unexpected_headers = dict(self.forbidden_headers_in.items() +
-                                  self.shunted_headers_in.items())
+        unexpected_headers = dict(self.forbidden_headers_in)
+        unexpected_headers.update(self.shunted_headers_in)
         self._assertHeadersAbsent(unexpected_headers, fake_app.req.headers)
 
     def test_reserved_header_removed_inbound(self):
@@ -158,8 +161,8 @@ class TestGatekeeper(unittest.TestCase):
         app = self.get_app(fake_app, {}, shunt_inbound_x_timestamp='false')
         resp = req.get_response(app)
         self.assertEqual('200 OK', resp.status)
-        expected_headers = dict(self.allowed_headers.items() +
-                                self.shunted_headers_in.items())
+        expected_headers = dict(self.allowed_headers)
+        expected_headers.update(self.shunted_headers_in)
         self._assertHeadersEqual(expected_headers, fake_app.req.headers)
 
     def test_reserved_header_shunt_bypassed_inbound(self):

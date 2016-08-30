@@ -58,7 +58,8 @@ from swift.common.swob import Request, Response, Range, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
-    http_response_to_document_iters
+    http_response_to_document_iters, is_object_transient_sysmeta, \
+    strip_object_transient_sysmeta_prefix
 from swift.common.storage_policy import POLICIES
 
 
@@ -180,12 +181,18 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
     Construct a cacheable dict of object info based on response headers.
     """
     headers, meta, sysmeta = _prep_headers_to_info(headers, 'object')
+    transient_sysmeta = {}
+    for key, val in headers.iteritems():
+        if is_object_transient_sysmeta(key):
+            key = strip_object_transient_sysmeta_prefix(key.lower())
+            transient_sysmeta[key] = val
     info = {'status': status_int,
             'length': headers.get('content-length'),
             'type': headers.get('content-type'),
             'etag': headers.get('etag'),
             'meta': meta,
             'sysmeta': sysmeta,
+            'transient_sysmeta': transient_sysmeta
             }
     return info
 
@@ -1538,10 +1545,11 @@ class Controller(object):
                         self.app.error_occurred(
                             node, _('ERROR %(status)d '
                                     'Trying to %(method)s %(path)s'
-                                    'From Container Server') % {
+                                    ' From %(type)s Server') % {
                                         'status': resp.status,
                                         'method': method,
-                                        'path': path})
+                                        'path': path,
+                                        'type': self.server_type})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
@@ -1739,10 +1747,11 @@ class Controller(object):
                                   self.app.account_ring, partition, 'PUT',
                                   path, [headers] * len(nodes))
         if is_success(resp.status_int):
-            self.app.logger.info('autocreate account %r' % path)
+            self.app.logger.info(_('autocreate account %r'), path)
             clear_info_cache(self.app, req.environ, account)
         else:
-            self.app.logger.warning('Could not autocreate account %r' % path)
+            self.app.logger.warning(_('Could not autocreate account %r'),
+                                    path)
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
                        concurrency=1, client_chunk_size=None):

@@ -160,30 +160,47 @@ class TestDirectClient(unittest.TestCase):
                 self.assertEqual(expected_header_count, len(headers))
 
     def test_direct_get_account(self):
-        stub_headers = HeaderKeyDict({
-            'X-Account-Container-Count': '1',
-            'X-Account-Object-Count': '1',
-            'X-Account-Bytes-Used': '1',
-            'X-Timestamp': '1234567890',
-            'X-PUT-Timestamp': '1234567890'})
+        def do_test(req_params):
+            stub_headers = HeaderKeyDict({
+                'X-Account-Container-Count': '1',
+                'X-Account-Object-Count': '1',
+                'X-Account-Bytes-Used': '1',
+                'X-Timestamp': '1234567890',
+                'X-PUT-Timestamp': '1234567890'})
 
-        body = '[{"count": 1, "bytes": 20971520, "name": "c1"}]'
+            body = '[{"count": 1, "bytes": 20971520, "name": "c1"}]'
 
-        with mocked_http_conn(200, stub_headers, body) as conn:
-            resp_headers, resp = direct_client.direct_get_account(
-                self.node, self.part, self.account, marker='marker',
-                prefix='prefix', delimiter='delimiter', limit=1000)
-            self.assertEqual(conn.method, 'GET')
-            self.assertEqual(conn.path, self.account_path)
+            with mocked_http_conn(200, stub_headers, body) as conn:
+                resp_headers, resp = direct_client.direct_get_account(
+                    self.node, self.part, self.account, **req_params)
+            try:
+                self.assertEqual(conn.method, 'GET')
+                self.assertEqual(conn.path, self.account_path)
+                self.assertEqual(conn.req_headers['user-agent'],
+                                 self.user_agent)
+                self.assertEqual(resp_headers, stub_headers)
+                self.assertEqual(json.loads(body), resp)
+                self.assertIn('format=json', conn.query_string)
+                for k, v in req_params.items():
+                    if v is None:
+                        self.assertNotIn('&%s' % k, conn.query_string)
+                    else:
+                        self.assertIn('&%s=%s' % (k, v), conn.query_string)
 
-        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
-        self.assertEqual(resp_headers, stub_headers)
-        self.assertEqual(json.loads(body), resp)
-        self.assertTrue('marker=marker' in conn.query_string)
-        self.assertTrue('delimiter=delimiter' in conn.query_string)
-        self.assertTrue('limit=1000' in conn.query_string)
-        self.assertTrue('prefix=prefix' in conn.query_string)
-        self.assertTrue('format=json' in conn.query_string)
+            except AssertionError as err:
+                self.fail('Failed with params %s: %s' % (req_params, err))
+
+        test_params = (dict(marker=marker, prefix=prefix, delimiter=delimiter,
+                       limit=limit, end_marker=end_marker, reverse=reverse)
+                       for marker in (None, 'my-marker')
+                       for prefix in (None, 'my-prefix')
+                       for delimiter in (None, 'my-delimiter')
+                       for limit in (None, 1000)
+                       for end_marker in (None, 'my-endmarker')
+                       for reverse in (None, 'on'))
+
+        for params in test_params:
+            do_test(params)
 
     def test_direct_client_exception(self):
         stub_headers = {'X-Trans-Id': 'txb5f59485c578460f8be9e-0053478d09'}
@@ -218,7 +235,7 @@ class TestDirectClient(unittest.TestCase):
             'X-Account-Object-Count': '1',
             'X-Account-Bytes-Used': '1',
             'X-Timestamp': '1234567890',
-            'X-PUT-Timestamp': '1234567890'}
+            'X-Put-Timestamp': '1234567890'}
         with mocked_http_conn(204, headers) as conn:
             resp_headers, resp = direct_client.direct_get_account(
                 self.node, self.part, self.account)
@@ -226,7 +243,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.account_path)
 
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
-        self.assertEqual(resp_headers, resp_headers)
+        self.assertDictEqual(resp_headers, headers)
         self.assertEqual([], resp)
 
     def test_direct_get_account_error(self):
@@ -328,24 +345,43 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(err.http_headers, headers)
 
     def test_direct_get_container(self):
-        headers = HeaderKeyDict({'key': 'value'})
-        body = '[{"hash": "8f4e3", "last_modified": "317260", "bytes": 209}]'
+        def do_test(req_params):
+            headers = HeaderKeyDict({'key': 'value'})
+            body = ('[{"hash": "8f4e3", "last_modified": "317260", '
+                    '"bytes": 209}]')
 
-        with mocked_http_conn(200, headers, body) as conn:
-            resp_headers, resp = direct_client.direct_get_container(
-                self.node, self.part, self.account, self.container,
-                marker='marker', prefix='prefix', delimiter='delimiter',
-                limit=1000)
+            with mocked_http_conn(200, headers, body) as conn:
+                resp_headers, resp = direct_client.direct_get_container(
+                    self.node, self.part, self.account, self.container,
+                    **req_params)
 
-        self.assertEqual(conn.req_headers['user-agent'],
-                         'direct-client %s' % os.getpid())
-        self.assertEqual(headers, resp_headers)
-        self.assertEqual(json.loads(body), resp)
-        self.assertTrue('marker=marker' in conn.query_string)
-        self.assertTrue('delimiter=delimiter' in conn.query_string)
-        self.assertTrue('limit=1000' in conn.query_string)
-        self.assertTrue('prefix=prefix' in conn.query_string)
-        self.assertTrue('format=json' in conn.query_string)
+            try:
+                self.assertEqual(conn.method, 'GET')
+                self.assertEqual(conn.path, self.container_path)
+                self.assertEqual(conn.req_headers['user-agent'],
+                                 self.user_agent)
+                self.assertEqual(headers, resp_headers)
+                self.assertEqual(json.loads(body), resp)
+                self.assertIn('format=json', conn.query_string)
+                for k, v in req_params.items():
+                    if v is None:
+                        self.assertNotIn('&%s' % k, conn.query_string)
+                    else:
+                        self.assertIn('&%s=%s' % (k, v), conn.query_string)
+            except AssertionError as err:
+                self.fail('Failed with params %s: %s' % (req_params, err))
+
+        test_params = (dict(marker=marker, prefix=prefix, delimiter=delimiter,
+                       limit=limit, end_marker=end_marker, reverse=reverse)
+                       for marker in (None, 'my-marker')
+                       for prefix in (None, 'my-prefix')
+                       for delimiter in (None, 'my-delimiter')
+                       for limit in (None, 1000)
+                       for end_marker in (None, 'my-endmarker')
+                       for reverse in (None, 'on'))
+
+        for params in test_params:
+            do_test(params)
 
     def test_direct_get_container_no_content_does_not_decode_body(self):
         headers = {}

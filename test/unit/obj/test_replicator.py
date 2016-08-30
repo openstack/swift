@@ -148,7 +148,8 @@ def _create_test_rings(path, devs=None):
         {'id': 3, 'device': 'sda', 'zone': 4,
          'region': 2, 'ip': '127.0.0.3', 'port': 6200},
         {'id': 4, 'device': 'sda', 'zone': 5,
-         'region': 1, 'ip': '127.0.0.4', 'port': 6200},
+         'region': 1, 'ip': '127.0.0.4', 'port': 6200,
+         'replication_ip': '127.0.1.4'},
         {'id': 5, 'device': 'sda', 'zone': 6,
          'region': 3, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6200},
         {'id': 6, 'device': 'sda', 'zone': 7, 'region': 1,
@@ -234,7 +235,7 @@ class TestObjectReplicator(unittest.TestCase):
                                  config,
                              ))
 
-    def _write_disk_data(self, disk_name):
+    def _write_disk_data(self, disk_name, with_json=False):
         os.mkdir(os.path.join(self.devices, disk_name))
         objects = os.path.join(self.devices, disk_name,
                                diskfile.get_data_dir(POLICIES[0]))
@@ -249,6 +250,13 @@ class TestObjectReplicator(unittest.TestCase):
             os.mkdir(parts[part])
             parts_1[part] = os.path.join(objects_1, part)
             os.mkdir(parts_1[part])
+
+        if with_json:
+            for json_file in ['auditor_status_ZBF.json',
+                              'auditor_status_ALL.json']:
+                for obj_dir in [objects, objects_1]:
+                    with open(os.path.join(obj_dir, json_file), 'w'):
+                        pass
 
         return objects, objects_1, parts, parts_1
 
@@ -416,6 +424,32 @@ class TestObjectReplicator(unittest.TestCase):
                 self.assertEqual(node['device'], 'sda')
             self.assertEqual(jobs_by_pol_part[part]['path'],
                              os.path.join(self.objects_1, part[1:]))
+
+    def test_collect_jobs_failure_report_with_auditor_stats_json(self):
+        devs = [
+            {'id': 0, 'device': 'sda', 'zone': 0,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
+            {'id': 1, 'device': 'sdb', 'zone': 1,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6200},
+            {'id': 2, 'device': 'sdc', 'zone': 2,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.1', 'replication_port': 6200},
+            {'id': 3, 'device': 'sdd', 'zone': 3,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.1', 'replication_port': 6200},
+        ]
+        objects_sdb, objects_1_sdb, _, _ = \
+            self._write_disk_data('sdb', with_json=True)
+        objects_sdc, objects_1_sdc, _, _ = \
+            self._write_disk_data('sdc', with_json=True)
+        objects_sdd, objects_1_sdd, _, _ = \
+            self._write_disk_data('sdd', with_json=True)
+        _create_test_rings(self.testdir, devs)
+
+        self.replicator.collect_jobs()
+        self.assertEqual(self.replicator.stats['failure'], 0)
 
     @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
     def test_collect_jobs_multi_disk(self, mock_shuffle):
@@ -1598,7 +1632,7 @@ class TestObjectReplicator(unittest.TestCase):
                 return 2, {'abc': 'def'}
 
             def fake_exc(tester, *args, **kwargs):
-                if 'Error syncing partition' in args[0]:
+                if 'Error syncing partition timeout' in args[0]:
                     tester.i_failed = True
 
             self.i_failed = False
@@ -1674,7 +1708,6 @@ class TestObjectReplicator(unittest.TestCase):
 
         self.headers = {'Content-Length': '0',
                         'user-agent': 'object-replicator %s' % os.getpid()}
-        self.replicator.logger = mock_logger = mock.MagicMock()
         mock_tpool_reraise.return_value = (0, {})
 
         all_jobs = self.replicator.collect_jobs()
@@ -1685,15 +1718,25 @@ class TestObjectReplicator(unittest.TestCase):
         # Check uncorrect http_connect with status 507 and
         # count of attempts and call args
         resp.status = 507
-        error = '%(ip)s/%(device)s responded as unmounted'
-        expect = 'Error syncing partition'
+        error = '%(replication_ip)s/%(device)s responded as unmounted'
+        expect = 'Error syncing partition: '
         for job in jobs:
             set_default(self)
             ring = job['policy'].object_ring
             self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
             self.replicator.update(job)
-            self.assertTrue(error in mock_logger.error.call_args[0][0])
-            self.assertTrue(expect in mock_logger.exception.call_args[0][0])
+            error_lines = self.logger.get_lines_for_level('error')
+            expected = []
+            # ... first the primaries
+            for node in job['nodes']:
+                expected.append(error % node)
+            # ... then it will get handoffs
+            for node in job['policy'].object_ring.get_more_nodes(
+                    int(job['partition'])):
+                expected.append(error % node)
+            # ... and finally it will exception out
+            expected.append(expect)
+            self.assertEqual(expected, error_lines)
             self.assertEqual(len(self.replicator.partition_times), 1)
             self.assertEqual(mock_http.call_count, len(ring._devs) - 1)
             reqs = []
@@ -1705,7 +1748,7 @@ class TestObjectReplicator(unittest.TestCase):
                 self.assertEqual(self.replicator.suffix_hash, 0)
             mock_http.assert_has_calls(reqs, any_order=True)
             mock_http.reset_mock()
-            mock_logger.reset_mock()
+            self.logger.clear()
 
         # Check uncorrect http_connect with status 400 != HTTP_OK
         resp.status = 400
@@ -1713,20 +1756,27 @@ class TestObjectReplicator(unittest.TestCase):
         for job in jobs:
             set_default(self)
             self.replicator.update(job)
-            self.assertTrue(error in mock_logger.error.call_args[0][0])
+            # ... only the primaries
+            expected = [error % {'resp': 400, 'ip': node['replication_ip']}
+                        for node in job['nodes']]
+            self.assertEqual(expected,
+                             self.logger.get_lines_for_level('error'))
             self.assertEqual(len(self.replicator.partition_times), 1)
-            mock_logger.reset_mock()
+            self.logger.clear()
 
         # Check successful http_connection and exception with
         # uncorrect pickle.loads(resp.read())
         resp.status = 200
-        expect = 'Error syncing with node:'
+        expect = 'Error syncing with node: %r: '
         for job in jobs:
             set_default(self)
             self.replicator.update(job)
-            self.assertTrue(expect in mock_logger.exception.call_args[0][0])
+            # ... only the primaries
+            expected = [expect % node for node in job['nodes']]
+            error_lines = self.logger.get_lines_for_level('error')
+            self.assertEqual(expected, error_lines)
             self.assertEqual(len(self.replicator.partition_times), 1)
-            mock_logger.reset_mock()
+            self.logger.clear()
 
         # Check successful http_connection and correct
         # pickle.loads(resp.read()) for non local node
@@ -1740,13 +1790,12 @@ class TestObjectReplicator(unittest.TestCase):
                 local_job = job.copy()
                 continue
             self.replicator.update(job)
-            self.assertEqual(mock_logger.exception.call_count, 0)
-            self.assertEqual(mock_logger.error.call_count, 0)
+            self.assertEqual([], self.logger.get_lines_for_level('error'))
             self.assertEqual(len(self.replicator.partition_times), 1)
             self.assertEqual(self.replicator.suffix_hash, 0)
             self.assertEqual(self.replicator.suffix_sync, 0)
             self.assertEqual(self.replicator.suffix_count, 0)
-            mock_logger.reset_mock()
+            self.logger.clear()
 
         # Check successful http_connect and sync for local node
         mock_tpool_reraise.return_value = (1, {'a83': 'ba47fd314242ec8c'
@@ -1787,7 +1836,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual(self.replicator.suffix_count, 1)
 
         mock_http.reset_mock()
-        mock_logger.reset_mock()
+        self.logger.clear()
 
         # test for replication params on policy 0 only
         repl_job = local_job.copy()
@@ -1816,37 +1865,36 @@ class TestObjectReplicator(unittest.TestCase):
         jobs = self.replicator.collect_jobs()
         _m_rsync = mock.Mock(return_value=0)
         _m_os_path_exists = mock.Mock(return_value=True)
-        with mock.patch.object(self.replicator, '_rsync', _m_rsync):
-            with mock.patch('os.path.exists', _m_os_path_exists):
-                for job in jobs:
-                    self.assertTrue('region' in job)
-                    for node in job['nodes']:
-                        for rsync_compress in (True, False):
-                            self.replicator.rsync_compress = rsync_compress
-                            ret = \
-                                self.replicator.sync(node, job,
-                                                     ['fake_suffix'])
-                            self.assertTrue(ret)
-                            if node['region'] != job['region']:
-                                if rsync_compress:
-                                    # --compress arg should be passed to rsync
-                                    # binary only when rsync_compress option is
-                                    # enabled AND destination node is in a
-                                    # different region
-                                    self.assertTrue('--compress' in
-                                                    _m_rsync.call_args[0][0])
-                                else:
-                                    self.assertFalse('--compress' in
-                                                     _m_rsync.call_args[0][0])
+        with mock.patch.object(self.replicator, '_rsync', _m_rsync), \
+                mock.patch('os.path.exists', _m_os_path_exists):
+            for job in jobs:
+                self.assertTrue('region' in job)
+                for node in job['nodes']:
+                    for rsync_compress in (True, False):
+                        self.replicator.rsync_compress = rsync_compress
+                        ret = self.replicator.sync(node, job,
+                                                   ['fake_suffix'])
+                        self.assertTrue(ret)
+                        if node['region'] != job['region']:
+                            if rsync_compress:
+                                # --compress arg should be passed to rsync
+                                # binary only when rsync_compress option is
+                                # enabled AND destination node is in a
+                                # different region
+                                self.assertTrue('--compress' in
+                                                _m_rsync.call_args[0][0])
                             else:
                                 self.assertFalse('--compress' in
                                                  _m_rsync.call_args[0][0])
-                            self.assertEqual(
-                                _m_os_path_exists.call_args_list[-1][0][0],
-                                os.path.join(job['path'], 'fake_suffix'))
-                            self.assertEqual(
-                                _m_os_path_exists.call_args_list[-2][0][0],
-                                os.path.join(job['path']))
+                        else:
+                            self.assertFalse('--compress' in
+                                             _m_rsync.call_args[0][0])
+                        self.assertEqual(
+                            _m_os_path_exists.call_args_list[-1][0][0],
+                            os.path.join(job['path'], 'fake_suffix'))
+                        self.assertEqual(
+                            _m_os_path_exists.call_args_list[-2][0][0],
+                            os.path.join(job['path']))
 
 
 if __name__ == '__main__':

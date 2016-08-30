@@ -407,8 +407,8 @@ class RingBuilder(object):
         lot more analysis and therefore a lot more time -- I had code that did
         that before). Because of this, it keeps rebalancing until the device
         skew (number of partitions a device wants compared to what it has) gets
-        below 1% or doesn't change by more than 1% (only happens with ring that
-        can't be balanced no matter what).
+        below 1% or doesn't change by more than 1% (only happens with a ring
+        that can't be balanced no matter what).
 
         :returns: (number_of_partitions_altered, resulting_balance,
                    number_of_removed_devices)
@@ -494,7 +494,7 @@ class RingBuilder(object):
         Build a dict of all tiers in the cluster to a list of the number of
         parts with a replica count at each index.  The values of the dict will
         be lists of length the maximum whole replica + 1 so that the
-        graph[tier][3] is the number of parts with in the tier with 3 replicas
+        graph[tier][3] is the number of parts within the tier with 3 replicas
         and graph [tier][0] is the number of parts not assigned in this tier.
 
         i.e.
@@ -509,7 +509,7 @@ class RingBuilder(object):
         }
 
         :param old_replica2part2dev: if called from rebalance, the
-            old_replica2part2dev can be used to count moved moved parts.
+            old_replica2part2dev can be used to count moved parts.
 
         :returns: number of parts with different assignments than
             old_replica2part2dev if provided
@@ -693,7 +693,7 @@ class RingBuilder(object):
     def get_balance(self):
         """
         Get the balance of the ring. The balance value is the highest
-        percentage off the desired amount of partitions a given device
+        percentage of the desired amount of partitions a given device
         wants. For instance, if the "worst" device wants (based on its
         weight relative to the sum of all the devices' weights) 123
         partitions and it has 124 partitions, the balance value would
@@ -710,7 +710,7 @@ class RingBuilder(object):
         dispersed.
 
         The required overload is the largest percentage change of any single
-        device from its weighted replicanth to its wanted replicanth (note
+        device from its weighted replicanth to its wanted replicanth (note:
         under weighted devices have a negative percentage change) to archive
         dispersion - that is to say a single device that must be overloaded by
         5% is worse than 5 devices in a single tier overloaded by 1%.
@@ -741,9 +741,11 @@ class RingBuilder(object):
         255 hours ago and last move epoch to 'the beginning of time'. This can
         be used to force a full rebalance on the next call to rebalance.
         """
+        self._last_part_moves_epoch = 0
+        if not self._last_part_moves:
+            return
         for part in range(self.parts):
             self._last_part_moves[part] = 0xff
-        self._last_part_moves_epoch = 0
 
     def get_part_devices(self, part):
         """
@@ -990,9 +992,10 @@ class RingBuilder(object):
             undispersed_dev_replicas.sort(
                 key=lambda dr: dr[0]['parts_wanted'])
             for dev, replica in undispersed_dev_replicas:
-                # the min part hour check is ignored iff a device has more
-                # than one replica of a part assigned to it - which would have
-                # only been possible on rings built with older version of code
+                # the min part hour check is ignored if and only if a device
+                # has more than one replica of a part assigned to it - which
+                # would have only been possible on rings built with an older
+                # version of the code
                 if (self._last_part_moves[part] < self.min_part_hours and
                         not replicas_at_tier[dev['tiers'][-1]] > 1):
                     continue
@@ -1070,8 +1073,8 @@ class RingBuilder(object):
         """
         Gather parts that look like they should move for balance reasons.
 
-        A simple gather of parts that looks dispersible normally works out,
-        we'll switch strategies if things don't be seem to moving...
+        A simple gathers of parts that looks dispersible normally works out,
+        we'll switch strategies if things don't seem to move.
         """
         # pick a random starting point on the other side of the ring
         quarter_turn = (self.parts // 4)
@@ -1137,7 +1140,7 @@ class RingBuilder(object):
 
     def _reassign_parts(self, reassign_parts, replica_plan):
         """
-        For an existing ring data set, partitions are reassigned similarly to
+        For an existing ring data set, partitions are reassigned similar to
         the initial assignment.
 
         The devices are ordered by how many partitions they still want and
@@ -1166,7 +1169,7 @@ class RingBuilder(object):
             # account how many partitions a given tier wants to shed.
             #
             # If we did not do this, we could have a zone where, at some
-            # point during assignment, number-of-parts-to-gain equals
+            # point during an assignment, number-of-parts-to-gain equals
             # number-of-parts-to-shed. At that point, no further placement
             # into that zone would occur since its parts_available_in_tier
             # would be 0. This would happen any time a zone had any device
@@ -1396,7 +1399,7 @@ class RingBuilder(object):
         N.B.  _build_max_replicas_by_tier calculates the upper bound on the
         replicanths each tier may hold irrespective of the weights of the
         tier; this method will calculate the minimum replicanth <=
-        max_replicas[tier] that will still solve dispersion.  However it is
+        max_replicas[tier] that will still solve dispersion.  However, it is
         not guaranteed to return a fully dispersed solution if failure domains
         are over-weighted for their device count.
         """
@@ -1425,7 +1428,7 @@ class RingBuilder(object):
         def place_replicas(tier, replicanths):
             if replicanths > num_devices[tier]:
                 raise exceptions.RingValidationError(
-                    'More than replicanths (%s) than devices (%s) '
+                    'More replicanths (%s) than devices (%s) '
                     'in tier (%s)' % (replicanths, num_devices[tier], tier))
             wanted_replicas[tier] = replicanths
             sub_tiers = sorted(tier2children[tier])

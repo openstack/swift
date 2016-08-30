@@ -80,7 +80,7 @@ class TestContainer(unittest2.TestCase):
                 body = resp.read()
                 if resp.status == 404:
                     break
-                self.assertTrue(resp.status // 100 == 2, resp.status)
+                self.assertEqual(resp.status // 100, 2, resp.status)
                 objs = json.loads(body)
                 if not objs:
                     break
@@ -223,11 +223,11 @@ class TestContainer(unittest2.TestCase):
         resp = retry(head, name)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        self.assertEqual(resp.getheader('x-container-meta-test'), None)
+        self.assertIsNone(resp.getheader('x-container-meta-test'))
         resp = retry(get, name)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        self.assertEqual(resp.getheader('x-container-meta-test'), None)
+        self.assertIsNone(resp.getheader('x-container-meta-test'))
         resp = retry(delete, name)
         resp.read()
         self.assertEqual(resp.status, 204)
@@ -255,11 +255,11 @@ class TestContainer(unittest2.TestCase):
         resp = retry(head)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        self.assertEqual(resp.getheader('x-container-meta-test'), None)
+        self.assertIsNone(resp.getheader('x-container-meta-test'))
         resp = retry(get)
         resp.read()
         self.assertIn(resp.status, (200, 204))
-        self.assertEqual(resp.getheader('x-container-meta-test'), None)
+        self.assertIsNone(resp.getheader('x-container-meta-test'))
         resp = retry(post, 'Value')
         resp.read()
         self.assertEqual(resp.status, 204)
@@ -965,7 +965,7 @@ class TestContainer(unittest2.TestCase):
         resp = retry(get, self.name, use_account=3)
         resp.read()
         self.assertEqual(resp.status, 204)
-        self.assertEqual(resp.getheader('X-Container-Meta-Test'), None)
+        self.assertIsNone(resp.getheader('X-Container-Meta-Test'))
 
     @requires_acls
     def test_admin_acl_listing(self):
@@ -1107,7 +1107,7 @@ class TestContainer(unittest2.TestCase):
         resp = retry(get, self.name, use_account=3)
         resp.read()
         self.assertEqual(resp.status, 204)
-        self.assertEqual(resp.getheader('X-Container-Meta-Test'), None)
+        self.assertIsNone(resp.getheader('X-Container-Meta-Test'))
 
     @requires_acls
     def test_protected_container_sync(self):
@@ -1158,7 +1158,7 @@ class TestContainer(unittest2.TestCase):
         self.assertEqual(resp.status, 204)
         self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
         # but not sync-key
-        self.assertEqual(resp.getheader('X-Container-Sync-Key'), None)
+        self.assertIsNone(resp.getheader('X-Container-Sync-Key'))
 
         # and can not write
         headers = {'x-container-sync-key': str(uuid4())}
@@ -1180,7 +1180,7 @@ class TestContainer(unittest2.TestCase):
         self.assertEqual(resp.status, 204)
         self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
         # but not sync-key
-        self.assertEqual(resp.getheader('X-Container-Sync-Key'), None)
+        self.assertIsNone(resp.getheader('X-Container-Sync-Key'))
 
         # sanity check sync-key w/ account1
         resp = retry(get, self.name, use_account=1)
@@ -1282,8 +1282,8 @@ class TestContainer(unittest2.TestCase):
         self.assertEqual(resp.status, 204)
         self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
         # but not container acl
-        self.assertEqual(resp.getheader('X-Container-Read'), None)
-        self.assertEqual(resp.getheader('X-Container-Write'), None)
+        self.assertIsNone(resp.getheader('X-Container-Read'))
+        self.assertIsNone(resp.getheader('X-Container-Write'))
 
         # and can not write
         headers = {
@@ -1308,8 +1308,8 @@ class TestContainer(unittest2.TestCase):
         self.assertEqual(resp.status, 204)
         self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
         # but not container acl
-        self.assertEqual(resp.getheader('X-Container-Read'), None)
-        self.assertEqual(resp.getheader('X-Container-Write'), None)
+        self.assertIsNone(resp.getheader('X-Container-Read'))
+        self.assertIsNone(resp.getheader('X-Container-Write'))
 
         # sanity check container acls with account1
         resp = retry(get, self.name, use_account=1)
@@ -1488,7 +1488,7 @@ class TestContainer(unittest2.TestCase):
         resp = retry(head)
         resp.read()
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
-        self.assertEqual(headers.get('x-storage-policy'), None)
+        self.assertIsNone(headers.get('x-storage-policy'))
 
     @requires_policies
     def test_conflict_change_storage_policy_with_put(self):
@@ -1653,7 +1653,7 @@ class BaseTestContainerACLs(unittest2.TestCase):
         while True:
             resp = retry(get, use_account=self.account)
             body = resp.read()
-            self.assertTrue(resp.status // 100 == 2, resp.status)
+            self.assertEqual(resp.status // 100, 2, resp.status)
             objs = json.loads(body)
             if not objs:
                 break

@@ -1,0 +1,10 @@
+__RINGFILE__, build version 4
+256 partitions, 3.000000 replicas, 4 regions, 4 zones, 4 devices, 100.00 balance, 0.00 dispersion
+The minimum number of hours before a partition can be reassigned is 1 (0:00:00 remaining)
+The overload factor is 0.00% (0.000000)
+Ring file __RINGFILE__.ring.gz not found, probably it hasn't been written yet
+Devices:   id region zone                     ip address:port                  replication ip:port   name weight partitions balance flags meta
+            0      0    0 [2001:db8:85a3::8a2e:370:7334]:6200  [2001:db8:85a3::8a2e:370:7334]:6200   sda1 100.00          0 -100.00       some meta data
+            1      1    1                      127.0.0.1:66201                      127.0.0.1:66201  sda2 100.00          0 -100.00
+            2      2    2 [2001:db8:85a3::8a2e:370:7336]:6202                    127.0.10.127:7070   sdc3 100.00          0 -100.00
+            3      3    3 [2001:db8:85a3::8a2e:370:7337]:6203  [7001:db8:85a3::8a2e:370:7337]:11664  sdd4 100.00          0 -100.00

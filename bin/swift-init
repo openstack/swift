@@ -26,6 +26,14 @@ USAGE = \
 where:
     <server>  is the name of a swift service e.g. proxy-server.
               The '-server' part of the name may be omitted.
+              'all', 'main' and 'rest' are reserved words that represent a
+              group of services.
+              all: Expands to all swift daemons.
+              main: Expands to main swift daemons.
+                    (proxy, container, account, object)
+              rest: Expands to all remaining background daemons (beyond
+                    "main").
+                    (updater, replicator, auditor, etc)
     <config>  is an explicit configuration filename without the
               .conf extension. If <config> is specified then <server> should
               refer to a directory containing the configuration file, e.g.:
@@ -84,7 +92,7 @@ def main():
 
     if len(args) < 2:
         parser.print_help()
-        print 'ERROR: specify server(s) and command'
+        print('ERROR: specify server(s) and command')
         return 1
 
     command = args[-1]
@@ -101,7 +109,7 @@ def main():
         status = manager.run_command(command, **options.__dict__)
     except UnknownCommandError:
         parser.print_help()
-        print 'ERROR: unknown command, %s' % command
+        print('ERROR: unknown command, %s' % command)
         status = 1
 
     return 1 if status else 0

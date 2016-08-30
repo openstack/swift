@@ -20,7 +20,7 @@
 .SH NAME
 .LP
 .B container-server.conf
-\- configuration file for the openstack-swift container server
+\- configuration file for the OpenStack Swift container server
 
 
 
@@ -83,7 +83,7 @@ The system user that the container server will run as. The default is swift.
 .IP \fBswift_dir\fR
 Swift configuration directory. The default is /etc/swift.
 .IP \fBdevices\fR
-Parent directory or where devices are mounted. Default is /srv/node.
+Parent directory of where devices are mounted. Default is /srv/node.
 .IP \fBmount_check\fR
 Whether or not check if the devices are mounted to prevent accidentally writing to
 the root device. The default is set to true.
@@ -131,6 +131,20 @@ You can set fallocate_reserve to the number of bytes or percentage of disk
 space you'd like fallocate to reserve, whether there is space for the given
 file size or not. Percentage will be used if the value ends with a '%'.
 The default is 1%.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
@@ -184,6 +198,20 @@ To handle all verbs, including replication verbs, do not specify
 set to a True value (e.g. "True" or "1"). To handle only non-replication
 verbs, set to "False". Unless you have a separate replication network, you
 should not specify any value for "replication_server".
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
@@ -293,6 +321,20 @@ Format of the rysnc module where the replicator will send data. See
 etc/rsyncd.conf-sample for some usage examples.
 .IP \fBrecon_cache_path\fR
 Path to recon cache directory. The default is /var/cache/swift.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 
 
@@ -322,6 +364,20 @@ Slowdown will sleep that amount between containers. The default is 0.01 seconds.
 Seconds to suppress updating an account that has generated an error. The default is 60 seconds.
 .IP \fBrecon_cache_path\fR
 Path to recon cache directory. The default is /var/cache/swift.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
@@ -344,6 +400,20 @@ Will audit, at most, 1 container per device per interval. The default is 1800 se
 Maximum containers audited per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 200.
 .IP \fBrecon_cache_path\fR
 Path to recon cache directory. The default is /var/cache/swift.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 
 
@@ -372,6 +442,20 @@ Connection timeout to external services. The default is 5 seconds.
 Server errors from requests will be retried by default. The default is 3.
 .IP \fBinternal_client_conf_path\fR
 Internal client config file path.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and IOPRIO_CLASS_IDLE (idle).
+The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
+Ignored if IOPRIO_CLASS_IDLE is set.
 .RE
 .PD
 
@@ -381,7 +465,7 @@ Internal client config file path.
 .SH DOCUMENTATION
 .LP
 More in depth documentation about the swift-container-server and
-also Openstack-Swift as a whole can be found at
+also OpenStack Swift as a whole can be found at
 .BI http://swift.openstack.org/admin_guide.html
 and
 .BI http://swift.openstack.org

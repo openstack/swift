@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import hmac
 from hashlib import sha1
 from os.path import basename
@@ -24,28 +25,28 @@ from six.moves import urllib
 if __name__ == '__main__':
     if len(argv) < 5:
         prog = basename(argv[0])
-        print 'Syntax: %s <method> <seconds> <path> <key>' % prog
-        print
-        print 'Where:'
-        print '  <method>   The method to allow; GET for example.'
-        print '  <seconds>  The number of seconds from now to allow requests.'
-        print '  <path>     The full path to the resource.'
-        print '             Example: /v1/AUTH_account/c/o'
-        print '  <key>      The X-Account-Meta-Temp-URL-Key for the account.'
-        print
-        print 'Example output:'
-        print '    /v1/AUTH_account/c/o?temp_url_sig=34d49efc32fe6e3082e411e' \
-              'eeb85bd8a&temp_url_expires=1323482948'
-        print
-        print 'This can be used to form a URL to give out for the access '
-        print 'allowed. For example:'
-        print '    echo https://swift-cluster.example.com`%s GET 60 ' \
-              '/v1/AUTH_account/c/o mykey`' % prog
-        print
-        print 'Might output:'
-        print '    https://swift-cluster.example.com/v1/AUTH_account/c/o?' \
-              'temp_url_sig=34d49efc32fe6e3082e411eeeb85bd8a&' \
-              'temp_url_expires=1323482948'
+        print('Syntax: %s <method> <seconds> <path> <key>' % prog)
+        print()
+        print('Where:')
+        print('  <method>   The method to allow; GET for example.')
+        print('  <seconds>  The number of seconds from now to allow requests.')
+        print('  <path>     The full path to the resource.')
+        print('             Example: /v1/AUTH_account/c/o')
+        print('  <key>      The X-Account-Meta-Temp-URL-Key for the account.')
+        print()
+        print('Example output:')
+        print('    /v1/AUTH_account/c/o?temp_url_sig=34d49efc32fe6e3082e411e'
+              'eeb85bd8a&temp_url_expires=1323482948')
+        print()
+        print('This can be used to form a URL to give out for the access ')
+        print('allowed. For example:')
+        print('    echo \\"https://swift-cluster.example.com`%s GET 60 '
+              '/v1/AUTH_account/c/o mykey`\\"' % prog)
+        print()
+        print('Might output:')
+        print('    "https://swift-cluster.example.com/v1/AUTH_account/c/o?'
+              'temp_url_sig=34d49efc32fe6e3082e411eeeb85bd8a&'
+              'temp_url_expires=1323482948"')
         exit(1)
     method, seconds, path, key = argv[1:5]
     try:
@@ -53,7 +54,7 @@ if __name__ == '__main__':
     except ValueError:
         expires = 0
     if expires < 1:
-        print 'Please use a positive <seconds> value.'
+        print('Please use a positive <seconds> value.')
         exit(1)
     parts = path.split('/', 4)
     # Must be five parts, ['', 'v1', 'a', 'c', 'o'], must be a v1 request, have
@@ -72,4 +73,4 @@ if __name__ == '__main__':
         real_path = path
     sig = hmac.new(key, '%s\n%s\n%s' % (method, expires, real_path),
                    sha1).hexdigest()
-    print '%s?temp_url_sig=%s&temp_url_expires=%s' % (path, sig, expires)
+    print('%s?temp_url_sig=%s&temp_url_expires=%s' % (path, sig, expires))

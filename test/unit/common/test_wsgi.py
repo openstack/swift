@@ -17,7 +17,6 @@
 
 import errno
 import logging
-import mimetools
 import socket
 import unittest
 import os
@@ -25,11 +24,15 @@ from textwrap import dedent
 from collections import defaultdict
 
 from eventlet import listen
+import six
 from six import BytesIO
 from six import StringIO
 from six.moves.urllib.parse import quote
+if six.PY2:
+    import mimetools
 
 import mock
+import nose
 
 import swift.common.middleware.catch_errors
 import swift.common.middleware.gatekeeper
@@ -65,12 +68,17 @@ class TestWSGI(unittest.TestCase):
 
     def setUp(self):
         utils.HASH_PATH_PREFIX = 'startcap'
-        self._orig_parsetype = mimetools.Message.parsetype
+        if six.PY2:
+            self._orig_parsetype = mimetools.Message.parsetype
 
     def tearDown(self):
-        mimetools.Message.parsetype = self._orig_parsetype
+        if six.PY2:
+            mimetools.Message.parsetype = self._orig_parsetype
 
     def test_monkey_patch_mimetools(self):
+        if six.PY3:
+            raise nose.SkipTest('test specific to Python 2')
+
         sio = StringIO('blah')
         self.assertEqual(mimetools.Message(sio).type, 'text/plain')
         sio = StringIO('blah')
@@ -1242,6 +1250,8 @@ class TestWSGIContext(unittest.TestCase):
     def test_app_iter_is_closable(self):
 
         def app(env, start_response):
+            yield ''
+            yield ''
             start_response('200 OK', [('Content-Length', '25')])
             yield 'aaaaa'
             yield 'bbbbb'

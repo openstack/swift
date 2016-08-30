@@ -1,3 +1,34 @@
+swift (2.9.0)
+
+    * Swift now supports at-rest encryption. This feature encrypts all
+      object data and user-set object metadata as it is sent to the cluster.
+      This feature is designed to prevent information leaks if a hard drive
+      leaves the cluster. The encryption is transparent to the end-user.
+
+      At-rest encryption in Swift is enabled on the proxy server by
+      adding two middlewares to the pipeline. The `keymaster` middleware
+      is responsible for managing the encryption keys and the `encryption`
+      middleware does the actual encryption and decryption.
+
+      Existing clusters will continue to work without enabling
+      encryption. Although enabling this feature on existing clusters
+      is supported, best practice is to enable this feature on new
+      clusters when the cluster is created.
+
+      For more information on the details of the at-rest encryption
+      feature, please see the docs at
+      http://docs.openstack.org/developer/swift/overview_encryption.html.
+
+    * `swift-recon` can now be called with more than one server type.
+
+    * Fixed a bug where non-ascii names could cause an error in logging
+      and cause a 5xx response to the client.
+
+    * The install guide and API reference have been moved into Swift's
+      source code repository.
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.8.0)
 
     * Allow concurrent bulk deletes for server-side deletes of static

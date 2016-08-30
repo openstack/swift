@@ -15,7 +15,7 @@
 
 """Tests for swift.common.utils"""
 from __future__ import print_function
-from test.unit import temptree
+from test.unit import temptree, debug_logger
 
 import ctypes
 import contextlib
@@ -58,6 +58,7 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
     MimeInvalid
 from swift.common import utils
+from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response
@@ -1708,6 +1709,78 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(utils.storage_directory('objects', '1', 'ABCDEF'),
                          'objects/1/DEF/ABCDEF')
 
+    def test_is_valid_ip(self):
+        self.assertTrue(is_valid_ip("127.0.0.1"))
+        self.assertTrue(is_valid_ip("10.0.0.1"))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80:0:0:0:204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80::204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80:0:0:0:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80::204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "fe80::"
+        self.assertTrue(is_valid_ip(ipv6))
+        ipv6 = "::1"
+        self.assertTrue(is_valid_ip(ipv6))
+        not_ipv6 = "3ffe:0b00:0000:0001:0000:0000:000a"
+        self.assertFalse(is_valid_ip(not_ipv6))
+        not_ipv6 = "1:2:3:4:5:6::7:8"
+        self.assertFalse(is_valid_ip(not_ipv6))
+
+    def test_is_valid_ipv4(self):
+        self.assertTrue(is_valid_ipv4("127.0.0.1"))
+        self.assertTrue(is_valid_ipv4("10.0.0.1"))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80:0:0:0:204:61ff:fe9d:f156"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80::204:61ff:fe9d:f156"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:254.157.241.86"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80:0:0:0:0204:61ff:254.157.241.86"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80::204:61ff:254.157.241.86"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "fe80::"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        ipv6 = "::1"
+        self.assertFalse(is_valid_ipv4(ipv6))
+        not_ipv6 = "3ffe:0b00:0000:0001:0000:0000:000a"
+        self.assertFalse(is_valid_ipv4(not_ipv6))
+        not_ipv6 = "1:2:3:4:5:6::7:8"
+        self.assertFalse(is_valid_ipv4(not_ipv6))
+
+    def test_is_valid_ipv6(self):
+        self.assertFalse(is_valid_ipv6("127.0.0.1"))
+        self.assertFalse(is_valid_ipv6("10.0.0.1"))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80:0:0:0:204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80::204:61ff:fe9d:f156"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80:0000:0000:0000:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80:0:0:0:0204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80::204:61ff:254.157.241.86"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "fe80::"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        ipv6 = "::1"
+        self.assertTrue(is_valid_ipv6(ipv6))
+        not_ipv6 = "3ffe:0b00:0000:0001:0000:0000:000a"
+        self.assertFalse(is_valid_ipv6(not_ipv6))
+        not_ipv6 = "1:2:3:4:5:6::7:8"
+        self.assertFalse(is_valid_ipv6(not_ipv6))
+
     def test_expand_ipv6(self):
         expanded_ipv6 = "fe80::204:61ff:fe9d:f156"
         upper_ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
@@ -3210,6 +3283,24 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(listing_dict['content_type'],
                          'text/plain;hello="world"')
 
+    def test_extract_swift_bytes(self):
+        scenarios = {
+            # maps input value -> expected returned tuple
+            '': ('', None),
+            'text/plain': ('text/plain', None),
+            'text/plain; other=thing': ('text/plain;other=thing', None),
+            'text/plain; swift_bytes=123': ('text/plain', '123'),
+            'text/plain; other=thing;swift_bytes=123':
+                ('text/plain;other=thing', '123'),
+            'text/plain; swift_bytes=123; other=thing':
+                ('text/plain;other=thing', '123'),
+            'text/plain; swift_bytes=123; swift_bytes=456':
+                ('text/plain', '456'),
+            'text/plain; swift_bytes=123; other=thing;swift_bytes=456':
+                ('text/plain;other=thing', '456')}
+        for test_value, expected in scenarios.items():
+            self.assertEqual(expected, utils.extract_swift_bytes(test_value))
+
     def test_clean_content_type(self):
         subtests = {
             '': '', 'text/plain': 'text/plain',
@@ -3432,6 +3523,72 @@ cluster_dfw1 = http://dfw1.host/v1/
         finally:
             if tempdir:
                 shutil.rmtree(tempdir)
+
+    def test_modify_priority(self):
+        pid = os.getpid()
+        logger = debug_logger()
+        called = {}
+
+        def _fake_setpriority(*args):
+            called['setpriority'] = args
+
+        def _fake_syscall(*args):
+            called['syscall'] = args
+
+        with patch('swift.common.utils._libc_setpriority',
+                   _fake_setpriority), \
+                patch('swift.common.utils._posix_syscall', _fake_syscall):
+            called = {}
+            # not set / default
+            utils.modify_priority({}, logger)
+            self.assertEqual(called, {})
+            called = {}
+            # just nice
+            utils.modify_priority({'nice_priority': '1'}, logger)
+            self.assertEqual(called, {'setpriority': (0, pid, 1)})
+            called = {}
+            # just ionice class uses default priority 0
+            utils.modify_priority({'ionice_class': 'IOPRIO_CLASS_RT'}, logger)
+            self.assertEqual(called, {'syscall': (251, 1, pid, 1 << 13)})
+            called = {}
+            # just ionice priority is ignored
+            utils.modify_priority({'ionice_priority': '4'}, logger)
+            self.assertEqual(called, {})
+            called = {}
+            # bad ionice class
+            utils.modify_priority({'ionice_class': 'class_foo'}, logger)
+            self.assertEqual(called, {})
+            called = {}
+            # ionice class & priority
+            utils.modify_priority({
+                'ionice_class': 'IOPRIO_CLASS_BE',
+                'ionice_priority': '4',
+            }, logger)
+            self.assertEqual(called, {'syscall': (251, 1, pid, 2 << 13 | 4)})
+            called = {}
+            # all
+            utils.modify_priority({
+                'nice_priority': '-15',
+                'ionice_class': 'IOPRIO_CLASS_IDLE',
+                'ionice_priority': '6',
+            }, logger)
+            self.assertEqual(called, {
+                'setpriority': (0, pid, -15),
+                'syscall': (251, 1, pid, 3 << 13 | 6),
+            })
+
+    def test__NR_ioprio_set(self):
+        with patch('os.uname', return_value=('', '', '', '', 'x86_64')), \
+                patch('platform.architecture', return_value=('64bit', '')):
+            self.assertEqual(251, utils.NR_ioprio_set())
+
+        with patch('os.uname', return_value=('', '', '', '', 'x86_64')), \
+                patch('platform.architecture', return_value=('32bit', '')):
+            self.assertRaises(OSError, utils.NR_ioprio_set)
+
+        with patch('os.uname', return_value=('', '', '', '', 'alpha')), \
+                patch('platform.architecture', return_value=('64bit', '')):
+            self.assertRaises(OSError, utils.NR_ioprio_set)
 
 
 class ResellerConfReader(unittest.TestCase):

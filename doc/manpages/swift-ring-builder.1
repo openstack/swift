@@ -14,26 +14,26 @@
 .\" implied.
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
-.\"  
+.\"
 .TH swift-ring-builder 1 "8/26/2011" "Linux" "OpenStack Swift"
 
-.SH NAME 
+.SH NAME
 .LP
 .B swift-ring-builder
-\- Openstack-swift ring builder
+\- OpenStack Swift ring builder
 
 .SH SYNOPSIS
 .LP
 .B swift-ring-builder
 <builder_file> <commands> <arguments> <...>
 
-.SH DESCRIPTION 
+.SH DESCRIPTION
 .PP
-The swift-ring-builder utility is used to create, search and manipulate 
-the swift storage ring. The ring-builder assigns partitions to devices and 
+The swift-ring-builder utility is used to create, search and manipulate
+the swift storage ring. The ring-builder assigns partitions to devices and
 writes an optimized Python structure to a gzipped, pickled file on disk for
-shipping out to the servers. The server processes just check the modification 
-time of the file occasionally and reload their in-memory copies of the ring 
+shipping out to the servers. The server processes just check the modification
+time of the file occasionally and reload their in-memory copies of the ring
 structure as needed. Because of how the ring-builder manages changes to the
 ring, using a slightly older ring usually just means one of the three replicas
 for a subset of the partitions will be incorrect, which can be easily worked around.
@@ -59,12 +59,12 @@ needs to interact with the rings manually.
 
 
 .SH SEARCH
-.PD 0 
+.PD 0
 
 .IP "\fB<search-value>\fR"
 .RS 5
 .IP "Can be of the form:"
-.IP "d<device_id>z<zone>-<ip>:<port>/<device_name>_<meta>"
+.IP "d<device_id>r<region>z<zone>-<ip>:<port>/<device_name>_<meta>"
 
 .IP "Any part is optional, but you must include at least one, examples:"
 
@@ -73,6 +73,7 @@ needs to interact with the rings manually.
 .IP "z1               Matches devices in zone 1"
 .IP "z1-1.2.3.4       Matches devices in zone 1 with the ip 1.2.3.4"
 .IP "1.2.3.4          Matches devices in any zone with the ip 1.2.3.4"
+.IP "r1z1:5678        Matches devices in zone 1 present in region 1 using port 5678"
 .IP "z1:5678          Matches devices in zone 1 using port 5678"
 .IP ":5678            Matches devices that use port 5678"
 .IP "/sdb1            Matches devices with the device name sdb1"
@@ -81,12 +82,12 @@ needs to interact with the rings manually.
 .IP "[::1]            Matches devices in any zone with the ip ::1"
 .IP "z1-[::1]:5678    Matches devices in zone 1 with ip ::1 and port 5678"
 .RE
-   
+
 Most specific example:
 
 .RS 3
-d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8" 
-.RE 
+d74z1-1.2.3.4:5678/sdb1_"snet: 5.6.7.8"
+.RE
 
 Nerd explanation:
 
@@ -94,7 +95,7 @@ Nerd explanation:
 .IP "All items require their single character prefix except the ip, in which case the - is optional unless the device id or zone is also included."
 .RE
 .RE
-.PD 
+.PD
 
 
 .SH OPTIONS
@@ -104,12 +105,12 @@ Assume a yes response to all questions
 
 .SH COMMANDS
 
-.PD 0 
+.PD 0
 
 
 .IP "\fB<builder_file>\fR"
 .RS 5
-Shows information about the ring and the devices within. 
+Shows information about the ring and the devices within.
 .RE
 
 
@@ -123,15 +124,15 @@ Shows information about matching devices.
 .IP "\fBadd\fR r<region>z<zone>-<ip>:<port>/<device_name>_<meta> <weight>"
 .IP "\fBadd\fR -r <region> -z <zone> -i <ip> -p <port> -d <device_name> -m <meta> -w <weight>"
 .RS 5
-Adds a device to the ring with the given information. No partitions will be 
-assigned to the new device until after running 'rebalance'. This is so you 
+Adds a device to the ring with the given information. No partitions will be
+assigned to the new device until after running 'rebalance'. This is so you
 can make multiple device changes and rebalance them all just once.
 .RE
 
 
 .IP "\fBcreate\fR <part_power> <replicas> <min_part_hours>"
 .RS 5
-Creates <builder_file> with 2^<part_power> partitions and <replicas>. 
+Creates <builder_file> with 2^<part_power> partitions and <replicas>.
 <min_part_hours> is number of hours to restrict moving a partition more than once.
 .RE
 
@@ -143,7 +144,7 @@ the devices matching the search values given. The first column is the
 assigned partition number and the second column is the number of device
 matches for that partition. The list is ordered from most number of matches
 to least. If there are a lot of devices to match against, this command
-could take a while to run.  
+could take a while to run.
 .RE
 
 
@@ -155,37 +156,37 @@ Attempts to rebalance the ring by reassigning partitions that haven't been recen
 
 .IP "\fBremove\fR <search-value> "
 .RS 5
-Removes the device(s) from the ring. This should normally just be used for 
-a device that has failed. For a device you wish to decommission, it's best 
-to set its weight to 0, wait for it to drain all its data, then use this 
-remove command. This will not take effect until after running 'rebalance'. 
+Removes the device(s) from the ring. This should normally just be used for
+a device that has failed. For a device you wish to decommission, it's best
+to set its weight to 0, wait for it to drain all its data, then use this
+remove command. This will not take effect until after running 'rebalance'.
 This is so you can make multiple device changes and rebalance them all just once.
 .RE
 
 
 .IP "\fBset_info\fR <search-value> <ip>:<port>/<device_name>_<meta>"
 .RS 5
-Resets the device's information. This information isn't used to assign 
-partitions, so you can use 'write_ring' afterward to rewrite the current 
-ring with the newer device information. Any of the parts are optional 
-in the final <ip>:<port>/<device_name>_<meta> parameter; just give what you 
-want to change. For instance set_info d74 _"snet: 5.6.7.8" would just 
+Resets the device's information. This information isn't used to assign
+partitions, so you can use 'write_ring' afterward to rewrite the current
+ring with the newer device information. Any of the parts are optional
+in the final <ip>:<port>/<device_name>_<meta> parameter; just give what you
+want to change. For instance set_info d74 _"snet: 5.6.7.8" would just
 update the meta data for device id 74.
 .RE
 
 
 .IP "\fBset_min_part_hours\fR <hours>"
 .RS 5
-Changes the <min_part_hours> to the given <hours>. This should be set to 
-however long a full replication/update cycle takes. We're working on a way 
+Changes the <min_part_hours> to the given <hours>. This should be set to
+however long a full replication/update cycle takes. We're working on a way
 to determine this more easily than scanning logs.
 .RE
 
 
 .IP "\fBset_weight\fR <search-value> <weight>"
 .RS 5
-Resets the device's weight. No partitions will be reassigned to or from the 
-device until after running 'rebalance'. This is so you can make multiple 
+Resets the device's weight. No partitions will be reassigned to or from the
+device until after running 'rebalance'. This is so you can make multiple
 device changes and rebalance them all just once.
 .RE
 
@@ -198,8 +199,8 @@ Just runs the validation routines on the ring.
 
 .IP "\fBwrite_ring\fR"
 .RS 5
-Just rewrites the distributable ring file. This is done automatically after 
-a successful rebalance, so really this is only useful after one or more 'set_info' 
+Just rewrites the distributable ring file. This is done automatically after
+a successful rebalance, so really this is only useful after one or more 'set_info'
 calls when no rebalance is needed but you want to send out the new device information.
 .RE
 
@@ -208,18 +209,18 @@ calls when no rebalance is needed but you want to send out the new device inform
             set_min_part_hours set_weight validate write_ring
 
 \fBExit codes:\fR 0 = ring changed, 1 = ring did not change, 2 = error
-.PD 
+.PD
 
 
- 
+
 
 .SH DOCUMENTATION
 .LP
-More in depth documentation about the swift ring and also Openstack-Swift as a 
-whole can be found at 
-.BI http://swift.openstack.org/overview_ring.html, 
-.BI http://swift.openstack.org/admin_guide.html#managing-the-rings 
-and 
+More in depth documentation about the swift ring and also OpenStack Swift as a
+whole can be found at
+.BI http://swift.openstack.org/overview_ring.html,
+.BI http://swift.openstack.org/admin_guide.html#managing-the-rings
+and
 .BI http://swift.openstack.org
 
 

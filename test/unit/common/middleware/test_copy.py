@@ -20,6 +20,7 @@ import shutil
 import tempfile
 import unittest
 from hashlib import md5
+from six.moves import urllib
 from textwrap import dedent
 
 from swift.common import swob
@@ -224,9 +225,10 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
 
-    def test_static_large_object(self):
+    def test_static_large_object_manifest(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
-                          {'X-Static-Large-Object': 'True'}, 'passed')
+                          {'X-Static-Large-Object': 'True',
+                           'Etag': 'should not be sent'}, 'passed')
         self.app.register('PUT', '/v1/a/c/o2?multipart-manifest=put',
                           swob.HTTPCreated, {})
         req = Request.blank('/v1/a/c/o2?multipart-manifest=get',
@@ -236,11 +238,43 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         status, headers, body = self.call_ssc(req)
         self.assertEqual(status, '201 Created')
         self.assertTrue(('X-Copied-From', 'c/o') in headers)
-        calls = self.app.calls_with_headers
-        method, path, req_headers = calls[1]
-        self.assertEqual('PUT', method)
-        self.assertEqual('/v1/a/c/o2?multipart-manifest=put', path)
+        self.assertEqual(2, len(self.app.calls))
+        self.assertEqual('GET', self.app.calls[0][0])
+        get_path, qs = self.app.calls[0][1].split('?')
+        params = urllib.parse.parse_qs(qs)
+        self.assertDictEqual(
+            {'format': ['raw'], 'multipart-manifest': ['get']}, params)
+        self.assertEqual(get_path, '/v1/a/c/o')
+        self.assertEqual(self.app.calls[1],
+                         ('PUT', '/v1/a/c/o2?multipart-manifest=put'))
+        req_headers = self.app.headers[1]
         self.assertNotIn('X-Static-Large-Object', req_headers)
+        self.assertNotIn('Etag', req_headers)
+        self.assertEqual(len(self.authorized), 2)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/c/o', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
+
+    def test_static_large_object(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Static-Large-Object': 'True',
+                           'Etag': 'should not be sent'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o2',
+                          swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o2',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Content-Length': '0',
+                                     'X-Copy-From': 'c/o'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        self.assertTrue(('X-Copied-From', 'c/o') in headers)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o'),
+            ('PUT', '/v1/a/c/o2')])
+        req_headers = self.app.headers[1]
+        self.assertNotIn('X-Static-Large-Object', req_headers)
+        self.assertNotIn('Etag', req_headers)
         self.assertEqual(len(self.authorized), 2)
         self.assertEqual('GET', self.authorized[0].method)
         self.assertEqual('/v1/a/c/o', self.authorized[0].path)
@@ -587,7 +621,8 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('/v1/a/c/o', self.authorized[0].path)
 
     def test_basic_COPY(self):
-        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {
+            'etag': 'is sent'}, 'passed')
         self.app.register('PUT', '/v1/a/c/o-copy', swob.HTTPCreated, {})
         req = Request.blank(
             '/v1/a/c/o', method='COPY',
@@ -601,6 +636,163 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('/v1/a/c/o', self.authorized[0].path)
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o-copy', self.authorized[1].path)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o'),
+            ('PUT', '/v1/a/c/o-copy')])
+        self.assertIn('etag', self.app.headers[1])
+        self.assertEqual(self.app.headers[1]['etag'], 'is sent')
+
+    def test_basic_DLO(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {
+            'x-object-manifest': 'some/path',
+            'etag': 'is not sent'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o-copy', swob.HTTPCreated, {})
+        req = Request.blank(
+            '/v1/a/c/o', method='COPY',
+            headers={'Content-Length': 0,
+                     'Destination': 'c/o-copy'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        self.assertTrue(('X-Copied-From', 'c/o') in headers)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o'),
+            ('PUT', '/v1/a/c/o-copy')])
+        self.assertNotIn('x-object-manifest', self.app.headers[1])
+        self.assertNotIn('etag', self.app.headers[1])
+
+    def test_basic_DLO_manifest(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {
+            'x-object-manifest': 'some/path',
+            'etag': 'is sent'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o-copy', swob.HTTPCreated, {})
+        req = Request.blank(
+            '/v1/a/c/o?multipart-manifest=get', method='COPY',
+            headers={'Content-Length': 0,
+                     'Destination': 'c/o-copy'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        self.assertTrue(('X-Copied-From', 'c/o') in headers)
+        self.assertEqual(2, len(self.app.calls))
+        self.assertEqual('GET', self.app.calls[0][0])
+        get_path, qs = self.app.calls[0][1].split('?')
+        params = urllib.parse.parse_qs(qs)
+        self.assertDictEqual(
+            {'format': ['raw'], 'multipart-manifest': ['get']}, params)
+        self.assertEqual(get_path, '/v1/a/c/o')
+        self.assertEqual(self.app.calls[1], ('PUT', '/v1/a/c/o-copy'))
+        self.assertIn('x-object-manifest', self.app.headers[1])
+        self.assertEqual(self.app.headers[1]['x-object-manifest'], 'some/path')
+        self.assertIn('etag', self.app.headers[1])
+        self.assertEqual(self.app.headers[1]['etag'], 'is sent')
+
+    def test_COPY_source_metadata(self):
+        source_headers = {
+            'x-object-sysmeta-test1': 'copy me',
+            'x-object-meta-test2': 'copy me too',
+            'x-object-transient-sysmeta-test3': 'ditto',
+            'x-object-sysmeta-container-update-override-etag': 'etag val',
+            'x-object-sysmeta-container-update-override-size': 'size val',
+            'x-object-sysmeta-container-update-override-foo': 'bar',
+            'x-delete-at': 'delete-at-time'}
+
+        get_resp_headers = source_headers.copy()
+        get_resp_headers['etag'] = 'source etag'
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            headers=get_resp_headers, body='passed')
+
+        def verify_headers(expected_headers, unexpected_headers,
+                           actual_headers):
+            for k, v in actual_headers:
+                if k.lower() in expected_headers:
+                    expected_val = expected_headers.pop(k.lower())
+                    self.assertEqual(expected_val, v)
+                self.assertNotIn(k.lower(), unexpected_headers)
+            self.assertFalse(expected_headers)
+
+        # use a COPY request
+        self.app.register('PUT', '/v1/a/c/o-copy0', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='COPY',
+                            headers={'Content-Length': 0,
+                                     'Destination': 'c/o-copy0'})
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('201 Created', status)
+        verify_headers(source_headers.copy(), [], resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c/o-copy0', path)
+        verify_headers(source_headers.copy(), [], put_headers.items())
+        self.assertIn('etag', put_headers)
+        self.assertEqual(put_headers['etag'], 'source etag')
+
+        req = Request.blank('/v1/a/c/o-copy0', method='GET')
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('200 OK', status)
+        verify_headers(source_headers.copy(), [], resp_headers)
+
+        # use a COPY request with a Range header
+        self.app.register('PUT', '/v1/a/c/o-copy1', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='COPY',
+                            headers={'Content-Length': 0,
+                                     'Destination': 'c/o-copy1',
+                                     'Range': 'bytes=1-2'})
+        status, resp_headers, body = self.call_ssc(req)
+        expected_headers = source_headers.copy()
+        unexpected_headers = (
+            'x-object-sysmeta-container-update-override-etag',
+            'x-object-sysmeta-container-update-override-size',
+            'x-object-sysmeta-container-update-override-foo')
+        for h in unexpected_headers:
+            expected_headers.pop(h)
+        self.assertEqual('201 Created', status)
+        verify_headers(expected_headers, unexpected_headers, resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c/o-copy1', path)
+        verify_headers(
+            expected_headers, unexpected_headers, put_headers.items())
+        # etag should not be copied with a Range request
+        self.assertNotIn('etag', put_headers)
+
+        req = Request.blank('/v1/a/c/o-copy1', method='GET')
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('200 OK', status)
+        verify_headers(expected_headers, unexpected_headers, resp_headers)
+
+        # use a PUT with x-copy-from
+        self.app.register('PUT', '/v1/a/c/o-copy2', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o-copy2', method='PUT',
+                            headers={'Content-Length': 0,
+                                     'X-Copy-From': 'c/o'})
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('201 Created', status)
+        verify_headers(source_headers.copy(), [], resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c/o-copy2', path)
+        verify_headers(source_headers.copy(), [], put_headers.items())
+        self.assertIn('etag', put_headers)
+        self.assertEqual(put_headers['etag'], 'source etag')
+
+        req = Request.blank('/v1/a/c/o-copy2', method='GET')
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('200 OK', status)
+        verify_headers(source_headers.copy(), [], resp_headers)
+
+        # copy to same path as source
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'Content-Length': 0,
+                                     'X-Copy-From': 'c/o'})
+        status, resp_headers, body = self.call_ssc(req)
+        self.assertEqual('201 Created', status)
+        verify_headers(source_headers.copy(), [], resp_headers)
+        method, path, put_headers = self.app.calls_with_headers[-1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c/o', path)
+        verify_headers(source_headers.copy(), [], put_headers.items())
+        self.assertIn('etag', put_headers)
+        self.assertEqual(put_headers['etag'], 'source etag')
 
     def test_COPY_no_destination_header(self):
         req = Request.blank(
@@ -1005,6 +1197,218 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertEqual('OPTIONS', self.authorized[0].method)
         self.assertEqual('/v1/a/c/o', self.authorized[0].path)
+
+    def _test_COPY_source_headers(self, extra_put_headers):
+        # helper method to perform a COPY with some metadata headers that
+        # should always be sent to the destination
+        put_headers = {'Destination': '/c1/o',
+                       'X-Object-Meta-Test2': 'added',
+                       'X-Object-Sysmeta-Test2': 'added',
+                       'X-Object-Transient-Sysmeta-Test2': 'added'}
+        put_headers.update(extra_put_headers)
+        get_resp_headers = {
+            'X-Timestamp': '1234567890.12345',
+            'X-Backend-Timestamp': '1234567890.12345',
+            'Content-Type': 'text/original',
+            'Content-Encoding': 'gzip',
+            'Content-Disposition': 'attachment; filename=myfile',
+            'X-Object-Meta-Test': 'original',
+            'X-Object-Sysmeta-Test': 'original',
+            'X-Object-Transient-Sysmeta-Test': 'original',
+            'X-Foo': 'Bar'}
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk, headers=get_resp_headers)
+        self.app.register('PUT', '/v1/a/c1/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='COPY', headers=put_headers)
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '201 Created')
+        calls = self.app.calls_with_headers
+        self.assertEqual(2, len(calls))
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        # these headers should always be applied to the destination
+        self.assertEqual('added', req_headers.get('X-Object-Meta-Test2'))
+        self.assertEqual('added', req_headers.get('X-Object-Sysmeta-Test2'))
+        self.assertEqual('added',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test2'))
+        return req_headers
+
+    def test_COPY_source_headers_no_updates(self):
+        # copy should preserve existing metadata if not updated
+        req_headers = self._test_COPY_source_headers({})
+        self.assertEqual('text/original', req_headers.get('Content-Type'))
+        self.assertEqual('gzip', req_headers.get('Content-Encoding'))
+        self.assertEqual('attachment; filename=myfile',
+                         req_headers.get('Content-Disposition'))
+        self.assertEqual('original', req_headers.get('X-Object-Meta-Test'))
+        self.assertEqual('original', req_headers.get('X-Object-Sysmeta-Test'))
+        self.assertEqual('original',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test'))
+        self.assertEqual('Bar', req_headers.get('X-Foo'))
+        self.assertNotIn('X-Timestamp', req_headers)
+        self.assertNotIn('X-Backend-Timestamp', req_headers)
+
+    def test_COPY_source_headers_with_updates(self):
+        # copy should apply any updated values to existing metadata
+        put_headers = {
+            'Content-Type': 'text/not_original',
+            'Content-Encoding': 'not_gzip',
+            'Content-Disposition': 'attachment; filename=notmyfile',
+            'X-Object-Meta-Test': 'not_original',
+            'X-Object-Sysmeta-Test': 'not_original',
+            'X-Object-Transient-Sysmeta-Test': 'not_original',
+            'X-Foo': 'Not Bar'}
+        req_headers = self._test_COPY_source_headers(put_headers)
+        self.assertEqual('text/not_original', req_headers.get('Content-Type'))
+        self.assertEqual('not_gzip', req_headers.get('Content-Encoding'))
+        self.assertEqual('attachment; filename=notmyfile',
+                         req_headers.get('Content-Disposition'))
+        self.assertEqual('not_original', req_headers.get('X-Object-Meta-Test'))
+        self.assertEqual('not_original',
+                         req_headers.get('X-Object-Sysmeta-Test'))
+        self.assertEqual('not_original',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test'))
+        self.assertEqual('Not Bar', req_headers.get('X-Foo'))
+        self.assertNotIn('X-Timestamp', req_headers)
+        self.assertNotIn('X-Backend-Timestamp', req_headers)
+
+    def test_COPY_x_fresh_metadata_no_updates(self):
+        # existing user metadata should not be copied, sysmeta is copied
+        put_headers = {
+            'X-Fresh-Metadata': 'true',
+            'X-Extra': 'Fresh'}
+        req_headers = self._test_COPY_source_headers(put_headers)
+        self.assertEqual('text/original', req_headers.get('Content-Type'))
+        self.assertEqual('Fresh', req_headers.get('X-Extra'))
+        self.assertEqual('original',
+                         req_headers.get('X-Object-Sysmeta-Test'))
+        self.assertIn('X-Fresh-Metadata', req_headers)
+        self.assertNotIn('X-Object-Meta-Test', req_headers)
+        self.assertNotIn('X-Object-Transient-Sysmeta-Test', req_headers)
+        self.assertNotIn('X-Timestamp', req_headers)
+        self.assertNotIn('X-Backend-Timestamp', req_headers)
+        self.assertNotIn('Content-Encoding', req_headers)
+        self.assertNotIn('Content-Disposition', req_headers)
+        self.assertNotIn('X-Foo', req_headers)
+
+    def test_COPY_x_fresh_metadata_with_updates(self):
+        # existing user metadata should not be copied, new metadata replaces it
+        put_headers = {
+            'X-Fresh-Metadata': 'true',
+            'Content-Type': 'text/not_original',
+            'Content-Encoding': 'not_gzip',
+            'Content-Disposition': 'attachment; filename=notmyfile',
+            'X-Object-Meta-Test': 'not_original',
+            'X-Object-Sysmeta-Test': 'not_original',
+            'X-Object-Transient-Sysmeta-Test': 'not_original',
+            'X-Foo': 'Not Bar',
+            'X-Extra': 'Fresh'}
+        req_headers = self._test_COPY_source_headers(put_headers)
+        self.assertEqual('Fresh', req_headers.get('X-Extra'))
+        self.assertEqual('text/not_original', req_headers.get('Content-Type'))
+        self.assertEqual('not_gzip', req_headers.get('Content-Encoding'))
+        self.assertEqual('attachment; filename=notmyfile',
+                         req_headers.get('Content-Disposition'))
+        self.assertEqual('not_original', req_headers.get('X-Object-Meta-Test'))
+        self.assertEqual('not_original',
+                         req_headers.get('X-Object-Sysmeta-Test'))
+        self.assertEqual('not_original',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test'))
+        self.assertEqual('Not Bar', req_headers.get('X-Foo'))
+
+    def _test_POST_source_headers(self, extra_post_headers):
+        # helper method to perform a POST with metadata headers that should
+        # always be sent to the destination
+        post_headers = {'X-Object-Meta-Test2': 'added',
+                        'X-Object-Sysmeta-Test2': 'added',
+                        'X-Object-Transient-Sysmeta-Test2': 'added'}
+        post_headers.update(extra_post_headers)
+        get_resp_headers = {
+            'X-Timestamp': '1234567890.12345',
+            'X-Backend-Timestamp': '1234567890.12345',
+            'Content-Type': 'text/original',
+            'Content-Encoding': 'gzip',
+            'Content-Disposition': 'attachment; filename=myfile',
+            'X-Object-Meta-Test': 'original',
+            'X-Object-Sysmeta-Test': 'original',
+            'X-Object-Transient-Sysmeta-Test': 'original',
+            'X-Foo': 'Bar'}
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk, headers=get_resp_headers)
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='POST', headers=post_headers)
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '202 Accepted')
+        calls = self.app.calls_with_headers
+        self.assertEqual(2, len(calls))
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        # these headers should always be applied to the destination
+        self.assertEqual('added', req_headers.get('X-Object-Meta-Test2'))
+        self.assertEqual('added',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test2'))
+        # POSTed sysmeta should never be applied to the destination
+        self.assertNotIn('X-Object-Sysmeta-Test2', req_headers)
+        # existing sysmeta should always be preserved
+        self.assertEqual('original',
+                         req_headers.get('X-Object-Sysmeta-Test'))
+        return req_headers
+
+    def test_POST_no_updates(self):
+        post_headers = {}
+        req_headers = self._test_POST_source_headers(post_headers)
+        self.assertEqual('text/original', req_headers.get('Content-Type'))
+        self.assertNotIn('X-Object-Meta-Test', req_headers)
+        self.assertNotIn('X-Object-Transient-Sysmeta-Test', req_headers)
+        self.assertNotIn('X-Timestamp', req_headers)
+        self.assertNotIn('X-Backend-Timestamp', req_headers)
+        self.assertNotIn('Content-Encoding', req_headers)
+        self.assertNotIn('Content-Disposition', req_headers)
+        self.assertNotIn('X-Foo', req_headers)
+
+    def test_POST_with_updates(self):
+        post_headers = {
+            'Content-Type': 'text/not_original',
+            'Content-Encoding': 'not_gzip',
+            'Content-Disposition': 'attachment; filename=notmyfile',
+            'X-Object-Meta-Test': 'not_original',
+            'X-Object-Sysmeta-Test': 'not_original',
+            'X-Object-Transient-Sysmeta-Test': 'not_original',
+            'X-Foo': 'Not Bar',
+        }
+        req_headers = self._test_POST_source_headers(post_headers)
+        self.assertEqual('text/not_original', req_headers.get('Content-Type'))
+        self.assertEqual('not_gzip', req_headers.get('Content-Encoding'))
+        self.assertEqual('attachment; filename=notmyfile',
+                         req_headers.get('Content-Disposition'))
+        self.assertEqual('not_original', req_headers.get('X-Object-Meta-Test'))
+        self.assertEqual('not_original',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test'))
+        self.assertEqual('Not Bar', req_headers.get('X-Foo'))
+
+    def test_POST_x_fresh_metadata_with_updates(self):
+        # post-as-copy trumps x-fresh-metadata i.e. existing user metadata
+        # should not be copied, sysmeta is copied *and not updated with new*
+        post_headers = {
+            'X-Fresh-Metadata': 'true',
+            'Content-Type': 'text/not_original',
+            'Content-Encoding': 'not_gzip',
+            'Content-Disposition': 'attachment; filename=notmyfile',
+            'X-Object-Meta-Test': 'not_original',
+            'X-Object-Sysmeta-Test': 'not_original',
+            'X-Object-Transient-Sysmeta-Test': 'not_original',
+            'X-Foo': 'Not Bar',
+        }
+        req_headers = self._test_POST_source_headers(post_headers)
+        self.assertEqual('text/not_original', req_headers.get('Content-Type'))
+        self.assertEqual('not_gzip', req_headers.get('Content-Encoding'))
+        self.assertEqual('attachment; filename=notmyfile',
+                         req_headers.get('Content-Disposition'))
+        self.assertEqual('not_original', req_headers.get('X-Object-Meta-Test'))
+        self.assertEqual('not_original',
+                         req_headers.get('X-Object-Transient-Sysmeta-Test'))
+        self.assertEqual('Not Bar', req_headers.get('X-Foo'))
+        self.assertIn('X-Fresh-Metadata', req_headers)
 
 
 class TestServerSideCopyConfiguration(unittest.TestCase):

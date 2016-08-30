@@ -62,7 +62,7 @@ class TestObjectAsyncUpdate(ReplProbeTest):
 class TestUpdateOverrides(ReplProbeTest):
     """
     Use an internal client to PUT an object to proxy server,
-    bypassing gatekeeper so that X-Backend- headers can be included.
+    bypassing gatekeeper so that X-Object-Sysmeta- headers can be included.
     Verify that the update override headers take effect and override
     values propagate to the container server.
     """
@@ -71,10 +71,10 @@ class TestUpdateOverrides(ReplProbeTest):
         int_client = self.make_internal_client()
         headers = {
             'Content-Type': 'text/plain',
-            'X-Backend-Container-Update-Override-Etag': 'override-etag',
-            'X-Backend-Container-Update-Override-Content-Type':
+            'X-Object-Sysmeta-Container-Update-Override-Etag': 'override-etag',
+            'X-Object-Sysmeta-Container-Update-Override-Content-Type':
                 'override-type',
-            'X-Backend-Container-Update-Override-Size': '1999'
+            'X-Object-Sysmeta-Container-Update-Override-Size': '1999'
         }
         client.put_container(self.url, self.token, 'c1',
                              headers={'X-Storage-Policy':
@@ -117,7 +117,8 @@ class TestUpdateOverridesEC(ECProbeTest):
         # an async update to it
         kill_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         content = u'stuff'
-        client.put_object(self.url, self.token, 'c1', 'o1', contents=content)
+        client.put_object(self.url, self.token, 'c1', 'o1', contents=content,
+                          content_type='test/ctype')
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
 
         # re-start the container server and assert that it does not yet know
@@ -129,11 +130,26 @@ class TestUpdateOverridesEC(ECProbeTest):
         # Run the object-updaters to be sure updates are done
         Manager(['object-updater']).once()
 
-        # check the re-started container server has update with override values
-        obj = direct_client.direct_get_container(
-            cnodes[0], cpart, self.account, 'c1')[1][0]
-        self.assertEqual(meta['etag'], obj['hash'])
-        self.assertEqual(len(content), obj['bytes'])
+        # check the re-started container server got same update as others.
+        # we cannot assert the actual etag value because it may be encrypted
+        listing_etags = set()
+        for cnode in cnodes:
+            listing = direct_client.direct_get_container(
+                cnode, cpart, self.account, 'c1')[1]
+            self.assertEqual(1, len(listing))
+            self.assertEqual(len(content), listing[0]['bytes'])
+            self.assertEqual('test/ctype', listing[0]['content_type'])
+            listing_etags.add(listing[0]['hash'])
+        self.assertEqual(1, len(listing_etags))
+
+        # check that listing meta returned to client is consistent with object
+        # meta returned to client
+        hdrs, listing = client.get_container(self.url, self.token, 'c1')
+        self.assertEqual(1, len(listing))
+        self.assertEqual('o1', listing[0]['name'])
+        self.assertEqual(len(content), listing[0]['bytes'])
+        self.assertEqual(meta['etag'], listing[0]['hash'])
+        self.assertEqual('test/ctype', listing[0]['content_type'])
 
     def test_update_during_POST_only(self):
         # verify correct update values when PUT update is missed but then a
@@ -147,7 +163,8 @@ class TestUpdateOverridesEC(ECProbeTest):
         # an async update to it
         kill_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         content = u'stuff'
-        client.put_object(self.url, self.token, 'c1', 'o1', contents=content)
+        client.put_object(self.url, self.token, 'c1', 'o1', contents=content,
+                          content_type='test/ctype')
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
 
         # re-start the container server and assert that it does not yet know
@@ -165,20 +182,39 @@ class TestUpdateOverridesEC(ECProbeTest):
             int_client.get_object_metadata(self.account, 'c1', 'o1')
             ['x-object-meta-fruit'])  # sanity
 
-        # check the re-started container server has update with override values
-        obj = direct_client.direct_get_container(
-            cnodes[0], cpart, self.account, 'c1')[1][0]
-        self.assertEqual(meta['etag'], obj['hash'])
-        self.assertEqual(len(content), obj['bytes'])
+        # check the re-started container server got same update as others.
+        # we cannot assert the actual etag value because it may be encrypted
+        listing_etags = set()
+        for cnode in cnodes:
+            listing = direct_client.direct_get_container(
+                cnode, cpart, self.account, 'c1')[1]
+            self.assertEqual(1, len(listing))
+            self.assertEqual(len(content), listing[0]['bytes'])
+            self.assertEqual('test/ctype', listing[0]['content_type'])
+            listing_etags.add(listing[0]['hash'])
+        self.assertEqual(1, len(listing_etags))
+
+        # check that listing meta returned to client is consistent with object
+        # meta returned to client
+        hdrs, listing = client.get_container(self.url, self.token, 'c1')
+        self.assertEqual(1, len(listing))
+        self.assertEqual('o1', listing[0]['name'])
+        self.assertEqual(len(content), listing[0]['bytes'])
+        self.assertEqual(meta['etag'], listing[0]['hash'])
+        self.assertEqual('test/ctype', listing[0]['content_type'])
 
         # Run the object-updaters to send the async pending from the PUT
         Manager(['object-updater']).once()
 
         # check container listing metadata is still correct
-        obj = direct_client.direct_get_container(
-            cnodes[0], cpart, self.account, 'c1')[1][0]
-        self.assertEqual(meta['etag'], obj['hash'])
-        self.assertEqual(len(content), obj['bytes'])
+        for cnode in cnodes:
+            listing = direct_client.direct_get_container(
+                cnode, cpart, self.account, 'c1')[1]
+            self.assertEqual(1, len(listing))
+            self.assertEqual(len(content), listing[0]['bytes'])
+            self.assertEqual('test/ctype', listing[0]['content_type'])
+            listing_etags.add(listing[0]['hash'])
+        self.assertEqual(1, len(listing_etags))
 
     def test_async_updates_after_PUT_and_POST(self):
         # verify correct update values when PUT update and POST updates are
@@ -192,7 +228,8 @@ class TestUpdateOverridesEC(ECProbeTest):
         # we force async updates to it
         kill_server((cnodes[0]['ip'], cnodes[0]['port']), self.ipport2server)
         content = u'stuff'
-        client.put_object(self.url, self.token, 'c1', 'o1', contents=content)
+        client.put_object(self.url, self.token, 'c1', 'o1', contents=content,
+                          content_type='test/ctype')
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
 
         # use internal client for POST so we can force fast-post mode
@@ -213,11 +250,26 @@ class TestUpdateOverridesEC(ECProbeTest):
         # Run the object-updaters to send the async pendings
         Manager(['object-updater']).once()
 
-        # check container listing metadata is still correct
-        obj = direct_client.direct_get_container(
-            cnodes[0], cpart, self.account, 'c1')[1][0]
-        self.assertEqual(meta['etag'], obj['hash'])
-        self.assertEqual(len(content), obj['bytes'])
+        # check the re-started container server got same update as others.
+        # we cannot assert the actual etag value because it may be encrypted
+        listing_etags = set()
+        for cnode in cnodes:
+            listing = direct_client.direct_get_container(
+                cnode, cpart, self.account, 'c1')[1]
+            self.assertEqual(1, len(listing))
+            self.assertEqual(len(content), listing[0]['bytes'])
+            self.assertEqual('test/ctype', listing[0]['content_type'])
+            listing_etags.add(listing[0]['hash'])
+        self.assertEqual(1, len(listing_etags))
+
+        # check that listing meta returned to client is consistent with object
+        # meta returned to client
+        hdrs, listing = client.get_container(self.url, self.token, 'c1')
+        self.assertEqual(1, len(listing))
+        self.assertEqual('o1', listing[0]['name'])
+        self.assertEqual(len(content), listing[0]['bytes'])
+        self.assertEqual(meta['etag'], listing[0]['hash'])
+        self.assertEqual('test/ctype', listing[0]['content_type'])
 
 
 if __name__ == '__main__':

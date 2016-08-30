@@ -164,12 +164,12 @@ class BrainSplitter(object):
         client.delete_container(self.url, self.token, self.container_name)
 
     @command
-    def put_object(self, headers=None):
+    def put_object(self, headers=None, contents=None):
         """
-        issue put for zero byte test object
+        issue put for test object
         """
         client.put_object(self.url, self.token, self.container_name,
-                          self.object_name, headers=headers)
+                          self.object_name, headers=headers, contents=contents)
 
     @command
     def delete_object(self):

@@ -17,6 +17,7 @@
 """Tests for swift.common.utils"""
 
 from collections import defaultdict
+from hashlib import md5
 import logging
 import socket
 import time
@@ -62,6 +63,8 @@ class ExplodingMockMemcached(object):
 
 
 class MockMemcached(object):
+    # See https://github.com/memcached/memcached/blob/master/doc/protocol.txt
+    # In particular, the "Storage commands" section may be interesting.
 
     def __init__(self):
         self.inbuf = ''
@@ -79,58 +82,67 @@ class MockMemcached(object):
         while '\n' in self.inbuf:
             cmd, self.inbuf = self.inbuf.split('\n', 1)
             parts = cmd.split()
-            if parts[0].lower() == 'set':
-                self.cache[parts[1]] = parts[2], parts[3], \
-                    self.inbuf[:int(parts[4])]
-                self.inbuf = self.inbuf[int(parts[4]) + 2:]
-                if len(parts) < 6 or parts[5] != 'noreply':
-                    self.outbuf += 'STORED\r\n'
-            elif parts[0].lower() == 'add':
-                value = self.inbuf[:int(parts[4])]
-                self.inbuf = self.inbuf[int(parts[4]) + 2:]
-                if parts[1] in self.cache:
-                    if len(parts) < 6 or parts[5] != 'noreply':
-                        self.outbuf += 'NOT_STORED\r\n'
-                else:
-                    self.cache[parts[1]] = parts[2], parts[3], value
-                    if len(parts) < 6 or parts[5] != 'noreply':
-                        self.outbuf += 'STORED\r\n'
-            elif parts[0].lower() == 'delete':
-                if self.exc_on_delete:
-                    raise Exception('mock is has exc_on_delete set')
-                if parts[1] in self.cache:
-                    del self.cache[parts[1]]
-                    if 'noreply' not in parts:
-                        self.outbuf += 'DELETED\r\n'
-                elif 'noreply' not in parts:
-                    self.outbuf += 'NOT_FOUND\r\n'
-            elif parts[0].lower() == 'get':
-                for key in parts[1:]:
-                    if key in self.cache:
-                        val = self.cache[key]
-                        self.outbuf += 'VALUE %s %s %s\r\n' % (
-                            key, val[0], len(val[2]))
-                        self.outbuf += val[2] + '\r\n'
-                self.outbuf += 'END\r\n'
-            elif parts[0].lower() == 'incr':
-                if parts[1] in self.cache:
-                    val = list(self.cache[parts[1]])
-                    val[2] = str(int(val[2]) + int(parts[2]))
-                    self.cache[parts[1]] = val
-                    self.outbuf += str(val[2]) + '\r\n'
-                else:
-                    self.outbuf += 'NOT_FOUND\r\n'
-            elif parts[0].lower() == 'decr':
-                if parts[1] in self.cache:
-                    val = list(self.cache[parts[1]])
-                    if int(val[2]) - int(parts[2]) > 0:
-                        val[2] = str(int(val[2]) - int(parts[2]))
-                    else:
-                        val[2] = '0'
-                    self.cache[parts[1]] = val
-                    self.outbuf += str(val[2]) + '\r\n'
-                else:
-                    self.outbuf += 'NOT_FOUND\r\n'
+            handler = getattr(self, 'handle_%s' % parts[0].lower(), None)
+            if handler:
+                handler(*parts[1:])
+            else:
+                raise ValueError('Unhandled command: %s' % parts[0])
+
+    def handle_set(self, key, flags, exptime, num_bytes, noreply=''):
+        self.cache[key] = flags, exptime, self.inbuf[:int(num_bytes)]
+        self.inbuf = self.inbuf[int(num_bytes) + 2:]
+        if noreply != 'noreply':
+            self.outbuf += 'STORED\r\n'
+
+    def handle_add(self, key, flags, exptime, num_bytes, noreply=''):
+        value = self.inbuf[:int(num_bytes)]
+        self.inbuf = self.inbuf[int(num_bytes) + 2:]
+        if key in self.cache:
+            if noreply != 'noreply':
+                self.outbuf += 'NOT_STORED\r\n'
+        else:
+            self.cache[key] = flags, exptime, value
+            if noreply != 'noreply':
+                self.outbuf += 'STORED\r\n'
+
+    def handle_delete(self, key, noreply=''):
+        if self.exc_on_delete:
+            raise Exception('mock is has exc_on_delete set')
+        if key in self.cache:
+            del self.cache[key]
+            if noreply != 'noreply':
+                self.outbuf += 'DELETED\r\n'
+        elif noreply != 'noreply':
+            self.outbuf += 'NOT_FOUND\r\n'
+
+    def handle_get(self, *keys):
+        for key in keys:
+            if key in self.cache:
+                val = self.cache[key]
+                self.outbuf += 'VALUE %s %s %s\r\n' % (
+                    key, val[0], len(val[2]))
+                self.outbuf += val[2] + '\r\n'
+        self.outbuf += 'END\r\n'
+
+    def handle_incr(self, key, value, noreply=''):
+        if key in self.cache:
+            current = self.cache[key][2]
+            new_val = str(int(current) + int(value))
+            self.cache[key] = self.cache[key][:2] + (new_val, )
+            self.outbuf += str(new_val) + '\r\n'
+        else:
+            self.outbuf += 'NOT_FOUND\r\n'
+
+    def handle_decr(self, key, value, noreply=''):
+        if key in self.cache:
+            current = self.cache[key][2]
+            new_val = str(int(current) - int(value))
+            if new_val[0] == '-':  # ie, val is negative
+                new_val = '0'
+            self.cache[key] = self.cache[key][:2] + (new_val, )
+            self.outbuf += str(new_val) + '\r\n'
+        else:
+            self.outbuf += 'NOT_FOUND\r\n'
 
     def readline(self):
         if self.read_return_none:
@@ -282,30 +294,38 @@ class TestMemcached(unittest.TestCase):
             finally:
                 sock.close()
 
-    def test_set_get(self):
+    def test_set_get_json(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
+        cache_key = md5('some_key').hexdigest()
+
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
-        self.assertEqual(mock.cache.values()[0][1], '0')
+        # See JSON_FLAG
+        self.assertEqual(mock.cache, {cache_key: ('2', '0', '[1, 2, 3]')})
+
         memcache_client.set('some_key', [4, 5, 6])
         self.assertEqual(memcache_client.get('some_key'), [4, 5, 6])
+        self.assertEqual(mock.cache, {cache_key: ('2', '0', '[4, 5, 6]')})
+
         memcache_client.set('some_key', ['simple str', 'utf8 str éà'])
         # As per http://wiki.openstack.org/encoding,
         # we should expect to have unicode
         self.assertEqual(
             memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
-        self.assertTrue(float(mock.cache.values()[0][1]) == 0)
+        self.assertEqual(mock.cache, {cache_key: (
+            '2', '0', '["simple str", "utf8 str \\u00e9\\u00e0"]')})
+
         memcache_client.set('some_key', [1, 2, 3], time=20)
-        self.assertEqual(mock.cache.values()[0][1], '20')
+        self.assertEqual(mock.cache, {cache_key: ('2', '20', '[1, 2, 3]')})
 
         sixtydays = 60 * 24 * 60 * 60
         esttimeout = time.time() + sixtydays
         memcache_client.set('some_key', [1, 2, 3], time=sixtydays)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        _junk, cache_timeout, _junk = mock.cache[cache_key]
+        self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
 
     def test_incr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -332,25 +352,32 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
+        cache_key = md5('some_key').hexdigest()
+
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), '5')
-        self.assertEqual(mock.cache.values()[0][1], '55')
+        self.assertEqual(mock.cache, {cache_key: ('0', '55', '5')})
+
         memcache_client.delete('some_key')
         self.assertEqual(memcache_client.get('some_key'), None)
+
         fiftydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fiftydays
         memcache_client.incr('some_key', delta=5, time=fiftydays)
         self.assertEqual(memcache_client.get('some_key'), '5')
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        _junk, cache_timeout, _junk = mock.cache[cache_key]
+        self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
+
         memcache_client.delete('some_key')
         self.assertEqual(memcache_client.get('some_key'), None)
+
         memcache_client.incr('some_key', delta=5)
         self.assertEqual(memcache_client.get('some_key'), '5')
-        self.assertEqual(mock.cache.values()[0][1], '0')
+        self.assertEqual(mock.cache, {cache_key: ('0', '0', '5')})
+
         memcache_client.incr('some_key', delta=5, time=55)
         self.assertEqual(memcache_client.get('some_key'), '10')
-        self.assertEqual(mock.cache.values()[0][1], '0')
+        self.assertEqual(mock.cache, {cache_key: ('0', '0', '10')})
 
     def test_decr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -398,28 +425,35 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
+
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key')
         self.assertEqual(
             memcache_client.get_multi(('some_key2', 'some_key1'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3]])
-        self.assertEqual(mock.cache.values()[0][1], '0')
-        self.assertEqual(mock.cache.values()[1][1], '0')
+        for key in ('some_key1', 'some_key2'):
+            key = md5(key).hexdigest()
+            self.assertIn(key, mock.cache)
+            _junk, cache_timeout, _junk = mock.cache[key]
+            self.assertEqual(cache_timeout, '0')
+
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=20)
-        self.assertEqual(mock.cache.values()[0][1], '20')
-        self.assertEqual(mock.cache.values()[1][1], '20')
+        for key in ('some_key1', 'some_key2'):
+            key = md5(key).hexdigest()
+            _junk, cache_timeout, _junk = mock.cache[key]
+            self.assertEqual(cache_timeout, '20')
 
         fortydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fortydays
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=fortydays)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
-        self.assertTrue(
-            -1 <= float(mock.cache.values()[1][1]) - esttimeout <= 1)
+        for key in ('some_key1', 'some_key2'):
+            key = md5(key).hexdigest()
+            _junk, cache_timeout, _junk = mock.cache[key]
+            self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
         self.assertEqual(memcache_client.get_multi(
             ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3], None])

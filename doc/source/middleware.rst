@@ -96,6 +96,26 @@ DLO support centers around a user specified filter that matches
 segments and concatenates them together in object listing order. Please see
 the DLO docs for :ref:`dlo-doc` further details.
 
+.. _encryption:
+
+Encryption
+==========
+
+Encryption middleware should be deployed in conjunction with the
+:ref:`keymaster` middleware.
+
+.. automodule:: swift.common.middleware.crypto
+    :members:
+    :show-inheritance:
+
+.. automodule:: swift.common.middleware.crypto.encrypter
+    :members:
+    :show-inheritance:
+
+.. automodule:: swift.common.middleware.crypto.decrypter
+    :members:
+    :show-inheritance:
+
 .. _formpost:
 
 FormPost
@@ -108,7 +128,7 @@ FormPost
 .. _gatekeeper:
 
 GateKeeper
-=============
+==========
 
 .. automodule:: swift.common.middleware.gatekeeper
     :members:
@@ -120,6 +140,18 @@ Healthcheck
 ===========
 
 .. automodule:: swift.common.middleware.healthcheck
+    :members:
+    :show-inheritance:
+
+.. _keymaster:
+
+Keymaster
+=========
+
+Keymaster middleware should be deployed in conjunction with the
+:ref:`encryption` middleware.
+
+.. automodule:: swift.common.middleware.crypto.keymaster
     :members:
     :show-inheritance:
 

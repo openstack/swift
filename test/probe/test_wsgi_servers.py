@@ -15,8 +15,10 @@
 # limitations under the License.
 
 import unittest
-import httplib
+
 import random
+
+from six.moves import http_client as httplib
 
 from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring

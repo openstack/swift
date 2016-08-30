@@ -51,6 +51,18 @@ bind_port = 6202
 # space you'd like fallocate to reserve, whether there is space for the given
 # file size or not. Percentage will be used if the value ends with a '%'.
 # fallocate_reserve = 1%
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [pipeline:main]
 pipeline = healthcheck recon account-server
@@ -73,6 +85,18 @@ use = egg:swift#account
 # verbs, set to "False". Unless you have a separate replication network, you
 # should not specify any value for "replication_server". Default is empty.
 # replication_server = false
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
@@ -127,6 +151,18 @@ use = egg:swift#recon
 # rsync_module = {replication_ip}::account
 #
 # recon_cache_path = /var/cache/swift
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [account-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -140,6 +176,18 @@ use = egg:swift#recon
 #
 # accounts_per_second = 200
 # recon_cache_path = /var/cache/swift
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [account-reaper]
 # You can override the default log routing for this app here (don't use set!):
@@ -158,7 +206,7 @@ use = egg:swift#recon
 # seconds; 2592000 = 30 days for example.
 # delay_reaping = 0
 #
-# If the account fails to be be reaped due to a persistent error, the
+# If the account fails to be reaped due to a persistent error, the
 # account reaper will log a message such as:
 #     Account <name> has not been reaped since <date>
 # You can search logs for this message if space is not being reclaimed
@@ -166,6 +214,18 @@ use = egg:swift#recon
 # Default is 2592000 seconds (30 days). This is in addition to any time
 # requested by delay_reaping.
 # reap_warn_after = 2592000
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 # Note: Put it at the beginning of the pipeline to profile all middleware. But
 # it is safer to put this after healthcheck.

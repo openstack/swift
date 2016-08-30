@@ -243,8 +243,10 @@ class KeystoneAuth(object):
         service_roles = list_from_csv(environ.get('HTTP_X_SERVICE_ROLES', ''))
         identity = {'user': (environ.get('HTTP_X_USER_ID'),
                              environ.get('HTTP_X_USER_NAME')),
-                    'tenant': (environ.get('HTTP_X_TENANT_ID'),
-                               environ.get('HTTP_X_TENANT_NAME')),
+                    'tenant': (environ.get('HTTP_X_PROJECT_ID',
+                                           environ.get('HTTP_X_TENANT_ID')),
+                               environ.get('HTTP_X_PROJECT_NAME',
+                                           environ.get('HTTP_X_TENANT_NAME'))),
                     'roles': roles,
                     'service_roles': service_roles}
         token_info = environ.get('keystone.token_info', {})

@@ -134,7 +134,7 @@ objects from the manifest much like DLO. If any of the segments from the
 manifest are not found or their Etag/Content Length have changed since upload,
 the connection will drop. In this case a 409 Conflict will be logged in the
 proxy logs and the user will receive incomplete results. Note that this will be
-enforced regardless of whether the user perfomed per-segment validation during
+enforced regardless of whether the user performed per-segment validation during
 upload.
 
 The headers from this GET or HEAD request will return the metadata attached
@@ -297,11 +297,11 @@ def parse_and_validate_input(req_body, req_path):
                              for ek in sorted(extraneous_keys))))
             continue
 
-        if not isinstance(seg_dict['path'], basestring):
+        if not isinstance(seg_dict['path'], six.string_types):
             errors.append("Index %d: \"path\" must be a string" % seg_index)
             continue
         if not (seg_dict['etag'] is None or
-                isinstance(seg_dict['etag'], basestring)):
+                isinstance(seg_dict['etag'], six.string_types)):
             errors.append(
                 "Index %d: \"etag\" must be a string or null" % seg_index)
             continue

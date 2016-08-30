@@ -232,13 +232,6 @@ class TestReaper(unittest.TestCase):
             myips = ['10.10.10.1']
 
         r = reaper.AccountReaper(conf)
-        r.stats_return_codes = {}
-        r.stats_containers_deleted = 0
-        r.stats_containers_remaining = 0
-        r.stats_containers_possibly_remaining = 0
-        r.stats_objects_deleted = 0
-        r.stats_objects_remaining = 0
-        r.stats_objects_possibly_remaining = 0
         r.myips = myips
         if fakelogger:
             r.logger = unit.debug_logger('test-reaper')
@@ -303,6 +296,33 @@ class TestReaper(unittest.TestCase):
             self.assertRaises(KeyError, r.reap_account, b, 0, None)
         finally:
             reaper.time = time_orig
+
+    def test_reset_stats(self):
+        conf = {}
+        r = reaper.AccountReaper(conf)
+        self.assertDictEqual(r.stats_return_codes, {})
+        self.assertEqual(r.stats_containers_deleted, 0)
+        self.assertEqual(r.stats_containers_remaining, 0)
+        self.assertEqual(r.stats_containers_possibly_remaining, 0)
+        self.assertEqual(r.stats_objects_deleted, 0)
+        self.assertEqual(r.stats_objects_remaining, 0)
+        self.assertEqual(r.stats_objects_possibly_remaining, 0)
+        # also make sure reset actually resets values
+        r.stats_return_codes = {"hello": "swift"}
+        r.stats_containers_deleted = random.randint(1, 100)
+        r.stats_containers_remaining = random.randint(1, 100)
+        r.stats_containers_possibly_remaining = random.randint(1, 100)
+        r.stats_objects_deleted = random.randint(1, 100)
+        r.stats_objects_remaining = random.randint(1, 100)
+        r.stats_objects_possibly_remaining = random.randint(1, 100)
+        r.reset_stats()
+        self.assertDictEqual(r.stats_return_codes, {})
+        self.assertEqual(r.stats_containers_deleted, 0)
+        self.assertEqual(r.stats_containers_remaining, 0)
+        self.assertEqual(r.stats_containers_possibly_remaining, 0)
+        self.assertEqual(r.stats_objects_deleted, 0)
+        self.assertEqual(r.stats_objects_remaining, 0)
+        self.assertEqual(r.stats_objects_possibly_remaining, 0)
 
     def test_reap_object(self):
         conf = {
@@ -372,6 +392,9 @@ class TestReaper(unittest.TestCase):
                          policy.object_ring.replicas - 2)
         self.assertEqual(r.stats_objects_remaining, 1)
         self.assertEqual(r.stats_objects_possibly_remaining, 1)
+        self.assertEqual(r.stats_return_codes[2],
+                         policy.object_ring.replicas - 1)
+        self.assertEqual(r.stats_return_codes[4], 1)
 
     def test_reap_object_timeout(self):
         r = self.init_reaper({}, fakelogger=True)
@@ -381,7 +404,9 @@ class TestReaper(unittest.TestCase):
         with patch('swift.account.reaper.direct_delete_object',
                    self.fake_direct_delete_object):
             r.reap_object('a', 'c', 'partition', cont_nodes, 'o', 1)
+        self.assertEqual(r.stats_objects_deleted, 0)
         self.assertEqual(r.stats_objects_remaining, 4)
+        self.assertEqual(r.stats_objects_possibly_remaining, 0)
         self.assertTrue(r.logger.get_lines_for_level(
             'error')[-1].startswith('Timeout Exception'))
 

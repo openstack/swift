@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import optparse
 import subprocess
 import sys
@@ -30,16 +31,22 @@ Lists old Swift processes.
     listing = []
     for line in subprocess.Popen(
             ['ps', '-eo', 'etime,pid,args', '--no-headers'],
-            stdout=subprocess.PIPE).communicate()[0].split('\n'):
+            stdout=subprocess.PIPE).communicate()[0].split(b'\n'):
         if not line:
             continue
         hours = 0
         try:
-            etime, pid, args = line.split(None, 2)
+            etime, pid, args = line.decode('ascii').split(None, 2)
         except ValueError:
+            # This covers both decoding and not-enough-values-to-unpack errors
             sys.exit('Could not process ps line %r' % line)
-        if not args.startswith('/usr/bin/python /usr/bin/swift-') and \
-                not args.startswith('/usr/bin/python /usr/local/bin/swift-'):
+        if not args.startswith((
+                '/usr/bin/python /usr/bin/swift-',
+                '/usr/bin/python /usr/local/bin/swift-',
+                '/bin/python /usr/bin/swift-',
+                '/usr/bin/python3 /usr/bin/swift-',
+                '/usr/bin/python3 /usr/local/bin/swift-',
+                '/bin/python3 /usr/bin/swift-')):
             continue
         args = args.split('-', 1)[1]
         etime = etime.split('-')
@@ -70,8 +77,6 @@ Lists old Swift processes.
         args_len = max(args_len, len(args))
     args_len = min(args_len, 78 - hours_len - pid_len)
 
-    print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
-          ('Hours', 'PID', 'Command')
+    print('%*s %*s %s' % (hours_len, 'Hours', pid_len, 'PID', 'Command'))
     for hours, pid, args in listing:
-        print ('%%%ds %%%ds %%s' % (hours_len, pid_len)) % \
-              (hours, pid, args[:args_len])
+        print('%*s %*s %s' % (hours_len, hours, pid_len, pid, args[:args_len]))

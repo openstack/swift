@@ -153,7 +153,7 @@ class TestAuditor(unittest.TestCase):
         def run_tests(disk_file):
             auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                    self.rcache, self.devices)
-            data = '0' * 1024
+            data = b'0' * 1024
             etag = md5()
             with disk_file.create() as writer:
                 writer.write(data)
@@ -174,7 +174,7 @@ class TestAuditor(unittest.TestCase):
                                   policy=disk_file.policy))
                 self.assertEqual(auditor_worker.quarantines, pre_quarantines)
 
-                os.write(writer._fd, 'extra_data')
+                os.write(writer._fd, b'extra_data')
 
                 auditor_worker.object_audit(
                     AuditLocation(disk_file._datadir, 'sda', '0',
@@ -188,7 +188,7 @@ class TestAuditor(unittest.TestCase):
     def test_object_audit_diff_data(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
-        data = '0' * 1024
+        data = b'0' * 1024
         etag = md5()
         timestamp = str(normalize_timestamp(time.time()))
         with self.disk_file.create() as writer:
@@ -212,9 +212,7 @@ class TestAuditor(unittest.TestCase):
             AuditLocation(self.disk_file._datadir, 'sda', '0',
                           policy=POLICIES.legacy))
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
-        etag = md5()
-        etag.update('1' + '0' * 1023)
-        etag = etag.hexdigest()
+        etag = md5(b'1' + b'0' * 1023).hexdigest()
         metadata['ETag'] = etag
 
         with self.disk_file.create() as writer:
@@ -231,8 +229,8 @@ class TestAuditor(unittest.TestCase):
         timestamp = str(normalize_timestamp(time.time()))
         path = os.path.join(self.disk_file._datadir, timestamp + '.data')
         mkdirs(self.disk_file._datadir)
-        fp = open(path, 'w')
-        fp.write('0' * 1024)
+        fp = open(path, 'wb')
+        fp.write(b'0' * 1024)
         fp.close()
         invalidate_hash(os.path.dirname(self.disk_file._datadir))
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -362,7 +360,7 @@ class TestAuditor(unittest.TestCase):
         location = AuditLocation(self.disk_file._datadir, 'sda', '0',
                                  policy=self.disk_file.policy)
 
-        data = 'VERIFY'
+        data = b'VERIFY'
         etag = md5()
         timestamp = str(normalize_timestamp(time.time()))
         with self.disk_file.create() as writer:
@@ -440,7 +438,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.last_logged = time.time()
         timestamp = str(normalize_timestamp(time.time()))
         pre_errors = auditor_worker.errors
-        data = '0' * 1024
+        data = b'0' * 1024
         etag = md5()
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -464,7 +462,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.log_time = 0
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
-        data = '0' * 1024
+        data = b'0' * 1024
 
         def write_file(df):
             with df.create() as writer:
@@ -491,7 +489,7 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(auditor_worker.stats_buckets[10240], 0)
 
         # pick up some additional code coverage, large file
-        data = '0' * 1024 * 1024
+        data = b'0' * 1024 * 1024
         for df in (self.disk_file, self.disk_file_ec):
             with df.create() as writer:
                 writer.write(data)
@@ -545,7 +543,7 @@ class TestAuditor(unittest.TestCase):
         pre_quarantines = auditor_worker.quarantines
         # pretend that we logged (and reset counters) just now
         auditor_worker.last_logged = time.time()
-        data = '0' * 1024
+        data = b'0' * 1024
         etag = md5()
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -557,7 +555,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
-            os.write(writer._fd, 'extra_data')
+            os.write(writer._fd, b'extra_data')
             writer.commit(Timestamp(timestamp))
         auditor_worker.audit_all_objects()
         self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
@@ -569,7 +567,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.last_logged = time.time()
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
-        data = '0' * 10
+        data = b'0' * 10
         etag = md5()
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -585,7 +583,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.audit_all_objects()
         self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'ob',
                                                   policy=POLICIES.legacy)
-        data = '1' * 10
+        data = b'1' * 10
         etag = md5()
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -598,14 +596,14 @@ class TestAuditor(unittest.TestCase):
             }
             writer.put(metadata)
             writer.commit(Timestamp(timestamp))
-            os.write(writer._fd, 'extra_data')
+            os.write(writer._fd, b'extra_data')
         auditor_worker.audit_all_objects()
         self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_run_fast_track_non_zero(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
-        data = '0' * 1024
+        data = b'0' * 1024
         etag = md5()
         with self.disk_file.create() as writer:
             writer.write(data)
@@ -620,7 +618,7 @@ class TestAuditor(unittest.TestCase):
             writer.put(metadata)
             writer.commit(Timestamp(timestamp))
             etag = md5()
-            etag.update('1' + '0' * 1023)
+            etag.update(b'1' + b'0' * 1023)
             etag = etag.hexdigest()
             metadata['ETag'] = etag
             write_metadata(writer._fd, metadata)

@@ -46,6 +46,24 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
                                    self.object_name, 'container')
 
+    def _get_object_patiently(self, policy_index):
+        # use proxy to access object (bad container info might be cached...)
+        timeout = time.time() + TIMEOUT
+        while time.time() < timeout:
+            try:
+                return client.get_object(self.url, self.token,
+                                         self.container_name,
+                                         self.object_name)
+            except ClientException as err:
+                if err.http_status != HTTP_NOT_FOUND:
+                    raise
+                time.sleep(1)
+        else:
+            self.fail('could not HEAD /%s/%s/%s/ from policy %s '
+                      'after %s seconds.' % (
+                          self.account, self.container_name, self.object_name,
+                          int(policy_index), TIMEOUT))
+
     def test_merge_storage_policy_index(self):
         # generic split brain
         self.brain.stop_primary_half()
@@ -53,7 +71,8 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.brain.start_primary_half()
         self.brain.stop_handoff_half()
         self.brain.put_container()
-        self.brain.put_object()
+        self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
+                              contents='VERIFY')
         self.brain.start_handoff_half()
         # make sure we have some manner of split brain
         container_part, container_nodes = self.container_ring.get_nodes(
@@ -127,24 +146,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                 self.fail('Found /%s/%s/%s in %s' % (
                     self.account, self.container_name, self.object_name,
                     orig_policy_index))
-        # use proxy to access object (bad container info might be cached...)
-        timeout = time.time() + TIMEOUT
-        while time.time() < timeout:
-            try:
-                metadata = client.head_object(self.url, self.token,
-                                              self.container_name,
-                                              self.object_name)
-            except ClientException as err:
-                if err.http_status != HTTP_NOT_FOUND:
-                    raise
-                time.sleep(1)
-            else:
-                break
-        else:
-            self.fail('could not HEAD /%s/%s/%s/ from policy %s '
-                      'after %s seconds.' % (
-                          self.account, self.container_name, self.object_name,
-                          expected_policy_index, TIMEOUT))
+        # verify that the object data read by external client is correct
+        headers, data = self._get_object_patiently(expected_policy_index)
+        self.assertEqual('VERIFY', data)
+        self.assertEqual('custom-meta', headers['x-object-meta-test'])
 
     def test_reconcile_delete(self):
         # generic split brain
@@ -399,17 +404,18 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.assertEqual(2, len(old_container_node_ids))
 
         # hopefully memcache still has the new policy cached
-        self.brain.put_object()
+        self.brain.put_object(headers={'x-object-meta-test': 'custom-meta'},
+                              contents='VERIFY')
         # double-check object correctly written to new policy
         conf_files = []
         for server in Manager(['container-reconciler']).servers:
             conf_files.extend(server.conf_files())
         conf_file = conf_files[0]
-        client = InternalClient(conf_file, 'probe-test', 3)
-        client.get_object_metadata(
+        int_client = InternalClient(conf_file, 'probe-test', 3)
+        int_client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             headers={'X-Backend-Storage-Policy-Index': int(new_policy)})
-        client.get_object_metadata(
+        int_client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
@@ -423,9 +429,9 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
             tuple(server.once(number=n + 1) for n in old_container_node_ids)
 
         # verify entry in the queue for the "misplaced" new_policy
-        for container in client.iter_containers('.misplaced_objects'):
-            for obj in client.iter_objects('.misplaced_objects',
-                                           container['name']):
+        for container in int_client.iter_containers('.misplaced_objects'):
+            for obj in int_client.iter_objects('.misplaced_objects',
+                                               container['name']):
                 expected = '%d:/%s/%s/%s' % (new_policy, self.account,
                                              self.container_name,
                                              self.object_name)
@@ -434,12 +440,12 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         Manager(['container-reconciler']).once()
 
         # verify object in old_policy
-        client.get_object_metadata(
+        int_client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
 
         # verify object is *not* in new_policy
-        client.get_object_metadata(
+        int_client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(new_policy)})
@@ -447,10 +453,9 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.get_to_final_state()
 
         # verify entry in the queue
-        client = InternalClient(conf_file, 'probe-test', 3)
-        for container in client.iter_containers('.misplaced_objects'):
-            for obj in client.iter_objects('.misplaced_objects',
-                                           container['name']):
+        for container in int_client.iter_containers('.misplaced_objects'):
+            for obj in int_client.iter_objects('.misplaced_objects',
+                                               container['name']):
                 expected = '%d:/%s/%s/%s' % (old_policy, self.account,
                                              self.container_name,
                                              self.object_name)
@@ -459,20 +464,25 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         Manager(['container-reconciler']).once()
 
         # and now it flops back
-        client.get_object_metadata(
+        int_client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             headers={'X-Backend-Storage-Policy-Index': int(new_policy)})
-        client.get_object_metadata(
+        int_client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
 
         # make sure the queue is settled
         self.get_to_final_state()
-        for container in client.iter_containers('.misplaced_objects'):
-            for obj in client.iter_objects('.misplaced_objects',
-                                           container['name']):
+        for container in int_client.iter_containers('.misplaced_objects'):
+            for obj in int_client.iter_objects('.misplaced_objects',
+                                               container['name']):
                 self.fail('Found unexpected object %r in the queue' % obj)
+
+        # verify that the object data read by external client is correct
+        headers, data = self._get_object_patiently(int(new_policy))
+        self.assertEqual('VERIFY', data)
+        self.assertEqual('custom-meta', headers['x-object-meta-test'])
 
 
 if __name__ == "__main__":
