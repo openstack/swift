@@ -4123,11 +4123,16 @@ class TestObjectVersioning(Base):
                           cfg={'use_token': self.env.storage_token3})
 
         # user3 cannot write or delete from source container either
+        number_of_versions = versions_container.info()['object_count']
         self.assertRaises(ResponseError, versioned_obj.write,
                           "some random user trying to write data",
                           cfg={'use_token': self.env.storage_token3})
+        self.assertEqual(number_of_versions,
+                         versions_container.info()['object_count'])
         self.assertRaises(ResponseError, versioned_obj.delete,
                           cfg={'use_token': self.env.storage_token3})
+        self.assertEqual(number_of_versions,
+                         versions_container.info()['object_count'])
 
         # user2 can't read or delete from versions-location
         self.assertRaises(ResponseError, backup_file.read,

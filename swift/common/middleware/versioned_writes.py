@@ -407,6 +407,16 @@ class VersionedWritesContext(WSGIContext):
 
     def _copy_current(self, req, versions_cont, api_version, account_name,
                       object_name):
+        # validate the write access to the versioned container before
+        # making any backend requests
+        if 'swift.authorize' in req.environ:
+            container_info = get_container_info(
+                req.environ, self.app)
+            req.acl = container_info.get('write_acl')
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                raise aresp
+
         get_resp = self._get_source_object(req, req.path_info)
 
         if 'X-Object-Manifest' in get_resp.headers:
