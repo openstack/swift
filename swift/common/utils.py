@@ -3821,8 +3821,9 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
         # so if that finally block fires before we read response_body_iter,
         # there's nothing there.
         def string_along(useful_iter, useless_iter_iter, logger):
-            for x in useful_iter:
-                yield x
+            with closing_if_possible(useful_iter):
+                for x in useful_iter:
+                    yield x
 
             try:
                 next(useless_iter_iter)

@@ -5703,6 +5703,28 @@ class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
             part2 + "\r\n" +
             "--boundaryboundary--"))
 
+    def test_closed_part_iterator(self):
+        print('test')
+        useful_iter_mock = mock.MagicMock()
+        useful_iter_mock.__iter__.return_value = ['']
+        body_iter = utils.document_iters_to_http_response_body(
+            iter([{'part_iter': useful_iter_mock}]), 'dontcare',
+            multipart=False, logger=FakeLogger())
+        body = ''
+        for s in body_iter:
+            body += s
+        self.assertEqual(body, '')
+        useful_iter_mock.close.assert_called_once_with()
+
+        # Calling "close" on the mock will now raise an AttributeError
+        del useful_iter_mock.close
+        body_iter = utils.document_iters_to_http_response_body(
+            iter([{'part_iter': useful_iter_mock}]), 'dontcare',
+            multipart=False, logger=FakeLogger())
+        body = ''
+        for s in body_iter:
+            body += s
+
 
 class TestPairs(unittest.TestCase):
     def test_pairs(self):
