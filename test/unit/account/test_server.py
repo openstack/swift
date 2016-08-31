@@ -33,7 +33,8 @@ from swift import __version__ as swift_version
 from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent)
 from swift.common import constraints
 from swift.account.server import AccountController
-from swift.common.utils import (normalize_timestamp, replication, public)
+from swift.common.utils import (normalize_timestamp, replication, public,
+                                mkdirs, storage_directory)
 from swift.common.request_helpers import get_sys_meta_prefix
 from test.unit import patch_policies, debug_logger
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -211,6 +212,31 @@ class TestAccountController(unittest.TestCase):
         req.environ['wsgi.input'] = inbuf1
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
+
+    def test_REPLICATE_unknown_sync(self):
+        # First without existing DB file
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+        json_string = '["unknown_sync", "a.db"]'
+        inbuf = WsgiBytesIO(json_string)
+        req.environ['wsgi.input'] = inbuf
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        mkdirs(os.path.join(self.testdir, 'sda1', 'accounts', 'p', 'a', 'a'))
+        db_file = os.path.join(self.testdir, 'sda1',
+                               storage_directory('accounts', 'p', 'a'),
+                               'a' + '.db')
+        open(db_file, 'w')
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+        json_string = '["unknown_sync", "a.db"]'
+        inbuf = WsgiBytesIO(json_string)
+        req.environ['wsgi.input'] = inbuf
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 500)
 
     def test_HEAD_not_found(self):
         # Test the case in which account does not exist (can be recreated)
