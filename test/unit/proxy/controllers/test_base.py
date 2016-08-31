@@ -16,6 +16,7 @@
 import itertools
 from collections import defaultdict
 import unittest
+import mock
 from mock import patch
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
@@ -829,6 +830,44 @@ class TestFuncs(unittest.TestCase):
                           lambda: (source2, node)):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
+
+    def test_disconnected_warning(self):
+        self.app.logger = mock.Mock()
+        req = Request.blank('/v1/a/c/o')
+
+        class TestSource(object):
+            def __init__(self):
+                self.headers = {'content-type': 'text/plain',
+                                'content-length': len(self.read(-1))}
+                self.status = 200
+
+            def read(self, _read_size):
+                return 'the cake is a lie'
+
+            def getheader(self, header):
+                return self.headers.get(header.lower())
+
+            def getheaders(self):
+                return self.headers
+
+        source = TestSource()
+
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', None, None, None, {})
+        app_iter = handler._make_app_iter(req, node, source)
+        app_iter.close()
+        self.app.logger.warning.assert_called_once_with(
+            'Client disconnected on read')
+
+        self.app.logger = mock.Mock()
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', None, None, None, {})
+        app_iter = handler._make_app_iter(req, node, source)
+        next(app_iter)
+        app_iter.close()
+        self.app.logger.warning.assert_not_called()
 
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing
