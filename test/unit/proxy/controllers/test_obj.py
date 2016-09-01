@@ -16,6 +16,7 @@
 
 import email.parser
 import itertools
+import math
 import random
 import time
 import unittest
@@ -626,12 +627,28 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 
         codes = [201] * self.replicas()
         expect_headers = {'X-Obj-Metadata-Footer': 'yes'}
+        resp_headers = {
+            'Some-Header': 'Four',
+            'Etag': '"%s"' % etag,
+        }
         with set_http_connect(*codes, expect_headers=expect_headers,
                               give_send=capture_body,
-                              give_connect=capture_headers):
+                              give_connect=capture_headers,
+                              headers=resp_headers):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 201)
+        timestamps = {captured_req['headers']['x-timestamp']
+                      for captured_req in put_requests.values()}
+        self.assertEqual(1, len(timestamps), timestamps)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': '0',
+            'Etag': etag,
+            'Last-Modified': time.strftime(
+                "%a, %d %b %Y %H:%M:%S GMT",
+                time.gmtime(math.ceil(float(timestamps.pop())))),
+        })
         for connection_id, info in put_requests.items():
             body = ''.join(info['chunks'])
             headers = info['headers']
@@ -689,12 +706,29 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             conn_id = kwargs['connection_id']
             put_requests[conn_id]['headers'] = headers
 
+        resp_headers = {
+            'Etag': '"resp_etag"',
+            # NB: ignored!
+            'Some-Header': 'Four',
+        }
         with set_http_connect(*codes, expect_headers=expect_headers,
                               give_send=capture_body,
-                              give_connect=capture_headers):
+                              give_connect=capture_headers,
+                              headers=resp_headers):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 201)
+        timestamps = {captured_req['headers']['x-timestamp']
+                      for captured_req in put_requests.values()}
+        self.assertEqual(1, len(timestamps), timestamps)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': '0',
+            'Etag': 'resp_etag',
+            'Last-Modified': time.strftime(
+                "%a, %d %b %Y %H:%M:%S GMT",
+                time.gmtime(math.ceil(float(timestamps.pop())))),
+        })
         for connection_id, info in put_requests.items():
             body = unchunk_body(''.join(info['chunks']))
             headers = info['headers']
@@ -1892,6 +1926,10 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             'X-Obj-Metadata-Footer': 'yes',
             'X-Obj-Multiphase-Commit': 'yes'
         }
+        resp_headers = {
+            'Some-Other-Header': 'Four',
+            'Etag': 'ignored',
+        }
 
         put_requests = defaultdict(lambda: {'boundary': None, 'chunks': []})
 
@@ -1905,13 +1943,27 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                 'X-Backend-Obj-Multipart-Mime-Boundary']
             put_requests[conn_id]['backend-content-length'] = headers[
                 'X-Backend-Obj-Content-Length']
+            put_requests[conn_id]['x-timestamp'] = headers[
+                'X-Timestamp']
 
         with set_http_connect(*codes, expect_headers=expect_headers,
                               give_send=capture_body,
-                              give_connect=capture_headers):
+                              give_connect=capture_headers,
+                              headers=resp_headers):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 201)
+        timestamps = {captured_req['x-timestamp']
+                      for captured_req in put_requests.values()}
+        self.assertEqual(1, len(timestamps), timestamps)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': '0',
+            'Last-Modified': time.strftime(
+                "%a, %d %b %Y %H:%M:%S GMT",
+                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Etag': etag,
+        })
         frag_archives = []
         for connection_id, info in put_requests.items():
             body = unchunk_body(''.join(info['chunks']))
@@ -2001,6 +2053,10 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             'X-Obj-Metadata-Footer': 'yes',
             'X-Obj-Multiphase-Commit': 'yes'
         }
+        resp_headers = {
+            'Some-Other-Header': 'Four',
+            'Etag': 'ignored',
+        }
 
         def do_test(footers_to_add, expect_added):
             put_requests = defaultdict(
@@ -2014,6 +2070,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                 conn_id = kwargs['connection_id']
                 put_requests[conn_id]['boundary'] = headers[
                     'X-Backend-Obj-Multipart-Mime-Boundary']
+                put_requests[conn_id]['x-timestamp'] = headers[
+                    'X-Timestamp']
 
             def footers_callback(footers):
                 footers.update(footers_to_add)
@@ -2023,10 +2081,22 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
             with set_http_connect(*codes, expect_headers=expect_headers,
                                   give_send=capture_body,
-                                  give_connect=capture_headers):
+                                  give_connect=capture_headers,
+                                  headers=resp_headers):
                 resp = req.get_response(self.app)
 
             self.assertEqual(resp.status_int, 201)
+            timestamps = {captured_req['x-timestamp']
+                          for captured_req in put_requests.values()}
+            self.assertEqual(1, len(timestamps), timestamps)
+            self.assertEqual(dict(resp.headers), {
+                'Content-Type': 'text/html; charset=UTF-8',
+                'Content-Length': '0',
+                'Last-Modified': time.strftime(
+                    "%a, %d %b %Y %H:%M:%S GMT",
+                    time.gmtime(math.ceil(float(timestamps.pop())))),
+                'Etag': etag,
+            })
             for connection_id, info in put_requests.items():
                 body = unchunk_body(''.join(info['chunks']))
                 # email.parser.FeedParser doesn't know how to take a multipart
