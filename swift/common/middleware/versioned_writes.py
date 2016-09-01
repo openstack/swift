@@ -105,9 +105,9 @@ the 'history' mode during a rolling upgrade may result in some requests being
 served by proxies running old code (which necessarily uses the 'stack' mode),
 leading to data loss.
 
--------------------------------------------
+--------------------------------------------
 Examples Using ``curl`` with ``stack`` Mode
--------------------------------------------
+--------------------------------------------
 
 First, create a container with the ``X-Versions-Location`` header or add the
 header to an existing container. Also make sure the container referenced by
@@ -143,9 +143,9 @@ http://<storage_url>/versions?prefix=008myobject/
     curl -i -XGET -H "X-Auth-Token: <token>" \
 http://<storage_url>/container/myobject
 
----------------------------------------------
+----------------------------------------------
 Examples Using ``curl`` with ``history`` Mode
----------------------------------------------
+----------------------------------------------
 
 As above, create a container with the ``X-Versions-Location`` header and ensure
 that the container referenced by the ``X-Versions-Location`` exists. In this
@@ -194,7 +194,7 @@ To permanently delete a previous version, ``DELETE`` it from the archive
 container::
 
     curl -i -XDELETE -H "X-Auth-Token: <token>" \
-http://<storage_url>/versions/008myobject/<timestamp> \
+http://<storage_url>/versions/008myobject/<timestamp>
 
 ---------------------------------------------------
 How to Disable Object Versioning in a Swift Cluster
