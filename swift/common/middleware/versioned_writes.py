@@ -81,14 +81,21 @@ so this functionality was already available in previous releases and every
 attempt was made to maintain backwards compatibility. To allow operators to
 perform a seamless upgrade, it is not required to add the middleware to the
 proxy pipeline and the flag ``allow_versions`` in the container server
-configuration files are still valid. In future releases, ``allow_versions``
-will be deprecated in favor of adding this middleware to the pipeline to enable
-or disable the feature.
+configuration files are still valid, but only for ``stack`` mode. In future
+releases, ``allow_versions`` will be deprecated in favor of adding this
+middleware to the pipeline to enable or disable the feature.
 
 In case the middleware is added to the proxy pipeline, you must also
 set ``allow_versioned_writes`` to ``True`` in the middleware options
 to enable the information about this middleware to be returned in a /info
 request.
+
+ .. note::
+     You need to add the middleware to the proxy pipeline and set
+     ``allow_versioned_writes = True`` to use the ``history`` mode. Setting
+     ``allow_versions = True`` in the container server is not sufficient to
+     enable ``history`` mode.
+
 
 Upgrade considerations:
 +++++++++++++++++++++++
