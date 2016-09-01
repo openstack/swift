@@ -170,7 +170,7 @@ Example Using ``stack`` Mode
    versions of it, you must **DELETE** it five times.
 
 Example Using ``history`` Mode
-----------------------------
+------------------------------
 
 #.   Create the ``current`` container:
 
