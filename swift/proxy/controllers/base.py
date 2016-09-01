@@ -738,6 +738,7 @@ class ResumingGetter(object):
         self.backend_headers = backend_headers
         self.client_chunk_size = client_chunk_size
         self.skip_bytes = 0
+        self.bytes_used_from_backend = 0
         self.used_nodes = []
         self.used_source_etag = ''
         self.concurrency = concurrency
@@ -933,7 +934,6 @@ class ResumingGetter(object):
             def iter_bytes_from_response_part(part_file):
                 nchunks = 0
                 buf = ''
-                bytes_used_from_backend = 0
                 while True:
                     try:
                         with ChunkReadTimeout(node_timeout):
@@ -945,7 +945,7 @@ class ResumingGetter(object):
                         if self.newest or self.server_type != 'Object':
                             six.reraise(exc_type, exc_value, exc_traceback)
                         try:
-                            self.fast_forward(bytes_used_from_backend)
+                            self.fast_forward(self.bytes_used_from_backend)
                         except (HTTPException, ValueError):
                             six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
@@ -982,18 +982,18 @@ class ResumingGetter(object):
                         if buf and self.skip_bytes:
                             if self.skip_bytes < len(buf):
                                 buf = buf[self.skip_bytes:]
-                                bytes_used_from_backend += self.skip_bytes
+                                self.bytes_used_from_backend += self.skip_bytes
                                 self.skip_bytes = 0
                             else:
                                 self.skip_bytes -= len(buf)
-                                bytes_used_from_backend += len(buf)
+                                self.bytes_used_from_backend += len(buf)
                                 buf = ''
 
                         if not chunk:
                             if buf:
                                 with ChunkWriteTimeout(
                                         self.app.client_timeout):
-                                    bytes_used_from_backend += len(buf)
+                                    self.bytes_used_from_backend += len(buf)
                                     yield buf
                                 buf = ''
                             break
@@ -1004,12 +1004,13 @@ class ResumingGetter(object):
                                 buf = buf[client_chunk_size:]
                                 with ChunkWriteTimeout(
                                         self.app.client_timeout):
+                                    self.bytes_used_from_backend += \
+                                        len(client_chunk)
                                     yield client_chunk
-                                bytes_used_from_backend += len(client_chunk)
                         else:
                             with ChunkWriteTimeout(self.app.client_timeout):
+                                self.bytes_used_from_backend += len(buf)
                                 yield buf
-                            bytes_used_from_backend += len(buf)
                             buf = ''
 
                         # This is for fairness; if the network is outpacing
@@ -1038,6 +1039,7 @@ class ResumingGetter(object):
                         get_next_doc_part()
                     self.learn_size_from_content_range(
                         start_byte, end_byte, length)
+                    self.bytes_used_from_backend = 0
                     part_iter = iter_bytes_from_response_part(part)
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
@@ -1059,8 +1061,18 @@ class ResumingGetter(object):
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
-            if not req.environ.get('swift.non_client_disconnect'):
+            warn = True
+            try:
+                req_range = Range(self.backend_headers['Range'])
+            except ValueError:
+                req_range = None
+            if req_range and len(req_range.ranges) == 1:
+                begin, end = req_range.ranges[0]
+                if end - begin + 1 == self.bytes_used_from_backend:
+                    warn = False
+            if not req.environ.get('swift.non_client_disconnect') and warn:
                 self.app.logger.warning(_('Client disconnected on read'))
+            raise
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise
