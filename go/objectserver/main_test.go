@@ -35,6 +35,7 @@ import (
 	"github.com/openstack/swift/go/hummingbird"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type TestServer struct {
@@ -97,7 +98,12 @@ func TestReplicateRecalculate(t *testing.T) {
 	f, _ := os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data"))
 	f.Close()
 
-	resp, err := ts.Do("REPLICATE", "/sda/1", nil)
+	trs1, err := makeReplicatorWebServer()
+	require.Nil(t, err)
+	defer trs1.Close()
+	trs1.replicator.driveRoot = ts.objServer.driveRoot
+
+	resp, err := trs1.Do("REPLICATE", "/sda/1", nil)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ := ioutil.ReadAll(resp.Body)
@@ -107,7 +113,7 @@ func TestReplicateRecalculate(t *testing.T) {
 
 	f, _ = os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753550.00000.meta"))
 	f.Close()
-	resp, err = ts.Do("REPLICATE", "/sda/1", nil)
+	resp, err = trs1.Do("REPLICATE", "/sda/1", nil)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ = ioutil.ReadAll(resp.Body)
@@ -115,7 +121,7 @@ func TestReplicateRecalculate(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, hashes.(map[interface{}]interface{})["fff"], "b80a90865c11519b608af8471f5ab9ca")
 
-	resp, err = ts.Do("REPLICATE", "/sda/1/fff", nil)
+	resp, err = trs1.Do("REPLICATE", "/sda/1/fff", nil)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ = ioutil.ReadAll(resp.Body)

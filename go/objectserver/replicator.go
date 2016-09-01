@@ -16,12 +16,14 @@
 package objectserver
 
 import (
+	"bufio"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -32,7 +34,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justinas/alice"
 	"github.com/openstack/swift/go/hummingbird"
+	"github.com/openstack/swift/go/middleware"
 )
 
 var StatsReportInterval = 300 * time.Second
@@ -90,9 +94,9 @@ type Replicator struct {
 	checkMounts    bool
 	driveRoot      string
 	reconCachePath string
-	bindPort       int
 	bindIp         string
 	logger         hummingbird.SysLogLike
+	logLevel       string
 	port           int
 	devGroup       sync.WaitGroup
 	partRateTicker *time.Ticker
@@ -106,6 +110,12 @@ type Replicator struct {
 	priRepM        sync.Mutex
 	reclaimAge     int64
 	Rings          map[int]hummingbird.Ring
+
+	hashPathPrefix   string
+	hashPathSuffix   string
+	reserve          int64
+	replicationMan   *ReplicationManager
+	replicateTimeout time.Duration
 
 	once      bool
 	cancelers map[string]chan struct{}
@@ -915,16 +925,186 @@ func (r *Replicator) priorityRepHandler(w http.ResponseWriter, req *http.Request
 	w.WriteHeader(200)
 }
 
-func (r *Replicator) startWebServer() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/priorityrep", r.priorityRepHandler)
-	mux.HandleFunc("/progress", r.ProgressReportHandler)
-	mux.Handle("/debug/", http.DefaultServeMux)
+func (r *Replicator) objReplicateHandler(writer http.ResponseWriter, request *http.Request) {
+	vars := hummingbird.GetVars(request)
+
+	var recalculate []string
+	if len(vars["suffixes"]) > 0 {
+		recalculate = strings.Split(vars["suffixes"], "-")
+	}
+	policy, err := strconv.Atoi(request.Header.Get("X-Backend-Storage-Policy-Index"))
+	if err != nil {
+		policy = 0
+	}
+	hashes, err := GetHashes(r.driveRoot, vars["device"], vars["partition"], recalculate, r.reclaimAge, policy, hummingbird.GetLogger(request))
+	if err != nil {
+		hummingbird.GetLogger(request).LogError("Unable to get hashes for %s/%s", vars["device"], vars["partition"])
+		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
+		return
+	}
+	writer.WriteHeader(http.StatusOK)
+	writer.Write(hummingbird.PickleDumps(hashes))
+}
+
+func (r *Replicator) objRepConnHandler(writer http.ResponseWriter, request *http.Request) {
+	var conn net.Conn
+	var rw *bufio.ReadWriter
+	var err error
+	var brr BeginReplicationRequest
+
+	vars := hummingbird.GetVars(request)
+
+	policy, err := strconv.Atoi(request.Header.Get("X-Backend-Storage-Policy-Index"))
+	if err != nil {
+		policy = 0
+	}
+
+	writer.WriteHeader(http.StatusOK)
+	if hijacker, ok := writer.(http.Hijacker); !ok {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Writer not a Hijacker")
+		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
+		return
+	} else if conn, rw, err = hijacker.Hijack(); err != nil {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Hijack failed")
+		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	rc := &RepConn{rw: rw, c: conn}
+	if err := rc.RecvMessage(&brr); err != nil {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error receiving BeginReplicationRequest: %v", err)
+		writer.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if !r.replicationMan.Begin(brr.Device, r.replicateTimeout) {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Timed out waiting for concurrency slot")
+		writer.WriteHeader(503)
+		return
+	}
+	defer r.replicationMan.Done(brr.Device)
+	var hashes map[string]string
+	if brr.NeedHashes {
+		hashes, err = GetHashes(r.driveRoot, brr.Device, brr.Partition, nil, r.reclaimAge, policy, hummingbird.GetLogger(request))
+		if err != nil {
+			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", err)
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := rc.SendMessage(BeginReplicationResponse{Hashes: hashes}); err != nil {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error sending BeginReplicationResponse: %v", err)
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	for {
-		if sock, err := hummingbird.RetryListen(r.bindIp, r.bindPort); err != nil {
+		errType, err := func() (string, error) { // this is a closure so we can use defers inside
+			var sfr SyncFileRequest
+			if err := rc.RecvMessage(&sfr); err != nil {
+				return "receiving SyncFileRequest", err
+			}
+			if sfr.Done {
+				return "", replicationDone
+			}
+			tempDir := TempDirPath(r.driveRoot, vars["device"])
+			fileName := filepath.Join(r.driveRoot, sfr.Path)
+			hashDir := filepath.Dir(fileName)
+
+			if ext := filepath.Ext(fileName); (ext != ".data" && ext != ".ts" && ext != ".meta") || len(filepath.Base(filepath.Dir(fileName))) != 32 {
+				return "invalid file path", rc.SendMessage(SyncFileResponse{Msg: "bad file path"})
+			}
+			if hummingbird.Exists(fileName) {
+				return "file exists", rc.SendMessage(SyncFileResponse{Exists: true, Msg: "exists"})
+			}
+			dataFile, metaFile := ObjectFiles(hashDir)
+			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
+				return "newer file exists", rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
+			}
+			tempFile, err := NewAtomicFileWriter(tempDir, hashDir)
+			if err != nil {
+				return "creating file writer", err
+			}
+			defer tempFile.Abandon()
+			if err := tempFile.Preallocate(sfr.Size, r.reserve); err != nil {
+				return "preallocating space", err
+			}
+			if xattrs, err := hex.DecodeString(sfr.Xattrs); err != nil || len(xattrs) == 0 {
+				return "parsing xattrs", rc.SendMessage(SyncFileResponse{Msg: "bad xattrs"})
+			} else if err := RawWriteMetadata(tempFile.Fd(), xattrs); err != nil {
+				return "writing metadata", err
+			}
+			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
+				return "sending go ahead", err
+			}
+			if _, err := hummingbird.CopyN(rc, sfr.Size, tempFile); err != nil {
+				return "copying data", err
+			}
+			if err := tempFile.Save(fileName); err != nil {
+				return "saving file", err
+			}
+			if dataFile != "" || metaFile != "" {
+				HashCleanupListDir(hashDir, r.reclaimAge)
+			}
+			InvalidateHash(hashDir)
+			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
+			return "file done", err
+		}()
+		if err == replicationDone {
+			return
+		} else if err != nil {
+			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %s. %v", errType, err)
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (r *Replicator) LogRequest(next http.Handler) http.Handler {
+	fn := func(writer http.ResponseWriter, request *http.Request) {
+		newWriter := &hummingbird.WebWriter{ResponseWriter: writer, Status: 500, ResponseStarted: false}
+		requestLogger := &hummingbird.RequestLogger{Request: request, Logger: r.logger, W: newWriter}
+		defer requestLogger.LogPanics("LOGGING REQUEST")
+		start := time.Now()
+		hummingbird.SetLogger(request, requestLogger)
+		next.ServeHTTP(newWriter, request)
+		if (request.Method != "REPLICATE" && request.Method != "REPCONN") || r.logLevel == "DEBUG" {
+			r.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
+				request.RemoteAddr,
+				time.Now().Format("02/Jan/2006:15:04:05 -0700"),
+				request.Method,
+				hummingbird.Urlencode(request.URL.Path),
+				newWriter.Status,
+				hummingbird.GetDefault(newWriter.Header(), "Content-Length", "-"),
+				hummingbird.GetDefault(request.Header, "Referer", "-"),
+				hummingbird.GetDefault(request.Header, "X-Trans-Id", "-"),
+				hummingbird.GetDefault(request.Header, "User-Agent", "-"),
+				time.Since(start).Seconds(),
+				"-"))
+		}
+	}
+	return http.HandlerFunc(fn)
+}
+
+func (r *Replicator) GetHandler() http.Handler {
+	commonHandlers := alice.New(middleware.ClearHandler, r.LogRequest, middleware.ValidateRequest)
+	router := hummingbird.NewRouter()
+	router.Get("/priorityrep", commonHandlers.ThenFunc(r.priorityRepHandler))
+	router.Get("/progress", commonHandlers.ThenFunc(r.ProgressReportHandler))
+	for _, policy := range hummingbird.LoadPolicies() {
+		router.HandlePolicy("REPCONN", "/:device/:partition", policy.Index, commonHandlers.ThenFunc(r.objRepConnHandler))
+		router.HandlePolicy("REPLICATE", "/:device/:partition/:suffixes", policy.Index, commonHandlers.ThenFunc(r.objReplicateHandler))
+		router.HandlePolicy("REPLICATE", "/:device/:partition", policy.Index, commonHandlers.ThenFunc(r.objReplicateHandler))
+	}
+	router.Get("/debug", http.DefaultServeMux)
+	return router
+}
+
+func (r *Replicator) startWebServer() {
+	for {
+		if sock, err := hummingbird.RetryListen(r.bindIp, r.port); err != nil {
 			r.LogError("Listen failed: %v", err)
 		} else {
-			http.Serve(sock, mux)
+			http.Serve(sock, r.GetHandler())
 		}
 	}
 }
@@ -957,7 +1137,9 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 		once:                   false,
 		LoopSleepTime:          5 * time.Second,
 	}
-	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
+
+	var err error
+	replicator.hashPathPrefix, replicator.hashPathSuffix, err = hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to get hash prefix and suffix")
 	}
@@ -966,18 +1148,22 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 		if policy.Type != "replication" {
 			continue
 		}
-		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, policy.Index); err != nil {
+		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", replicator.hashPathPrefix, replicator.hashPathSuffix, policy.Index); err != nil {
 			return nil, fmt.Errorf("Unable to load ring.")
 		}
 	}
+	replicator.reserve = serverconf.GetInt("object-replicator", "fallocate_reserve", 0)
+	replicator.replicationMan = NewReplicationManager(serverconf.GetLimit("object-replicator", "replication_limit", 3, 100))
+	replicator.replicateTimeout = time.Minute // TODO(redbo): does this need to be configurable?
+
 	replicator.reconCachePath = serverconf.GetDefault("object-auditor", "recon_cache_path", "/var/cache/swift")
 	replicator.checkMounts = serverconf.GetBool("object-replicator", "mount_check", true)
 	replicator.driveRoot = serverconf.GetDefault("object-replicator", "devices", "/srv/node")
-	replicator.port = int(serverconf.GetInt("object-replicator", "bind_port", 6000))
+	replicator.port = int(serverconf.GetInt("object-replicator", "bind_port", 6500))
 	replicator.bindIp = serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0")
-	replicator.bindPort = int(serverconf.GetInt("object-replicator", "replicator_bind_port", int64(replicator.port+500)))
 	replicator.quorumDelete = serverconf.GetBool("object-replicator", "quorum_delete", false)
 	replicator.reclaimAge = int64(serverconf.GetInt("object-replicator", "reclaim_age", int64(hummingbird.ONE_WEEK)))
+	replicator.logLevel = serverconf.GetDefault("object-replicator", "log_level", "INFO")
 	replicator.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", "")
 	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
 		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 2000)) * time.Millisecond

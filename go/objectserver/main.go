@@ -404,24 +404,24 @@ func (server *ObjectServer) LogRequest(next http.Handler) http.Handler {
 		hummingbird.SetLogger(request, requestLogger)
 		next.ServeHTTP(newWriter, request)
 		forceAcquire := request.Header.Get("X-Force-Acquire") == "true"
-		if (request.Method != "REPLICATE" && request.Method != "REPCONN") || server.logLevel == "DEBUG" {
-			extraInfo := "-"
-			if forceAcquire {
-				extraInfo = "FA"
-			}
-			server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
-				request.RemoteAddr,
-				time.Now().Format("02/Jan/2006:15:04:05 -0700"),
-				request.Method,
-				hummingbird.Urlencode(request.URL.Path),
-				newWriter.Status,
-				hummingbird.GetDefault(newWriter.Header(), "Content-Length", "-"),
-				hummingbird.GetDefault(request.Header, "Referer", "-"),
-				hummingbird.GetDefault(request.Header, "X-Trans-Id", "-"),
-				hummingbird.GetDefault(request.Header, "User-Agent", "-"),
-				time.Since(start).Seconds(),
-				extraInfo))
+
+		extraInfo := "-"
+		if forceAcquire {
+			extraInfo = "FA"
 		}
+		server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
+			request.RemoteAddr,
+			time.Now().Format("02/Jan/2006:15:04:05 -0700"),
+			request.Method,
+			hummingbird.Urlencode(request.URL.Path),
+			newWriter.Status,
+			hummingbird.GetDefault(newWriter.Header(), "Content-Length", "-"),
+			hummingbird.GetDefault(request.Header, "Referer", "-"),
+			hummingbird.GetDefault(request.Header, "X-Trans-Id", "-"),
+			hummingbird.GetDefault(request.Header, "User-Agent", "-"),
+			time.Since(start).Seconds(),
+			extraInfo))
+
 	}
 	return http.HandlerFunc(fn)
 }
@@ -492,11 +492,6 @@ func (server *ObjectServer) GetHandler(config hummingbird.Config) http.Handler {
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid path: %s", r.URL.Path), http.StatusBadRequest)
 	})
-	for policy, objEngine := range server.objEngines {
-		objEngine.RegisterHandlers(func(method, path string, handler http.HandlerFunc) {
-			router.HandlePolicy(method, path, policy, commonHandlers.ThenFunc(handler))
-		})
-	}
 	return alice.New(middleware.GrepObject).Then(router)
 }
 

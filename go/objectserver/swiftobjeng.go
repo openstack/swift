@@ -16,19 +16,14 @@
 package objectserver
 
 import (
-	"bufio"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/openstack/swift/go/hummingbird"
 )
@@ -168,14 +163,12 @@ func (o *SwiftObject) Close() error {
 }
 
 type SwiftObjectFactory struct {
-	driveRoot        string
-	hashPathPrefix   string
-	hashPathSuffix   string
-	reserve          int64
-	replicationMan   *ReplicationManager
-	replicateTimeout time.Duration
-	reclaimAge       int64
-	policy           int
+	driveRoot      string
+	hashPathPrefix string
+	hashPathSuffix string
+	reserve        int64
+	reclaimAge     int64
+	policy         int
 }
 
 // New returns an instance of SwiftObject with the given parameters. Metadata is read in and if needData is true, the file is opened.
@@ -220,139 +213,7 @@ func (f *SwiftObjectFactory) New(vars map[string]string, needData bool) (Object,
 	return sor, nil
 }
 
-func (f *SwiftObjectFactory) objReplicateHandler(writer http.ResponseWriter, request *http.Request) {
-	vars := hummingbird.GetVars(request)
-
-	var recalculate []string
-	if len(vars["suffixes"]) > 0 {
-		recalculate = strings.Split(vars["suffixes"], "-")
-	}
-	hashes, err := GetHashes(f.driveRoot, vars["device"], vars["partition"], recalculate, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
-	if err != nil {
-		hummingbird.GetLogger(request).LogError("Unable to get hashes for %s/%s", vars["device"], vars["partition"])
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	writer.WriteHeader(http.StatusOK)
-	writer.Write(hummingbird.PickleDumps(hashes))
-}
-
 var replicationDone = fmt.Errorf("Replication done")
-
-func (f *SwiftObjectFactory) objRepConnHandler(writer http.ResponseWriter, request *http.Request) {
-	var conn net.Conn
-	var rw *bufio.ReadWriter
-	var err error
-	var brr BeginReplicationRequest
-
-	vars := hummingbird.GetVars(request)
-
-	writer.WriteHeader(http.StatusOK)
-	if hijacker, ok := writer.(http.Hijacker); !ok {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Writer not a Hijacker")
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	} else if conn, rw, err = hijacker.Hijack(); err != nil {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Hijack failed")
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	defer conn.Close()
-
-	rc := &RepConn{rw: rw, c: conn}
-	if err := rc.RecvMessage(&brr); err != nil {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error receiving BeginReplicationRequest: %v", err)
-		writer.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if !f.replicationMan.Begin(brr.Device, f.replicateTimeout) {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Timed out waiting for concurrency slot")
-		writer.WriteHeader(503)
-		return
-	}
-	defer f.replicationMan.Done(brr.Device)
-	var hashes map[string]string
-	if brr.NeedHashes {
-		hashes, err = GetHashes(f.driveRoot, brr.Device, brr.Partition, nil, f.reclaimAge, f.policy, hummingbird.GetLogger(request))
-		if err != nil {
-			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", err)
-			writer.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-	}
-	if err := rc.SendMessage(BeginReplicationResponse{Hashes: hashes}); err != nil {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error sending BeginReplicationResponse: %v", err)
-		writer.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	for {
-		errType, err := func() (string, error) { // this is a closure so we can use defers inside
-			var sfr SyncFileRequest
-			if err := rc.RecvMessage(&sfr); err != nil {
-				return "receiving SyncFileRequest", err
-			}
-			if sfr.Done {
-				return "", replicationDone
-			}
-			tempDir := TempDirPath(f.driveRoot, vars["device"])
-			fileName := filepath.Join(f.driveRoot, sfr.Path)
-			hashDir := filepath.Dir(fileName)
-
-			if ext := filepath.Ext(fileName); (ext != ".data" && ext != ".ts" && ext != ".meta") || len(filepath.Base(filepath.Dir(fileName))) != 32 {
-				return "invalid file path", rc.SendMessage(SyncFileResponse{Msg: "bad file path"})
-			}
-			if hummingbird.Exists(fileName) {
-				return "file exists", rc.SendMessage(SyncFileResponse{Exists: true, Msg: "exists"})
-			}
-			dataFile, metaFile := ObjectFiles(hashDir)
-			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
-				return "newer file exists", rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
-			}
-			tempFile, err := NewAtomicFileWriter(tempDir, hashDir)
-			if err != nil {
-				return "creating file writer", err
-			}
-			defer tempFile.Abandon()
-			if err := tempFile.Preallocate(sfr.Size, f.reserve); err != nil {
-				return "preallocating space", err
-			}
-			if xattrs, err := hex.DecodeString(sfr.Xattrs); err != nil || len(xattrs) == 0 {
-				return "parsing xattrs", rc.SendMessage(SyncFileResponse{Msg: "bad xattrs"})
-			} else if err := RawWriteMetadata(tempFile.Fd(), xattrs); err != nil {
-				return "writing metadata", err
-			}
-			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
-				return "sending go ahead", err
-			}
-			if _, err := hummingbird.CopyN(rc, sfr.Size, tempFile); err != nil {
-				return "copying data", err
-			}
-			if err := tempFile.Save(fileName); err != nil {
-				return "saving file", err
-			}
-			if dataFile != "" || metaFile != "" {
-				HashCleanupListDir(hashDir, f.reclaimAge)
-			}
-			InvalidateHash(hashDir)
-			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
-			return "file done", err
-		}()
-		if err == replicationDone {
-			return
-		} else if err != nil {
-			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %s. %v", errType, err)
-			writer.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-	}
-}
-
-// RegisterHandlers registers custom routes needed by the swift object engine.
-func (f *SwiftObjectFactory) RegisterHandlers(addRoute func(method, path string, handler http.HandlerFunc)) {
-	addRoute("REPLICATE", "/:device/:partition/:suffixes", f.objReplicateHandler)
-	addRoute("REPLICATE", "/:device/:partition", f.objReplicateHandler)
-	addRoute("REPCONN", "/:device/:partition", f.objRepConnHandler)
-}
 
 // SwiftEngineConstructor creates a SwiftObjectFactory given the object server configs.
 func SwiftEngineConstructor(config hummingbird.Config, policy *hummingbird.Policy, flags *flag.FlagSet) (ObjectEngine, error) {
@@ -362,18 +223,14 @@ func SwiftEngineConstructor(config hummingbird.Config, policy *hummingbird.Polic
 	if err != nil {
 		return nil, errors.New("Unable to load hashpath prefix and suffix")
 	}
-	replicationMan := NewReplicationManager(config.GetLimit("app:object-server", "replication_limit", 3, 100))
-	replicateTimeout := time.Minute // TODO(redbo): does this need to be configurable?
 	reclaimAge := int64(config.GetInt("app:object-server", "reclaim_age", int64(hummingbird.ONE_WEEK)))
 	return &SwiftObjectFactory{
-		driveRoot:        driveRoot,
-		hashPathPrefix:   hashPathPrefix,
-		hashPathSuffix:   hashPathSuffix,
-		reserve:          reserve,
-		replicationMan:   replicationMan,
-		replicateTimeout: replicateTimeout,
-		reclaimAge:       reclaimAge,
-		policy:           policy.Index}, nil
+		driveRoot:      driveRoot,
+		hashPathPrefix: hashPathPrefix,
+		hashPathSuffix: hashPathSuffix,
+		reserve:        reserve,
+		reclaimAge:     reclaimAge,
+		policy:         policy.Index}, nil
 }
 
 func init() {

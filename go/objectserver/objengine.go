@@ -19,7 +19,6 @@ import (
 	"errors"
 	"flag"
 	"io"
-	"net/http"
 
 	"github.com/openstack/swift/go/hummingbird"
 )
@@ -56,8 +55,6 @@ type Object interface {
 type ObjectEngine interface {
 	// New creates a new instance of the Object, for interacting with a single object.
 	New(vars map[string]string, needData bool) (Object, error)
-	// RegisterHandlers registers custom routes needed by this object engine.  Examples are replication handlers.  Be careful of collisions.
-	RegisterHandlers(AddRoute func(method, path string, handler http.HandlerFunc))
 }
 
 // ObjectEngineConstructor> is a function that, given configs and flags, returns an ObjectEngine

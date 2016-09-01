@@ -49,7 +49,7 @@ func TestBasicPolicyReplication(t *testing.T) {
 	timestamp := hummingbird.GetTimestamp()
 	require.True(t, e.PutObject(0, timestamp, "X", 1))
 
-	e.replicators[0].Run()
+	e.replicatorServers[0].replicator.Run()
 
 	require.False(t, e.ObjExists(0, timestamp, 0))
 	require.False(t, e.ObjExists(1, timestamp, 0))
@@ -84,8 +84,8 @@ func TestOtherPolicyAuditReplicate(t *testing.T) {
 	require.True(t, e.ObjExists(1, timestamp, 1))
 	require.False(t, e.ObjExists(0, timestamp, 1))
 
-	e.replicators[0].Run()
-	e.replicators[1].Run()
+	e.replicatorServers[0].replicator.Run()
+	e.replicatorServers[1].replicator.Run()
 
 	require.True(t, e.ObjExists(0, timestamp, 1))
 	require.True(t, e.ObjExists(1, timestamp, 1))

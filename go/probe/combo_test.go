@@ -47,6 +47,6 @@ func TestAuditReplicate(t *testing.T) {
 	assert.False(t, e.ObjExists(0, timestamp, 0))
 
 	// make sure the file is replaced after another server's replicator runs
-	e.replicators[1].Run()
+	e.replicatorServers[1].replicator.Run()
 	assert.True(t, e.ObjExists(0, timestamp, 0))
 }

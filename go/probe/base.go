@@ -65,7 +65,7 @@ func (r *FakeRing) GetPartition(account string, container string, object string)
 
 func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
 	for _, d := range r.devices {
-		if d.Port == localPort {
+		if d.ReplicationPort == localPort {
 			return []*hummingbird.Device{d}, nil
 		}
 	}
@@ -88,6 +88,19 @@ func (r *FakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes {
 	return &fakeMoreNodes{r.devices[3]}
 }
 
+type TestReplicatorWebServer struct {
+	*httptest.Server
+	host       string
+	port       int
+	root       string
+	replicator *objectserver.Replicator
+}
+
+func (t *TestReplicatorWebServer) Close() {
+	os.RemoveAll(t.root)
+	t.Server.Close()
+}
+
 // Environment encapsulates a temporary SAIO-style environment for the object server, replicator, and auditor
 // and provides a few utility functions for manipulating it.
 type Environment struct {
@@ -95,7 +108,7 @@ type Environment struct {
 	servers                []*httptest.Server
 	ports                  []int
 	hosts                  []string
-	replicators            []*objectserver.Replicator
+	replicatorServers      []*TestReplicatorWebServer
 	auditors               []*objectserver.AuditorDaemon
 	ring                   hummingbird.Ring
 	hashPrefix, hashSuffix string
@@ -104,6 +117,9 @@ type Environment struct {
 // Close frees any resources associated with the Environment.
 func (e *Environment) Close() {
 	for _, s := range e.servers {
+		s.Close()
+	}
+	for _, s := range e.replicatorServers {
 		s.Close()
 	}
 	for _, s := range e.driveRoots {
@@ -199,6 +215,11 @@ func NewEnvironment(settings ...string) *Environment {
 		host, ports, _ := net.SplitHostPort(u.Host)
 		port, _ := strconv.Atoi(ports)
 
+		trs := httptest.NewServer(nil)
+		trsURL, _ := url.Parse(trs.URL)
+		trsHost, trsPorts, _ := net.SplitHostPort(trsURL.Host)
+		trsPort, _ := strconv.Atoi(trsPorts)
+
 		configString := "[DEFAULT]\nmount_check=false\n"
 		configString += fmt.Sprintf("devices=%s\n", driveRoot)
 		configString += fmt.Sprintf("bind_port=%d\n", port)
@@ -206,24 +227,32 @@ func NewEnvironment(settings ...string) *Environment {
 		for i := 0; i < len(settings); i += 2 {
 			configString += fmt.Sprintf("%s=%s\n", settings[i], settings[i+1])
 		}
-		configString += "[app:object-server]\n[object-replicator]\n[object-auditor]\n"
+		configString += "[app:object-server]\n[object-replicator]\n"
+		configString += fmt.Sprintf("bind_port=%d\n", trsPort)
+		configString += fmt.Sprintf("bind_ip=%s\n", trsHost)
+		configString += "[object-auditor]\n"
 		conf, _ := hummingbird.StringConfig(configString)
 		_, _, server, _, _ := objectserver.GetServer(conf, &flag.FlagSet{})
 		ts.Config.Handler = server.GetHandler(conf)
+
 		replicator, _ := objectserver.NewReplicator(conf, &flag.FlagSet{})
-		auditor, _ := objectserver.NewAuditor(conf, &flag.FlagSet{})
 		replicator.(*objectserver.Replicator).Rings[0] = env.ring
 		replicator.(*objectserver.Replicator).Rings[1] = env.ring
+		trs.Config.Handler = replicator.(*objectserver.Replicator).GetHandler()
+
+		replicatorServer := &TestReplicatorWebServer{Server: trs, host: host, port: port, root: driveRoot, replicator: replicator.(*objectserver.Replicator)}
+		auditor, _ := objectserver.NewAuditor(conf, &flag.FlagSet{})
+
 		env.ring.(*FakeRing).devices = append(env.ring.(*FakeRing).devices, &hummingbird.Device{
-			Id: i, Device: "sda", Ip: host, Port: port, Region: 0, ReplicationIp: host, ReplicationPort: port, Weight: 1, Zone: i,
+			Id: i, Device: "sda", Ip: host, Port: port, Region: 0, ReplicationIp: trsHost, ReplicationPort: trsPort, Weight: 1, Zone: i,
 		})
 
 		env.driveRoots = append(env.driveRoots, driveRoot)
 		env.servers = append(env.servers, ts)
 		env.ports = append(env.ports, port)
 		env.hosts = append(env.hosts, host)
-		env.replicators = append(env.replicators, replicator.(*objectserver.Replicator))
-		env.replicators[len(env.replicators)-1].LoopSleepTime = 0 * time.Second
+		env.replicatorServers = append(env.replicatorServers, replicatorServer)
+		env.replicatorServers[len(env.replicatorServers)-1].replicator.LoopSleepTime = 0 * time.Second
 		env.auditors = append(env.auditors, auditor.(*objectserver.AuditorDaemon))
 	}
 	return env

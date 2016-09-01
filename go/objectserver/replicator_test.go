@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -107,12 +108,55 @@ func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) (*Replicato
 	return rep, nil
 }
 
-func newServer(handler http.Handler) (ts *httptest.Server, host string, port int) {
-	ts = httptest.NewServer(handler)
-	u, _ := url.Parse(ts.URL)
-	host, ports, _ := net.SplitHostPort(u.Host)
-	port, _ = strconv.Atoi(ports)
-	return ts, host, port
+type TestReplicatorWebServer struct {
+	*httptest.Server
+	host       string
+	port       int
+	root       string
+	replicator *Replicator
+}
+
+func (t *TestReplicatorWebServer) Close() {
+	os.RemoveAll(t.root)
+	t.Server.Close()
+}
+
+func (t *TestReplicatorWebServer) Do(method string, path string, body io.ReadCloser) (*http.Response, error) {
+	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%d%s", t.host, t.port, path), body)
+	req.Header.Set("X-Backend-Storage-Policy-Index", "0")
+	if err != nil {
+		return nil, err
+	}
+	return http.DefaultClient.Do(req)
+}
+
+func makeReplicatorWebServer(settings ...string) (*TestReplicatorWebServer, error) {
+	return makeReplicatorWebServerWithFlags(settings, &flag.FlagSet{})
+}
+
+func makeReplicatorWebServerWithFlags(settings []string, flags *flag.FlagSet) (*TestReplicatorWebServer, error) {
+	driveRoot, err := ioutil.TempDir("", "")
+	if err != nil {
+		return nil, err
+	}
+	replicator, err := makeReplicatorWithFlags(settings, flags)
+	if err != nil {
+		return nil, err
+	}
+	ts := httptest.NewServer(replicator.GetHandler())
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		return nil, err
+	}
+	host, ports, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(ports)
+	if err != nil {
+		return nil, err
+	}
+	return &TestReplicatorWebServer{Server: ts, host: host, port: port, root: driveRoot, replicator: replicator}, nil
 }
 
 func setupDirectory() string {
@@ -368,13 +412,20 @@ func TestReplicationLocal(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 201, resp.StatusCode)
 
-	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
-	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
-	replicator, err := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	trs1, err := makeReplicatorWebServer()
 	require.Nil(t, err)
-	replicator.driveRoot = ts.objServer.driveRoot
-	replicator.Rings[0] = &FakeRepRing1{ldev: ldev, rdev: rdev}
-	replicator.Run()
+	defer trs1.Close()
+	trs1.replicator.driveRoot = ts.objServer.driveRoot
+
+	trs2, err := makeReplicatorWebServer()
+	require.Nil(t, err)
+	defer trs2.Close()
+	trs2.replicator.driveRoot = ts2.objServer.driveRoot
+	ldev := &hummingbird.Device{ReplicationIp: trs1.host, ReplicationPort: trs1.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: trs2.host, ReplicationPort: trs2.port, Device: "sda"}
+
+	trs1.replicator.Rings[0] = &FakeRepRing1{ldev: ldev, rdev: rdev}
+	trs1.replicator.Run()
 
 	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
 	assert.Nil(t, err)
@@ -421,13 +472,20 @@ func TestReplicationHandoff(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 200, resp.StatusCode)
 
-	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
-	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
-	replicator, err := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	trs1, err := makeReplicatorWebServer()
 	require.Nil(t, err)
-	replicator.driveRoot = ts.objServer.driveRoot
-	replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
-	replicator.Run()
+	defer trs1.Close()
+	trs1.replicator.driveRoot = ts.objServer.driveRoot
+	trs2, err := makeReplicatorWebServer()
+	require.Nil(t, err)
+	defer trs2.Close()
+	trs2.replicator.driveRoot = ts2.objServer.driveRoot
+
+	ldev := &hummingbird.Device{ReplicationIp: trs1.host, ReplicationPort: trs1.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: trs2.host, ReplicationPort: trs2.port, Device: "sda"}
+
+	trs1.replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	trs1.replicator.Run()
 
 	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
 	assert.Nil(t, err)
@@ -461,20 +519,31 @@ func TestReplicationHandoffQuorumDelete(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 201, resp.StatusCode)
 
-	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
-	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
 	flags := flag.NewFlagSet("hbird flags", flag.ContinueOnError)
 	flags.Bool("q", false, "boolean value")
 	flags.Parse([]string{})
-	replicator, _ := makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
-	require.False(t, replicator.quorumDelete)
+	trs1, err := makeReplicatorWebServerWithFlags([]string{}, flags)
+	require.Nil(t, err)
+	require.False(t, trs1.replicator.quorumDelete)
+	trs1.Close()
 
 	flags.Parse([]string{"-q"})
-	replicator, _ = makeReplicatorWithFlags([]string{"bind_port", fmt.Sprintf("%d", ts.port)}, flags)
-	require.True(t, replicator.quorumDelete)
-	replicator.driveRoot = ts.objServer.driveRoot
-	replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
-	replicator.Run()
+	trs1, err = makeReplicatorWebServerWithFlags([]string{}, flags)
+	require.Nil(t, err)
+	require.True(t, trs1.replicator.quorumDelete)
+	defer trs1.Close()
+	trs1.replicator.driveRoot = ts.objServer.driveRoot
+
+	trs2, err := makeReplicatorWebServer()
+	require.Nil(t, err)
+	defer trs2.Close()
+	trs2.replicator.driveRoot = ts2.objServer.driveRoot
+
+	ldev := &hummingbird.Device{ReplicationIp: trs1.host, ReplicationPort: trs1.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: trs2.host, ReplicationPort: trs2.port, Device: "sda"}
+
+	trs1.replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	trs1.replicator.Run()
 
 	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
 	assert.Nil(t, err)
@@ -628,8 +697,20 @@ func TestRestartDevice(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 201, resp.StatusCode)
 
-	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
-	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
+	trs1, err := makeReplicatorWebServer()
+	require.Nil(t, err)
+	defer trs1.Close()
+	trs1.replicator.driveRoot = ts.objServer.driveRoot
+	trs2, err := makeReplicatorWebServer()
+	require.Nil(t, err)
+	defer trs2.Close()
+	trs2.replicator.driveRoot = ts2.objServer.driveRoot
+
+	ldev := &hummingbird.Device{ReplicationIp: trs1.host, ReplicationPort: trs1.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: trs2.host, ReplicationPort: trs2.port, Device: "sda"}
+
+	trs1.replicator.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
+
 	dp := &deviceProgress{
 		dev:        ldev,
 		StartDate:  time.Now(),
@@ -637,59 +718,57 @@ func TestRestartDevice(t *testing.T) {
 	}
 
 	saved := &replicationLogSaver{}
-	repl, _ := makeReplicator()
-	repl.Rings[0] = &FakeRepRing2{ldev: ldev, rdev: rdev}
-	repl.logger = saved
+	trs1.replicator.logger = saved
 
 	// set stuff up
-	repl.driveRoot = ts.objServer.driveRoot
+	trs1.replicator.driveRoot = ts.objServer.driveRoot
 	myTicker := make(chan time.Time)
-	repl.partRateTicker = time.NewTicker(repl.timePerPart)
-	repl.partRateTicker.C = myTicker
-	repl.concurrencySem = make(chan struct{}, 5)
-	repl.deviceProgressMap["sda"] = dp
+	trs1.replicator.partRateTicker = time.NewTicker(trs1.replicator.timePerPart)
+	trs1.replicator.partRateTicker.C = myTicker
+	trs1.replicator.concurrencySem = make(chan struct{}, 5)
+	trs1.replicator.deviceProgressMap["sda"] = dp
 
-	repl.restartReplicateDevice(ldev)
-	cancelChan := repl.cancelers["sda"]
+	trs1.replicator.restartReplicateDevice(ldev)
+	cancelChan := trs1.replicator.cancelers["sda"]
 	// precancel the run
-	delete(repl.cancelers, "sda")
+	delete(trs1.replicator.cancelers, "sda")
 	close(cancelChan)
 	//start replication for loop
-	statsDp := <-repl.deviceProgressPassInit
+	statsDp := <-trs1.replicator.deviceProgressPassInit
 	assert.Equal(t, uint64(2), statsDp.PartitionsTotal)
 	// but got canceled
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.CancelCount)
 	// start up everything again
-	repl.restartReplicateDevice(ldev)
+	trs1.replicator.restartReplicateDevice(ldev)
 	//start replication for loop again
-	<-repl.deviceProgressPassInit
+	<-trs1.replicator.deviceProgressPassInit
 	// 1st partition process
 	myTicker <- time.Now()
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.PartitionsDone)
 	// syncing file
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.FilesSent)
 
 	// 2nd partition process
 	myTicker <- time.Now()
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.PartitionsDone)
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.FilesSent)
 	// 2nd partition was processed so cancel next run
-	cancelChan = repl.cancelers["sda"]
-	delete(repl.cancelers, "sda")
+	cancelChan = trs1.replicator.cancelers["sda"]
+	delete(trs1.replicator.cancelers, "sda")
 	close(cancelChan)
 	// check that full replicate was tracked
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.FullReplicateCount)
 	// starting final run
-	statsDp = <-repl.deviceProgressPassInit
+	statsDp = <-trs1.replicator.deviceProgressPassInit
 	assert.Equal(t, uint64(2), statsDp.PartitionsTotal)
 	// but it got canceled so returning
-	statsDp = <-repl.deviceProgressIncr
+	statsDp = <-trs1.replicator.deviceProgressIncr
 	assert.Equal(t, uint64(1), statsDp.CancelCount)
 }
 
