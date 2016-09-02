@@ -261,14 +261,13 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('GET' in str(err))
 
     def test_direct_delete_account(self):
-        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
         mock_path = 'swift.common.bufferedhttp.http_connect_raw'
         with mock.patch(mock_path) as fake_connect:
             fake_connect.return_value.getresponse.return_value.status = 200
-            direct_client.direct_delete_account(node, part, account)
+            direct_client.direct_delete_account(self.node, part, account)
             args, kwargs = fake_connect.call_args
             method = args[2]
             self.assertEqual('DELETE', method)
@@ -278,13 +277,12 @@ class TestDirectClient(unittest.TestCase):
             self.assertTrue('X-Timestamp' in headers)
 
     def test_direct_delete_account_failure(self):
-        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
         with mocked_http_conn(500) as conn:
             try:
-                direct_client.direct_delete_account(node, part, account)
+                direct_client.direct_delete_account(self.node, part, account)
             except ClientException as err:
                 pass
             self.assertEqual('DELETE', conn.method)
