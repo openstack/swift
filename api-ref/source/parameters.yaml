@@ -234,9 +234,9 @@ Range:
     - **Suffix byte range specification**. Use LENGTH bytes to specify
     the length of the data range.  The following forms of the header
     specify the following ranges of data:  - ``Range: bytes=-5``. The
-    last five bytes.  - ``Range: bytes=10-15``. The five bytes of data
+    last five bytes.  - ``Range: bytes=10-15``. The six bytes of data
     after a 10-byte   offset.  - ``Range: bytes=10-15,-5``. A multi-
-    part response that contains the   last five bytes and the five
+    part response that contains the   last five bytes and the six
     bytes of data after a 10-byte   offset. The ``Content-Type``
     response header contains   ``multipart/byteranges``.  - ``Range:
     bytes=4-6``. Bytes 4 to 6 inclusive.  - ``Range: bytes=2-2``. Byte
