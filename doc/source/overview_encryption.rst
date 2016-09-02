@@ -86,6 +86,11 @@ The keymaster config option ``encryption_root_secret`` MUST be set to a value
 of at least 44 valid base-64 characters before the middleware is used and
 should be consistent across all proxy servers. The minimum length of 44 has
 been chosen because it is the length of a base-64 encoded 32 byte value.
+Alternatives to specifying the encryption root secret directly in the
+`proxy-server.conf` file are storing it in a separate file, or storing it in
+an :ref:`external key management system
+<encryption_root_secret_in_external_kms>` such as `Barbican
+<https://docs.openstack.org/barbican>`_.
 
 .. note::
 
@@ -118,6 +123,135 @@ metadata when handling GET and HEAD requests. COPY requests are transformed
 into GET and PUT requests by the :ref:`copy` middleware before reaching the
 encryption middleware and as a result object data and metadata is decrypted and
 re-encrypted when copied.
+
+.. _encryption_root_secret_in_external_kms:
+
+Encryption Root Secret in External Key Management System
+--------------------------------------------------------
+
+The benefits of using
+a dedicated system for storing the encryption root secret include the
+auditing and access control infrastructure that are already in place in such a
+system, and the fact that an encryption root secret stored in a key management
+system (KMS) may be backed by a hardware security module (HSM) for additional
+security. Another significant benefit of storing the root encryption secret in
+an external KMS is that it is in this case never stored on a disk in the Swift
+cluster.
+
+Make sure the required dependencies are installed for retrieving an encryption
+root secret from an external KMS. This can be done when installing Swift (add
+the ``-e`` flag to install as a development version) by changing to the Swift
+directory and running the following command to install Swift together with
+the ``kms_keymaster`` extra dependencies::
+
+  sudo pip install .[kms_keymaster]
+
+Another way to install the dependencies is by making sure the
+following lines exist in the requirements.txt file, and installing them using
+``pip install -r requirements.txt``::
+
+  cryptography>=1.6                       # BSD/Apache-2.0
+  castellan>=0.6.0
+
+.. note::
+
+    If any of the required packages is already installed, the ``--upgrade``
+    flag may be required for the ``pip`` commands in order for the required
+    minimum version to be installed.
+
+To make use of an encryption root secret stored in an external KMS,
+replace the keymaster middleware with the kms_keymaster middleware in the
+proxy server WSGI pipeline in `proxy-server.conf`, in the order shown in this
+example::
+
+  <other middleware> kms_keymaster encryption proxy-logging proxy-server
+
+and add a section to the same file::
+
+  [filter:kms_keymaster]
+  use = egg:swift#kms_keymaster
+  keymaster_config_path = file_with_kms_keymaster_config
+
+Create or edit the file `file_with_kms_keymaster_config` referenced above.
+For further details on the middleware configuration options, see the
+`keymaster.conf-sample` file. An example of the content of this file, with
+optional parameters omitted, is below::
+
+  [kms_keymaster]
+  key_id = changeme
+  username = swift
+  password = password
+  project_name = swift
+  auth_endpoint = http://keystonehost:5000/v3
+
+The encryption root secret shall be created and stored in the external key
+management system before it can be used by the keymaster. It shall be stored
+as a symmetric key, with content type ``application/octet-stream``,
+``base64`` content encoding, ``AES`` algorithm, bit length ``256``, and secret
+type ``symmetric``. The mode ``ctr`` may also be stored for informational
+purposes - it is not currently checked by the keymaster.
+
+The following command can be used to store the currently configured
+``encryption_root_secret`` value from the `proxy-server.conf` file
+in Barbican::
+
+    openstack secret store --name swift_root_secret \
+    --payload-content-type="application/octet-stream" \
+    --payload-content-encoding="base64" --algorithm aes --bit-length 256 \
+    --mode ctr --secret-type symmetric --payload <base64_encoded_root_secret>
+
+Alternatively, the existing root secret can also be stored in Barbican using
+`curl <http://developer.openstack.org/api-guide/key-manager/secrets.html>`__.
+
+.. note::
+
+    The credentials used to store the secret in Barbican shall be the same
+    ones that the proxy server uses to retrieve the secret, i.e., the ones
+    configured in the `keymaster.conf` file. For clarity reasons the commands
+    shown here omit the credentials - they may be specified explicitly, or in
+    environment variables.
+
+Instead of using an existing root secret, Barbican can also be asked to
+generate a new 256-bit root secret, with content type
+``application/octet-stream`` and algorithm ``AES`` (the ``mode`` parameter is
+currently optional)::
+
+    openstack secret order create --name swift_root_secret \
+    --payload-content-type="application/octet-stream" --algorithm aes \
+    --bit-length 256 --mode ctr key
+
+The ``order create`` creates an asynchronous request to create the actual
+secret.
+The order can be retrieved using ``openstack secret order get``, and once the
+order completes successfully, the output will show the key id of the generated
+root secret.
+Keys currently stored in Barbican can be listed using the
+``openstack secret list`` command.
+
+.. note::
+
+    Both the order (the asynchronous request for creating or storing a secret),
+    and the actual secret itself, have similar unique identifiers. Once the
+    order has been completed, the key id is shown in the output of the ``order
+    get`` command.
+
+The keymaster uses the explicitly configured username and password (and
+project name etc.) from the `keymaster.conf` file for retrieving the encryption
+root secret from an external key management system. The `Castellan library
+<http://docs.openstack.org/developer/castellan/>`_ is used to communicate with
+Barbican.
+
+For the proxy server, reading the encryption root secret directly from the
+`proxy-server.conf` file, from the `keymaster.conf` file pointed to
+from the `proxy-server.conf` file, or from an external key management system
+such as Barbican, are all functionally equivalent. In case reading the
+encryption root secret from the external key management system fails, the
+proxy server will not start up. If the encryption root secret is retrieved
+successfully, it is cached in memory in the proxy server.
+
+For further details on the configuration options, see the
+`[filter:kms_keymaster]` section in the `proxy-server.conf-sample` file, and
+the `keymaster.conf-sample` file.
 
 Upgrade Considerations
 ----------------------

@@ -889,6 +889,24 @@ encryption_root_secret = changeme
 # MUST NOT be set in proxy-server.conf.
 # keymaster_config_path =
 
+# To store the encryption root secret in a remote key management system (KMS)
+# such as Barbican, replace the keymaster middleware with the kms_keymaster
+# middleware in the proxy-server pipeline. They should be to the right of all
+# other middleware apart from the final proxy-logging middleware, and in the
+# order shown in this example:
+# <other middleware> kms_keymaster encryption proxy-logging proxy-server
+[filter:kms_keymaster]
+use = egg:swift#kms_keymaster
+
+# Sets the path from which the keymaster config options should be read. This
+# allows multiple processes which need to be encryption-aware (for example,
+# proxy-server and container-sync) to share the same config file, ensuring
+# that the encryption keys used are the same. The format expected is similar
+# to other config files, with a single [kms_keymaster] section. See the
+# keymaster.conf-sample file for details on the kms_keymaster configuration
+# options.
+# keymaster_config_path =
+
 [filter:encryption]
 use = egg:swift#encryption
 
