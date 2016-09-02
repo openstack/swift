@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/openstack/swift/go/hummingbird"
 	"github.com/openstack/swift/go/objectserver"
@@ -252,7 +251,6 @@ func NewEnvironment(settings ...string) *Environment {
 		env.ports = append(env.ports, port)
 		env.hosts = append(env.hosts, host)
 		env.replicatorServers = append(env.replicatorServers, replicatorServer)
-		env.replicatorServers[len(env.replicatorServers)-1].replicator.LoopSleepTime = 0 * time.Second
 		env.auditors = append(env.auditors, auditor.(*objectserver.AuditorDaemon))
 	}
 	return env

@@ -59,6 +59,14 @@ type Auditor struct {
 	errors, totalErrors           int64
 }
 
+// OneTimeChan returns a channel that will yield the current time once, then is closed.
+func OneTimeChan() chan time.Time {
+	c := make(chan time.Time, 1)
+	c <- time.Now()
+	close(c)
+	return c
+}
+
 // rateLimitSleep long enough to achieve the target rate limit.
 func rateLimitSleep(startTime time.Time, done int64, rate int64) {
 	shouldHaveDone := int64(time.Since(startTime)/time.Second) * rate

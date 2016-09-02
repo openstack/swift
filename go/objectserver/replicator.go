@@ -16,15 +16,11 @@
 package objectserver
 
 import (
-	"bufio"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"net"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
@@ -34,35 +30,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justinas/alice"
 	"github.com/openstack/swift/go/hummingbird"
-	"github.com/openstack/swift/go/middleware"
 )
 
 var StatsReportInterval = 300 * time.Second
 var TmpEmptyTime = 24 * time.Hour
 var ReplicateDeviceTimeout = 4 * time.Hour
-
-// Encapsulates a partition for replication.
-type job struct {
-	dev       *hummingbird.Device
-	partition string
-	objPath   string
-	policy    int
-}
-
-type ReplicationData struct {
-	dev    *hummingbird.Device
-	conn   *RepConn
-	hashes map[string]string
-	err    error
-}
-
-type NoMoreNodes struct{}
-
-func (n *NoMoreNodes) Next() *hummingbird.Device {
-	return nil
-}
 
 type PriorityRepJob struct {
 	Partition  uint64                `json:"partition"`
@@ -71,85 +44,11 @@ type PriorityRepJob struct {
 	Policy     int                   `json:"policy"`
 }
 
-type deviceProgress struct {
-	PartitionsDone   uint64
-	PartitionsTotal  uint64
-	StartDate        time.Time
-	LastUpdate       time.Time
-	FilesSent        uint64
-	BytesSent        uint64
-	PriorityRepsDone uint64
-
-	FullReplicateCount uint64
-	CancelCount        uint64
-	LastPassDuration   time.Duration
-	LastPassUpdate     time.Time
-
-	dev *hummingbird.Device
-}
-
-// Object replicator daemon object
-type Replicator struct {
-	concurrency    int
-	checkMounts    bool
-	driveRoot      string
-	reconCachePath string
-	bindIp         string
-	logger         hummingbird.SysLogLike
-	logLevel       string
-	port           int
-	devGroup       sync.WaitGroup
-	partRateTicker *time.Ticker
-	timePerPart    time.Duration
-	LoopSleepTime  time.Duration
-	quorumDelete   bool
-	concurrencySem chan struct{}
-	devices        map[string]bool
-	partitions     map[string]bool
-	priRepChans    map[int]chan PriorityRepJob
-	priRepM        sync.Mutex
-	reclaimAge     int64
-	Rings          map[int]hummingbird.Ring
-
-	hashPathPrefix   string
-	hashPathSuffix   string
-	reserve          int64
-	replicationMan   *ReplicationManager
-	replicateTimeout time.Duration
-
-	once      bool
-	cancelers map[string]chan struct{}
-
-	/* stats accounting */
-	deviceProgressMap      map[string]*deviceProgress
-	deviceProgressIncr     chan deviceProgress
-	deviceProgressPassInit chan deviceProgress
-}
-
-func (r *Replicator) LogError(format string, args ...interface{}) {
-	r.logger.Err(fmt.Sprintf(format, args...))
-}
-
-func (r *Replicator) LogInfo(format string, args ...interface{}) {
-	r.logger.Info(fmt.Sprintf(format, args...))
-}
-
-func (r *Replicator) LogDebug(format string, args ...interface{}) {
-	r.logger.Debug(fmt.Sprintf(format, args...))
-}
-
-func (r *Replicator) LogPanics(m string) {
-	if e := recover(); e != nil {
-		r.LogError("%s: %s: %s", m, e, debug.Stack())
-	}
-}
-
-// OneTimeChan returns a channel that will yield the current time once, then is closed.
-func OneTimeChan() chan time.Time {
-	c := make(chan time.Time, 1)
-	c <- time.Now()
-	close(c)
-	return c
+// minimal ring interface for replication
+type replicationRing interface {
+	GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool)
+	GetMoreNodes(partition uint64) hummingbird.MoreNodes
+	LocalDevices(localPort int) (devs []*hummingbird.Device, err error)
 }
 
 type quarantineFileError struct {
@@ -160,7 +59,14 @@ func (q quarantineFileError) Error() string {
 	return q.msg
 }
 
-func (r *Replicator) getFile(filePath string) (fp *os.File, xattrs []byte, size int64, err error) {
+func deviceKey(dev *hummingbird.Device, policy int) string {
+	if policy == 0 {
+		return dev.Device
+	}
+	return fmt.Sprintf("%s-%d", dev.Device, policy)
+}
+
+func getFile(filePath string) (fp *os.File, xattrs []byte, size int64, err error) {
 	fp, err = os.Open(filePath)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("unable to open file (%v): %s", err, filePath)
@@ -216,31 +122,70 @@ func (r *Replicator) getFile(filePath string) (fp *os.File, xattrs []byte, size 
 	return fp, rawxattr, finfo.Size(), nil
 }
 
-func (r *Replicator) beginReplication(dev *hummingbird.Device, partition string, hashes bool, policy int, rChan chan ReplicationData) {
-	rc, err := NewRepConn(dev, partition, policy)
-	if err != nil {
-		r.LogError("[beginReplication] error creating new request: %v", err)
-		rChan <- ReplicationData{dev: dev, conn: nil, hashes: nil, err: err}
-		return
-	}
-
-	if err := rc.SendMessage(BeginReplicationRequest{Device: dev.Device, Partition: partition, NeedHashes: hashes}); err != nil {
-		rChan <- ReplicationData{dev: dev, conn: nil, hashes: nil, err: err}
-		return
-	}
-	var brr BeginReplicationResponse
-	if err := rc.RecvMessage(&brr); err != nil {
-		rChan <- ReplicationData{dev: dev, conn: nil, hashes: nil, err: err}
-		return
-	}
-	rChan <- ReplicationData{dev: dev, conn: rc, hashes: brr.Hashes, err: nil}
+type ReplicationDeviceStats struct {
+	Stats            map[string]int64
+	LastCheckin      time.Time
+	RunStarted       time.Time
+	DeviceStarted    time.Time
+	LastPassDuration time.Duration
+	TotalPasses      int64
 }
 
-func (r *Replicator) listObjFiles(objChan chan string, cancel chan struct{}, partdir string, needSuffix func(string) bool) {
+type ReplicationDevice interface {
+	Replicate()
+	ReplicateLoop()
+	Key() string
+	Cancel()
+	PriorityReplicate(pri PriorityRepJob, timeout time.Duration) bool
+	Stats() *ReplicationDeviceStats
+}
+
+type replicationDevice struct {
+	// If you have a better way to make struct methods that are overridable for tests, please call my house.
+	i interface {
+		beginReplication(dev *hummingbird.Device, partition string, hashes bool, rChan chan beginReplicationResponse)
+		listObjFiles(objChan chan string, cancel chan struct{}, partdir string, needSuffix func(string) bool)
+		syncFile(objFile string, dst []*syncFileArg) (syncs int, insync int, err error)
+		replicateLocal(partition string, nodes []*hummingbird.Device, moreNodes hummingbird.MoreNodes)
+		replicateHandoff(partition string, nodes []*hummingbird.Device)
+		cleanTemp()
+		listPartitions() ([]string, error)
+		replicatePartition(partition string)
+	}
+	r      *Replicator
+	dev    *hummingbird.Device
+	policy int
+	cancel chan struct{}
+	priRep chan PriorityRepJob
+	stats  ReplicationDeviceStats
+}
+
+func (rd *replicationDevice) Stats() *ReplicationDeviceStats {
+	return &rd.stats
+}
+
+type statUpdate struct {
+	deviceKey string
+	stat      string
+	value     int64
+}
+
+func (rd *replicationDevice) updateStat(stat string, amount int64) {
+	rd.r.updateStat <- statUpdate{rd.Key(), stat, amount}
+}
+
+type beginReplicationResponse struct {
+	dev    *hummingbird.Device
+	conn   RepConn
+	hashes map[string]string
+	err    error
+}
+
+func (rd *replicationDevice) listObjFiles(objChan chan string, cancel chan struct{}, partdir string, needSuffix func(string) bool) {
 	defer close(objChan)
 	suffixDirs, err := filepath.Glob(filepath.Join(partdir, "[a-f0-9][a-f0-9][a-f0-9]"))
 	if err != nil {
-		r.LogError("[listObjFiles] %v", err)
+		rd.r.LogError("[listObjFiles] %v", err)
 		return
 	}
 	if len(suffixDirs) == 0 {
@@ -260,7 +205,7 @@ func (r *Replicator) listObjFiles(objChan chan string, cancel chan struct{}, par
 		}
 		hashDirs, err := filepath.Glob(filepath.Join(suffDir, "????????????????????????????????"))
 		if err != nil {
-			r.LogError("[listObjFiles] %v", err)
+			rd.r.LogError("[listObjFiles] %v", err)
 			return
 		}
 		if len(hashDirs) == 0 {
@@ -274,7 +219,7 @@ func (r *Replicator) listObjFiles(objChan chan string, cancel chan struct{}, par
 				continue
 			}
 			if err != nil {
-				r.LogError("[listObjFiles] %v", err)
+				rd.r.LogError("[listObjFiles] %v", err)
 				return
 			}
 			for _, objFile := range fileList {
@@ -289,18 +234,18 @@ func (r *Replicator) listObjFiles(objChan chan string, cancel chan struct{}, par
 }
 
 type syncFileArg struct {
-	conn *RepConn
+	conn RepConn
 	dev  *hummingbird.Device
 }
 
-func (r *Replicator) syncFile(objFile string, dst []*syncFileArg, j *job) (syncs int, insync int, err error) {
+func (rd *replicationDevice) syncFile(objFile string, dst []*syncFileArg) (syncs int, insync int, err error) {
 	var wrs []*syncFileArg
 	lst := strings.Split(objFile, string(os.PathSeparator))
 	relPath := filepath.Join(lst[len(lst)-5:]...)
-	fp, xattrs, fileSize, err := r.getFile(objFile)
+	fp, xattrs, fileSize, err := getFile(objFile)
 	if _, ok := err.(quarantineFileError); ok {
 		hashDir := filepath.Dir(objFile)
-		r.LogError("[syncFile] %s failed audit and is being quarantined: %s", hashDir, err.Error())
+		rd.r.LogError("[syncFile] %s failed audit and is being quarantined: %s", hashDir, err.Error())
 		QuarantineHash(hashDir)
 		return 0, 0, nil
 	} else if err != nil {
@@ -341,7 +286,7 @@ func (r *Replicator) syncFile(objFile string, dst []*syncFileArg, j *job) (syncs
 				continue
 			}
 			if _, err := sfa.conn.Write(scratch[0:length]); err != nil {
-				r.LogError("Failed to write to remoteDevice: %d, %v", sfa.dev.Id, err)
+				rd.r.LogError("Failed to write to remoteDevice: %d, %v", sfa.dev.Id, err)
 				wrs[index] = nil
 			}
 		}
@@ -361,27 +306,36 @@ func (r *Replicator) syncFile(objFile string, dst []*syncFileArg, j *job) (syncs
 			if fur.Success {
 				syncs++
 				insync++
-				r.deviceProgressIncr <- deviceProgress{
-					dev:       j.dev,
-					FilesSent: 1,
-					BytesSent: uint64(fileSize),
-				}
+				rd.updateStat("FilesSent", 1)
+				rd.updateStat("BytesSent", fileSize)
 			}
 		}
 	}
 	return syncs, insync, nil
 }
 
-func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNodes hummingbird.MoreNodes) {
-	defer r.LogPanics("PANIC REPLICATING LOCAL PARTITION")
-	path := filepath.Join(j.objPath, j.partition)
+func (rd *replicationDevice) beginReplication(dev *hummingbird.Device, partition string, hashes bool, rChan chan beginReplicationResponse) {
+	var brr BeginReplicationResponse
+	if rc, err := NewRepConn(dev, partition, rd.policy); err != nil {
+		rChan <- beginReplicationResponse{dev: dev, err: err}
+	} else if err := rc.SendMessage(BeginReplicationRequest{Device: dev.Device, Partition: partition, NeedHashes: hashes}); err != nil {
+		rChan <- beginReplicationResponse{dev: dev, err: err}
+	} else if err := rc.RecvMessage(&brr); err != nil {
+		rChan <- beginReplicationResponse{dev: dev, err: err}
+	} else {
+		rChan <- beginReplicationResponse{dev: dev, conn: rc, hashes: brr.Hashes}
+	}
+}
+
+func (rd *replicationDevice) replicateLocal(partition string, nodes []*hummingbird.Device, moreNodes hummingbird.MoreNodes) {
+	path := filepath.Join(rd.r.deviceRoot, rd.dev.Device, PolicyDir(rd.policy), partition)
 	syncCount := 0
-	remoteHashes := make(map[int]map[string]string)
-	remoteConnections := make(map[int]*RepConn)
 	startGetHashesRemote := time.Now()
-	rChan := make(chan ReplicationData)
-	for i := 0; i < len(nodes); i++ {
-		go r.beginReplication(nodes[i], j.partition, true, j.policy, rChan)
+	remoteHashes := make(map[int]map[string]string)
+	remoteConnections := make(map[int]RepConn)
+	rChan := make(chan beginReplicationResponse)
+	for _, dev := range nodes {
+		go rd.i.beginReplication(dev, partition, true, rChan)
 	}
 	for i := 0; i < len(nodes); i++ {
 		rData := <-rChan
@@ -391,8 +345,10 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 			remoteConnections[rData.dev.Id] = rData.conn
 		} else if rData.err == RepUnmountedError {
 			if nextNode := moreNodes.Next(); nextNode != nil {
-				go r.beginReplication(nextNode, j.partition, true, j.policy, rChan)
+				go rd.i.beginReplication(nextNode, partition, true, rChan)
 				nodes = append(nodes, nextNode)
+			} else {
+				break
 			}
 		}
 	}
@@ -404,9 +360,9 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	startGetHashesLocal := time.Now()
 
 	recalc := []string{}
-	hashes, err := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, j.policy, r)
+	hashes, err := GetHashes(rd.r.deviceRoot, rd.dev.Device, partition, recalc, rd.r.reclaimAge, rd.policy, rd.r)
 	if err != nil {
-		r.LogError("[replicateLocal] error getting local hashes: %v", err)
+		rd.r.LogError("[replicateLocal] error getting local hashes: %v", err)
 		return
 	}
 	for suffix, localHash := range hashes {
@@ -417,9 +373,9 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 			}
 		}
 	}
-	hashes, err = GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r.reclaimAge, j.policy, r)
+	hashes, err = GetHashes(rd.r.deviceRoot, rd.dev.Device, partition, recalc, rd.r.reclaimAge, rd.policy, rd.r)
 	if err != nil {
-		r.LogError("[replicateLocal] error recalculating local hashes: %v", err)
+		rd.r.LogError("[replicateLocal] error recalculating local hashes: %v", err)
 		return
 	}
 	timeGetHashesLocal := float64(time.Now().Sub(startGetHashesLocal)) / float64(time.Second)
@@ -427,7 +383,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	objChan := make(chan string, 100)
 	cancel := make(chan struct{})
 	defer close(cancel)
-	go r.listObjFiles(objChan, cancel, path, func(suffix string) bool {
+	go rd.i.listObjFiles(objChan, cancel, path, func(suffix string) bool {
 		for _, remoteHash := range remoteHashes {
 			if hashes[suffix] != remoteHash[suffix] {
 				return true
@@ -441,69 +397,65 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 		suffix := filepath.Base(filepath.Dir(filepath.Dir(objFile)))
 		for _, dev := range nodes {
 			if rhashes, ok := remoteHashes[dev.Id]; ok && hashes[suffix] != rhashes[suffix] {
-				if remoteConnections[dev.Id].Disconnected {
+				if remoteConnections[dev.Id].Disconnected() {
 					continue
 				}
 				toSync = append(toSync, &syncFileArg{conn: remoteConnections[dev.Id], dev: dev})
 			}
 		}
-		if syncs, _, err := r.syncFile(objFile, toSync, j); err == nil {
+		if syncs, _, err := rd.i.syncFile(objFile, toSync); err == nil {
 			syncCount += syncs
 		} else {
-			r.LogError("[syncFile] %v", err)
+			rd.r.LogError("[syncFile] %v", err)
 			return
 		}
 	}
 	for _, conn := range remoteConnections {
-		if !conn.Disconnected {
+		if !conn.Disconnected() {
 			conn.SendMessage(SyncFileRequest{Done: true})
 		}
 	}
 	timeSyncing := float64(time.Now().Sub(startSyncing)) / float64(time.Second)
 	if syncCount > 0 {
-		r.LogInfo("[replicateLocal] Partition %s synced %d files (%.2fs / %.2fs / %.2fs)", path, syncCount, timeGetHashesRemote, timeGetHashesLocal, timeSyncing)
+		rd.r.LogInfo("[replicateLocal] Partition %s synced %d files (%.2fs / %.2fs / %.2fs)", path, syncCount, timeGetHashesRemote, timeGetHashesLocal, timeSyncing)
 	}
 }
 
-func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
-	defer r.LogPanics("PANIC REPLICATING HANDOFF PARTITION")
-	path := filepath.Join(j.objPath, j.partition)
+func (rd *replicationDevice) replicateHandoff(partition string, nodes []*hummingbird.Device) {
+	path := filepath.Join(rd.r.deviceRoot, rd.dev.Device, PolicyDir(rd.policy), partition)
 	syncCount := 0
-	remoteAvailable := make(map[int]bool)
-	remoteConnections := make(map[int]*RepConn)
-	rChan := make(chan ReplicationData)
-	nodesNeeded := len(nodes)
-	for i := 0; i < nodesNeeded; i++ {
-		go r.beginReplication(nodes[i], j.partition, false, j.policy, rChan)
+	remoteConnections := make(map[int]RepConn)
+	rChan := make(chan beginReplicationResponse)
+	for _, dev := range nodes {
+		go rd.i.beginReplication(dev, partition, false, rChan)
 	}
-	for i := 0; i < nodesNeeded; i++ {
+	for i := 0; i < len(nodes); i++ {
 		rData := <-rChan
 		if rData.err == nil {
-			remoteAvailable[rData.dev.Id] = true
-			remoteConnections[rData.dev.Id] = rData.conn
 			defer rData.conn.Close()
+			remoteConnections[rData.dev.Id] = rData.conn
 		}
 	}
-	if len(remoteAvailable) == 0 {
+	if len(remoteConnections) == 0 {
 		return
 	}
 
 	objChan := make(chan string, 100)
 	cancel := make(chan struct{})
 	defer close(cancel)
-	go r.listObjFiles(objChan, cancel, path, func(string) bool { return true })
+	go rd.i.listObjFiles(objChan, cancel, path, func(string) bool { return true })
 	for objFile := range objChan {
 		toSync := make([]*syncFileArg, 0)
 		for _, dev := range nodes {
-			if remoteAvailable[dev.Id] && !remoteConnections[dev.Id].Disconnected {
+			if remoteConnections[dev.Id] != nil && !remoteConnections[dev.Id].Disconnected() {
 				toSync = append(toSync, &syncFileArg{conn: remoteConnections[dev.Id], dev: dev})
 			}
 		}
-		if syncs, insync, err := r.syncFile(objFile, toSync, j); err == nil {
+		if syncs, insync, err := rd.i.syncFile(objFile, toSync); err == nil {
 			syncCount += syncs
 
 			success := insync == len(nodes)
-			if r.quorumDelete {
+			if rd.r.quorumDelete {
 				success = insync >= len(nodes)/2+1
 			}
 			if success {
@@ -511,22 +463,25 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 				os.Remove(filepath.Dir(objFile))
 			}
 		} else {
-			r.LogError("[syncFile] %v", err)
+			rd.r.LogError("[syncFile] %v", err)
 		}
 	}
 	for _, conn := range remoteConnections {
-		if !conn.Disconnected {
+		if !conn.Disconnected() {
 			conn.SendMessage(SyncFileRequest{Done: true})
 		}
 	}
 	if syncCount > 0 {
-		r.LogInfo("[replicateHandoff] Partition %s synced %d files", path, syncCount)
+		rd.r.LogInfo("[replicateHandoff] Partition %s synced %d files", path, syncCount)
 	}
 }
 
-// Clean up any old files in a device's tmp directories.
-func (r *Replicator) cleanTemp(dev *hummingbird.Device) {
-	tempDir := TempDirPath(r.driveRoot, dev.Device)
+func (rd *replicationDevice) Key() string {
+	return deviceKey(rd.dev, rd.policy)
+}
+
+func (rd *replicationDevice) cleanTemp() {
+	tempDir := TempDirPath(rd.r.deviceRoot, rd.dev.Device)
 	if tmpContents, err := ioutil.ReadDir(tempDir); err == nil {
 		for _, tmpEntry := range tmpContents {
 			if time.Since(tmpEntry.ModTime()) > TmpEmptyTime {
@@ -536,312 +491,132 @@ func (r *Replicator) cleanTemp(dev *hummingbird.Device) {
 	}
 }
 
-// start or restart replication on a device and set up canceler
-func (r *Replicator) restartReplicateDevice(dev *hummingbird.Device) {
-	r.devGroup.Add(1)
-	if canceler, ok := r.cancelers[dev.Device]; ok {
-		close(canceler)
+func (rd *replicationDevice) replicatePartition(partition string) {
+	rd.r.concurrencySem <- struct{}{}
+	defer func() {
+		<-rd.r.concurrencySem
+	}()
+	partitioni, err := strconv.ParseUint(partition, 10, 64)
+	if err != nil {
+		return
 	}
-	r.cancelers[dev.Device] = make(chan struct{})
-	go r.replicateDevice(dev, r.cancelers[dev.Device])
+	nodes, handoff := rd.r.Rings[rd.policy].GetJobNodes(partitioni, rd.dev.Id)
+	if handoff {
+		rd.i.replicateHandoff(partition, nodes)
+	} else {
+		rd.i.replicateLocal(partition, nodes, rd.r.Rings[rd.policy].GetMoreNodes(partitioni))
+	}
+	rd.updateStat("PartitionsDone", 1)
 }
 
-// Run replication on given device. For normal usage do not call directly, use "restartReplicateDevice"
-func (r *Replicator) replicateDevice(dev *hummingbird.Device, canceler chan struct{}) {
-	defer r.LogPanics(fmt.Sprintf("PANIC REPLICATING DEVICE: %s", dev.Device))
-	defer r.devGroup.Done()
-	var lastPassDuration time.Duration
-	for {
-		time.Sleep(r.LoopSleepTime)
-		passStartTime := time.Now()
-		if mounted, err := hummingbird.IsMount(filepath.Join(r.driveRoot, dev.Device)); r.checkMounts && (err != nil || mounted != true) {
-			r.LogError("[replicateDevice] Drive not mounted: %s", dev.Device)
-			break
-		}
-		if hummingbird.Exists(filepath.Join(r.driveRoot, dev.Device, "lock_device")) {
-			break
-		}
-
-		r.cleanTemp(dev)
-		jobList := make([]job, 0)
-
-		for policy := range r.Rings {
-			objPath := filepath.Join(r.driveRoot, dev.Device, PolicyDir(policy))
-			if fi, err := os.Stat(objPath); err != nil || !fi.Mode().IsDir() {
-				continue
-			}
-			policyPartitions, err := filepath.Glob(filepath.Join(objPath, "[0-9]*"))
-			if err != nil {
-				r.LogError("[replicateDevice] Error getting partition list: %s (%v)", objPath, err)
-				continue
-			}
-			for _, partition := range policyPartitions {
-				partition = filepath.Base(partition)
-				if _, ok := r.partitions[partition]; len(r.partitions) > 0 && !ok {
-					continue
-				}
-				if _, err := strconv.ParseUint(partition, 10, 64); err == nil {
-					jobList = append(jobList,
-						job{objPath: objPath,
-							partition: partition,
-							dev:       dev,
-							policy:    policy})
-				}
-			}
-		}
-
-		numPartitions := uint64(len(jobList))
-		if numPartitions == 0 {
-			r.LogError("[replicateDevice] No objects found: %s", filepath.Join(r.driveRoot, dev.Device))
-		}
-
-		partitionsProcessed := uint64(0)
-
-		r.deviceProgressPassInit <- deviceProgress{
-			dev:              dev,
-			PartitionsTotal:  numPartitions,
-			LastPassDuration: lastPassDuration,
-		}
-
-		for i := len(jobList) - 1; i > 0; i-- { // shuffle job list
-			j := rand.Intn(i + 1)
-			jobList[j], jobList[i] = jobList[i], jobList[j]
-		}
-
-		for _, j := range jobList {
-			select {
-			case <-canceler:
-				{
-					r.deviceProgressIncr <- deviceProgress{
-						dev:         dev,
-						CancelCount: 1,
-					}
-					r.LogError("replicateDevice canceled for device: %s", dev.Device)
-					return
-				}
-			default:
-			}
-			r.processPriorityJobs(dev.Id)
-
-			func() {
-				<-r.partRateTicker.C
-				r.concurrencySem <- struct{}{}
-				defer func() {
-					<-r.concurrencySem
-				}()
-				r.deviceProgressIncr <- deviceProgress{
-					dev:            dev,
-					PartitionsDone: 1,
-				}
-				partitioni, err := strconv.ParseUint(j.partition, 10, 64)
-				if err != nil {
-					return
-				}
-				nodes, handoff := r.Rings[j.policy].GetJobNodes(partitioni, j.dev.Id)
-				partitionsProcessed += 1
-				if handoff {
-					r.replicateHandoff(&j, nodes)
-				} else {
-					r.replicateLocal(&j, nodes, r.Rings[j.policy].GetMoreNodes(partitioni))
-				}
-			}()
-		}
-		if partitionsProcessed >= numPartitions {
-			r.deviceProgressIncr <- deviceProgress{
-				dev:                dev,
-				FullReplicateCount: 1,
-			}
-			lastPassDuration = time.Since(passStartTime)
-		}
-		if r.once {
-			break
-		}
+func (rd *replicationDevice) listPartitions() ([]string, error) {
+	objPath := filepath.Join(rd.r.deviceRoot, rd.dev.Device, PolicyDir(rd.policy))
+	partitions, err := filepath.Glob(filepath.Join(objPath, "[0-9]*"))
+	if err != nil {
+		return nil, err
 	}
-}
-
-// restartDevices should be called periodically from the statsReporter thread to make sure devices that should be replicating are.
-func (r *Replicator) restartDevices() {
-	shouldBeRunning := make(map[string]bool)
-	deviceMap := map[string]*hummingbird.Device{}
-	for _, ring := range r.Rings {
-		devices, err := ring.LocalDevices(r.port)
-		if err != nil {
-			r.LogError("Error getting local devices: %v", err)
-			return
-		}
-		for _, dev := range devices {
-			deviceMap[dev.Device] = dev
-		}
-	}
-	// launch replication for any new devices
-	for _, dev := range deviceMap {
-		shouldBeRunning[dev.Device] = true
-		if _, ok := r.deviceProgressMap[dev.Device]; !ok {
-			r.restartReplicateDevice(dev)
-		}
-	}
-	// kill any replicators that are no longer in the ring
-	for dev, canceler := range r.cancelers {
-		if !shouldBeRunning[dev] {
-			close(canceler)
-			delete(r.cancelers, dev)
-			delete(r.deviceProgressMap, dev)
-		}
-	}
-	// re-launch any stalled replicators
-	for _, dp := range r.deviceProgressMap {
-		if time.Since(dp.LastUpdate) > ReplicateDeviceTimeout {
-			r.restartReplicateDevice(dp.dev)
+	partitionList := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		partition = filepath.Base(partition)
+		if len(rd.r.partitions) > 0 && !rd.r.partitions[partition] {
 			continue
 		}
+		if _, err := strconv.ParseUint(partition, 10, 64); err == nil {
+			partitionList = append(partitionList, partition)
+		}
 	}
+	for i := len(partitionList) - 1; i > 0; i-- { // shuffle partition list
+		j := rand.Intn(i + 1)
+		partitionList[j], partitionList[i] = partitionList[i], partitionList[j]
+	}
+	return partitionList, nil
 }
 
-// Collect and log replication stats - runs in a goroutine launched by run(), runs for the duration of a replication pass.
-func (r *Replicator) statsReporter(c <-chan time.Time) {
-	for {
-		select {
-		case dp := <-r.deviceProgressPassInit:
-			curDp, ok := r.deviceProgressMap[dp.dev.Device]
-			if !ok {
-				curDp = &deviceProgress{
-					dev:        dp.dev,
-					StartDate:  time.Now(),
-					LastUpdate: time.Now(),
-				}
-				r.deviceProgressMap[dp.dev.Device] = curDp
-			}
+func (rd *replicationDevice) Replicate() {
+	defer rd.r.LogPanics(fmt.Sprintf("PANIC REPLICATING DEVICE: %s", rd.dev.Device))
+	rd.updateStat("startRun", 1)
+	if mounted, err := hummingbird.IsMount(filepath.Join(rd.r.deviceRoot, rd.dev.Device)); rd.r.checkMounts && (err != nil || mounted != true) {
+		rd.r.LogError("[replicateDevice] Drive not mounted: %s", rd.dev.Device)
+		return
+	}
+	if hummingbird.Exists(filepath.Join(rd.r.deviceRoot, rd.dev.Device, "lock_device")) {
+		return
+	}
 
-			curDp.StartDate = time.Now()
-			curDp.LastUpdate = time.Now()
-			curDp.PartitionsDone = 0
-			curDp.PartitionsTotal = dp.PartitionsTotal
-			curDp.FilesSent = 0
-			curDp.BytesSent = 0
-			curDp.PriorityRepsDone = 0
-			curDp.LastPassDuration = dp.LastPassDuration
-			if dp.LastPassDuration > 0 {
-				curDp.LastPassUpdate = time.Now()
-			}
-		case dp := <-r.deviceProgressIncr:
-			if curDp, ok := r.deviceProgressMap[dp.dev.Device]; !ok {
-				r.LogError("Trying to increment progress and not present: %s", dp.dev.Device)
-			} else {
-				curDp.LastUpdate = time.Now()
-				curDp.PartitionsDone += dp.PartitionsDone
-				curDp.FilesSent += dp.FilesSent
-				curDp.BytesSent += dp.BytesSent
-				curDp.PriorityRepsDone += dp.PriorityRepsDone
-				curDp.FullReplicateCount += dp.FullReplicateCount
-				curDp.CancelCount += dp.CancelCount
-			}
-		case _, ok := <-c:
-			if !ok {
+	rd.i.cleanTemp()
+
+	partitionList, err := rd.i.listPartitions()
+	if err != nil {
+		rd.r.LogError("[replicateDevice] Error getting partition list: %s (%v)", rd.dev.Device, err)
+		return
+	} else if len(partitionList) == 0 {
+		rd.r.LogError("[replicateDevice] No partitions found: %s", filepath.Join(rd.r.deviceRoot, rd.dev.Device, PolicyDir(rd.policy)))
+		return
+	}
+	rd.updateStat("PartitionsTotal", int64(len(partitionList)))
+
+	for _, partition := range partitionList {
+		rd.updateStat("checkin", 1)
+		select {
+		case <-rd.cancel:
+			{
+				rd.r.LogError("replicateDevice canceled for device: %s", rd.dev.Device)
 				return
 			}
-			var totalParts uint64
-			var doneParts uint64
-			var bytesProcessed uint64
-			var filesProcessed uint64
-			var processingDuration time.Duration
-			allHaveCompleted := true
-			var totalDuration time.Duration
-			var maxLastPassUpdate time.Time
-
-			r.restartDevices()
-
-			for _, dp := range r.deviceProgressMap {
-				totalParts += dp.PartitionsTotal
-				doneParts += dp.PartitionsDone
-				bytesProcessed += dp.BytesSent
-				filesProcessed += dp.FilesSent
-				processingDuration += dp.LastUpdate.Sub(dp.StartDate)
-
-				allHaveCompleted = allHaveCompleted && (dp.LastPassDuration > 0)
-				totalDuration += processingDuration
-				if maxLastPassUpdate.Before(dp.LastPassUpdate) {
-					maxLastPassUpdate = dp.LastPassUpdate
-				}
-			}
-
-			if doneParts > 0 {
-				processingNsecs := float64(processingDuration.Nanoseconds())
-				partsPerNsecond := float64(doneParts) / processingNsecs
-				remaining := time.Duration(float64(totalParts-doneParts) / partsPerNsecond)
-				var remainingStr string
-				if remaining >= time.Hour {
-					remainingStr = fmt.Sprintf("%.0fh", remaining.Hours())
-				} else if remaining >= time.Minute {
-					remainingStr = fmt.Sprintf("%.0fm", remaining.Minutes())
-				} else {
-					remainingStr = fmt.Sprintf("%.0fs", remaining.Seconds())
-				}
-				r.LogInfo("%d/%d (%.2f%%) partitions replicated in %.2f worker seconds (%.2f/sec, %v remaining)",
-					doneParts, totalParts, float64(100*doneParts)/float64(totalParts),
-					processingNsecs/float64(time.Second), partsPerNsecond*float64(time.Second), remainingStr)
-			}
-
-			if allHaveCompleted {
-				// this is a little lame- i'd rather just drop this completely
-				hummingbird.DumpReconCache(r.reconCachePath, "object",
-					map[string]interface{}{
-						"object_replication_time": float64(totalDuration) / float64(len(r.deviceProgressMap)) / float64(time.Second),
-						"object_replication_last": float64(maxLastPassUpdate.UnixNano()) / float64(time.Second),
-					})
-			}
+		default:
 		}
+		rd.processPriorityJobs()
+		rd.i.replicatePartition(partition)
+	}
+	rd.updateStat("FullReplicateCount", 1)
+}
+
+func (rd *replicationDevice) Cancel() {
+	close(rd.cancel)
+}
+
+func (rd *replicationDevice) ReplicateLoop() {
+	for {
+		select {
+		case <-rd.cancel:
+			return
+		default:
+			rd.Replicate()
+		}
+		time.Sleep(rd.r.loopSleepTime)
 	}
 }
 
-// Run replication passes for each device on the whole server.
-func (r *Replicator) run() {
-	statsTicker := time.NewTicker(StatsReportInterval)
-	go r.statsReporter(statsTicker.C)
+type NoMoreNodes struct{}
 
-	r.partRateTicker = time.NewTicker(r.timePerPart)
-	r.concurrencySem = make(chan struct{}, r.concurrency)
-	deviceMap := map[string]*hummingbird.Device{}
-	for _, ring := range r.Rings {
-		devices, err := ring.LocalDevices(r.port)
-		if err != nil {
-			r.LogError("Error getting local devices: %v", err)
-			return
-		}
-		for _, dev := range devices {
-			deviceMap[dev.Device] = dev
-		}
+func (n *NoMoreNodes) Next() *hummingbird.Device {
+	return nil
+}
+
+func (rd *replicationDevice) PriorityReplicate(pri PriorityRepJob, timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case rd.priRep <- pri:
+		return true
+	case <-timer.C:
+		return false
 	}
-	for _, dev := range deviceMap {
-		if _, ok := r.devices[dev.Device]; ok || len(r.devices) == 0 {
-			r.restartReplicateDevice(dev)
-		}
-	}
-	r.devGroup.Wait()
 }
 
 // processPriorityJobs runs any pending priority jobs given the device's id
-func (r *Replicator) processPriorityJobs(id int) {
+func (rd *replicationDevice) processPriorityJobs() {
 	for {
 		select {
-		case pri := <-r.getPriRepChan(id):
-			r.deviceProgressIncr <- deviceProgress{
-				dev:              pri.FromDevice,
-				PriorityRepsDone: 1,
-			}
-
+		case pri := <-rd.priRep:
 			func() {
-				<-r.partRateTicker.C
-				r.concurrencySem <- struct{}{}
-				j := &job{
-					dev:       pri.FromDevice,
-					partition: strconv.FormatUint(pri.Partition, 10),
-					objPath:   filepath.Join(r.driveRoot, pri.FromDevice.Device, "objects"),
-					policy:    pri.Policy,
-				}
-				_, handoff := r.Rings[pri.Policy].GetJobNodes(pri.Partition, pri.FromDevice.Id)
+				time.Sleep(rd.r.partSleepTime)
+				rd.r.concurrencySem <- struct{}{}
 				defer func() {
-					<-r.concurrencySem
+					<-rd.r.concurrencySem
 				}()
+				partition := strconv.FormatUint(pri.Partition, 10)
+				_, handoff := rd.r.Rings[rd.policy].GetJobNodes(pri.Partition, pri.FromDevice.Id)
 				toDevicesArr := make([]string, len(pri.ToDevices))
 				for i, s := range pri.ToDevices {
 					toDevicesArr[i] = fmt.Sprintf("%s:%d/%s", s.Ip, s.Port, s.Device)
@@ -850,327 +625,321 @@ func (r *Replicator) processPriorityJobs(id int) {
 				if handoff {
 					jobType = "handoff"
 				}
-				r.LogInfo("PriorityReplicationJob. Partition: %d as %s from %s to %s", pri.Partition, jobType, pri.FromDevice.Device, strings.Join(toDevicesArr, ","))
+				rd.r.LogInfo("PriorityReplicationJob. Partition: %d as %s from %s to %s", pri.Partition, jobType, pri.FromDevice.Device, strings.Join(toDevicesArr, ","))
 				if handoff {
-					r.replicateHandoff(j, pri.ToDevices)
+					rd.i.replicateHandoff(partition, pri.ToDevices)
 				} else {
-					r.replicateLocal(j, pri.ToDevices, &NoMoreNodes{})
+					rd.i.replicateLocal(partition, pri.ToDevices, &NoMoreNodes{})
 				}
 			}()
+			rd.updateStat("PriorityRepsDone", 1)
 		default:
 			return
 		}
 	}
 }
 
-// getPriRepChan synchronizes access to the r.priRepChans mapping
-func (r *Replicator) getPriRepChan(id int) chan PriorityRepJob {
-	r.priRepM.Lock()
-	defer r.priRepM.Unlock()
-	if _, ok := r.priRepChans[id]; !ok {
-		r.priRepChans[id] = make(chan PriorityRepJob)
+var newReplicationDevice = func(dev *hummingbird.Device, policy int, r *Replicator) *replicationDevice {
+	rd := &replicationDevice{
+		r:      r,
+		dev:    dev,
+		policy: policy,
+		cancel: make(chan struct{}),
+		priRep: make(chan PriorityRepJob),
+		stats: ReplicationDeviceStats{
+			LastCheckin:   time.Now(),
+			DeviceStarted: time.Now(),
+			Stats: map[string]int64{
+				"PartitionsDone":   0,
+				"PartitionsTotal":  0,
+				"FilesSent":        0,
+				"BytesSent":        0,
+				"PriorityRepsDone": 0,
+			},
+		},
 	}
-	return r.priRepChans[id]
+	rd.i = rd
+	return rd
 }
 
-// ProgressReportHandler handles HTTP requests for current replication progress
-func (r *Replicator) ProgressReportHandler(w http.ResponseWriter, req *http.Request) {
-	_, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	data, err := json.Marshal(r.deviceProgressMap)
-	if err != nil {
-		r.LogError("Error Marshaling device progress: ", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	w.Write(data)
-	return
-
+// Object replicator daemon object
+type Replicator struct {
+	checkMounts        bool
+	deviceRoot         string
+	reconCachePath     string
+	logger             hummingbird.SysLogLike
+	logLevel           string
+	port               int
+	bindIp             string
+	Rings              map[int]replicationRing
+	runningDevices     map[string]ReplicationDevice
+	cancelCounts       map[string]int64
+	runningDevicesLock sync.Mutex
+	devices            map[string]bool
+	partitions         map[string]bool
+	concurrency        int
+	concurrencySem     chan struct{}
+	updateStat         chan statUpdate
+	reclaimAge         int64
+	quorumDelete       bool
+	reserve            int64
+	replicationMan     *ReplicationManager
+	replicateTimeout   time.Duration
+	onceDone           chan struct{}
+	onceWaiting        int64
+	loopSleepTime      time.Duration
+	partSleepTime      time.Duration
 }
 
-// priorityRepHandler handles HTTP requests for priority replications jobs.
-func (r *Replicator) priorityRepHandler(w http.ResponseWriter, req *http.Request) {
-	var pri PriorityRepJob
-	data, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		w.WriteHeader(500)
-		return
-	}
-	if err := json.Unmarshal(data, &pri); err != nil {
-		w.WriteHeader(400)
-		return
-	}
-	if r.checkMounts {
-		if mounted, err := hummingbird.IsMount(filepath.Join(r.driveRoot, pri.FromDevice.Device)); err != nil || mounted == false {
-			w.WriteHeader(507)
-			return
+func (r *Replicator) cancelStalledDevices() {
+	r.runningDevicesLock.Lock()
+	defer r.runningDevicesLock.Unlock()
+	for key, rd := range r.runningDevices {
+		stats := rd.Stats()
+		if time.Since(stats.LastCheckin) > ReplicateDeviceTimeout {
+			rd.Cancel()
+			r.cancelCounts[key] += 1
+			delete(r.runningDevices, key)
 		}
 	}
-	if !hummingbird.Exists(filepath.Join(r.driveRoot, pri.FromDevice.Device, "objects", strconv.FormatUint(pri.Partition, 10))) {
-		w.WriteHeader(404)
-		return
-	}
-	timeout := time.NewTimer(time.Hour)
-	defer timeout.Stop()
-	select {
-	case r.getPriRepChan(pri.FromDevice.Id) <- pri:
-	case <-timeout.C:
-	}
-	w.WriteHeader(200)
 }
 
-func (r *Replicator) objReplicateHandler(writer http.ResponseWriter, request *http.Request) {
-	vars := hummingbird.GetVars(request)
-
-	var recalculate []string
-	if len(vars["suffixes"]) > 0 {
-		recalculate = strings.Split(vars["suffixes"], "-")
-	}
-	policy, err := strconv.Atoi(request.Header.Get("X-Backend-Storage-Policy-Index"))
-	if err != nil {
-		policy = 0
-	}
-	hashes, err := GetHashes(r.driveRoot, vars["device"], vars["partition"], recalculate, r.reclaimAge, policy, hummingbird.GetLogger(request))
-	if err != nil {
-		hummingbird.GetLogger(request).LogError("Unable to get hashes for %s/%s", vars["device"], vars["partition"])
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	writer.WriteHeader(http.StatusOK)
-	writer.Write(hummingbird.PickleDumps(hashes))
-}
-
-func (r *Replicator) objRepConnHandler(writer http.ResponseWriter, request *http.Request) {
-	var conn net.Conn
-	var rw *bufio.ReadWriter
-	var err error
-	var brr BeginReplicationRequest
-
-	vars := hummingbird.GetVars(request)
-
-	policy, err := strconv.Atoi(request.Header.Get("X-Backend-Storage-Policy-Index"))
-	if err != nil {
-		policy = 0
-	}
-
-	writer.WriteHeader(http.StatusOK)
-	if hijacker, ok := writer.(http.Hijacker); !ok {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Writer not a Hijacker")
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	} else if conn, rw, err = hijacker.Hijack(); err != nil {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Hijack failed")
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	defer conn.Close()
-
-	rc := &RepConn{rw: rw, c: conn}
-	if err := rc.RecvMessage(&brr); err != nil {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error receiving BeginReplicationRequest: %v", err)
-		writer.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if !r.replicationMan.Begin(brr.Device, r.replicateTimeout) {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Timed out waiting for concurrency slot")
-		writer.WriteHeader(503)
-		return
-	}
-	defer r.replicationMan.Done(brr.Device)
-	var hashes map[string]string
-	if brr.NeedHashes {
-		hashes, err = GetHashes(r.driveRoot, brr.Device, brr.Partition, nil, r.reclaimAge, policy, hummingbird.GetLogger(request))
+func (r *Replicator) verifyRunningDevices() {
+	r.runningDevicesLock.Lock()
+	defer r.runningDevicesLock.Unlock()
+	expectedDevices := make(map[string]bool)
+	for policy, ring := range r.Rings {
+		ringDevices, err := ring.LocalDevices(r.port)
 		if err != nil {
-			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", err)
-			writer.WriteHeader(http.StatusInternalServerError)
+			r.LogError("Error getting local devices from ring: %v", err)
 			return
 		}
+		// look for devices that aren't running but should be
+		for _, dev := range ringDevices {
+			expectedDevices[deviceKey(dev, policy)] = true
+			if len(r.devices) > 0 && !r.devices[dev.Device] {
+				continue
+			}
+			if _, ok := r.runningDevices[deviceKey(dev, policy)]; !ok {
+				r.runningDevices[deviceKey(dev, policy)] = newReplicationDevice(dev, policy, r)
+				go r.runningDevices[deviceKey(dev, policy)].ReplicateLoop()
+			}
+		}
 	}
-	if err := rc.SendMessage(BeginReplicationResponse{Hashes: hashes}); err != nil {
-		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error sending BeginReplicationResponse: %v", err)
-		writer.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	for {
-		errType, err := func() (string, error) { // this is a closure so we can use defers inside
-			var sfr SyncFileRequest
-			if err := rc.RecvMessage(&sfr); err != nil {
-				return "receiving SyncFileRequest", err
-			}
-			if sfr.Done {
-				return "", replicationDone
-			}
-			tempDir := TempDirPath(r.driveRoot, vars["device"])
-			fileName := filepath.Join(r.driveRoot, sfr.Path)
-			hashDir := filepath.Dir(fileName)
-
-			if ext := filepath.Ext(fileName); (ext != ".data" && ext != ".ts" && ext != ".meta") || len(filepath.Base(filepath.Dir(fileName))) != 32 {
-				return "invalid file path", rc.SendMessage(SyncFileResponse{Msg: "bad file path"})
-			}
-			if hummingbird.Exists(fileName) {
-				return "file exists", rc.SendMessage(SyncFileResponse{Exists: true, Msg: "exists"})
-			}
-			dataFile, metaFile := ObjectFiles(hashDir)
-			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
-				return "newer file exists", rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
-			}
-			tempFile, err := NewAtomicFileWriter(tempDir, hashDir)
-			if err != nil {
-				return "creating file writer", err
-			}
-			defer tempFile.Abandon()
-			if err := tempFile.Preallocate(sfr.Size, r.reserve); err != nil {
-				return "preallocating space", err
-			}
-			if xattrs, err := hex.DecodeString(sfr.Xattrs); err != nil || len(xattrs) == 0 {
-				return "parsing xattrs", rc.SendMessage(SyncFileResponse{Msg: "bad xattrs"})
-			} else if err := RawWriteMetadata(tempFile.Fd(), xattrs); err != nil {
-				return "writing metadata", err
-			}
-			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
-				return "sending go ahead", err
-			}
-			if _, err := hummingbird.CopyN(rc, sfr.Size, tempFile); err != nil {
-				return "copying data", err
-			}
-			if err := tempFile.Save(fileName); err != nil {
-				return "saving file", err
-			}
-			if dataFile != "" || metaFile != "" {
-				HashCleanupListDir(hashDir, r.reclaimAge)
-			}
-			InvalidateHash(hashDir)
-			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
-			return "file done", err
-		}()
-		if err == replicationDone {
-			return
-		} else if err != nil {
-			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %s. %v", errType, err)
-			writer.WriteHeader(http.StatusInternalServerError)
-			return
+	// look for devices that are running but shouldn't be
+	for key, rd := range r.runningDevices {
+		if _, found := expectedDevices[key]; !found {
+			rd.Cancel()
+			delete(r.runningDevices, key)
 		}
 	}
 }
 
-func (r *Replicator) LogRequest(next http.Handler) http.Handler {
-	fn := func(writer http.ResponseWriter, request *http.Request) {
-		newWriter := &hummingbird.WebWriter{ResponseWriter: writer, Status: 500, ResponseStarted: false}
-		requestLogger := &hummingbird.RequestLogger{Request: request, Logger: r.logger, W: newWriter}
-		defer requestLogger.LogPanics("LOGGING REQUEST")
-		start := time.Now()
-		hummingbird.SetLogger(request, requestLogger)
-		next.ServeHTTP(newWriter, request)
-		if (request.Method != "REPLICATE" && request.Method != "REPCONN") || r.logLevel == "DEBUG" {
-			r.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
-				request.RemoteAddr,
-				time.Now().Format("02/Jan/2006:15:04:05 -0700"),
-				request.Method,
-				hummingbird.Urlencode(request.URL.Path),
-				newWriter.Status,
-				hummingbird.GetDefault(newWriter.Header(), "Content-Length", "-"),
-				hummingbird.GetDefault(request.Header, "Referer", "-"),
-				hummingbird.GetDefault(request.Header, "X-Trans-Id", "-"),
-				hummingbird.GetDefault(request.Header, "User-Agent", "-"),
-				time.Since(start).Seconds(),
-				"-"))
+func (r *Replicator) reportStats() {
+	r.runningDevicesLock.Lock()
+	defer r.runningDevicesLock.Unlock()
+	var totalDuration time.Duration
+	var maxLastPass time.Time
+	var doneParts, totalParts int64
+	var processingTime float64
+	allHaveCompleted := true
+	for _, rd := range r.runningDevices {
+		stats := rd.Stats()
+		if stats.TotalPasses <= 1 {
+			allHaveCompleted = false
 		}
+		if maxLastPass.Before(stats.RunStarted) {
+			maxLastPass = stats.RunStarted
+		}
+		totalDuration += stats.LastPassDuration
+		totalParts += stats.Stats["PartitionsTotal"]
+		doneParts += stats.Stats["PartitionsDone"]
+		processingTime += time.Since(stats.RunStarted).Seconds()
 	}
-	return http.HandlerFunc(fn)
-}
-
-func (r *Replicator) GetHandler() http.Handler {
-	commonHandlers := alice.New(middleware.ClearHandler, r.LogRequest, middleware.ValidateRequest)
-	router := hummingbird.NewRouter()
-	router.Get("/priorityrep", commonHandlers.ThenFunc(r.priorityRepHandler))
-	router.Get("/progress", commonHandlers.ThenFunc(r.ProgressReportHandler))
-	for _, policy := range hummingbird.LoadPolicies() {
-		router.HandlePolicy("REPCONN", "/:device/:partition", policy.Index, commonHandlers.ThenFunc(r.objRepConnHandler))
-		router.HandlePolicy("REPLICATE", "/:device/:partition/:suffixes", policy.Index, commonHandlers.ThenFunc(r.objReplicateHandler))
-		router.HandlePolicy("REPLICATE", "/:device/:partition", policy.Index, commonHandlers.ThenFunc(r.objReplicateHandler))
-	}
-	router.Get("/debug", http.DefaultServeMux)
-	return router
-}
-
-func (r *Replicator) startWebServer() {
-	for {
-		if sock, err := hummingbird.RetryListen(r.bindIp, r.port); err != nil {
-			r.LogError("Listen failed: %v", err)
+	if processingTime > 0 {
+		partsPerSecond := float64(doneParts) / processingTime
+		remaining := time.Duration((1.0 / partsPerSecond) * float64(time.Second) *
+			float64(totalParts-doneParts) / float64(len(r.runningDevices)))
+		var remainingStr string
+		if remaining >= time.Hour {
+			remainingStr = fmt.Sprintf("%.0fh", remaining.Hours())
+		} else if remaining >= time.Minute {
+			remainingStr = fmt.Sprintf("%.0fm", remaining.Minutes())
 		} else {
-			http.Serve(sock, r.GetHandler())
+			remainingStr = fmt.Sprintf("%.0fs", remaining.Seconds())
 		}
+		r.LogInfo("%d/%d (%.2f%%) partitions replicated in %.2f worker seconds (%.2f/sec, %v remaining)",
+			doneParts, totalParts, float64(100*doneParts)/float64(totalParts),
+			processingTime, partsPerSecond, remainingStr)
+	}
+
+	if allHaveCompleted {
+		hummingbird.DumpReconCache(r.reconCachePath, "object",
+			map[string]interface{}{
+				"object_replication_time": float64(totalDuration) / float64(len(r.runningDevices)) / float64(time.Second),
+				"object_replication_last": float64(maxLastPass.UnixNano()) / float64(time.Second),
+			})
 	}
 }
 
-// Run a single replication pass. (NOTE: we will prob get rid of this because of priorityRepl)
-func (r *Replicator) Run() {
-	r.once = true
-	r.run()
+func (r *Replicator) priorityReplicate(pri PriorityRepJob, timeout time.Duration) bool {
+	r.runningDevicesLock.Lock()
+	rd, ok := r.runningDevices[deviceKey(pri.FromDevice, pri.Policy)]
+	r.runningDevicesLock.Unlock()
+	if ok {
+		return rd.PriorityReplicate(pri, timeout)
+	}
+	return false
+}
+
+func (r *Replicator) getDeviceProgress() map[string]map[string]interface{} {
+	r.runningDevicesLock.Lock()
+	defer r.runningDevicesLock.Unlock()
+	deviceProgress := make(map[string]map[string]interface{})
+	for key, device := range r.runningDevices {
+		stats := device.Stats()
+		deviceProgress[key] = map[string]interface{}{
+			"StartDate":        stats.DeviceStarted,
+			"LastUpdate":       stats.LastCheckin,
+			"LastPassDuration": stats.LastPassDuration,
+			"LastPassUpdate":   stats.RunStarted,
+			"TotalPasses":      stats.TotalPasses,
+			"CancelCount":      r.cancelCounts[key],
+		}
+		for k, v := range stats.Stats {
+			deviceProgress[key][k] = v
+		}
+	}
+	return deviceProgress
+}
+
+func (r *Replicator) runLoopCheck(reportTimer <-chan time.Time) {
+	select {
+	case update := <-r.updateStat:
+		r.runningDevicesLock.Lock()
+		defer r.runningDevicesLock.Unlock()
+		if rd, ok := r.runningDevices[update.deviceKey]; ok {
+			stats := rd.Stats()
+			if update.stat == "checkin" {
+				stats.LastCheckin = time.Now()
+			} else if update.stat == "startRun" {
+				stats.TotalPasses++
+				stats.LastPassDuration = time.Since(stats.RunStarted)
+				stats.RunStarted = time.Now()
+				stats.LastCheckin = time.Now()
+				for k := range stats.Stats {
+					stats.Stats[k] = 0
+				}
+			} else {
+				stats.Stats[update.stat] += update.value
+			}
+		}
+	case <-reportTimer:
+		r.cancelStalledDevices()
+		r.verifyRunningDevices()
+		r.reportStats()
+	case <-r.onceDone:
+		r.onceWaiting--
+	}
 }
 
 // Run replication passes in a loop until forever.
 func (r *Replicator) RunForever() {
 	go r.startWebServer()
-	r.run()
+	reportTimer := time.NewTimer(StatsReportInterval)
+	r.verifyRunningDevices()
+	for {
+		r.runLoopCheck(reportTimer.C)
+	}
+}
+
+// Run a single replication pass. (NOTE: we will prob get rid of this because of priorityRepl)
+func (r *Replicator) Run() {
+	for policy, ring := range r.Rings {
+		devices, err := ring.LocalDevices(r.port)
+		if err != nil {
+			r.LogError("Error getting local devices from ring: %v", err)
+			return
+		}
+		for _, dev := range devices {
+			rd := newReplicationDevice(dev, policy, r)
+			key := rd.Key()
+			r.runningDevices[key] = rd
+			r.onceWaiting++
+			go func(dev *hummingbird.Device, key string) {
+				r.runningDevices[key].Replicate()
+				r.onceDone <- struct{}{}
+			}(dev, key)
+		}
+	}
+	for r.onceWaiting > 0 {
+		r.runLoopCheck(make(chan time.Time))
+	}
+	r.reportStats()
+}
+
+func (r *Replicator) LogError(format string, args ...interface{}) {
+	r.logger.Err(fmt.Sprintf(format, args...))
+}
+
+func (r *Replicator) LogInfo(format string, args ...interface{}) {
+	r.logger.Info(fmt.Sprintf(format, args...))
+}
+
+func (r *Replicator) LogDebug(format string, args ...interface{}) {
+	r.logger.Debug(fmt.Sprintf(format, args...))
+}
+
+func (r *Replicator) LogPanics(m string) {
+	if e := recover(); e != nil {
+		r.LogError("%s: %s: %s", m, e, debug.Stack())
+	}
 }
 
 func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingbird.Daemon, error) {
 	if !serverconf.HasSection("object-replicator") {
-		return nil, fmt.Errorf("Unable to find object-auditor config section")
+		return nil, fmt.Errorf("Unable to find object-replicator config section")
 	}
+	concurrency := int(serverconf.GetInt("object-replicator", "concurrency", 1))
 
 	replicator := &Replicator{
-		priRepChans:            make(map[int]chan PriorityRepJob),
-		deviceProgressMap:      make(map[string]*deviceProgress),
-		deviceProgressPassInit: make(chan deviceProgress),
-		deviceProgressIncr:     make(chan deviceProgress),
-		devices:                make(map[string]bool),
-		partitions:             make(map[string]bool),
-		cancelers:              make(map[string]chan struct{}),
-		once:                   false,
-		LoopSleepTime:          5 * time.Second,
+		runningDevices:   make(map[string]ReplicationDevice),
+		cancelCounts:     make(map[string]int64),
+		reserve:          serverconf.GetInt("object-replicator", "fallocate_reserve", 0),
+		replicationMan:   NewReplicationManager(serverconf.GetLimit("object-replicator", "replication_limit", 3, 100)),
+		replicateTimeout: time.Minute, // TODO(redbo): does this need to be configurable?
+		reconCachePath:   serverconf.GetDefault("object-replicator", "recon_cache_path", "/var/cache/swift"),
+		checkMounts:      serverconf.GetBool("object-replicator", "mount_check", true),
+		deviceRoot:       serverconf.GetDefault("object-replicator", "devices", "/srv/node"),
+		port:             int(serverconf.GetInt("object-replicator", "bind_port", 6500)),
+		bindIp:           serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0"),
+		quorumDelete:     serverconf.GetBool("object-replicator", "quorum_delete", false),
+		reclaimAge:       int64(serverconf.GetInt("object-replicator", "reclaim_age", int64(hummingbird.ONE_WEEK))),
+		logger:           hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", ""),
+		logLevel:         serverconf.GetDefault("object-replicator", "log_level", "INFO"),
+		Rings:            make(map[int]replicationRing),
+		concurrency:      concurrency,
+		concurrencySem:   make(chan struct{}, concurrency),
+		updateStat:       make(chan statUpdate),
+		devices:          make(map[string]bool),
+		partitions:       make(map[string]bool),
+		onceDone:         make(chan struct{}),
+		loopSleepTime:    time.Second * 30,
+		partSleepTime:    time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 100)) * time.Millisecond,
 	}
 
-	var err error
-	replicator.hashPathPrefix, replicator.hashPathSuffix, err = hummingbird.GetHashPrefixAndSuffix()
+	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to get hash prefix and suffix")
 	}
-	replicator.Rings = make(map[int]hummingbird.Ring)
 	for _, policy := range hummingbird.LoadPolicies() {
 		if policy.Type != "replication" {
 			continue
 		}
-		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", replicator.hashPathPrefix, replicator.hashPathSuffix, policy.Index); err != nil {
+		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, policy.Index); err != nil {
 			return nil, fmt.Errorf("Unable to load ring.")
 		}
 	}
-	replicator.reserve = serverconf.GetInt("object-replicator", "fallocate_reserve", 0)
-	replicator.replicationMan = NewReplicationManager(serverconf.GetLimit("object-replicator", "replication_limit", 3, 100))
-	replicator.replicateTimeout = time.Minute // TODO(redbo): does this need to be configurable?
-
-	replicator.reconCachePath = serverconf.GetDefault("object-auditor", "recon_cache_path", "/var/cache/swift")
-	replicator.checkMounts = serverconf.GetBool("object-replicator", "mount_check", true)
-	replicator.driveRoot = serverconf.GetDefault("object-replicator", "devices", "/srv/node")
-	replicator.port = int(serverconf.GetInt("object-replicator", "bind_port", 6500))
-	replicator.bindIp = serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0")
-	replicator.quorumDelete = serverconf.GetBool("object-replicator", "quorum_delete", false)
-	replicator.reclaimAge = int64(serverconf.GetInt("object-replicator", "reclaim_age", int64(hummingbird.ONE_WEEK)))
-	replicator.logLevel = serverconf.GetDefault("object-replicator", "log_level", "INFO")
-	replicator.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", "")
-	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
-		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 2000)) * time.Millisecond
-	} else {
-		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 750)) * time.Millisecond
-	}
-	replicator.concurrency = int(serverconf.GetInt("object-replicator", "concurrency", 1))
 	devices_flag := flags.Lookup("devices")
 	if devices_flag != nil {
 		if devices := devices_flag.Value.(flag.Getter).Get().(string); len(devices) > 0 {
@@ -1193,6 +962,9 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 			replicator.quorumDelete = true
 		}
 	}
+	if serverconf.GetBool("object-replicator", "vm_test_mode", false) { // slow down the replicator in saio mode
+		replicator.partSleepTime = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 500)) * time.Millisecond
+	}
 	statsdHost := serverconf.GetDefault("object-replicator", "log_statsd_host", "")
 	if statsdHost != "" {
 		statsdPort := serverconf.GetInt("object-replicator", "log_statsd_port", 8125)
@@ -1203,58 +975,4 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 		go hummingbird.CollectRuntimeMetrics(statsdHost, statsdPort, statsdPause, prefix)
 	}
 	return replicator, nil
-}
-
-// ReplicationManager is used by the object server to limit replication concurrency
-type ReplicationManager struct {
-	lock         sync.Mutex
-	devSem       map[string]chan struct{}
-	totalSem     chan struct{}
-	limitPerDisk int64
-	limitOverall int64
-}
-
-// Begin gives or rejects permission for a new replication session on the given device.
-func (r *ReplicationManager) Begin(device string, timeout time.Duration) bool {
-	r.lock.Lock()
-	devSem, ok := r.devSem[device]
-	if !ok {
-		devSem = make(chan struct{}, r.limitPerDisk)
-		r.devSem[device] = devSem
-	}
-	r.lock.Unlock()
-	timeoutTimer := time.NewTicker(timeout)
-	defer timeoutTimer.Stop()
-	loopTimer := time.NewTicker(time.Millisecond * 10)
-	defer loopTimer.Stop()
-	for {
-		select {
-		case devSem <- struct{}{}:
-			select {
-			case r.totalSem <- struct{}{}:
-				return true
-			case <-loopTimer.C:
-				<-devSem
-			}
-		case <-timeoutTimer.C:
-			return false
-		}
-	}
-}
-
-// Done marks the session completed, removing it from any accounting.
-func (r *ReplicationManager) Done(device string) {
-	r.lock.Lock()
-	<-r.devSem[device]
-	<-r.totalSem
-	r.lock.Unlock()
-}
-
-func NewReplicationManager(limitPerDisk int64, limitOverall int64) *ReplicationManager {
-	return &ReplicationManager{
-		limitPerDisk: limitPerDisk,
-		limitOverall: limitOverall,
-		devSem:       make(map[string]chan struct{}),
-		totalSem:     make(chan struct{}, limitOverall),
-	}
 }

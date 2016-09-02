@@ -66,13 +66,27 @@ type FileUploadResponse struct {
 	Msg     string
 }
 
-type RepConn struct {
-	rw           *bufio.ReadWriter
-	c            net.Conn
-	Disconnected bool
+type RepConn interface {
+	SendMessage(v interface{}) error
+	RecvMessage(v interface{}) error
+	Write(data []byte) (l int, err error)
+	Flush() error
+	Read(data []byte) (l int, err error)
+	Disconnected() bool
+	Close()
 }
 
-func (r *RepConn) SendMessage(v interface{}) error {
+type repConn struct {
+	rw           *bufio.ReadWriter
+	c            net.Conn
+	disconnected bool
+}
+
+func (r *repConn) Disconnected() bool {
+	return r.disconnected
+}
+
+func (r *repConn) SendMessage(v interface{}) error {
 	jsoned, err := json.Marshal(v)
 	if err != nil {
 		r.Close()
@@ -93,7 +107,7 @@ func (r *RepConn) SendMessage(v interface{}) error {
 	return nil
 }
 
-func (r *RepConn) RecvMessage(v interface{}) (err error) {
+func (r *repConn) RecvMessage(v interface{}) (err error) {
 	r.c.SetDeadline(time.Now().Add(repITimeout))
 	var length uint32
 	if err = binary.Read(r, binary.BigEndian, &length); err != nil {
@@ -112,7 +126,7 @@ func (r *RepConn) RecvMessage(v interface{}) (err error) {
 	return
 }
 
-func (r *RepConn) Write(data []byte) (l int, err error) {
+func (r *repConn) Write(data []byte) (l int, err error) {
 	r.c.SetDeadline(time.Now().Add(repOTimeout))
 	if l, err = r.rw.Write(data); err != nil {
 		r.Close()
@@ -120,7 +134,7 @@ func (r *RepConn) Write(data []byte) (l int, err error) {
 	return
 }
 
-func (r *RepConn) Flush() (err error) {
+func (r *repConn) Flush() (err error) {
 	r.c.SetDeadline(time.Now().Add(repOTimeout))
 	if err = r.rw.Flush(); err != nil {
 		r.Close()
@@ -128,7 +142,7 @@ func (r *RepConn) Flush() (err error) {
 	return
 }
 
-func (r *RepConn) Read(data []byte) (l int, err error) {
+func (r *repConn) Read(data []byte) (l int, err error) {
 	r.c.SetDeadline(time.Now().Add(repITimeout))
 	if l, err = io.ReadFull(r.rw, data); err != nil {
 		r.Close()
@@ -136,12 +150,12 @@ func (r *RepConn) Read(data []byte) (l int, err error) {
 	return
 }
 
-func (r *RepConn) Close() {
-	r.Disconnected = true
+func (r *repConn) Close() {
+	r.disconnected = true
 	r.c.Close()
 }
 
-func NewRepConn(dev *hummingbird.Device, partition string, policy int) (*RepConn, error) {
+func NewRepConn(dev *hummingbird.Device, partition string, policy int) (RepConn, error) {
 	url := fmt.Sprintf("http://%s:%d/%s/%s", dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
 	req, err := http.NewRequest("REPCONN", url, nil)
 	req.Header.Set("X-Backend-Storage-Policy-Index", strconv.Itoa(policy))
@@ -165,10 +179,14 @@ func NewRepConn(dev *hummingbird.Device, partition string, policy int) (*RepConn
 	if newc, ok := newc.(*net.TCPConn); ok {
 		newc.SetNoDelay(true)
 	}
-	return &RepConn{
+	return &repConn{
 		rw: bufio.NewReadWriter(
 			bufio.NewReaderSize(newc, repConnBufferSize),
 			bufio.NewWriterSize(newc, repConnBufferSize)),
 		c: newc,
 	}, nil
+}
+
+func NewIncomingRepConn(rw *bufio.ReadWriter, c net.Conn) RepConn {
+	return &repConn{rw: rw, c: c}
 }

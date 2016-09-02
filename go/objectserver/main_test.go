@@ -101,7 +101,7 @@ func TestReplicateRecalculate(t *testing.T) {
 	trs1, err := makeReplicatorWebServer()
 	require.Nil(t, err)
 	defer trs1.Close()
-	trs1.replicator.driveRoot = ts.objServer.driveRoot
+	trs1.replicator.deviceRoot = ts.objServer.driveRoot
 
 	resp, err := trs1.Do("REPLICATE", "/sda/1", nil)
 	assert.Nil(t, err)
