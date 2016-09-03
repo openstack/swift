@@ -103,7 +103,7 @@ func (server *ProxyServer) GetHandler(config hummingbird.Config) http.Handler {
 		server.LogRequest,
 		middleware.ValidateRequest,
 		NewProxyContextMiddleware(server.mc, server.C),
-		NewTempAuth(server.mc),
+		NewTempAuth(server.mc, config),
 	).Then(router)
 }
 
