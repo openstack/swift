@@ -354,12 +354,25 @@ class SegmentedIterable(object):
 
     def _coalesce_requests(self):
         start_time = time.time()
-        pending_req = None
-        pending_etag = None
-        pending_size = None
+        pending_req = pending_etag = pending_size = None
         try:
-            for seg_path, seg_etag, seg_size, first_byte, last_byte \
-                    in self.listing_iter:
+            for seg_dict in self.listing_iter:
+                if 'raw_data' in seg_dict:
+                    if pending_req:
+                        yield pending_req, pending_etag, pending_size
+
+                    to_yield = seg_dict['raw_data'][
+                        seg_dict['first_byte']:seg_dict['last_byte'] + 1]
+                    yield to_yield, None, len(seg_dict['raw_data'])
+                    pending_req = pending_etag = pending_size = None
+                    continue
+
+                seg_path, seg_etag, seg_size, first_byte, last_byte = (
+                    seg_dict['path'], seg_dict.get('hash'),
+                    seg_dict.get('bytes'),
+                    seg_dict['first_byte'], seg_dict['last_byte'])
+                if seg_size is not None:
+                    seg_size = int(seg_size)
                 first_byte = first_byte or 0
                 go_to_end = last_byte is None or (
                     seg_size is not None and last_byte == seg_size - 1)
@@ -441,7 +454,18 @@ class SegmentedIterable(object):
         bytes_left = self.response_body_length
 
         try:
-            for seg_req, seg_etag, seg_size in self._coalesce_requests():
+            for data_or_req, seg_etag, seg_size in self._coalesce_requests():
+                if isinstance(data_or_req, bytes):
+                    chunk = data_or_req  # ugly, awful overloading
+                    if bytes_left is None:
+                        yield chunk
+                    elif bytes_left >= len(chunk):
+                        yield chunk
+                        bytes_left -= len(chunk)
+                    else:
+                        yield chunk[:bytes_left]
+                    continue
+                seg_req = data_or_req
                 seg_resp = seg_req.get_response(self.app)
                 if not is_success(seg_resp.status_int):
                     close_if_possible(seg_resp.app_iter)

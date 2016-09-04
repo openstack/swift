@@ -188,16 +188,20 @@ class GetContext(WSGIContext):
                 if isinstance(seg_name, six.text_type):
                     seg_name = seg_name.encode("utf-8")
 
-                # (obj path, etag, size, first byte, last byte)
-                yield ("/" + "/".join((version, account, container,
-                                       seg_name)),
-                       # We deliberately omit the etag and size here;
-                       # SegmentedIterable will check size and etag if
-                       # specified, but we don't want it to. DLOs only care
-                       # that the objects' names match the specified prefix.
-                       None, None,
-                       (None if first_byte <= 0 else first_byte),
-                       (None if last_byte >= seg_length - 1 else last_byte))
+                # We deliberately omit the etag and size here;
+                # SegmentedIterable will check size and etag if
+                # specified, but we don't want it to. DLOs only care
+                # that the objects' names match the specified prefix.
+                # SegmentedIterable will instead check that the data read
+                # from each segment matches the response headers.
+                _path = "/".join(["", version, account, container, seg_name])
+                _first = None if first_byte <= 0 else first_byte
+                _last = None if last_byte >= seg_length - 1 else last_byte
+                yield {
+                    'path': _path,
+                    'first_byte': _first,
+                    'last_byte': _last
+                }
 
                 first_byte = max(first_byte - seg_length, -1)
                 last_byte = max(last_byte - seg_length, -1)

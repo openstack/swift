@@ -738,7 +738,7 @@ use = egg:swift#bulk
 [filter:slo]
 use = egg:swift#slo
 # max_manifest_segments = 1000
-# max_manifest_size = 2097152
+# max_manifest_size = 8388608
 #
 # Rate limiting applies only to segments smaller than this size (bytes).
 # rate_limit_under_size = 1048576

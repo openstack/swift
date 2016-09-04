@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import email.parser
 import hashlib
 import itertools
@@ -204,6 +205,28 @@ class TestSloEnv(BaseEnv):
                 {'path': seg_info['seg_b']['path'], 'etag': None,
                  'size_bytes': None, 'range': '-1048578'},
             ]), parms={'multipart-manifest': 'put'})
+
+        file_item = cls.container.file("mixed-object-data-manifest")
+        file_item.write(
+            json.dumps([
+                {'data': base64.b64encode('APRE' * 8)},
+                {'path': seg_info['seg_a']['path']},
+                {'data': base64.b64encode('APOS' * 16)},
+                {'path': seg_info['seg_b']['path']},
+                {'data': base64.b64encode('BPOS' * 32)},
+                {'data': base64.b64encode('CPRE' * 64)},
+                {'path': seg_info['seg_c']['path']},
+                {'data': base64.b64encode('CPOS' * 8)},
+            ]), parms={'multipart-manifest': 'put'}
+        )
+
+        file_item = cls.container.file("nested-data-manifest")
+        file_item.write(
+            json.dumps([
+                {'path': '%s/%s' % (cls.container.name,
+                                    "mixed-object-data-manifest")}
+            ]), parms={'multipart-manifest': 'put'}
+        )
 
 
 class TestSlo(Base):
@@ -671,6 +694,25 @@ class TestSlo(Base):
         self.assertEqual('application/octet-stream', actual['content_type'])
         self.assertEqual(copied.etag, actual['hash'])
 
+        # Test copy manifest including data segments
+        source = self.env.container.file("mixed-object-data-manifest")
+        source_contents = source.read(parms={'multipart-manifest': 'get'})
+        source_json = json.loads(source_contents)
+        source.copy(
+            self.env.container.name,
+            "copied-mixed-object-data-manifest",
+            parms={'multipart-manifest': 'get'})
+
+        copied = self.env.container.file("copied-mixed-object-data-manifest")
+        copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+        try:
+            copied_json = json.loads(copied_contents)
+        except ValueError:
+            self.fail("COPY didn't copy the manifest (invalid json on GET)")
+        self.assertEqual(source_contents, copied_contents)
+        self.assertEqual(copied_json[0],
+                         {'data': base64.b64encode('APRE' * 8)})
+
     def test_slo_copy_the_manifest_updating_metadata(self):
         source = self.env.container.file("manifest-abcde")
         source.content_type = 'application/octet-stream'
@@ -1104,6 +1146,56 @@ class TestSlo(Base):
         self.assertEqual('b', contents[1024 * 1024])
         self.assertEqual('d', contents[-2])
         self.assertEqual('e', contents[-1])
+
+    def test_slo_data_segments(self):
+        # len('APRE' * 8) == 32
+        # len('APOS' * 16) == 64
+        # len('BPOS' * 32) == 128
+        # len('CPRE' * 64) == 256
+        # len(a_pre + seg_a + post_a) == 32 + 1024 ** 2 + 64
+        # len(seg_b + post_b) == 1024 ** 2 + 128
+        # len(c_pre + seg_c) == 256 + 1024 ** 2
+        # len(total) == 3146208
+
+        for file_name in ("mixed-object-data-manifest",
+                          "nested-data-manifest"):
+            file_item = self.env.container.file(file_name)
+            file_contents = file_item.read(size=3 * 1024 ** 2 + 456,
+                                           offset=28)
+            grouped_file_contents = [
+                (char, sum(1 for _char in grp))
+                for char, grp in itertools.groupby(file_contents)]
+            self.assertEqual([
+                ('A', 1),
+                ('P', 1),
+                ('R', 1),
+                ('E', 1),
+                ('a', 1024 * 1024),
+            ] + [
+                ('A', 1),
+                ('P', 1),
+                ('O', 1),
+                ('S', 1),
+            ] * 16 + [
+                ('b', 1024 * 1024),
+            ] + [
+                ('B', 1),
+                ('P', 1),
+                ('O', 1),
+                ('S', 1),
+            ] * 32 + [
+                ('C', 1),
+                ('P', 1),
+                ('R', 1),
+                ('E', 1),
+            ] * 64 + [
+                ('c', 1024 * 1024),
+            ] + [
+                ('C', 1),
+                ('P', 1),
+                ('O', 1),
+                ('S', 1),
+            ], grouped_file_contents)
 
 
 class TestSloUTF8(Base2, TestSlo):
