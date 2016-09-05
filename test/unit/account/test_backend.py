@@ -30,6 +30,7 @@ import itertools
 from contextlib import contextmanager
 import random
 import mock
+import base64
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
@@ -801,13 +802,13 @@ class TestAccountBroker(unittest.TestCase):
         broker = AccountBroker(broker_path, account='real')
         broker.initialize(Timestamp(1).internal)
         with open(broker.pending_file, 'a+b') as pending:
-            pending.write(':')
-            pending.write(pickle.dumps(
+            pending.write(b':')
+            pending.write(base64.b64encode(pickle.dumps(
                 # name, put_timestamp, delete_timestamp, object_count,
                 # bytes_used, deleted
                 ('oldcon', Timestamp(200).internal,
                  Timestamp(0).internal,
-                 896, 9216695, 0)).encode('base64'))
+                 896, 9216695, 0))))
 
         broker._commit_puts()
         with broker.get() as conn:
@@ -830,13 +831,13 @@ class TestAccountBroker(unittest.TestCase):
                                stale_reads_ok=True)
         broker.initialize(Timestamp(1).internal)
         with open(broker.pending_file, 'a+b') as pending:
-            pending.write(':')
-            pending.write(pickle.dumps(
+            pending.write(b':')
+            pending.write(base64.b64encode(pickle.dumps(
                 # name, put_timestamp, delete_timestamp, object_count,
                 # bytes_used, deleted
                 ('oldcon', Timestamp(200).internal,
                  Timestamp(0).internal,
-                 896, 9216695, 0)).encode('base64'))
+                 896, 9216695, 0))))
 
         broker._commit_puts = mock_commit_puts
         broker.get_info()
@@ -852,13 +853,13 @@ class TestAccountBroker(unittest.TestCase):
                                stale_reads_ok=False)
         broker.initialize(Timestamp(1).internal)
         with open(broker.pending_file, 'a+b') as pending:
-            pending.write(':')
-            pending.write(pickle.dumps(
+            pending.write(b':')
+            pending.write(base64.b64encode(pickle.dumps(
                 # name, put_timestamp, delete_timestamp, object_count,
                 # bytes_used, deleted
                 ('oldcon', Timestamp(200).internal,
                  Timestamp(0).internal,
-                 896, 9216695, 0)).encode('base64'))
+                 896, 9216695, 0))))
 
         broker._commit_puts = mock_commit_puts
 
