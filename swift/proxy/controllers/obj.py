@@ -92,7 +92,7 @@ class ObjectControllerRouter(object):
     @classmethod
     def register(cls, policy_type):
         """
-        Decorator for Storage Policy implemenations to register
+        Decorator for Storage Policy implementations to register
         their ObjectController implementations.
 
         This also fills in a policy_type attribute on the class.
@@ -2241,7 +2241,7 @@ class ECObjectController(BaseObjectController):
         """
         Given a list of statuses from several requests, determine if a
         satisfactory number of nodes have responded with 1xx or 2xx statuses to
-        deem the transaction for a succssful response to the client.
+        deem the transaction for a successful response to the client.
 
         :param statuses: list of statuses returned so far
         :param min_responses: minimal pass criterion for number of successes
