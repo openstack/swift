@@ -1275,7 +1275,17 @@ class TestFile(Base):
                 self.assertTrue(file_item.copy(
                     '%s%s' % (prefix, cont), dest_filename, hdrs=extra_hdrs))
 
-                self.assertIn(dest_filename, cont.files())
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(file_item.size, obj['bytes'])
+                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(file_item.content_type, obj['content_type'])
 
                 file_copy = cont.file(dest_filename)
 
@@ -1315,6 +1325,19 @@ class TestFile(Base):
                     self.assertIn(k.lower(), resp_headers)
                     self.assertEqual(v, resp_headers[k.lower()])
 
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(file_item.size, obj['bytes'])
+                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(
+                    'application/test-changed', obj['content_type'])
+
                 # repeat copy with X-Fresh-Metadata header - existing user
                 # metadata should not be copied, new completely replaces it.
                 extra_hdrs = {'Content-Type': 'application/test-updated',
@@ -1336,6 +1359,63 @@ class TestFile(Base):
                 resp_headers = dict(file_copy.conn.response.getheaders())
                 for k in ('Content-Disposition', 'Content-Encoding'):
                     self.assertNotIn(k.lower(), resp_headers)
+
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(file_item.size, obj['bytes'])
+                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(
+                    'application/test-updated', obj['content_type'])
+
+    def testCopyRange(self):
+        # makes sure to test encoded characters
+        source_filename = 'dealde%2Fl04 011e%204c8df/flash.png'
+        file_item = self.env.container.file(source_filename)
+
+        metadata = {Utils.create_ascii_name(): Utils.create_name()}
+
+        data = file_item.write_random(1024)
+        file_item.sync_metadata(metadata)
+        file_item.initialize()
+
+        dest_cont = self.env.account.container(Utils.create_name())
+        self.assertTrue(dest_cont.create())
+
+        expected_body = data[100:201]
+        expected_etag = hashlib.md5(expected_body)
+        # copy both from within and across containers
+        for cont in (self.env.container, dest_cont):
+            # copy both with and without initial slash
+            for prefix in ('', '/'):
+                dest_filename = Utils.create_name()
+
+                file_item.copy('%s%s' % (prefix, cont), dest_filename,
+                               hdrs={'Range': 'bytes=100-200'})
+                self.assertEqual(201, file_item.conn.response.status)
+
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(101, obj['bytes'])
+                self.assertEqual(expected_etag.hexdigest(), obj['hash'])
+                self.assertEqual(file_item.content_type, obj['content_type'])
+
+                # verify copy object
+                copy_file_item = cont.file(dest_filename)
+                self.assertEqual(expected_body, copy_file_item.read())
+                self.assertTrue(copy_file_item.initialize())
+                self.assertEqual(metadata, copy_file_item.metadata)
 
     def testCopyAccount(self):
         # makes sure to test encoded characters
@@ -1427,10 +1507,9 @@ class TestFile(Base):
 
             # invalid destination container
             file_item = self.env.container.file(source_filename)
-            self.assertTrue(
-                not file_item.copy(
-                    '%s%s' % (prefix, Utils.create_name()),
-                    Utils.create_name()))
+            self.assertFalse(file_item.copy(
+                '%s%s' % (prefix, Utils.create_name()),
+                Utils.create_name()))
 
     def testCopyAccount404s(self):
         acct = self.env.conn.account_name
