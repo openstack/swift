@@ -17,7 +17,6 @@ import itertools
 from collections import defaultdict
 import unittest
 import mock
-from mock import patch
 from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_cache_key, get_account_info, get_info, get_object_info, \
@@ -113,6 +112,31 @@ class DynamicResponseFactory(object):
         return resp
 
 
+class ZeroCacheAccountResponse(FakeResponse):
+    base_headers = {
+        'X-Backend-Recheck-Account-Existence': '0',
+        'x-account-container-count': 333,
+        'x-account-object-count': 1000,
+        'x-account-bytes-used': 6666,
+    }
+
+
+class ZeroCacheContainerResponse(FakeResponse):
+    base_headers = {
+        'X-Backend-Recheck-Container-Existence': '0',
+        'x-container-object-count': 1000,
+        'x-container-bytes-used': 6666,
+    }
+
+
+class ZeroCacheDynamicResponseFactory(DynamicResponseFactory):
+    response_type = {
+        'obj': ObjectResponse,
+        'container': ZeroCacheContainerResponse,
+        'account': ZeroCacheAccountResponse,
+    }
+
+
 class FakeApp(object):
 
     recheck_container_existence = 30
@@ -149,6 +173,81 @@ class TestFuncs(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing())
+
+    def test_get_info_zero_recheck(self):
+        mock_cache = mock.Mock()
+        mock_cache.get.return_value = None
+        app = FakeApp(ZeroCacheDynamicResponseFactory())
+        env = {'swift.cache': mock_cache}
+        info_a = get_info(app, env, 'a')
+        # Check that you got proper info
+        self.assertEqual(info_a['status'], 200)
+        self.assertEqual(info_a['bytes'], 6666)
+        self.assertEqual(info_a['total_object_count'], 1000)
+        self.assertEqual(info_a['container_count'], 333)
+        # Make sure the env cache is set
+        exp_cached_info_a = {
+            k: str(v) if k in (
+                'bytes', 'container_count', 'total_object_count') else v
+            for k, v in info_a.items()}
+        self.assertEqual(env['swift.infocache'].get('account/a'),
+                         exp_cached_info_a)
+        # Make sure the app was called
+        self.assertEqual(app.responses.stats['account'], 1)
+        self.assertEqual(app.responses.stats['container'], 0)
+        # Make sure memcache was called
+        self.assertEqual(mock_cache.mock_calls, [
+            mock.call.get('account/a'),
+            mock.call.set('account/a', exp_cached_info_a, time=0),
+        ])
+
+        mock_cache.reset_mock()
+        info_c = get_info(app, env, 'a', 'c')
+        # Check that you got proper info
+        self.assertEqual(info_c['status'], 200)
+        self.assertEqual(info_c['bytes'], 6666)
+        self.assertEqual(info_c['object_count'], 1000)
+        # Make sure the env cache is set
+        exp_cached_info_c = {
+            k: str(v) if k in ('bytes', 'object_count') else v
+            for k, v in info_c.items()}
+        self.assertEqual(env['swift.infocache'].get('account/a'),
+                         exp_cached_info_a)
+        self.assertEqual(env['swift.infocache'].get('container/a/c'),
+                         exp_cached_info_c)
+        # Check app call for container, but no new calls for account
+        self.assertEqual(app.responses.stats['account'], 1)
+        self.assertEqual(app.responses.stats['container'], 1)
+        # Make sure container info was cached
+        self.assertEqual(mock_cache.mock_calls, [
+            mock.call.get('container/a/c'),
+            mock.call.set('container/a/c', exp_cached_info_c, time=0),
+        ])
+
+        # reset call counts
+        app = FakeApp(ZeroCacheDynamicResponseFactory())
+        env = {'swift.cache': mock_cache}
+        mock_cache.reset_mock()
+        info_c = get_info(app, env, 'a', 'c')
+        # Check that you got proper info
+        self.assertEqual(info_c['status'], 200)
+        self.assertEqual(info_c['bytes'], 6666)
+        self.assertEqual(info_c['object_count'], 1000)
+        # Make sure the env cache is set
+        self.assertEqual(env['swift.infocache'].get('account/a'),
+                         exp_cached_info_a)
+        self.assertEqual(env['swift.infocache'].get('container/a/c'),
+                         exp_cached_info_c)
+        # check app calls both account and container
+        self.assertEqual(app.responses.stats['account'], 1)
+        self.assertEqual(app.responses.stats['container'], 1)
+        # Make sure account info was cached but container was not
+        self.assertEqual(mock_cache.mock_calls, [
+            mock.call.get('container/a/c'),
+            mock.call.get('account/a'),
+            mock.call.set('account/a', exp_cached_info_a, time=0),
+            mock.call.set('container/a/c', exp_cached_info_c, time=0),
+        ])
 
     def test_get_info(self):
         app = FakeApp()
@@ -246,15 +345,13 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(resp['object_count'], 1000)
 
     def test_get_container_info_no_account(self):
-        responses = DynamicResponseFactory(404, 200)
-        app = FakeApp(responses)
+        app = FakeApp(statuses=[404, 200])
         req = Request.blank("/v1/AUTH_does_not_exist/cont")
         info = get_container_info(req.environ, app)
         self.assertEqual(info['status'], 0)
 
     def test_get_container_info_no_auto_account(self):
-        responses = DynamicResponseFactory(200)
-        app = FakeApp(responses)
+        app = FakeApp(statuses=[200])
         req = Request.blank("/v1/.system_account/cont")
         info = get_container_info(req.environ, app)
         self.assertEqual(info['status'], 200)
@@ -388,8 +485,8 @@ class TestFuncs(unittest.TestCase):
                             headers={'Origin': origin,
                                      'Access-Control-Request-Method': 'GET'})
 
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
+        with mock.patch('swift.proxy.controllers.base.'
+                        'http_connect', fake_http_connect(200)):
             resp = base.OPTIONS(req)
         self.assertEqual(resp.status_int, 200)
 
@@ -410,8 +507,8 @@ class TestFuncs(unittest.TestCase):
                             headers={'Origin': '*',
                                      'Access-Control-Request-Method': 'GET'})
 
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
+        with mock.patch('swift.proxy.controllers.base.'
+                        'http_connect', fake_http_connect(200)):
             resp = base.OPTIONS(req)
         self.assertEqual(resp.status_int, 200)
 
@@ -425,8 +522,8 @@ class TestFuncs(unittest.TestCase):
                             headers={'Origin': 'http://m.com',
                                      'Access-Control-Request-Method': 'GET'})
 
-        with patch('swift.proxy.controllers.base.'
-                   'http_connect', fake_http_connect(200)):
+        with mock.patch('swift.proxy.controllers.base.'
+                        'http_connect', fake_http_connect(200)):
             resp = base.OPTIONS(req)
         self.assertEqual(resp.status_int, 401)
 
@@ -786,8 +883,8 @@ class TestFuncs(unittest.TestCase):
             client_chunk_size=8)
 
         app_iter = handler._make_app_iter(req, node, source1)
-        with patch.object(handler, '_get_source_and_node',
-                          lambda: (source2, node)):
+        with mock.patch.object(handler, '_get_source_and_node',
+                               lambda: (source2, node)):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
 
@@ -826,8 +923,8 @@ class TestFuncs(unittest.TestCase):
             client_chunk_size=8)
 
         app_iter = handler._make_app_iter(req, node, source1)
-        with patch.object(handler, '_get_source_and_node',
-                          lambda: (source2, node)):
+        with mock.patch.object(handler, '_get_source_and_node',
+                               lambda: (source2, node)):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
 
