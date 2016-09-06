@@ -464,6 +464,16 @@ class TestConstraints(unittest.TestCase):
                 self.fail('check_container_format did not raise error for %r' %
                           req.headers['X-Versions-Location'])
 
+    def test_valid_api_version(self):
+        version = 'v1'
+        self.assertTrue(constraints.valid_api_version(version))
+
+        version = 'v1.0'
+        self.assertTrue(constraints.valid_api_version(version))
+
+        version = 'v2'
+        self.assertFalse(constraints.valid_api_version(version))
+
 
 class TestConstraintsConfig(unittest.TestCase):
 
