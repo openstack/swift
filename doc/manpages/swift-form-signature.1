@@ -1,0 +1,67 @@
+.\"
+.\" Copyright (c) 2016 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH SWIFT-FORM-SIGNATURE "1" "August 2016" "OpenStack Swift"
+
+.SH NAME
+swift\-form\-signature \- compute the expires and signature for OpenStack Swift Form POST middleware
+
+.SH SYNOPSIS
+.B swift\-form\-signature
+\fIpath\fR \fIredirect\fR \fImax_file_size\fR \fImax_file_count\fR
+\fIseconds\fR \fIkey\fR
+
+.SH DESCRIPTION
+.PP
+Tool to compute expires and signature values which can be used to upload
+objects directly to the Swift from a browser by using the form POST middleware.
+
+.SH OPTIONS
+.TP
+.I path
+The prefix to use for form uploaded
+objects. For example:
+\fI/v1/account/container/object_prefix_\fP would
+ensure all form uploads have that path
+prepended to the browser\-given file name.
+.TP
+.I redirect
+The URL to redirect the browser to after
+the uploads have completed.
+.TP
+.I max_file_size
+The maximum file size per file uploaded.
+.TP
+.I max_file_count
+The maximum number of uploaded files
+allowed.
+.TP
+.I seconds
+The number of seconds from now to allow
+the form post to begin.
+.TP
+.I key
+The X\-Account\-Meta\-Temp\-URL\-Key for the
+account.
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift\-form\-signature
+and also about OpenStack Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+and 
+.BI http://docs.openstack.org

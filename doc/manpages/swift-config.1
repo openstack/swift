@@ -1,0 +1,51 @@
+.\"
+.\" Copyright (c) 2016 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH SWIFT-CONFIG "1" "August 2016" "OpenStack Swift"
+
+.SH NAME
+swift\-config \- OpenStack Swift config parser
+
+.SH SYNOPSIS
+.B swift\-config
+[\fIoptions\fR] \fISERVER\fR
+
+.SH DESCRIPTION
+.PP
+Combine Swift configuration files and print result.
+
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message and exit
+.TP
+\fB\-c\fR \fIN\fR, \fB\-\-config\-num\fR=\fIN\fR
+Parse config for the \fIN\fRth server only
+.TP
+\fB\-s\fR \fISECTION\fR, \fB\-\-section\fR=\fISECTION\fR
+Only display matching sections
+.TP
+\fB\-w\fR, \fB\-\-wsgi\fR
+Use wsgi/paste parser instead of readconf
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift\-config
+and also about OpenStack Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+and 
+.BI http://docs.openstack.org
