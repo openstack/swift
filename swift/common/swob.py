@@ -467,6 +467,8 @@ class Range(object):
     :param headerval: value of the header as a str
     """
     def __init__(self, headerval):
+        if not headerval:
+            raise ValueError('Invalid Range header: %r' % headerval)
         headerval = headerval.replace(' ', '')
         if not headerval.lower().startswith('bytes='):
             raise ValueError('Invalid Range header: %s' % headerval)

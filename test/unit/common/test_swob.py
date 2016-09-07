@@ -249,6 +249,7 @@ class TestRange(unittest.TestCase):
         6. any combination of the above
         """
 
+        _assert_invalid_range(None)
         _assert_invalid_range('nonbytes=foobar,10-2')
         _assert_invalid_range('bytes=5-3')
         _assert_invalid_range('bytes=-')

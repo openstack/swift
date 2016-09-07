@@ -1061,6 +1061,7 @@ class ResumingGetter(object):
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
+            exc_type, exc_value, exc_traceback = exc_info()
             warn = True
             try:
                 req_range = Range(self.backend_headers['Range'])
@@ -1068,11 +1069,12 @@ class ResumingGetter(object):
                 req_range = None
             if req_range and len(req_range.ranges) == 1:
                 begin, end = req_range.ranges[0]
-                if end - begin + 1 == self.bytes_used_from_backend:
-                    warn = False
+                if end is not None and begin is not None:
+                    if end - begin + 1 == self.bytes_used_from_backend:
+                        warn = False
             if not req.environ.get('swift.non_client_disconnect') and warn:
                 self.app.logger.warning(_('Client disconnected on read'))
-            raise
+            six.reraise(exc_type, exc_value, exc_traceback)
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise
