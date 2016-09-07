@@ -459,9 +459,12 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
     def default():
         """
 swift-ring-builder <builder_file>
-    Shows information about the ring and the devices within.
-    Flags:
-        DEL - marked for removal and will be removed next rebalance.
+    Shows information about the ring and the devices within. Output
+    includes a table that describes the report parameters (id, region,
+    port, flags, etc).
+    flags: possible values are 'DEL' and ''
+        DEL - indicates that the device is marked for removal from
+              ring and will be removed in next rebalance.
         """
         print('%s, build version %d' % (builder_file, builder.version))
         regions = 0
