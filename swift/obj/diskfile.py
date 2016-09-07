@@ -171,12 +171,12 @@ def extract_policy(obj_path):
 
     The device-relative path is everything after the mount point; for example:
 
-    /srv/node/d42/objects-5/179/
+    /srv/node/d42/objects-5/30/179/
         485dc017205a81df3af616d917c90179/1401811134.873649.data
 
     would have device-relative path:
 
-    objects-5/179/485dc017205a81df3af616d917c90179/1401811134.873649.data
+    objects-5/30/179/485dc017205a81df3af616d917c90179/1401811134.873649.data
 
     :param obj_path: device-relative path of an object, or the full path
     :returns: a :class:`~swift.common.storage_policy.BaseStoragePolicy` or None
