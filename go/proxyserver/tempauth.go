@@ -66,7 +66,7 @@ func NewTempAuth(mc hummingbird.MemcacheRing, config hummingbird.Config) func(ht
 					urlSpot = 1
 					url = s
 				}
-				for _, group := range valparts[1:vallen-urlSpot] {
+				for _, group := range valparts[1 : vallen-urlSpot] {
 					groups = append(groups, group)
 				}
 			}
@@ -86,7 +86,7 @@ func NewTempAuth(mc hummingbird.MemcacheRing, config hummingbird.Config) func(ht
 		}
 	}
 	tempAuth := &TempAuth{
-		mc: mc,
+		mc:        mc,
 		testUsers: users,
 	}
 	return tempAuth.getMiddleware
