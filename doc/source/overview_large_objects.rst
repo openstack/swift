@@ -57,6 +57,10 @@ Additional Notes
   <container>/<prefix>`` header will be returned with the concatenated object
   so you can tell where it's getting its segments from.
 
+* When updating a manifest object using a POST request, a
+  ``X-Object-Manifest`` header must be included for the object to
+  continue to behave as a manifest object.
+
 * The response's ``Content-Length`` for a ``GET`` or ``HEAD`` on the manifest
   file will be the sum of all the segments in the ``<container>/<prefix>``
   listing, dynamically. So, uploading additional segments after the manifest is

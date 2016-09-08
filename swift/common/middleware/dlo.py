@@ -85,13 +85,17 @@ available to download the first set of segments.
 
 .. note::
 
+    When updating a manifest object using a POST request, a
+    ``X-Object-Manifest`` header must be included for the object to
+    continue to behave as a manifest object.
+
     The manifest file should have no content. However, this is not enforced.
     If the manifest path itself conforms to container/prefix specified in
-    X-Object-Manifest, and if manifest has some content/data in it, it would
-    also be considered as segment and manifest's content will be part of the
-    concatenated GET response. The order of concatenation follows the usual DLO
-    logic which is - the order of concatenation adheres to order returned when
-    segment names are sorted.
+    ``X-Object-Manifest``, and if manifest has some content/data in it, it
+    would also be considered as segment and manifest's content will be part of
+    the concatenated GET response. The order of concatenation follows the usual
+    DLO logic which is - the order of concatenation adheres to order returned
+    when segment names are sorted.
 
 
 Here's an example using ``curl`` with tiny 1-byte segments::

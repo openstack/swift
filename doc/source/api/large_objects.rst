@@ -168,6 +168,12 @@ of segments to a second location and update the manifest to point to
 this new location. During the upload of the new segments, the original
 manifest is still available to download the first set of segments.
 
+.. note::
+
+  When updating a manifest object using a POST request, a
+  ``X-Object-Manifest`` header must be included for the
+  object to continue to behave as a manifest object.
+
 **Example Upload segment of large object request: HTTP**
 
 .. code::

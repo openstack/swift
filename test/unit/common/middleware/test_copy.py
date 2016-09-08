@@ -210,6 +210,38 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def test_POST_as_COPY_dynamic_large_object_manifest(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Object-Manifest': 'orig_manifest'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='POST',
+                            headers={'X-Object-Manifest': 'new_manifest'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '202 Accepted')
+
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('new_manifest', req_headers['x-object-manifest'])
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
+    def test_POST_as_COPY_dynamic_large_object_no_manifest(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Object-Manifest': 'orig_manifest'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='POST',
+                            headers={})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '202 Accepted')
+
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        self.assertNotIn('X-Object-Manifest', req_headers)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
     def test_basic_put_with_x_copy_from(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register('PUT', '/v1/a/c/o2', swob.HTTPCreated, {})
