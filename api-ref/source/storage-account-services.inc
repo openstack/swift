@@ -184,12 +184,7 @@ Meta-{name}`` header with an arbitrary value. For example,
 ``X-Remove-Account-Meta-Book: x``. The operation ignores the arbitrary
 value.
 
-Metadata keys (the name of the metadata) must be treated as case-insensitive
-at all times. These keys can contain ASCII 7-bit characters that are not
-control (0-31) characters, DEL, or a separator character, according to
-`HTTP/1.1 <http://www.w3.org/Protocols/rfc2616/rfc2616.html>`_ .
-The underscore character is silently converted to a hyphen.
-
+.. include:: metadata_header_syntax.inc
 .. include:: metadata_header_encoding.inc
 
 Subsequent requests for the same key and value pair overwrite the

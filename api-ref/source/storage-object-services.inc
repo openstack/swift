@@ -166,11 +166,7 @@ To create custom metadata, use the
 ``X-Object-Meta-name`` header, where ``name`` is the name of the metadata
 item.
 
-Metadata keys (the name of the metadata) must be treated as case-insensitive
-at all times. These keys can contain ASCII 7-bit characters that are not
-control (0-31) characters, DEL, or a separator character, according to
-`HTTP/1.1 <http://www.w3.org/Protocols/rfc2616/rfc2616.html>`_ .
-The underscore character is silently converted to a hyphen.
+.. include:: metadata_header_syntax.inc
 
 Example requests and responses:
 
@@ -599,11 +595,7 @@ To create or update custom metadata, use the
 ``X-Object-Meta-name`` header, where ``name`` is the name of the metadata
 item.
 
-Metadata keys (the name of the metadata) must be treated as case-insensitive
-at all times. These keys can contain ASCII 7-bit characters that are not
-control (0-31) characters, DEL, or a separator character, according to
-`HTTP/1.1 <http://www.w3.org/Protocols/rfc2616/rfc2616.html>`_ .
-The underscore character is silently converted to a hyphen.
+.. include:: metadata_header_syntax.inc
 
 In addition to the custom metadata, you can update the
 ``Content-Type``, ``Content-Encoding``, ``Content-Disposition``, and
