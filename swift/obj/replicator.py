@@ -201,12 +201,9 @@ class ObjectReplicator(Daemon):
             if self.rsync_error_log_line_length:
                 error_line = error_line[:self.rsync_error_log_line_length]
             self.logger.error(error_line)
-        elif results:
-            self.logger.info(
-                _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
-                {'src': args[-2], 'dst': args[-1], 'time': total_time})
         else:
-            self.logger.debug(
+            log_method = self.logger.info if results else self.logger.debug
+            log_method(
                 _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
                 {'src': args[-2], 'dst': args[-1], 'time': total_time})
         return ret_val
