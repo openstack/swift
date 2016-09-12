@@ -22,6 +22,7 @@
 
 import os
 # import sys
+from swift import __version__
 
 
 import openstackdocstheme
@@ -64,9 +65,9 @@ copyright = u'2016, OpenStack contributors'
 # built documents.
 #
 # The short X.Y version.
-version = '0.1'
+version = __version__.rsplit('.', 1)[0]
 # The full version, including alpha/beta/rc tags.
-release = '0.1'
+release = __version__
 
 # A few variables have to be set for the log-a-bug feature.
 #   giturl: The location of conf.py on Git. Must be set manually.
