@@ -125,6 +125,8 @@ Keystone roles to Swift's ACLs.
 .. _KeystoneMiddleware: http://docs.openstack.org/developer/keystonemiddleware/
 .. _Keystone: http://docs.openstack.org/developer/keystone/
 
+.. _configuring_keystone_auth:
+
 Configuring Swift to use Keystone
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -319,6 +321,61 @@ Users with the Keystone role defined in ``reseller_admin_role``
 (``ResellerAdmin`` by default) can operate on any account. The auth system
 sets the request environ reseller_request to True if a request is coming
 from a user with this role. This can be used by other middlewares.
+
+Troubleshooting tips for keystoneauth deployment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Some common mistakes can result in API requests failing when first deploying
+keystone with Swift:
+
+* Incorrect configuration of the Swift endpoint in the Keystone service.
+
+  By default, keystoneauth expects the account part of a URL to have the form
+  ``AUTH_<keystone_project_id>``. Sometimes the ``AUTH_`` prefix is missed when
+  configuring Swift endpoints in Keystone, as described in the `Install  Guide
+  <http://docs.openstack.org/>`_. This is easily diagnosed by inspecting the
+  proxy-server log file for a failed request URL and checking that the URL
+  includes the ``AUTH_`` prefix (or whatever reseller prefix may have been
+  configured for keystoneauth)::
+
+      GOOD:
+      proxy-server: 127.0.0.1 127.0.0.1 07/Sep/2016/16/06/58 HEAD /v1/AUTH_cfb8d9d45212408b90bc0776117aec9e HTTP/1.0 204 ...
+
+      BAD:
+      proxy-server: 127.0.0.1 127.0.0.1 07/Sep/2016/16/07/35 HEAD /v1/cfb8d9d45212408b90bc0776117aec9e HTTP/1.0 403 ...
+
+
+* Incorrect configuration of the ``authtoken`` middleware options in the Swift
+  proxy server.
+
+  The ``authtoken`` middleware communicates with the Keystone service to
+  validate tokens that are presented with client requests. To do this
+  ``authtoken`` must authenticate itself with Keystone using the credentials
+  configured in the ``[filter:authtoken]`` section of
+  ``/etc/swift/proxy-server.conf``. Errors in these credentials can result in
+  ``authtoken`` failing to validate tokens and may be revealed in the proxy
+  server logs by a message such as::
+
+      proxy-server: Identity server rejected authorization
+
+  .. note::
+
+      More detailed log messaging may be seen by setting the ``authtoken``
+      option ``log_level = debug``.
+
+  The ``authtoken`` configuration options may be checked by attempting to use
+  them to communicate directly with Keystone using an ``openstack`` command
+  line. For example, given the ``authtoken`` configuration sample shown in
+  :ref:`configuring_keystone_auth`, the following command should return a
+  service catalog::
+
+      openstack --os-identity-api-version=3 --os-auth-url=http://keystonehost:5000/ \
+          --os-username=swift --os-user-domain-id=default \
+          --os-project-name=service --os-project-domain-id=default \
+          --os-password=password catalog show object-store
+
+  If this ``openstack`` command fails then it is likely that there is a problem
+  with the ``authtoken`` configuration.
 
 --------------
 Extending Auth
