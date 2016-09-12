@@ -63,7 +63,7 @@ class ContainerSyncRealms(object):
                 if mtime != self.conf_path_mtime:
                     self.conf_path_mtime = mtime
                     try:
-                        conf = configparser.SafeConfigParser()
+                        conf = configparser.ConfigParser()
                         conf.read(self.conf_path)
                     except configparser.ParsingError as err:
                         self.logger.error(
