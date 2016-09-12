@@ -2041,7 +2041,6 @@ class TestManager(unittest.TestCase):
             manager.watch_server_pids = _orig_watch_server_pids
             manager.kill_group = _orig_kill_group
 
-    # TODO(clayg): more tests
     def test_shutdown(self):
         m = manager.Manager(['test'])
         m.stop_was_called = False
