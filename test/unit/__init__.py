@@ -53,6 +53,7 @@ import six.moves.cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect
+from nose import SkipTest
 
 EMPTY_ETAG = md5().hexdigest()
 
@@ -1079,3 +1080,12 @@ class Timeout(object):
         class TimeoutException(Exception):
             pass
         raise TimeoutException
+
+
+def requires_o_tmpfile_support(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not utils.o_tmpfile_supported():
+            raise SkipTest('Requires O_TMPFILE support')
+        return func(*args, **kwargs)
+    return wrapper

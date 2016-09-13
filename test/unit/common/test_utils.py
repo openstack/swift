@@ -53,6 +53,7 @@ from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
 from mock import MagicMock, patch
 from six.moves.configparser import NoSectionError, NoOptionError
+from uuid import uuid4
 
 from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
@@ -62,7 +63,7 @@ from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response
-from test.unit import FakeLogger
+from test.unit import FakeLogger, requires_o_tmpfile_support
 
 threading = eventlet.patcher.original('threading')
 
@@ -3589,6 +3590,79 @@ cluster_dfw1 = http://dfw1.host/v1/
         with patch('os.uname', return_value=('', '', '', '', 'alpha')), \
                 patch('platform.architecture', return_value=('64bit', '')):
             self.assertRaises(OSError, utils.NR_ioprio_set)
+
+    @requires_o_tmpfile_support
+    def test_link_fd_to_path_linkat_success(self):
+        tempdir = mkdtemp(dir='/tmp')
+        fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
+        data = "I'm whatever Gotham needs me to be"
+        _m_fsync_dir = mock.Mock()
+        try:
+            os.write(fd, data)
+            # fd is O_WRONLY
+            self.assertRaises(OSError, os.read, fd, 1)
+            file_path = os.path.join(tempdir, uuid4().hex)
+            with mock.patch('swift.common.utils.fsync_dir', _m_fsync_dir):
+                    utils.link_fd_to_path(fd, file_path, 1)
+            with open(file_path, 'r') as f:
+                self.assertEqual(f.read(), data)
+            self.assertEqual(_m_fsync_dir.call_count, 2)
+        finally:
+            os.close(fd)
+            shutil.rmtree(tempdir)
+
+    @requires_o_tmpfile_support
+    def test_link_fd_to_path_target_exists(self):
+        tempdir = mkdtemp(dir='/tmp')
+        # Create and write to a file
+        fd, path = tempfile.mkstemp(dir=tempdir)
+        os.write(fd, "hello world")
+        os.fsync(fd)
+        os.close(fd)
+        self.assertTrue(os.path.exists(path))
+
+        fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
+        try:
+            os.write(fd, "bye world")
+            os.fsync(fd)
+            utils.link_fd_to_path(fd, path, 0, fsync=False)
+            # Original file now should have been over-written
+            with open(path, 'r') as f:
+                self.assertEqual(f.read(), "bye world")
+        finally:
+            os.close(fd)
+            shutil.rmtree(tempdir)
+
+    @requires_o_tmpfile_support
+    def test_link_fd_to_path_errno_not_EEXIST_or_ENOENT(self):
+        _m_linkat = mock.Mock(
+            side_effect=IOError(errno.EACCES, os.strerror(errno.EACCES)))
+        with mock.patch('swift.common.utils.linkat', _m_linkat):
+            try:
+                utils.link_fd_to_path(0, '/path', 1)
+            except IOError as err:
+                self.assertEqual(err.errno, errno.EACCES)
+            else:
+                self.fail("Expecting IOError exception")
+        self.assertTrue(_m_linkat.called)
+
+    @requires_o_tmpfile_support
+    def test_linkat_race_dir_not_exists(self):
+        tempdir = mkdtemp(dir='/tmp')
+        target_dir = os.path.join(tempdir, uuid4().hex)
+        target_path = os.path.join(target_dir, uuid4().hex)
+        os.mkdir(target_dir)
+        fd = os.open(target_dir, utils.O_TMPFILE | os.O_WRONLY)
+        # Simulating directory deletion by other backend process
+        os.rmdir(target_dir)
+        self.assertFalse(os.path.exists(target_dir))
+        try:
+            utils.link_fd_to_path(fd, target_path, 1)
+            self.assertTrue(os.path.exists(target_dir))
+            self.assertTrue(os.path.exists(target_path))
+        finally:
+            os.close(fd)
+            shutil.rmtree(tempdir)
 
 
 class ResellerConfReader(unittest.TestCase):
