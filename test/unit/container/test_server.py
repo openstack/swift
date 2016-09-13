@@ -40,7 +40,7 @@ import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
-                                lock_parent_directory)
+                                storage_directory, lock_parent_directory)
 from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -1324,6 +1324,31 @@ class TestContainerController(unittest.TestCase):
         req.environ['wsgi.input'] = inbuf1
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
+
+    def test_REPLICATE_unknown_sync(self):
+        # First without existing DB file
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+        json_string = '["unknown_sync", "a.db"]'
+        inbuf = WsgiBytesIO(json_string)
+        req.environ['wsgi.input'] = inbuf
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        mkdirs(os.path.join(self.testdir, 'sda1', 'containers', 'p', 'a', 'a'))
+        db_file = os.path.join(self.testdir, 'sda1',
+                               storage_directory('containers', 'p', 'a'),
+                               'a' + '.db')
+        open(db_file, 'w')
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+        json_string = '["unknown_sync", "a.db"]'
+        inbuf = WsgiBytesIO(json_string)
+        req.environ['wsgi.input'] = inbuf
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 500)
 
     def test_DELETE(self):
         req = Request.blank(
