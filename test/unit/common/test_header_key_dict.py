@@ -47,9 +47,9 @@ class TestHeaderKeyDict(unittest.TestCase):
     def test_del_contains(self):
         headers = HeaderKeyDict()
         headers['Content-Length'] = 0
-        self.assertTrue('Content-Length' in headers)
+        self.assertIn('Content-Length', headers)
         del headers['Content-Length']
-        self.assertTrue('Content-Length' not in headers)
+        self.assertNotIn('Content-Length', headers)
 
     def test_update(self):
         headers = HeaderKeyDict()
@@ -73,3 +73,12 @@ class TestHeaderKeyDict(unittest.TestCase):
         self.assertEqual(
             set(headers.keys()),
             set(('Content-Length', 'Content-Type', 'Something-Else')))
+
+    def test_pop(self):
+        headers = HeaderKeyDict()
+        headers['content-length'] = 20
+        headers['cOntent-tYpe'] = 'text/plain'
+        self.assertEqual(headers.pop('content-Length'), '20')
+        self.assertEqual(headers.pop('Content-type'), 'text/plain')
+        self.assertEqual(headers.pop('Something-Else', 'somevalue'),
+                         'somevalue')
