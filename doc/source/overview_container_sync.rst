@@ -14,13 +14,24 @@ synchronization key.
 
 .. note::
 
-    If you are using the large objects feature and syncing to another cluster
-    then you will need to ensure that manifest files and segment files are
-    synced. If segment files are in a different container than their manifest
-    then both the manifest's container and the segments' container must be
-    synced. The target container for synced segment files must always have the
-    same name as their source container in order for them to be resolved by
-    synced manifests.
+    If you are using the :ref:`Large Objects <large-objects>` feature and
+    syncing to another cluster then you will need to ensure that manifest files
+    and segment files are synced. If segment files are in a different container
+    than their manifest then both the manifest's container and the segments'
+    container must be synced. The target container for synced segment files
+    must always have the same name as their source container in order for them
+    to be resolved by synced manifests.
+
+    Be aware that manifest files may be synced before segment files even if
+    they are in the same container and were created after the segment files.
+
+    In the case of :ref:`Static Large Objects <static-large-objects>`, a GET
+    request for a manifest whose segments have yet to be completely synced will
+    fail with none or only part of the large object content being returned.
+
+    In the case of :ref:`Dynamic Large Objects <dynamic-large-objects>`, a GET
+    request for a manifest whose segments have yet to be completely synced will
+    either fail or return unexpected (and most likely incorrect) content.
 
 .. note::
 

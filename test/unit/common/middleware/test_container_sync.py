@@ -213,9 +213,9 @@ cluster_dfw1 = http://dfw1.host/v1/
             resp.body,
             'X-Container-Sync-Auth header not valid; contact cluster operator '
             'for support.')
-        self.assertTrue(
-            'cs:invalid-sig' in req.environ.get('swift.log_info'),
-            req.environ.get('swift.log_info'))
+        self.assertIn('cs:invalid-sig', req.environ.get('swift.log_info'))
+        self.assertNotIn('swift.authorize_override', req.environ)
+        self.assertNotIn('swift.slo_override', req.environ)
 
     def test_valid_sig(self):
         ts = '1455221706.726999_0123456789abcdef'
@@ -233,6 +233,8 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertIn('cs:valid', req.environ.get('swift.log_info'))
         self.assertIn('X-Timestamp', resp.headers)
         self.assertEqual(ts, resp.headers['X-Timestamp'])
+        self.assertIn('swift.authorize_override', req.environ)
+        self.assertIn('swift.slo_override', req.environ)
 
     def test_valid_sig2(self):
         sig = self.sync.realms_conf.get_sig(
@@ -245,9 +247,9 @@ cluster_dfw1 = http://dfw1.host/v1/
         resp = req.get_response(self.sync)
         self.assertEqual(resp.status, '200 OK')
         self.assertEqual(resp.body, 'Response to Authorized Request')
-        self.assertTrue(
-            'cs:valid' in req.environ.get('swift.log_info'),
-            req.environ.get('swift.log_info'))
+        self.assertIn('cs:valid', req.environ.get('swift.log_info'))
+        self.assertIn('swift.authorize_override', req.environ)
+        self.assertIn('swift.slo_override', req.environ)
 
     def test_info(self):
         req = swob.Request.blank('/info')

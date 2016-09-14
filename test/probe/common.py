@@ -361,6 +361,16 @@ class ProbeTest(unittest.TestCase):
             self.ipport2server[proxy_ipport] = 'proxy'
             self.url, self.token, self.account = check_server(
                 proxy_ipport, self.ipport2server)
+            self.account_1 = {
+                'url': self.url, 'token': self.token, 'account': self.account}
+
+            url2, token2 = get_auth(
+                'http://%s:%d/auth/v1.0' % proxy_ipport,
+                'test2:tester2', 'testing2')
+            self.account_2 = {
+                'url': url2, 'token': token2, 'account': url2.split('/')[-1]}
+            head_account(url2, token2)  # sanity check
+
             self.replicators = Manager(
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])
