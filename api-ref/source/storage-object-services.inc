@@ -6,7 +6,11 @@ Objects
 
 Creates, replaces, shows details for, and deletes objects. Copies
 objects from another object with a new or different name. Updates
-object metadata.
+object metadata. For more information and concepts about
+objects see `Object Storage API overview
+<http://docs.openstack.org/developer/swift/api/object_api_v1_overview.html>`_
+and `Large Objects
+<http://docs.openstack.org/developer/swift/api/large_objects.html>`_.
 
 
 Get object content and metadata
@@ -96,9 +100,10 @@ Request
 .. rest_parameters:: parameters.yaml
 
    - account: account
-   - object: object
    - container: container
+   - object: object
    - X-Auth-Token: X-Auth-Token
+   - X-Service-Token: X-Service-Token
    - X-Newest: X-Newest
    - temp_url_sig: temp_url_sig
    - temp_url_expires: temp_url_expires
@@ -117,20 +122,20 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - Content-Length: Content-Length
-   - X-Object-Meta-name: X-Object-Meta-name
-   - Content-Disposition: Content-Disposition
-   - Content-Encoding: Content-Encoding
+   - Content-Length: Content-Length_get_resp
+   - Content-Type: Content-Type_obj_resp
+   - X-Object-Meta-name: X-Object-Meta-name_resp
+   - Content-Disposition: Content-Disposition_resp
+   - Content-Encoding: Content-Encoding_resp
    - X-Delete-At: X-Delete-At
    - Accept-Ranges: Accept-Ranges
-   - X-Object-Manifest: X-Object-Manifest
+   - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
-   - ETag: ETag
+   - ETag: ETag_obj_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Date: Date
    - X-Static-Large-Object: X-Static-Large-Object
-   - Content-Type: Content-Type
 
 
 
@@ -156,6 +161,16 @@ If you use this operation to copy a manifest object, the new object
 is a normal object and not a copy of the manifest. Instead it is a
 concatenation of all the segment objects. This means that you
 cannot copy objects larger than 5 GB.
+
+To create custom metadata, use the
+``X-Object-Meta-name`` header, where ``name`` is the name of the metadata
+item.
+
+Metadata keys (the name of the metadata) must be treated as case-insensitive
+at all times. These keys can contain ASCII 7-bit characters that are not
+control (0-31) characters, DEL, or a separator character, according to
+`HTTP/1.1 <http://www.w3.org/Protocols/rfc2616/rfc2616.html>`_ .
+The underscore character is silently converted to a hyphen.
 
 Example requests and responses:
 
@@ -220,20 +235,20 @@ Request
 .. rest_parameters:: parameters.yaml
 
    - account: account
-   - object: object
    - container: container
-   - multipart-manifest: multipart-manifest
+   - object: object
+   - multipart-manifest: multipart-manifest_put
    - temp_url_sig: temp_url_sig
    - temp_url_expires: temp_url_expires
-   - filename: filename
    - X-Object-Manifest: X-Object-Manifest
    - X-Auth-Token: X-Auth-Token
-   - Content-Length: Content-Length
+   - X-Service-Token: X-Service-Token
+   - Content-Length: Content-Length_put_req
    - Transfer-Encoding: Transfer-Encoding
-   - Content-Type: Content-Type
+   - Content-Type: Content-Type_obj_cu_req
    - X-Detect-Content-Type: X-Detect-Content-Type
    - X-Copy-From: X-Copy-From
-   - ETag: ETag
+   - ETag: ETag_obj_req
    - Content-Disposition: Content-Disposition
    - Content-Encoding: Content-Encoding
    - X-Delete-At: X-Delete-At
@@ -248,12 +263,12 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - Content-Length: Content-Length
-   - ETag: ETag
+   - Content-Length: Content-Length_cud_resp
+   - ETag: ETag_obj_received
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Date: Date
-   - Content-Type: Content-Type
+   - Content-Type: Content-Type_obj_resp
    - last_modified: last_modified
 
 
@@ -272,25 +287,33 @@ Copies an object to another object in the object store.
 
 You can copy an object to a new object with the same name. Copying
 to the same name is an alternative to using POST to add metadata to
-an object. With POST , you must specify all the metadata. With COPY
-, you can add additional metadata to the object.
+an object. With POST, you must specify all the metadata. With COPY,
+you can add additional metadata to the object.
 
-With COPY , you can set the ``X-Fresh-Metadata`` header to ``true``
+With COPY, you can set the ``X-Fresh-Metadata`` header to ``true``
 to copy the object without any existing metadata.
 
 Alternatively, you can use PUT with the ``X-Copy-From`` request
 header to accomplish the same operation as the COPY object
 operation.
 
-The PUT operation always creates an object. If you use this
+The COPY operation always creates an object. If you use this
 operation on an existing object, you replace the existing object
 and metadata rather than modifying the object. Consequently, this
 operation returns the ``Created (201)`` response code.
 
-If you use this operation to copy a manifest object, the new object
+Normally, if you use this operation to copy a manifest object, the new object
 is a normal object and not a copy of the manifest. Instead it is a
 concatenation of all the segment objects. This means that you
-cannot copy objects larger than 5 GB in size. All metadata is
+cannot copy objects larger than 5 GB in size.
+
+To copy the manifest object, you include the
+``multipart-manifest=get`` query string in the COPY request.
+The new object contains the same manifest as the original.
+The segment objects are not copied. Instead, both the original
+and new manifest objects share the same set of segment objects.
+
+All metadata is
 preserved during the object copy. If you specify metadata on the
 request to copy the object, either PUT or COPY , the metadata
 overwrites any conflicting keys on the target (new) object.
@@ -360,11 +383,14 @@ Request
 .. rest_parameters:: parameters.yaml
 
    - account: account
-   - object: object
    - container: container
+   - object: object
+   - multipart-manifest: multipart-manifest_copy
    - X-Auth-Token: X-Auth-Token
+   - X-Service-Token: X-Service-Token
    - Destination: Destination
-   - Content-Type: Content-Type
+   - Destination-Account: Destination-Account
+   - Content-Type: Content-Type_obj_cu_req
    - Content-Encoding: Content-Encoding
    - Content-Disposition: Content-Disposition
    - X-Object-Meta-name: X-Object-Meta-name
@@ -377,16 +403,16 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - Content-Length: Content-Length
-   - X-Object-Meta-name: X-Object-Meta-name
+   - Content-Length: Content-Length_cud_resp
    - X-Copied-From-Last-Modified: X-Copied-From-Last-Modified
    - X-Copied-From: X-Copied-From
+   - X-Copied-From-Account: X-Copied-From-Account
    - Last-Modified: Last-Modified
-   - ETag: ETag
+   - ETag: ETag_obj_copied
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Date: Date
-   - Content-Type: Content-Type
+   - Content-Type: Content-Type_obj_resp
 
 
 
@@ -399,17 +425,17 @@ Delete object
 
 Permanently deletes an object from the object store.
 
-You can use the COPY method to copy the object to a new location.
-Then, use the DELETE method to delete the original object.
-
 Object deletion occurs immediately at request time. Any subsequent
-GET , HEAD , POST , or DELETE operations return a ``404 Not Found``
+GET, HEAD, POST, or DELETE operations will return a ``404 Not Found``
 error code.
 
 For static large object manifests, you can add the ``?multipart-
 manifest=delete`` query parameter. This operation deletes the
-segment objects and if all deletions succeed, this operation
+segment objects and, if all deletions succeed, this operation
 deletes the manifest object.
+
+An alternative to using the DELETE operation is to use
+the POST operation with the ``bulk-delete`` query parameter.
 
 Example request and response:
 
@@ -445,10 +471,11 @@ Request
 .. rest_parameters:: parameters.yaml
 
    - account: account
-   - object: object
    - container: container
-   - multipart-manifest: multipart-manifest
+   - object: object
+   - multipart-manifest: multipart-manifest_delete
    - X-Auth-Token: X-Auth-Token
+   - X-Service-Token: X-Service-Token
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
 
@@ -459,8 +486,8 @@ Response Parameters
 
    - Date: Date
    - X-Timestamp: X-Timestamp
-   - Content-Length: Content-Length
-   - Content-Type: Content-Type
+   - Content-Length: Content-Length_cud_resp
+   - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
 
 
@@ -474,10 +501,7 @@ Show object metadata
 
 Shows object metadata.
 
-If the ``Content-Length`` response header is non-zero, the example
-cURL command stalls after it prints the response headers because it
-is waiting for a response body. However, the Object Storage system
-does not return a response body for the HEAD operation.
+
 
 Example requests and responses:
 
@@ -485,7 +509,7 @@ Example requests and responses:
 
   ::
 
-     curl -i $publicURL/marktwain/goodbye -X HEAD -H "X-Auth-Token: $token"
+     curl $publicURL/marktwain/goodbye --head -H "X-Auth-Token: $token"
 
 
 
@@ -503,6 +527,12 @@ Example requests and responses:
      X-Trans-Id: tx37ea34dcd1ed48ca9bc7d-0052d84b6f
      Date: Thu, 16 Jan 2014 21:13:19 GMT
 
+  Note: The ``--head`` option was used in the above example. If we had
+  used ``-i -X HEAD`` and the ``Content-Length`` response header is non-zero,
+  the cURL command stalls after it prints the response headers because it
+  is waiting for a response body. However, the Object Storage system
+  does not return a response body for the HEAD operation.
+
 
 If the request succeeds, the operation returns the ``200`` response
 code.
@@ -518,9 +548,10 @@ Request
 .. rest_parameters:: parameters.yaml
 
    - account: account
-   - object: object
    - container: container
+   - object: object
    - X-Auth-Token: X-Auth-Token
+   - X-Service-Token: X-Service-Token
    - temp_url_sig: temp_url_sig
    - temp_url_expires: temp_url_expires
    - filename: filename
@@ -534,20 +565,19 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - Last-Modified: Last-Modified
-   - Content-Length: Content-Length
+   - Content-Length: Content-Length_obj_head_resp
    - X-Object-Meta-name: X-Object-Meta-name
-   - Content-Disposition: Content-Disposition
-   - Content-Encoding: Content-Encoding
+   - Content-Disposition: Content-Disposition_resp
+   - Content-Encoding: Content-Encoding_resp
    - X-Delete-At: X-Delete-At
-   - X-Object-Manifest: X-Object-Manifest
+   - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
-   - ETag: ETag
+   - ETag: ETag_obj_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Date: Date
    - X-Static-Large-Object: X-Static-Large-Object
-   - Content-Type: Content-Type
+   - Content-Type: Content-Type_obj_resp
 
 
 
@@ -565,20 +595,25 @@ Create or update object metadata
 
 Creates or updates object metadata.
 
-To create or update custom metadata, use the ``X-Object-
-Meta-{name}`` header, where ``{name}`` is the name of the metadata
+To create or update custom metadata, use the
+``X-Object-Meta-name`` header, where ``name`` is the name of the metadata
 item.
 
-In addition to the custom metadata, you can update the ``Content-
-Type``, ``Content-Encoding``, ``Content-Disposition``, and ``X
--Delete-At`` system metadata items. However you cannot update other
+Metadata keys (the name of the metadata) must be treated as case-insensitive
+at all times. These keys can contain ASCII 7-bit characters that are not
+control (0-31) characters, DEL, or a separator character, according to
+`HTTP/1.1 <http://www.w3.org/Protocols/rfc2616/rfc2616.html>`_ .
+The underscore character is silently converted to a hyphen.
+
+In addition to the custom metadata, you can update the
+``Content-Type``, ``Content-Encoding``, ``Content-Disposition``, and
+``X-Delete-At`` system metadata items. However you cannot update other
 system metadata, such as ``Content-Length`` or ``Last-Modified``.
 
 You can use COPY as an alternate to the POST operation by copying
 to the same object. With the POST operation you must specify all
 metadata items, whereas with the COPY operation, you need to
 specify only changed or additional items.
-
 All metadata is preserved during the object copy. If you specify
 metadata on the request to copy the object, either PUT or COPY ,
 the metadata overwrites any conflicting keys on the target (new)
@@ -595,11 +630,19 @@ to define when to expire the object.
 
 When used as described in this section, the POST operation creates
 or replaces metadata. This form of the operation has no request
-body.
+body. There are alternate uses of the POST operation as follows:
 
-You can also use the `form POST feature
-<http://docs.openstack.org/liberty/config-reference/content/object-
-storage-form-post.html>`_ to upload objects.
+- You can also use the `form POST feature
+  <http://docs.openstack.org/liberty/config-reference/content/object-
+  storage-form-post.html>`_ to upload objects.
+
+- The POST operation when used with the ``bulk-delete`` query parameter
+  can be used to delete multiple objects and containers in a single
+  operation.
+
+- The POST operation when used with the ``extract-archive`` query parameter
+  can be used to upload an archive (tar file). The archive is then extracted
+  to create objects.
 
 Example requests and responses:
 
@@ -659,16 +702,18 @@ Request
 .. rest_parameters:: parameters.yaml
 
    - account: account
-   - object: object
    - container: container
+   - object: object
+   - bulk-delete: bulk-delete
+   - extract-archive: extract-archive
    - X-Auth-Token: X-Auth-Token
+   - X-Service-Token: X-Service-Token
    - X-Object-Meta-name: X-Object-Meta-name
    - X-Delete-At: X-Delete-At
    - Content-Disposition: Content-Disposition
    - Content-Encoding: Content-Encoding
    - X-Delete-After: X-Delete-After
-   - Content-Type: Content-Type
-   - X-Detect-Content-Type: X-Detect-Content-Type
+   - Content-Type: Content-Type_obj_cu_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
 
@@ -679,8 +724,8 @@ Response Parameters
 
    - Date: Date
    - X-Timestamp: X-Timestamp
-   - Content-Length: Content-Length
-   - Content-Type: Content-Type
+   - Content-Length: Content-Length_cud_resp
+   - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
 
 

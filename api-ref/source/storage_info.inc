@@ -15,6 +15,11 @@ List activated capabilities
 
 Lists the activated capabilities for this version of the OpenStack Object Storage API.
 
+Most of the information is "public" i.e. visible to all callers. However, some
+configuration and capability items are reserved for the administrators of the
+system. To access this data, the ``swiftinfo_sig`` and ``swiftinfo_expires``
+query parameters must be added to the request.
+
 
 Normal response codes: 200
 Error response codes:
