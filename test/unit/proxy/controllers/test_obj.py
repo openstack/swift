@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
 import email.parser
 import itertools
 import math
@@ -4310,13 +4311,17 @@ class TestECDuplicationObjController(
         # all nodes have a frag but there is no one set that reaches quorum,
         # which means there is no backend 404 response, but proxy should still
         # return 404 rather than 503
-        obj1 = self._make_ec_object_stub()
-        obj2 = self._make_ec_object_stub()
-        obj3 = self._make_ec_object_stub()
-        obj4 = self._make_ec_object_stub()
-        obj5 = self._make_ec_object_stub()
-        obj6 = self._make_ec_object_stub()
-        obj7 = self._make_ec_object_stub()
+        stub_objects = [
+            self._make_ec_object_stub('obj1' * self.policy.ec_segment_size),
+            self._make_ec_object_stub('obj2' * self.policy.ec_segment_size),
+            self._make_ec_object_stub('obj3' * self.policy.ec_segment_size),
+            self._make_ec_object_stub('obj4' * self.policy.ec_segment_size),
+            self._make_ec_object_stub('obj5' * self.policy.ec_segment_size),
+            self._make_ec_object_stub('obj6' * self.policy.ec_segment_size),
+            self._make_ec_object_stub('obj7' * self.policy.ec_segment_size),
+        ]
+        etags = collections.Counter(stub['etag'] for stub in stub_objects)
+        self.assertEqual(len(etags), 7, etags)  # sanity
 
         # primaries and handoffs for required nodes
         # this is 10-4 * 2 case so that 56 requests (2 * replicas) required
@@ -4326,7 +4331,7 @@ class TestECDuplicationObjController(
         # fill them out to the primary and handoff nodes
         node_frags = []
         for frag in range(8):
-            for stub_obj in (obj1, obj2, obj3, obj4, obj5, obj6, obj7):
+            for stub_obj in stub_objects:
                 if len(node_frags) >= required_nodes:
                     # we already have enough responses
                     break
