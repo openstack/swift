@@ -24,11 +24,12 @@ import sys
 import traceback
 import unittest
 from contextlib import contextmanager
-from shutil import rmtree, copyfile
+from shutil import rmtree, copyfile, move
 import gc
 import time
 from textwrap import dedent
 from hashlib import md5
+import collections
 from pyeclib.ec_iface import ECDriverError
 from tempfile import mkdtemp, NamedTemporaryFile
 import weakref
@@ -55,7 +56,7 @@ from swift.common.utils import hash_path, storage_directory, \
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn, DEFAULT_TEST_EC_TYPE)
+    mocked_http_conn, DEFAULT_TEST_EC_TYPE, make_timestamp_iter)
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.obj import server as object_server
@@ -5593,6 +5594,255 @@ class TestECMismatchedFA(unittest.TestCase):
         with mock.patch.object(obj2srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 503)
+
+
+class TestECGets(unittest.TestCase):
+    def tearDown(self):
+        prosrv = _test_servers[0]
+        # don't leak error limits and poison other tests
+        prosrv._error_limiting = {}
+
+    def _setup_nodes_and_do_GET(self, objs, node_state):
+        """
+        A helper method that creates object fragments, stashes them in temp
+        dirs, and then moves selected fragments back into the hash_dirs on each
+        node according to a specified desired node state description.
+
+        :param objs: a dict that maps object references to dicts that describe
+                     the object timestamp and content. Object frags will be
+                     created for each item in this dict.
+        :param node_state: a dict that maps a node index to the desired state
+                           for that node. Each desired state is a list of
+                           dicts, with each dict describing object reference,
+                           frag_index and file extensions to be moved to the
+                           node's hash_dir.
+        """
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
+         obj2srv, obj3srv) = _test_servers
+        ec_policy = POLICIES[3]
+        container_name = uuid.uuid4().hex
+        obj_name = uuid.uuid4().hex
+        obj_path = os.path.join(os.sep, 'v1', 'a', container_name, obj_name)
+
+        # PUT container, make sure it worked
+        container_path = os.path.join(os.sep, 'v1', 'a', container_name)
+        ec_container = Request.blank(
+            container_path, environ={"REQUEST_METHOD": "PUT"},
+            headers={"X-Storage-Policy": "ec", "X-Auth-Token": "t"})
+        resp = ec_container.get_response(prosrv)
+        self.assertIn(resp.status_int, (201, 202))
+
+        partition, nodes = \
+            ec_policy.object_ring.get_nodes('a', container_name, obj_name)
+
+        # map nodes to hash dirs
+        node_hash_dirs = {}
+        node_tmp_dirs = collections.defaultdict(dict)
+        for node in nodes:
+            node_hash_dirs[node['index']] = os.path.join(
+                _testdir, node['device'], storage_directory(
+                    diskfile.get_data_dir(ec_policy),
+                    partition, hash_path('a', container_name, obj_name)))
+
+        def _put_object(ref, timestamp, body):
+            # PUT an object and then move its disk files to a temp dir
+            headers = {"X-Timestamp": timestamp.internal}
+            put_req1 = Request.blank(obj_path, method='PUT', headers=headers)
+            put_req1.body = body
+            resp = put_req1.get_response(prosrv)
+            self.assertEqual(resp.status_int, 201)
+
+            # GET the obj, should work fine
+            get_req = Request.blank(obj_path, method="GET")
+            resp = get_req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, body)
+
+            # move all hash dir files to per-node, per-obj tempdir
+            for node_index, hash_dir in node_hash_dirs.items():
+                node_tmp_dirs[node_index][ref] = mkdtemp()
+                for f in os.listdir(hash_dir):
+                    move(os.path.join(hash_dir, f),
+                         os.path.join(node_tmp_dirs[node_index][ref], f))
+
+        for obj_ref, obj_info in objs.items():
+            _put_object(obj_ref, **obj_info)
+
+        # sanity check - all hash_dirs are empty and GET returns a 404
+        for hash_dir in node_hash_dirs.values():
+            self.assertFalse(os.listdir(hash_dir))
+        get_req = Request.blank(obj_path, method="GET")
+        resp = get_req.get_response(prosrv)
+        self.assertEqual(resp.status_int, 404)
+
+        # node state is in form:
+        # {node_index: [{ref: object reference,
+        #                frag_index: index,
+        #                exts: ['.data' etc]}, ...],
+        #  node_index: ...}
+        for node_index, state in node_state.items():
+            dest = node_hash_dirs[node_index]
+            for frag_info in state:
+                src = node_tmp_dirs[frag_info['frag_index']][frag_info['ref']]
+                src_files = [f for f in os.listdir(src)
+                             if f.endswith(frag_info['exts'])]
+                self.assertEqual(len(frag_info['exts']), len(src_files),
+                                 'Bad test setup for node %s, obj %s'
+                                 % (node_index, frag_info['ref']))
+                for f in src_files:
+                    move(os.path.join(src, f), os.path.join(dest, f))
+
+        # do an object GET
+        get_req = Request.blank(obj_path, method='GET')
+        return get_req.get_response(prosrv)
+
+    def test_GET_with_missing_durables(self):
+        # verify object GET behavior when durable files are missing
+        ts_iter = make_timestamp_iter()
+        objs = {'obj1': dict(timestamp=next(ts_iter), body='body')}
+
+        # durable missing from 2/3 nodes
+        node_state = {
+            0: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
+            1: [dict(ref='obj1', frag_index=1, exts=('.data',))],
+            2: [dict(ref='obj1', frag_index=2, exts=('.data',))]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # all files missing on 1 node, durable missing from 1/2 other nodes
+        # durable missing from 2/3 nodes
+        node_state = {
+            0: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
+            1: [],
+            2: [dict(ref='obj1', frag_index=2, exts=('.data',))]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # durable missing from all 3 nodes
+        node_state = {
+            0: [dict(ref='obj1', frag_index=0, exts=('.data',))],
+            1: [dict(ref='obj1', frag_index=1, exts=('.data',))],
+            2: [dict(ref='obj1', frag_index=2, exts=('.data',))]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_GET_with_multiple_frags_per_node(self):
+        # verify object GET behavior when multiple fragments are on same node
+        ts_iter = make_timestamp_iter()
+        objs = {'obj1': dict(timestamp=next(ts_iter), body='body')}
+
+        # scenario: only two frags, both on same node
+        node_state = {
+            0: [],
+            1: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable')),
+                dict(ref='obj1', frag_index=1, exts=('.data',))],
+            2: []
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # scenario: all 3 frags on same node
+        node_state = {
+            0: [],
+            1: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable')),
+                dict(ref='obj1', frag_index=1, exts=('.data',)),
+                dict(ref='obj1', frag_index=2, exts=('.data',))],
+            2: []
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+    def test_GET_with_multiple_timestamps_on_nodes(self):
+        ts_iter = make_timestamp_iter()
+
+        ts_1, ts_2, ts_3 = [next(ts_iter) for _ in range(3)]
+        objs = {'obj1': dict(timestamp=ts_1, body='body1'),
+                'obj2': dict(timestamp=ts_2, body='body2'),
+                'obj3': dict(timestamp=ts_3, body='body3')}
+
+        # newer non-durable frags do not prevent proxy getting the durable obj1
+        node_state = {
+            0: [dict(ref='obj3', frag_index=0, exts=('.data',)),
+                dict(ref='obj2', frag_index=0, exts=('.data',)),
+                dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
+            1: [dict(ref='obj3', frag_index=1, exts=('.data',)),
+                dict(ref='obj2', frag_index=1, exts=('.data',)),
+                dict(ref='obj1', frag_index=1, exts=('.data', '.durable'))],
+            2: [dict(ref='obj3', frag_index=2, exts=('.data',)),
+                dict(ref='obj2', frag_index=2, exts=('.data',)),
+                dict(ref='obj1', frag_index=2, exts=('.data', '.durable'))],
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # .durables at two timestamps: in this scenario proxy is guaranteed
+        # to see the durable at ts_2 with one of the first 2 responses, so will
+        # then prefer that when requesting from third obj server
+        node_state = {
+            0: [dict(ref='obj3', frag_index=0, exts=('.data',)),
+                dict(ref='obj2', frag_index=0, exts=('.data',)),
+                dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
+            1: [dict(ref='obj3', frag_index=1, exts=('.data',)),
+                dict(ref='obj2', frag_index=1, exts=('.data', '.durable'))],
+            2: [dict(ref='obj3', frag_index=2, exts=('.data',)),
+                dict(ref='obj2', frag_index=2, exts=('.data', '.durable'))],
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj2']['body'])
+
+    def test_GET_with_same_frag_index_on_multiple_nodes(self):
+        ts_iter = make_timestamp_iter()
+
+        # this is a trick to be able to get identical frags placed onto
+        # multiple nodes: since we cannot *copy* frags, we generate three sets
+        # of identical frags at same timestamp so we have enough to *move*
+        ts_1 = next(ts_iter)
+        objs = {'obj1a': dict(timestamp=ts_1, body='body'),
+                'obj1b': dict(timestamp=ts_1, body='body'),
+                'obj1c': dict(timestamp=ts_1, body='body')}
+
+        # arrange for duplicate frag indexes across nodes: because the object
+        # server prefers the highest available frag index, proxy will first get
+        # back two responses with frag index 1, and will then return to node 0
+        # for frag_index 0.
+        node_state = {
+            0: [dict(ref='obj1a', frag_index=0, exts=('.data',)),
+                dict(ref='obj1a', frag_index=1, exts=('.data',))],
+            1: [dict(ref='obj1b', frag_index=1, exts=('.data', '.durable'))],
+            2: [dict(ref='obj1c', frag_index=1, exts=('.data', '.durable'))]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1a']['body'])
+
+        # if all we have across nodes are frags with same index then expect a
+        # 404 (the third, 'extra', obj server GET will return 404 because it
+        # will be sent frag prefs that exclude frag_index 1)
+        node_state = {
+            0: [dict(ref='obj1a', frag_index=1, exts=('.data',))],
+            1: [dict(ref='obj1b', frag_index=1, exts=('.data', '.durable'))],
+            2: [dict(ref='obj1c', frag_index=1, exts=('.data',))]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 404)
 
 
 class TestObjectDisconnectCleanup(unittest.TestCase):

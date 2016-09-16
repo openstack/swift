@@ -33,7 +33,7 @@ from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
-    iter_multipart_mime_documents, extract_swift_bytes
+    iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -82,6 +82,15 @@ def drain(file_like, read_size, timeout):
             chunk = file_like.read(read_size)
             if not chunk:
                 break
+
+
+def _make_backend_fragments_header(fragments):
+    if fragments:
+        result = {}
+        for ts, frag_list in fragments.items():
+            result[ts.internal] = frag_list
+        return json.dumps(result)
+    return None
 
 
 class EventletPlungerString(str):
@@ -853,10 +862,12 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
+        frag_prefs = safe_json_loads(
+            request.headers.get('X-Backend-Fragment-Preferences'))
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy)
+                policy=policy, frag_prefs=frag_prefs)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -889,6 +900,13 @@ class ObjectController(BaseStorageServer):
                     pass
                 response.headers['X-Timestamp'] = file_x_ts.normal
                 response.headers['X-Backend-Timestamp'] = file_x_ts.internal
+                response.headers['X-Backend-Data-Timestamp'] = \
+                    disk_file.data_timestamp.internal
+                if disk_file.durable_timestamp:
+                    response.headers['X-Backend-Durable-Timestamp'] = \
+                        disk_file.durable_timestamp.internal
+                response.headers['X-Backend-Fragments'] = \
+                    _make_backend_fragments_header(disk_file.fragments)
                 resp = request.get_response(response)
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
@@ -906,10 +924,12 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP HEAD requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
+        frag_prefs = safe_json_loads(
+            request.headers.get('X-Backend-Fragment-Preferences'))
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy)
+                policy=policy, frag_prefs=frag_prefs)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -938,6 +958,13 @@ class ObjectController(BaseStorageServer):
         # Needed for container sync feature
         response.headers['X-Timestamp'] = ts.normal
         response.headers['X-Backend-Timestamp'] = ts.internal
+        response.headers['X-Backend-Data-Timestamp'] = \
+            disk_file.data_timestamp.internal
+        if disk_file.durable_timestamp:
+            response.headers['X-Backend-Durable-Timestamp'] = \
+                disk_file.durable_timestamp.internal
+        response.headers['X-Backend-Fragments'] = \
+            _make_backend_fragments_header(disk_file.fragments)
         response.content_length = int(metadata['Content-Length'])
         try:
             response.content_encoding = metadata['Content-Encoding']

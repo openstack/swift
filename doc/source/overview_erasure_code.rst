@@ -461,13 +461,9 @@ A few key points on the .durable file:
 
 * The .durable file means \"the matching .data file for this has sufficient
   fragment archives somewhere, committed, to reconstruct the object\".
-* The Proxy Server will never have knowledge, either on GET or HEAD, of the
-  existence of a .data file on an object server if it does not have a matching
-  .durable file.
-* The object server will never return a .data that does not have a matching
-  .durable.
-* When a proxy does a GET, it will only receive fragment archives that have
-  enough present somewhere to be reconstructed.
+* When a proxy does a GET, it will require at least one object server to
+  respond with a fragment archive that has a matching `.durable` file before
+  reconstructing and returning the object to the client.
 
 Partial PUT Failures
 ====================
@@ -500,17 +496,39 @@ The GET for EC is different enough from replication that subclassing the
 `BaseObjectController` to the `ECObjectController` enables an efficient way to
 implement the high level steps described earlier:
 
-#. The proxy server makes simultaneous requests to participating nodes.
-#. As soon as the proxy has the fragments it needs, it calls on PyECLib to
-   decode the data.
+#. The proxy server makes simultaneous requests to `ec_ndata` primary object
+   server nodes with goal of finding a set of `ec_ndata` distinct EC archives
+   at the same timestamp, and an indication from at least one object server
+   that a `<timestamp>.durable` file exists for that timestamp. If this goal is
+   not achieved with the first `ec_ndata` requests then the proxy server
+   continues to issue requests to the remaining primary nodes and then handoff
+   nodes.
+#. As soon as the proxy server has found a usable set of `ec_ndata` EC
+   archives, it starts to call PyECLib to decode fragments as they are returned
+   by the object server nodes.
+#. The proxy server creates Etag and content length headers for the client
+   response since each EC archive's metadata is valid only for that archive.
 #. The proxy streams the decoded data it has back to the client.
-#. Repeat until the proxy is done sending data back to the client.
 
-The GET path will attempt to contact all nodes participating in the EC scheme,
-if not enough primaries respond then handoffs will be contacted just as with
-replication.  Etag and content length headers are updated for the client
-response following reconstruction as the individual fragment archives metadata
-is valid only for that fragment archive.
+Note that the proxy does not require all objects servers to have a `.durable`
+file for the EC archive that they return in response to a GET. The proxy
+will be satisfied if just one object server has a `.durable` file at the same
+timestamp as EC archives returned from other object servers. This means
+that the proxy can successfully GET an object that had missing `.durable` files
+when it was PUT (i.e. a partial PUT failure occurred).
+
+Note also that an object server may inform the proxy server that it has more
+than one EC archive for different timestamps and/or fragment indexes, which may
+cause the proxy server to issue multiple requests for distinct EC archives to
+that object server. (This situation can temporarily occur after a ring
+rebalance when a handoff node storing an archive has become a primary node and
+received its primary archive but not yet moved the handoff archive to its
+primary node.)
+
+The proxy may receive EC archives having different timestamps, and may
+receive several EC archives having the same index. The proxy therefore
+ensures that it has sufficient EC archives with the same timestamp
+and distinct fragment indexes before considering a GET to be successful.
 
 Object Server
 -------------

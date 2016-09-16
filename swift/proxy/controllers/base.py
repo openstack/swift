@@ -729,7 +729,7 @@ def bytes_to_skip(record_size, range_start):
 class ResumingGetter(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, concurrency=1, client_chunk_size=None,
-                 newest=None):
+                 newest=None, header_provider=None):
         self.app = app
         self.node_iter = node_iter
         self.server_type = server_type
@@ -742,6 +742,8 @@ class ResumingGetter(object):
         self.used_nodes = []
         self.used_source_etag = ''
         self.concurrency = concurrency
+        self.node = None
+        self.header_provider = header_provider
 
         # stuff from request
         self.req_method = req.method
@@ -1093,7 +1095,7 @@ class ResumingGetter(object):
     @property
     def last_headers(self):
         if self.source_headers:
-            return self.source_headers[-1]
+            return HeaderKeyDict(self.source_headers[-1])
         else:
             return None
 
@@ -1101,13 +1103,17 @@ class ResumingGetter(object):
         self.app.logger.thread_locals = logger_thread_locals
         if node in self.used_nodes:
             return False
+        req_headers = dict(self.backend_headers)
+        # a request may be specialised with specific backend headers
+        if self.header_provider:
+            req_headers.update(self.header_provider())
         start_node_timing = time.time()
         try:
             with ConnectionTimeout(self.app.conn_timeout):
                 conn = http_connect(
                     node['ip'], node['port'], node['device'],
                     self.partition, self.req_method, self.path,
-                    headers=self.backend_headers,
+                    headers=req_headers,
                     query_string=self.req_query_string)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
@@ -1212,6 +1218,7 @@ class ResumingGetter(object):
             self.used_source_etag = src_headers.get(
                 'x-object-sysmeta-ec-etag',
                 src_headers.get('etag', '')).strip('"')
+            self.node = node
             return source, node
         return None, None
 
@@ -1316,6 +1323,7 @@ class NodeIter(object):
         self.primary_nodes = self.app.sort_nodes(
             list(itertools.islice(node_iter, num_primary_nodes)))
         self.handoff_iter = node_iter
+        self._node_provider = None
 
     def __iter__(self):
         self._node_iter = self._node_gen()
@@ -1344,6 +1352,16 @@ class NodeIter(object):
                 # all the primaries were skipped, and handoffs didn't help
                 self.app.logger.increment('handoff_all_count')
 
+    def set_node_provider(self, callback):
+        """
+        Install a callback function that will be used during a call to next()
+        to get an alternate node instead of returning the next node from the
+        iterator.
+        :param callback: A no argument function that should return a node dict
+                         or None.
+        """
+        self._node_provider = callback
+
     def _node_gen(self):
         for node in self.primary_nodes:
             if not self.app.error_limited(node):
@@ -1364,6 +1382,11 @@ class NodeIter(object):
                         return
 
     def next(self):
+        if self._node_provider:
+            # give node provider the opportunity to inject a node
+            node = self._node_provider()
+            if node:
+                return node
         return next(self._node_iter)
 
     def __next__(self):
