@@ -30,9 +30,9 @@ move them to the right ones, or delete requests that went to the wrong
 storage policy and apply them to the right ones. It operates on a
 queue similar to the object-expirer's queue.
 
-Discovering that the object is in the wrong policy will be done in
-subsequent commits by the container replicator; this is the daemon
-that handles them once they happen.
+Discovering that the object is in the wrong policy is done in the container
+replicator; the container reconciler is the daemon that handles them once they
+happen.
 
 Like the object expirer, you only need to run one of these per cluster
 
