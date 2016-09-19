@@ -392,11 +392,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         # at this point two primaries have old policy
         container_part, container_nodes = self.container_ring.get_nodes(
             self.account, self.container_name)
-        head_responses = []
-        for node in container_nodes:
-            metadata = direct_client.direct_head_container(
-                node, container_part, self.account, self.container_name)
-            head_responses.append((node, metadata))
+        head_responses = [
+            (node, direct_client.direct_head_container(
+                node, container_part, self.account, self.container_name))
+            for node in container_nodes]
         old_container_node_ids = [
             node['id'] for node, metadata in head_responses
             if int(old_policy) ==

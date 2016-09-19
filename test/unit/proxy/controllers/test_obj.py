@@ -2218,8 +2218,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             fragment_payloads.append(fragments)
 
         # join up the fragment payloads per node
-        ec_archive_bodies = [''.join(fragments)
-                             for fragments in zip(*fragment_payloads)]
+        ec_archive_bodies = [''.join(frags)
+                             for frags in zip(*fragment_payloads)]
         return ec_archive_bodies
 
     def _make_ec_object_stub(self, test_body=None, policy=None,

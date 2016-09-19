@@ -266,7 +266,7 @@ class Auditor(object):
                 responses[node_id][1].extend(results)
                 if results:
                     marker = results[-1]['name']
-        headers = [resp[0] for resp in responses.values()]
+        headers = [r[0] for r in responses.values()]
         cont_counts = [int(header['x-account-container-count'])
                        for header in headers]
         if len(set(cont_counts)) != 1:
