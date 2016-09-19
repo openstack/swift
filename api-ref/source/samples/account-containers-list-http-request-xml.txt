@@ -1,2 +1,1 @@
-curl -i https://23.253.72.207/v1/$account?format=xml \
-     -X GET -H "X-Auth-Token: $token"
+curl -i $publicURL?format=xml -X GET -H "X-Auth-Token: $token"

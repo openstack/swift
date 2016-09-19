@@ -24,23 +24,6 @@ using the SQLite memcmp() function, regardless of text encoding.
 See `Collating Sequences
 <http://www.sqlite.org/datatype3.html#collation>`_.
 
-Example requests and responses:
-
-- Show account details and list containers and ask for a JSON
-  response:
-
-  ::
-
-     curl -i $publicURL?format=json -X GET -H "X-Auth-Token: $token"
-
-
-- List containers and ask for an XML response:
-
-  ::
-
-     curl -i $publicURL?format=xml -X GET -H "X-Auth-Token: $token"
-
-
 The response body returns a list of containers. The default
 response (``text/plain``) returns one container per line.
 
@@ -55,6 +38,21 @@ response behavior changes depending on whether the request format
 is text, JSON, or XML. For a text response, you get a 204 , because
 there is no content. However, for a JSON or XML response, you get a
 200 with content indicating an empty array.
+
+Example requests and responses:
+
+- Show account details and list containers and ask for a JSON
+  response:
+
+  .. literalinclude:: samples/account-containers-list-http-request-json.txt
+  .. literalinclude:: samples/account-containers-list-http-response-json.txt
+  .. literalinclude:: samples/account-containers-list-response.json
+
+- Show account details and list containers and ask for an XML response:
+
+  .. literalinclude:: samples/account-containers-list-http-request-xml.txt
+  .. literalinclude:: samples/account-containers-list-http-response-xml.txt
+  .. literalinclude:: samples/account-containers-list-response.xml
 
 If the request succeeds, the operation returns one of these status
 codes:
@@ -114,22 +112,6 @@ Response Parameters
    - count: count
    - bytes: bytes
    - name: name
-
-
-
-Response Example format=json
-----------------------------
-
-.. literalinclude:: samples/account-containers-list-http-response-json.txt
-.. literalinclude:: samples/account-containers-list-response.json
-
-
-Response Example format=xml
----------------------------
-
-.. literalinclude:: samples/account-containers-list-http-response-xml.txt
-.. literalinclude:: samples/account-containers-list-response.xml
-
 
 
 Create, update, or delete account metadata
@@ -284,9 +266,6 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
-
-
-
 
 
 Show account metadata
