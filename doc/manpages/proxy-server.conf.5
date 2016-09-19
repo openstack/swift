@@ -286,6 +286,14 @@ You'll need to have as well the keystoneauth middleware enabled
 and have it in your main pipeline so instead of having tempauth in
 there you can change it to: authtoken keystoneauth
 
+The auth credentials ("project_domain_name", "user_domain_name", "username",
+"project_name", "password")  must match the Keystone credentials for the Swift
+service. The example values shown here assume a user named "swift" with admin
+role on a project named "service", both being in the Keystone domain with id
+"default". Refer to the KeystoneMiddleware documentation at
+.BI  http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration
+for other examples.
+
 .PD 0
 .RS 10
 .IP "paste.filter_factory = keystonemiddleware.auth_token:filter_factory"
