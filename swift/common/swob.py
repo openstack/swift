@@ -586,7 +586,7 @@ class Range(object):
         #
         # We're defining "egregious" here as:
         #
-        # * more than 100 requested ranges OR
+        # * more than 50 requested ranges OR
         # * more than 2 overlapping ranges OR
         # * more than 8 non-ascending-order ranges
         if len(all_ranges) > MAX_RANGES:
