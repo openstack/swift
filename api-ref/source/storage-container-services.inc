@@ -83,7 +83,7 @@ Response Parameters
    - X-Container-Sync-Key: X-Container-Sync-Key_resp
    - X-Container-Sync-To: X-Container-Sync-To_resp
    - X-Versions-Location: X-Versions-Location_resp
-   - X-Versions-Mode: X-Versions-Mode_resp
+   - X-History-Location: X-History-Location_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Content_Type: Content-Type_listing_resp
@@ -197,7 +197,7 @@ Request
    - X-Container-Sync-To: X-Container-Sync-To
    - X-Container-Sync-Key: X-Container-Sync-Key
    - X-Versions-Location: X-Versions-Location
-   - X-Versions-Mode: X-Versions-Mode
+   - X-History-Location: X-History-Location
    - X-Container-Meta-name: X-Container-Meta-name_req
    - X-Container-Meta-Access-Control-Allow-Origin: X-Container-Meta-Access-Control-Allow-Origin
    - X-Container-Meta-Access-Control-Max-Age: X-Container-Meta-Access-Control-Max-Age
@@ -331,8 +331,9 @@ Request
    - X-Container-Sync-To: X-Container-Sync-To
    - X-Container-Sync-Key: X-Container-Sync-Key
    - X-Versions-Location: X-Versions-Location
-   - X-Versions-Mode: X-Versions-Mode
+   - X-History-Location: X-History-Location
    - X-Remove-Versions-Location: X-Remove-Versions-Location
+   - X-Remove-History-Location: X-Remove-History-Location
    - X-Container-Meta-name: X-Container-Meta-name_req
    - X-Container-Meta-Access-Control-Allow-Origin: X-Container-Meta-Access-Control-Allow-Origin
    - X-Container-Meta-Access-Control-Max-Age: X-Container-Meta-Access-Control-Max-Age
@@ -436,7 +437,7 @@ Response Parameters
    - X-Trans-Id: X-Trans-Id
    - Content-Type: Content-Type_cud_resp
    - X-Versions-Location: X-Versions-Location_resp
-   - X-Versions-Mode: X-Versions-Mode_resp
+   - X-History-Location: X-History-Location_resp
    - X-Storage-Policy: X-Storage-Policy
 
 
