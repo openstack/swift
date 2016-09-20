@@ -3319,8 +3319,9 @@ class Spliterator(object):
 
     def take(self, n):
         if self._iterator_in_progress:
-            raise ValueError("cannot call take() again until the first"
-                             " iterator is exhausted")
+            raise ValueError(
+                "cannot call take() again until the first iterator is"
+                " exhausted (has raised StopIteration)")
         self._iterator_in_progress = True
 
         try:
@@ -3342,14 +3343,16 @@ class Spliterator(object):
                 llen = len(self.leftovers) - self.leftovers_index
                 if llen <= n:
                     n -= llen
-                    yield self.leftovers[self.leftovers_index:]
+                    to_yield = self.leftovers[self.leftovers_index:]
                     self.leftovers = None
                     self.leftovers_index = 0
+                    yield to_yield
                 else:
-                    yield self.leftovers[
+                    to_yield = self.leftovers[
                         self.leftovers_index:(self.leftovers_index + n)]
                     self.leftovers_index += n
                     n = 0
+                    yield to_yield
 
             while n > 0:
                 chunk = next(self.input_iterator)
@@ -3358,9 +3361,9 @@ class Spliterator(object):
                     n -= cl
                     yield chunk
                 else:
-                    yield chunk[:n]
                     self.leftovers = chunk
                     self.leftovers_index = n
+                    yield chunk[:n]
                     n = 0
         finally:
             self._iterator_in_progress = False

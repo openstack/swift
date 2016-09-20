@@ -1246,6 +1246,8 @@ class Response(object):
             if ranges == []:
                 self.status = 416
                 close_if_possible(app_iter)
+                # Setting body + app_iter to None makes us emit the default
+                # body text from RESPONSE_REASONS.
                 body = None
                 app_iter = None
             elif ranges:
