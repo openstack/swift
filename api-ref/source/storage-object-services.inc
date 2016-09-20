@@ -174,7 +174,7 @@ Example requests and responses:
 
   ::
 
-     curl -i $publicURL/janeausten/helloworld.txt -X PUT -H "Content-Length: 1" -H "Content-Type: text/html; charset=UTF-8" -H "X-Auth-Token: $token"
+     curl -i $publicURL/janeausten/helloworld.txt -X PUT -d "Hello" -H "Content-Type: text/html; charset=UTF-8" -H "X-Auth-Token: $token"
 
 
 
@@ -183,8 +183,8 @@ Example requests and responses:
 
      HTTP/1.1 201 Created
      Last-Modified: Fri, 17 Jan 2014 17:28:35 GMT
-     Content-Length: 116
-     Etag: d41d8cd98f00b204e9800998ecf8427e
+     Content-Length: 0
+     Etag: 8b1a9953c4611296a827abf8c47804d7
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx4d5e4f06d357462bb732f-0052d96843
      Date: Fri, 17 Jan 2014 17:28:35 GMT
@@ -194,7 +194,7 @@ Example requests and responses:
 
   ::
 
-     curl -i $publicURL/janeausten/helloworld -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token"
+     curl -i $publicURL/janeausten/helloworld.txt -X PUT -d "Hola" -H "X-Auth-Token: $token"
 
 
 
@@ -203,8 +203,8 @@ Example requests and responses:
 
      HTTP/1.1 201 Created
      Last-Modified: Fri, 17 Jan 2014 17:28:35 GMT
-     Content-Length: 116
-     Etag: d41d8cd98f00b204e9800998ecf8427e
+     Content-Length: 0
+     Etag: f688ae26e9cfa3ba6235477831d5122e
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx4d5e4f06d357462bb732f-0052d96843
      Date: Fri, 17 Jan 2014 17:28:35 GMT
@@ -666,7 +666,7 @@ Example requests and responses:
 
   ::
 
-     curl -i $publicURL/marktwain/goodbye -X POST -H "X-Auth-Token: $token" H "X-Object-Meta-Book: GoodbyeOldFriend"
+     curl -i $publicURL/marktwain/goodbye -X POST -H "X-Auth-Token: $token" -H "X-Object-Meta-Book: GoodbyeOldFriend"
 
 
 
