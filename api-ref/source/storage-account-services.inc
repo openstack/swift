@@ -96,8 +96,8 @@ Response Parameters
 
    - Content-Length: Content-Length_listing_resp
    - X-Account-Meta-name: X-Account-Meta-name
-   - X-Account-Meta-Temp-URL-Key: X-Account-Meta-Temp-URL-Key
-   - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2
+   - X-Account-Meta-Temp-URL-Key: X-Account-Meta-Temp-URL-Key_resp
+   - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Date: Date
@@ -249,8 +249,8 @@ Request
    - account: account
    - X-Auth-Token: X-Auth-Token
    - X-Service-Token: X-Service-Token
-   - X-Account-Meta-Temp-URL-Key: X-Account-Meta-Temp-URL-Key
-   - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2
+   - X-Account-Meta-Temp-URL-Key: X-Account-Meta-Temp-URL-Key_req
+   - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2_req
    - X-Account-Meta-name: X-Account-Meta-name_req
    - X-Remove-Account-name: X-Remove-Account-name
    - X-Trans-Id-Extra: X-Trans-Id-Extra
@@ -340,8 +340,8 @@ Response Parameters
 
    - Content-Length: Content-Length_cud_resp
    - X-Account-Meta-name: X-Account-Meta-name
-   - X-Account-Meta-Temp-URL-Key: X-Account-Meta-Temp-URL-Key
-   - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2
+   - X-Account-Meta-Temp-URL-Key: X-Account-Meta-Temp-URL-Key_resp
+   - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - Date: Date

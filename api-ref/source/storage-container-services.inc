@@ -59,8 +59,8 @@ Request
    - X-Service-Token: X-Service-Token
    - X-Newest: X-Newest
    - Accept: Accept
-   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key
-   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2
+   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key_req
+   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
    - X-Storage-Policy: X-Storage-Policy
 
@@ -75,8 +75,10 @@ Response Parameters
    - X-Container-Object-Count: X-Container-Object-Count
    - X-Container-Bytes-Used: X-Container-Bytes-Used
    - Accept-Ranges: Accept-Ranges
-   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key
-   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2
+   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key_resp
+   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2_resp
+   - X-Container-Meta-Quota-Count: X-Container-Meta-Quota-Count_resp
+   - X-Container-Meta-Quota-Bytes: X-Container-Meta-Quota-Bytes_resp
    - X-Storage-Policy: X-Storage-Policy
    - X-Container-Read: X-Container-Read_resp
    - X-Container-Write: X-Container-Write_resp
@@ -202,8 +204,10 @@ Request
    - X-Container-Meta-Access-Control-Allow-Origin: X-Container-Meta-Access-Control-Allow-Origin
    - X-Container-Meta-Access-Control-Max-Age: X-Container-Meta-Access-Control-Max-Age
    - X-Container-Meta-Access-Control-Expose-Headers: X-Container-Meta-Access-Control-Expose-Headers
-   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key
-   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2
+   - X-Container-Meta-Quota-Bytes: X-Container-Meta-Quota-Bytes
+   - X-Container-Meta-Quota-Count: X-Container-Meta-Quota-Count
+   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key_req
+   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
    - X-Storage-Policy: X-Storage-Policy
 
@@ -340,8 +344,8 @@ Request
    - X-Container-Meta-Quota-Bytes: X-Container-Meta-Quota-Bytes
    - X-Container-Meta-Quota-Count: X-Container-Meta-Quota-Count
    - X-Container-Meta-Web-Directory-Type: X-Container-Meta-Web-Directory-Type
-   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key
-   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2
+   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key_req
+   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
 
@@ -420,13 +424,13 @@ Response Parameters
    - X-Container-Object-Count: X-Container-Object-Count
    - X-Container-Bytes-Used: X-Container-Bytes-Used
    - X-Container-Write: X-Container-Write_resp
-   - X-Container-Meta-Quota-Bytes: X-Container-Meta-Quota-Bytes
-   - X-Container-Meta-Quota-Count: X-Container-Meta-Quota-Count
+   - X-Container-Meta-Quota-Bytes: X-Container-Meta-Quota-Bytes_resp
+   - X-Container-Meta-Quota-Count: X-Container-Meta-Quota-Count_resp
    - Accept-Ranges: Accept-Ranges
    - X-Container-Read: X-Container-Read_resp
    - X-Container-Meta-Access-Control-Expose-Headers: X-Container-Meta-Access-Control-Expose-Headers
-   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key
-   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2
+   - X-Container-Meta-Temp-URL-Key: X-Container-Meta-Temp-URL-Key_resp
+   - X-Container-Meta-Temp-URL-Key-2: X-Container-Meta-Temp-URL-Key-2_resp
    - X-Timestamp: X-Timestamp
    - X-Container-Meta-Access-Control-Allow-Origin: X-Container-Meta-Access-Control-Allow-Origin
    - X-Container-Meta-Access-Control-Max-Age: X-Container-Meta-Access-Control-Max-Age

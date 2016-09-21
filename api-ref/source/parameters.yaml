@@ -93,9 +93,11 @@ Content-Type_cud_resp:
   type: string
 Content-Type_listing_resp:
   description: |
-    The MIME type of the list of names. If the
-    operation fails, this value is the MIME type of the error text in
-    the response body.
+    If the operation succeeds, this value is the MIME type of the list
+    response. The MIME type is determined by the listing format specified by
+    the request and will be one of ``text/plain``, ``application/json``,
+    ``application/xml``, or ``text/xml``. If the operation fails, this value is
+    the MIME type of the error text in the response body.
   in: header
   required: true
   type: string
@@ -107,7 +109,9 @@ Content-Type_obj_cu_req:
   type: string
 Content-Type_obj_resp:
   description: |
-    The MIME type of the object.
+    If the operation succeeds, this value is the MIME type of the object. If
+    the operation fails, this value is the MIME type of the error text in the
+    response body.
   in: header
   required: true
   type: string
@@ -296,19 +300,31 @@ X-Account-Meta-Quota-Bytes_resp:
   in: header
   required: false
   type: string
-X-Account-Meta-Temp-URL-Key:
+X-Account-Meta-Temp-URL-Key-2_req:
   description: |
-    The secret key value for temporary URLs. If not
-    set, this header is not returned in the response.
+    A second secret key value for temporary URLs.
+    The second key enables you to rotate keys by having
+    two active keys at the same time.
   in: header
   required: false
   type: string
-X-Account-Meta-Temp-URL-Key-2:
+X-Account-Meta-Temp-URL-Key-2_resp:
   description: |
-    A second secret key value for temporary URLs. If
+    The second secret key value for temporary URLs. If
     not set, this header is not returned in the response.
-    The second key enables you to rotate keys by having
-    two active keys at the same time.
+  in: header
+  required: false
+  type: string
+X-Account-Meta-Temp-URL-Key_req:
+  description: |
+    The secret key value for temporary URLs.
+  in: header
+  required: false
+  type: string
+X-Account-Meta-Temp-URL-Key_resp:
+  description: |
+    The secret key value for temporary URLs. If not
+    set, this header is not returned in the response.
   in: header
   required: false
   type: string
@@ -377,14 +393,15 @@ X-Container-Meta-Access-Control-Expose-Headers:
     Headers the Object Storage service exposes to the
     browser (technically, through the ``user-agent`` setting), in the
     request response, separated by spaces.  By default the Object
-    Storage service returns the following values for this header:  -
-    All “simple response headers” as listed on
-    `http://www.w3.org/TR/cors/#simple-response-header
-    <http://www.w3.org/TR/cors/#simple-response-header>`_.  - The
-    headers ``etag``, ``x-timestamp``, ``x-trans-id``.  - All metadata
-    headers (``X-Container-Meta-*`` for containers and
-    ``X-Object-Meta-*`` for objects) headers listed in
-    ``X-Container-Meta-Access-Control-Expose-Headers``.
+    Storage service returns the following headers:
+
+    - All “simple response headers” as listed on
+      `http://www.w3.org/TR/cors/#simple-response-header
+      <http://www.w3.org/TR/cors/#simple-response-header>`_.
+    - The headers ``etag``, ``x-timestamp``, ``x-trans-id``.
+    - All metadata headers (``X-Container-Meta-*`` for containers and
+      ``X-Object-Meta-*`` for objects).
+    - headers listed in ``X-Container-Meta-Access-Control-Expose-Headers``.
   in: header
   required: false
   type: string
@@ -428,6 +445,13 @@ X-Container-Meta-Quota-Bytes:
   in: header
   required: false
   type: string
+X-Container-Meta-Quota-Bytes_resp:
+  description: |
+    The maximum size of the container, in bytes. If not set, this header is not
+    returned by this operation.
+  in: header
+  required: false
+  type: string
 X-Container-Meta-Quota-Count:
   description: |
     Sets maximum object count of the container.
@@ -441,17 +465,38 @@ X-Container-Meta-Quota-Count:
   in: header
   required: false
   type: string
-X-Container-Meta-Temp-URL-Key:
+X-Container-Meta-Quota-Count_resp:
+  description: |
+    The maximum object count of the container. If not set, this header is not
+    returned by this operation.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Temp-URL-Key-2_req:
+  description: |
+    A second secret key value for temporary URLs.
+    The second key enables you to rotate keys by having
+    two active keys at the same time.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Temp-URL-Key-2_resp:
+  description: |
+    The second secret key value for temporary URLs. If
+    not set, this header is not returned in the response.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Temp-URL-Key_req:
   description: |
     The secret key value for temporary URLs.
   in: header
   required: false
   type: string
-X-Container-Meta-Temp-URL-Key-2:
+X-Container-Meta-Temp-URL-Key_resp:
   description: |
-    A second secret key value for temporary URLs. The
-    second key enables you to rotate keys by having two active keys at
-    the same time.
+    The secret key value for temporary URLs. If not
+    set, this header is not returned in the response.
   in: header
   required: false
   type: string
