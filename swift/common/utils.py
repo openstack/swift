@@ -1367,6 +1367,27 @@ class NullLogger(object):
         # "Logs" the args to nowhere
         pass
 
+    def exception(self, *args):
+        pass
+
+    def critical(self, *args):
+        pass
+
+    def error(self, *args):
+        pass
+
+    def warning(self, *args):
+        pass
+
+    def info(self, *args):
+        pass
+
+    def debug(self, *args):
+        pass
+
+    def log(self, *args):
+        pass
+
 
 class LoggerFileObject(object):
 
