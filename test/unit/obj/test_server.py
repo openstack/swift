@@ -187,6 +187,7 @@ class TestObjectController(unittest.TestCase):
                    'Foo': 'fooheader',
                    'Baz': 'bazheader',
                    'X-Object-Sysmeta-Color': 'blue',
+                   'X-Object-Transient-Sysmeta-Shape': 'circle',
                    'X-Object-Meta-1': 'One',
                    'X-Object-Meta-Two': 'Two'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -217,6 +218,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'blue',
         })
 
         req = Request.blank('/sda1/p/a/c/o')
@@ -257,6 +259,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'blue',
         })
 
         req = Request.blank('/sda1/p/a/c/o')
@@ -331,6 +334,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'red',
         })
 
         req = Request.blank('/sda1/p/a/c/o')
@@ -363,6 +367,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'red',
         })
 
         req = Request.blank('/sda1/p/a/c/o')

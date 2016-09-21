@@ -47,7 +47,7 @@ from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
-    resolve_etag_is_at_header
+    resolve_etag_is_at_header, is_sys_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -630,7 +630,14 @@ class ObjectController(BaseStorageServer):
         self.container_update(
             'PUT', account, container, obj, request, update_headers,
             device, policy)
-        return HTTPAccepted(request=request)
+
+        # Add sysmeta to response
+        resp_headers = {}
+        for key, value in orig_metadata.items():
+            if is_sys_meta('object', key):
+                resp_headers[key] = value
+
+        return HTTPAccepted(request=request, headers=resp_headers)
 
     @public
     @timing_stats()
