@@ -109,6 +109,7 @@ Response Parameters
    - X-Account-Storage-Policy-name-Container-Count: X-Account-Storage-Policy-name-Container-Count
    - X-Account-Storage-Policy-name-Object-Count: X-Account-Storage-Policy-name-Object-Count
    - X-Account-Meta-Quota-Bytes: X-Account-Meta-Quota-Bytes_resp
+   - X-Account-Access-Control: X-Account-Access-Control_resp
    - Content-Type: Content-Type_listing_resp
    - count: count
    - bytes: bytes
@@ -257,6 +258,7 @@ Request
    - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2_req
    - X-Account-Meta-name: X-Account-Meta-name_req
    - X-Remove-Account-name: X-Remove-Account-name
+   - X-Account-Access-Control: X-Account-Access-Control_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
 
@@ -359,9 +361,5 @@ Response Parameters
    - X-Account-Storage-Policy-name-Container-Count: X-Account-Storage-Policy-name-Container-Count
    - X-Account-Storage-Policy-name-Object-Count: X-Account-Storage-Policy-name-Object-Count
    - X-Account-Meta-Quota-Bytes: X-Account-Meta-Quota-Bytes_resp
+   - X-Account-Access-Control: X-Account-Access-Control_resp
    - Content-Type: Content-Type_cud_resp
-
-
-
-
-
