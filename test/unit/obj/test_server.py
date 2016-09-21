@@ -3249,8 +3249,7 @@ class TestObjectController(unittest.TestCase):
         for policy in POLICIES:
             ts_0, ts_1, ts_2 = self._create_ondisk_fragments(policy)
 
-            backend_frags = json.dumps({ts_0.internal: [0],
-                                        ts_2.internal: [2]})
+            backend_frags = {ts_0.internal: [0], ts_2.internal: [2]}
 
             def _assert_frag_0_at_ts_0(resp):
                 expect = {
@@ -3258,10 +3257,11 @@ class TestObjectController(unittest.TestCase):
                     'X-Backend-Timestamp': ts_1.internal,
                     'X-Backend-Data-Timestamp': ts_0.internal,
                     'X-Backend-Durable-Timestamp': ts_0.internal,
-                    'X-Backend-Fragments': backend_frags,
                     'X-Object-Sysmeta-Ec-Frag-Index': '0',
                     'X-Object-Meta-Test': 'abc'}
                 self.assertDictContainsSubset(expect, resp.headers)
+                self.assertEqual(backend_frags, json.loads(
+                    resp.headers['X-Backend-Fragments']))
 
             def _assert_repl_data_at_ts_2():
                 self.assertIn(resp.status_int, (200, 202))
@@ -3328,9 +3328,10 @@ class TestObjectController(unittest.TestCase):
                     'X-Backend-Timestamp': ts_2.internal,
                     'X-Backend-Data-Timestamp': ts_2.internal,
                     'X-Backend-Durable-Timestamp': ts_0.internal,
-                    'X-Backend-Fragments': backend_frags,
                     'X-Object-Sysmeta-Ec-Frag-Index': '2'}
                 self.assertDictContainsSubset(expect, resp.headers)
+                self.assertEqual(backend_frags, json.loads(
+                    resp.headers['X-Backend-Fragments']))
                 self.assertNotIn('X-Object-Meta-Test', resp.headers)
 
             # Request with preferences can select the newer non-durable frag
