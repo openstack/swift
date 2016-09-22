@@ -2438,10 +2438,14 @@ class TestObjectController(unittest.TestCase):
             raise Exception("doom ba doom")
 
         def explodey_doc_parts_iter(inner_iter_iter):
-            for item in inner_iter_iter:
-                item = item.copy()  # paranoia about mutable data
-                item['part_iter'] = explodey_iter(item['part_iter'])
-                yield item
+            try:
+                for item in inner_iter_iter:
+                    item = item.copy()  # paranoia about mutable data
+                    item['part_iter'] = explodey_iter(item['part_iter'])
+                    yield item
+            except GeneratorExit:
+                inner_iter_iter.close()
+                raise
 
         real_ec_app_iter = swift.proxy.controllers.obj.ECAppIter
 
