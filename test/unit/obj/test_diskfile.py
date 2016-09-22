@@ -5426,6 +5426,64 @@ class TestSuffixHashes(unittest.TestCase):
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             self.assertEqual(hashes, {})
 
+    def test_hash_suffix_one_reclaim_tombstone_with_hash_pkl(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix_dir = os.path.dirname(df._datadir)
+            part_dir = os.path.dirname(suffix_dir)
+            hash_file = os.path.join(part_dir, diskfile.HASH_FILE)
+
+            # scale back reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write a tombstone that's just a *little* older
+            old_time = time() - 1001
+            timestamp = Timestamp(old_time)
+            df.delete(timestamp.internal)
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            # sanity
+            self.assertEqual(hashes, {})
+            self.assertFalse(os.path.exists(df._datadir))
+
+            hash_timestamp = os.stat(hash_file).st_mtime
+
+            # if hash.pkl exists, that .ts file is not reclaimed
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            df.delete(timestamp.internal)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            # This was a cached value so the value looks empty
+            self.assertEqual(hashes, {})
+            # and the hash.pkl is not touched
+            self.assertEqual(hash_timestamp, os.stat(hash_file).st_mtime)
+            # and we still have tombstone entry
+            tombstone = '%s.ts' % timestamp.internal
+            self.assertTrue(os.path.exists(df._datadir))
+            self.assertIn(tombstone, os.listdir(df._datadir))
+
+            # However if we call invalidate_hash for the suffix dir,
+            # get_hashes can reclaim the tombstone
+            with mock.patch('swift.obj.diskfile.lock_path'):
+                df_mgr.invalidate_hash(suffix_dir)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+            self.assertEqual(hashes, {})
+            # If we have no other objects in the suffix, get_hashes
+            # doesn't reclaim anything
+            self.assertTrue(os.path.exists(df._datadir))
+            self.assertIn(tombstone, os.listdir(df._datadir))
+            self.assertEqual(hash_timestamp, os.stat(hash_file).st_mtime)
+
+            # *BUT* if suffix value is given to recalc, it can force to recaim!
+            suffix = os.path.dirname(suffix_dir)
+            hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            self.assertFalse(os.path.exists(df._datadir))
+            # hash.pkl was updated
+            self.assertGreater(os.stat(hash_file).st_mtime, hash_timestamp)
+
     def test_hash_suffix_one_reclaim_and_one_valid_tombstone(self):
         for policy in self.iter_policies():
             paths, suffix = find_paths_with_matching_suffixes(2, 1)

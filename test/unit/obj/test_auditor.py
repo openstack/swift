@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from test import unit
+import six.moves.cPickle as pickle
 import unittest
 import mock
 import os
@@ -23,13 +24,14 @@ from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
 import textwrap
+from os.path import dirname, basename, join
 from test.unit import (FakeLogger, patch_policies, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE)
 from swift.obj import auditor, replicator
 from swift.obj.diskfile import (
     DiskFile, write_metadata, invalidate_hash, get_data_dir,
     DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
-    get_auditor_status)
+    get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
 from swift.common.utils import (
     mkdirs, normalize_timestamp, Timestamp, readconf)
 from swift.common.storage_policy import (
@@ -326,7 +328,7 @@ class TestAuditor(unittest.TestCase):
         [object-auditor]
         rsync_tempfile_timeout = auto
         """
-        with open(os.path.join(self.testdir, 'objserver.conf'), 'w') as f:
+        with open(config_path, 'w') as f:
             f.write(textwrap.dedent(stub_config))
         conf = readconf(config_path, 'object-auditor')
         auditor_worker = auditor.AuditorWorker(conf, self.logger,
@@ -344,7 +346,7 @@ class TestAuditor(unittest.TestCase):
         [object-auditor]
         rsync_tempfile_timeout = auto
         """
-        with open(os.path.join(self.testdir, 'objserver.conf'), 'w') as f:
+        with open(config_path, 'w') as f:
             f.write(textwrap.dedent(stub_config))
         conf = readconf(config_path, 'object-auditor')
         auditor_worker = auditor.AuditorWorker(conf, self.logger,
@@ -743,6 +745,139 @@ class TestAuditor(unittest.TestCase):
         kwargs = {'mode': 'once'}
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.exists(self.disk_file._datadir))
+
+    def test_with_tombstone_delete(self):
+        test_md5 = '098f6bcd4621d373cade4e832627b4f6'
+
+        def do_audit(self, timestamp, invalidate=False):
+            dir_path = self.disk_file._datadir
+            ts_file = os.path.join(dir_path, '%d.ts' % timestamp)
+
+            # Create a .ts file
+            if not os.path.exists(dir_path):
+                mkdirs(dir_path)
+            fp = open(ts_file, 'w')
+            write_metadata(fp, {'X-Timestamp': '%d' % timestamp})
+            fp.close()
+            # Create hashes.pkl
+            hash = dirname(dirname(ts_file))  # hash value of ts file
+            suffix = basename(hash)
+            hashes_pkl = join(os.path.dirname(hash), HASH_FILE)
+            with open(hashes_pkl, 'wb') as fp:
+                pickle.dump({suffix: test_md5}, fp, 0)
+            # Run auditor
+            kwargs = {'mode': 'once'}
+            self.auditor.run_audit(**kwargs)
+            # Check if hash invalid file exists
+            hash_invalid = join(dirname(hash), HASH_INVALIDATIONS_FILE)
+            hash_invalid_exists = os.path.exists(hash_invalid)
+            # If invalidate, fetch value from hashes.invalid
+            if invalidate:
+                with open(hash_invalid, 'rb') as fp:
+                    hash_val = fp.read()
+                return hash_invalid_exists, hash_val, suffix
+            return hash_invalid_exists, ts_file
+
+        self.auditor = auditor.ObjectAuditor(self.conf)
+        self.auditor.log_time = 0
+
+        now = time.time()
+
+        # audit with a recent tombstone
+        hash_invalid_exists, ts_file = do_audit(self, now - 55)
+        self.assertFalse(hash_invalid_exists)
+        os.unlink(ts_file)
+
+        # audit with a tombstone that is beyond default reclaim_age
+        hash_invalid_exists, hash_val, suffix = do_audit(self, now - (604800),
+                                                         True)
+        self.assertTrue(hash_invalid_exists)
+        self.assertEqual(hash_val.strip('\n'), suffix)
+
+    def test_auditor_reclaim_age(self):
+        # if we don't have access to the replicator config section we'll
+        # diskfile's default
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        router = auditor_worker.diskfile_router
+        for policy in POLICIES:
+            self.assertEqual(router[policy].reclaim_age, 86400 * 7)
+
+        # if the reclaim_age option is set explicitly we use that
+        self.conf['reclaim_age'] = '1800'
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        router = auditor_worker.diskfile_router
+        for policy in POLICIES:
+            self.assertEqual(router[policy].reclaim_age, 1800)
+
+        # if we have a real config we can be a little smarter
+        config_path = os.path.join(self.testdir, 'objserver.conf')
+
+        # if there is no object-replicator section we still have to fall back
+        # to default because we can't parse the config for that section!
+        stub_config = """
+        [object-auditor]
+        """
+        with open(config_path, 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        router = auditor_worker.diskfile_router
+        for policy in POLICIES:
+            self.assertEqual(router[policy].reclaim_age, 86400 * 7)
+
+        # verify reclaim_age is of auditor config value
+        stub_config = """
+                [object-replicator]
+                [object-auditor]
+                reclaim_age = 60
+                """
+        with open(config_path, 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        router = auditor_worker.diskfile_router
+        for policy in POLICIES:
+            self.assertEqual(router[policy].reclaim_age, 60)
+
+        # verify reclaim_age falls back to replicator config value
+        # if there is no auditor config value
+        config_path = os.path.join(self.testdir, 'objserver.conf')
+        stub_config = """
+                [object-replicator]
+                reclaim_age = 60
+                [object-auditor]
+                """
+        with open(config_path, 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        router = auditor_worker.diskfile_router
+        for policy in POLICIES:
+            self.assertEqual(router[policy].reclaim_age, 60)
+
+        # we'll prefer our own DEFAULT section to the replicator though
+        self.assertEqual(auditor_worker.rsync_tempfile_timeout,
+                         replicator.DEFAULT_RSYNC_TIMEOUT + 900)
+        stub_config = """
+        [DEFAULT]
+        reclaim_age = 1209600
+        [object-replicator]
+        reclaim_age = 1800
+        [object-auditor]
+        """
+        with open(config_path, 'w') as f:
+            f.write(textwrap.dedent(stub_config))
+        conf = readconf(config_path, 'object-auditor')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        router = auditor_worker.diskfile_router
+        for policy in POLICIES:
+            self.assertEqual(router[policy].reclaim_age, 1209600)
 
     def test_sleeper(self):
         with mock.patch(
