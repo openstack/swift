@@ -267,9 +267,10 @@ class AuditorWorker(object):
                               {'obj': location, 'err': err})
         except DiskFileDeleted:
             # If there is a reclaimable tombstone, we'll invalidate the hash
-            # to trigger the replciator to rehash/cleanup this suffix
+            # to trigger the replicator to rehash/cleanup this suffix
             ts = df._ondisk_info['ts_info']['timestamp']
-            if (time.time() - float(ts)) > df.manager.reclaim_age:
+            if (not self.zero_byte_only_at_fps and
+                    (time.time() - float(ts)) > df.manager.reclaim_age):
                 df.manager.invalidate_hash(dirname(df._datadir))
         except DiskFileNotExist:
             pass
