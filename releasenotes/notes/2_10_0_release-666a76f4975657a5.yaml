@@ -1,0 +1,59 @@
+---
+features:
+ - >
+   Object versioning now supports a "history" mode in addition to
+   the older "stack" mode. The difference is in how DELETE requests
+   are handled. For full details, please read
+   http://docs.openstack.org/developer/swift/overview_object_versioning.html.
+ - >
+   New config variables to change the schedule priority and I/O
+   scheduling class. Servers and daemons now understand
+   `nice_priority`, `ionice_class`, and `ionice_priority` to
+   schedule their relative importance. Please read
+   http://docs.openstack.org/developer/swift/deployment_guide.html
+   for full config details.
+ - >
+   On newer kernels (3.15+ when using xfs), Swift will use the O_TMPFILE
+   flag when opening a file instead of creating a temporary file
+   and renaming it on commit. This makes the data path simpler and
+   allows the filesystem to more efficiently optimize the files on
+   disk, resulting in better performance.
+ - >
+   Erasure code GET performance has been significantly
+   improved in clusters that are not completely healthy.
+ - >
+   Significant improvements to the api-ref doc available at
+   http://developer.openstack.org/api-ref/object-storage/.
+ - >
+   A PUT or POST to a container will now update the container's
+   Last-Modified time, and that value will be included in a
+   GET/HEAD response.
+ - >
+   Include object sysmeta in POST responses. Sysmeta is still
+   stripped from the response before being sent to the client, but
+   this allows middleware to make use of the information.
+upgrade:
+ - >
+   Update dnspython dependency to 1.14, removing the need to have
+   separate dnspython dependencies for Py2 and Py3.
+ - >
+   Deprecate swift-temp-url and call python-swiftclient's
+   implementation instead. This adds python-swiftclient as an
+   optional dependency of Swift.
+ - >
+   Moved other-requirements.txt to bindep.txt. bindep.txt lists
+   non-python dependencies of Swift.
+fixes:
+ - >
+   Fixed a bug where a container listing delimiter wouldn't work
+   with encryption.
+ - >
+   Fixed a bug where some headers weren't being copied correctly
+   in a COPY request.
+ - >
+   Container sync can now copy SLOs more efficiently by allowing
+   the manifest to be synced before all of the referenced segments.
+   This fixes a bug where container sync would not copy SLO manifests.
+ - Fixed a bug where some tombstone files might never be reclaimed.
+other:
+  - Various other minor bug fixes and improvements.
