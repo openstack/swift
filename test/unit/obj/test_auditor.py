@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from test import unit
-import six.moves.cPickle as pickle
 import unittest
 import mock
 import os
@@ -24,7 +23,7 @@ from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
 import textwrap
-from os.path import dirname, basename, join
+from os.path import dirname, basename
 from test.unit import (FakeLogger, patch_policies, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE)
 from swift.obj import auditor, replicator
@@ -746,56 +745,84 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.exists(self.disk_file._datadir))
 
-    def test_with_tombstone_delete(self):
-        test_md5 = '098f6bcd4621d373cade4e832627b4f6'
-
-        def do_audit(self, timestamp, invalidate=False):
-            dir_path = self.disk_file._datadir
-            ts_file = os.path.join(dir_path, '%d.ts' % timestamp)
-
-            # Create a .ts file
-            if not os.path.exists(dir_path):
-                mkdirs(dir_path)
-            fp = open(ts_file, 'w')
-            write_metadata(fp, {'X-Timestamp': '%d' % timestamp})
-            fp.close()
-            # Create hashes.pkl
-            hash = dirname(dirname(ts_file))  # hash value of ts file
-            suffix = basename(hash)
-            hashes_pkl = join(os.path.dirname(hash), HASH_FILE)
-            with open(hashes_pkl, 'wb') as fp:
-                pickle.dump({suffix: test_md5}, fp, 0)
-            # Run auditor
-            kwargs = {'mode': 'once'}
-            self.auditor.run_audit(**kwargs)
-            # Check if hash invalid file exists
-            hash_invalid = join(dirname(hash), HASH_INVALIDATIONS_FILE)
-            hash_invalid_exists = os.path.exists(hash_invalid)
-            # If invalidate, fetch value from hashes.invalid
-            if invalidate:
-                with open(hash_invalid, 'rb') as fp:
-                    hash_val = fp.read()
-                return hash_invalid_exists, hash_val, suffix
-            return hash_invalid_exists, ts_file
-
-        self.auditor = auditor.ObjectAuditor(self.conf)
+    def _audit_tombstone(self, conf, ts_tomb, zero_byte_fps=0):
+        self.auditor = auditor.ObjectAuditor(conf)
         self.auditor.log_time = 0
+        # create tombstone and hashes.pkl file, ensuring the tombstone is not
+        # reclaimed by mocking time to be the tombstone time
+        with mock.patch('time.time', return_value=float(ts_tomb)):
+            self.disk_file.delete(ts_tomb)
+            self.disk_file.manager.get_hashes(
+                self.devices + '/sda', '0', [], self.disk_file.policy)
+        suffix = basename(dirname(self.disk_file._datadir))
+        part_dir = dirname(dirname(self.disk_file._datadir))
+        # sanity checks...
+        self.assertEqual(['%s.ts' % ts_tomb.internal],
+                         os.listdir(self.disk_file._datadir))
+        self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
+        self.assertFalse(os.path.exists(
+            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+        # Run auditor
+        self.auditor.run_audit(mode='once', zero_byte_fps=zero_byte_fps)
+        # sanity check - auditor should not remove tombstone file
+        self.assertEqual(['%s.ts' % ts_tomb.internal],
+                         os.listdir(self.disk_file._datadir))
+        return part_dir, suffix
 
-        now = time.time()
-
+    def test_non_reclaimable_tombstone(self):
         # audit with a recent tombstone
-        hash_invalid_exists, ts_file = do_audit(self, now - 55)
-        self.assertFalse(hash_invalid_exists)
-        os.unlink(ts_file)
+        ts_tomb = Timestamp(time.time() - 55)
+        part_dir, suffix = self._audit_tombstone(self.conf, ts_tomb)
+        self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
+        self.assertFalse(os.path.exists(
+            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
 
-        # audit with a tombstone that is beyond default reclaim_age
-        hash_invalid_exists, hash_val, suffix = do_audit(self, now - (604800),
-                                                         True)
-        self.assertTrue(hash_invalid_exists)
-        self.assertEqual(hash_val.strip('\n'), suffix)
+    def test_reclaimable_tombstone(self):
+        # audit with a reclaimable tombstone
+        ts_tomb = Timestamp(time.time() - 604800)
+        part_dir, suffix = self._audit_tombstone(self.conf, ts_tomb)
+        self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        self.assertTrue(os.path.exists(hash_invalid))
+        with open(hash_invalid, 'rb') as fp:
+            hash_val = fp.read()
+        self.assertEqual(suffix, hash_val.strip('\n'))
+
+    def test_non_reclaimable_tombstone_with_custom_reclaim_age(self):
+        # audit with a tombstone newer than custom reclaim age
+        ts_tomb = Timestamp(time.time() - 604800)
+        conf = dict(self.conf)
+        conf['reclaim_age'] = 2 * 604800
+        part_dir, suffix = self._audit_tombstone(conf, ts_tomb)
+        self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
+        self.assertFalse(os.path.exists(
+            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+
+    def test_reclaimable_tombstone_with_custom_reclaim_age(self):
+        # audit with a tombstone older than custom reclaim age
+        ts_tomb = Timestamp(time.time() - 55)
+        conf = dict(self.conf)
+        conf['reclaim_age'] = 10
+        part_dir, suffix = self._audit_tombstone(conf, ts_tomb)
+        self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        self.assertTrue(os.path.exists(hash_invalid))
+        with open(hash_invalid, 'rb') as fp:
+            hash_val = fp.read()
+        self.assertEqual(suffix, hash_val.strip('\n'))
+
+    def test_reclaimable_tombstone_with_zero_byte_fps(self):
+        # audit with a tombstone older than reclaim age by a zero_byte_fps
+        # worker does not invalidate the hash
+        ts_tomb = Timestamp(time.time() - 604800)
+        part_dir, suffix = self._audit_tombstone(
+            self.conf, ts_tomb, zero_byte_fps=50)
+        self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
+        self.assertFalse(os.path.exists(
+            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
 
     def test_auditor_reclaim_age(self):
-        # if we don't have access to the replicator config section we'll
+        # if we don't have access to the replicator config section we'll use
         # diskfile's default
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
