@@ -666,6 +666,27 @@ X-Fresh-Metadata:
   in: header
   required: false
   type: boolean
+X-History-Location:
+  description: |
+    The URL-encoded UTF-8 representation of the container that stores
+    previous versions of objects. If neither this nor ``X-Versions-Location``
+    is set, versioning is disabled for this container. ``X-History-Location``
+    and ``X-Versions-Location`` cannot both be set at the same time. For more
+    information about object versioning, see `Object versioning
+    <http://docs.openstack.org/ developer/swift/api/object_versioning.html>`_.
+  in: header
+  required: false
+  type: string
+X-History-Location_resp:
+  description: |
+    If present, this container has versioning enabled and the value
+    is the UTF-8 encoded name of another container.
+    For more information about object versioning,
+    see `Object versioning <http://docs.openstack.org/developer/
+    swift/api/object_versioning.html>`_.
+  in: header
+  required: false
+  type: string
 X-Newest:
   description: |
     If set to true , Object Storage queries all
@@ -728,9 +749,17 @@ X-Remove-Container-name:
   in: header
   required: false
   type: string
+X-Remove-History-Location:
+  description: |
+    Set to any value to disable versioning. Note that this disables version
+    that was set via ``X-Versions-Location`` as well.
+  in: header
+  required: false
+  type: string
 X-Remove-Versions-Location:
   description: |
-    Set to any value to disable versioning.
+    Set to any value to disable versioning. Note that this disables version
+    that was set via ``X-History-Location`` as well.
   in: header
   required: false
   type: string
@@ -801,10 +830,11 @@ X-Trans-Id-Extra:
 X-Versions-Location:
   description: |
     The URL-encoded UTF-8 representation of the container that stores
-    previous versions of objects. If not set, versioning is disabled
-    for this container. For more information about object versioning,
-    see `Object versioning <http://docs.openstack.org/developer/
-    swift/api/object_versioning.html>`_.
+    previous versions of objects. If neither this nor ``X-History-Location``
+    is set, versioning is disabled for this container. ``X-Versions-Location``
+    and ``X-History-Location`` cannot both be set at the same time. For more
+    information about object versioning, see `Object versioning
+    <http://docs.openstack.org/ developer/swift/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
@@ -813,26 +843,6 @@ X-Versions-Location_resp:
     If present, this container has versioning enabled and the value
     is the UTF-8 encoded name of another container.
     For more information about object versioning,
-    see `Object versioning <http://docs.openstack.org/developer/
-    swift/api/object_versioning.html>`_.
-  in: header
-  required: false
-  type: string
-X-Versions-Mode:
-  description: |
-    The versioning mode for this container. The value must be either
-    ``stack`` or ``history``. If not set, ``stack`` mode will be used.
-    This setting has no impact unless ``X-Versions-Location`` is set
-    for the container. For more information about object versioning,
-    see `Object versioning <http://docs.openstack.org/developer/
-    swift/api/object_versioning.html>`_.
-  in: header
-  required: false
-  type: string
-X-Versions-Mode_resp:
-  description: |
-    If set, this is the versioning mode for this container. The value is either
-    ``stack`` or ``history``. For more information about object versioning,
     see `Object versioning <http://docs.openstack.org/developer/
     swift/api/object_versioning.html>`_.
   in: header

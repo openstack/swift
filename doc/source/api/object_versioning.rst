@@ -20,30 +20,37 @@ To allow object versioning within a cluster, the cloud provider should add the
 ``allow_versioned_writes`` option to ``true`` in the
 ``[filter:versioned_writes]`` section of the proxy-server configuration file.
 
-The ``X-Versions-Location`` header defines the
-container that holds the non-current versions of your objects. You
-must UTF-8-encode and then URL-encode the container name before you
-include it in the ``X-Versions-Location`` header. This header enables
-object versioning for all objects in the container. With a comparable
-``archive`` container in place, changes to objects in the ``current``
-container automatically create non-current versions in the ``archive``
-container.
+To enable object versioning for a container, you must specify an "archive
+container" that will retain non-current versions via either the
+``X-Versions-Location`` or ``X-History-Location`` header. These two headers
+enable two distinct modes of operation. Either mode may be used within a
+cluster, but only one mode may be active for any given container. You must
+UTF-8-encode and then URL-encode the container name before you include it in
+the header.
 
-The ``X-Versions-Mode`` header defines the behavior of ``DELETE`` requests to
-objects in the versioned container. In the default ``stack`` mode, deleting an
-object will restore the most-recent version from the ``archive`` container,
-overwriting the curent version. Alternatively you may specify ``history``
-mode, where deleting an object will copy the current version to the
-``archive`` then remove it from the ``current`` container.
+For both modes, **PUT** requests will archive any pre-existing objects before
+writing new data, and **GET** requests will serve the current version. **COPY**
+requests behave like a **GET** followed by a **PUT**; that is, if the copy
+*source* is in a versioned container then the current version will be copied,
+and if the copy *destination* is in a versioned container then any pre-existing
+object will be archived before writing new data.
 
-Example Using ``stack`` Mode
-----------------------------
+If object versioning was enabled using ``X-History-Location``, then object
+**DELETE** requests will copy the current version to the archive container then
+remove it from the versioned container.
+
+If object versioning was enabled using ``X-Versions-Location``, then object
+**DELETE** requests will restore the most-recent version from the archive
+container, overwriting the curent version.
+
+Example Using ``X-Versions-Location``
+-------------------------------------
 
 #.   Create the ``current`` container:
 
    .. code::
 
-       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive" -H "X-Versions-Mode: stack"
+       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive"
 
    .. code::
 
@@ -169,14 +176,14 @@ Example Using ``stack`` Mode
    on it. If want to completely remove an object and you have five
    versions of it, you must **DELETE** it five times.
 
-Example Using ``history`` Mode
-------------------------------
+Example Using ``X-History-Location``
+------------------------------------
 
 #.   Create the ``current`` container:
 
    .. code::
 
-       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive" -H "X-Versions-Mode: history"
+       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-History-Location: archive"
 
    .. code::
 
@@ -266,7 +273,7 @@ Example Using ``history`` Mode
 #. Issue a **DELETE** request to a versioned object to copy the
    current version of the object to the archive container then delete it from
    the current container. Subsequent **GET** requests to the object in the
-   current container will return 404 Not Found.
+   current container will return ``404 Not Found``.
 
    .. code::
 
