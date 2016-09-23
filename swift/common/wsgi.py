@@ -648,10 +648,7 @@ class PortPidState(object):
         Yield all current listen sockets.
         """
 
-        # Use six.itervalues() instead of calling directly the .values() method
-        # on Python 2 to avoid a temporary list, because sock_data_by_port
-        # comes from users and can be large.
-        for orphan_data in six.itervalues(self.sock_data_by_port):
+        for orphan_data in self.sock_data_by_port.values():
             yield orphan_data['sock']
 
     def forget_port(self, port):
