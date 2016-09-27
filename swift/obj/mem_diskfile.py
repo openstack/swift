@@ -35,7 +35,7 @@ class InMemoryFileSystem(object):
     A very simplistic in-memory file system scheme.
 
     There is one dictionary mapping a given object name to a tuple. The first
-    entry in the tuble is the cStringIO buffer representing the file contents,
+    entry in the tuple is the cStringIO buffer representing the file contents,
     the second entry is the metadata dictionary.
     """
 
