@@ -3401,6 +3401,80 @@ class LRUCache(object):
         return LRUCacheWrapped()
 
 
+class Spliterator(object):
+    """
+    Takes an iterator yielding sliceable things (e.g. strings or lists) and
+    yields subiterators, each yielding up to the requested number of items
+    from the source.
+
+    >>> si = Spliterator(["abcde", "fg", "hijkl"])
+    >>> ''.join(si.take(4))
+    "abcd"
+    >>> ''.join(si.take(3))
+    "efg"
+    >>> ''.join(si.take(1))
+    "h"
+    >>> ''.join(si.take(3))
+    "ijk"
+    >>> ''.join(si.take(3))
+    "l"  # shorter than requested; this can happen with the last iterator
+
+    """
+    def __init__(self, source_iterable):
+        self.input_iterator = iter(source_iterable)
+        self.leftovers = None
+        self.leftovers_index = 0
+        self._iterator_in_progress = False
+
+    def take(self, n):
+        if self._iterator_in_progress:
+            raise ValueError("cannot call take() again until the first"
+                             " iterator is exhausted")
+        self._iterator_in_progress = True
+
+        try:
+            if self.leftovers:
+                # All this string slicing is a little awkward, but it's for
+                # a good reason. Consider a length N string that someone is
+                # taking k bytes at a time.
+                #
+                # With this implementation, we create one new string of
+                # length k (copying the bytes) on each call to take(). Once
+                # the whole input has been consumed, each byte has been
+                # copied exactly once, giving O(N) bytes copied.
+                #
+                # If, instead of this, we were to set leftovers =
+                # leftovers[k:] and omit leftovers_index, then each call to
+                # take() would copy k bytes to create the desired substring,
+                # then copy all the remaining bytes to reset leftovers,
+                # resulting in an overall O(N^2) bytes copied.
+                llen = len(self.leftovers) - self.leftovers_index
+                if llen <= n:
+                    n -= llen
+                    yield self.leftovers[self.leftovers_index:]
+                    self.leftovers = None
+                    self.leftovers_index = 0
+                else:
+                    yield self.leftovers[
+                        self.leftovers_index:(self.leftovers_index + n)]
+                    self.leftovers_index += n
+                    n = 0
+
+            while n > 0:
+                chunk = next(self.input_iterator)
+                cl = len(chunk)
+                if cl <= n:
+                    n -= cl
+                    yield chunk
+                else:
+                    yield chunk[:n]
+                    self.leftovers = chunk
+                    self.leftovers_index = n
+                    n = 0
+        finally:
+            self._iterator_in_progress = False
+
+
 def tpool_reraise(func, *args, **kwargs):
     """
     Hack to work around Eventlet's tpool not catching and reraising Timeouts.

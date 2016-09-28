@@ -3349,6 +3349,34 @@ class TestSlo(Base):
         self.assertEqual('b', file_contents[-2])
         self.assertEqual('c', file_contents[-1])
 
+    def test_slo_multi_ranged_get(self):
+        file_item = self.env.container.file('manifest-abcde')
+        file_contents = file_item.read(
+            hdrs={"Range": "bytes=1048571-1048580,2097147-2097156"})
+
+        # See testMultiRangeGets for explanation
+        parser = email.parser.FeedParser()
+        parser.feed("Content-Type: %s\r\n\r\n" % file_item.content_type)
+        parser.feed(file_contents)
+
+        root_message = parser.close()
+        self.assertTrue(root_message.is_multipart())  # sanity check
+
+        byteranges = root_message.get_payload()
+        self.assertEqual(len(byteranges), 2)
+
+        self.assertEqual(byteranges[0]['Content-Type'],
+                         "application/octet-stream")
+        self.assertEqual(
+            byteranges[0]['Content-Range'], "bytes 1048571-1048580/4194305")
+        self.assertEqual(byteranges[0].get_payload(), "aaaaabbbbb")
+
+        self.assertEqual(byteranges[1]['Content-Type'],
+                         "application/octet-stream")
+        self.assertEqual(
+            byteranges[1]['Content-Range'], "bytes 2097147-2097156/4194305")
+        self.assertEqual(byteranges[1].get_payload(), "bbbbbccccc")
+
     def test_slo_ranged_submanifest(self):
         file_item = self.env.container.file('manifest-abcde-submanifest')
         file_contents = file_item.read(size=1024 * 1024 + 2,

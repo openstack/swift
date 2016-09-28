@@ -1247,9 +1247,9 @@ class Response(object):
             ranges = self.request.range.ranges_for_length(self.content_length)
             if ranges == []:
                 self.status = 416
-                self.content_length = 0
                 close_if_possible(app_iter)
-                return ['']
+                body = None
+                app_iter = None
             elif ranges:
                 range_size = len(ranges)
                 if range_size > 0:
