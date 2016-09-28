@@ -4949,7 +4949,7 @@ class TestObjectController(unittest.TestCase):
             expected)
         # check that no coro was left waiting to write
         self.assertTrue(timeouts)  # sanity - WrappedTimeout did get called
-        missing_exits = filter(lambda tb: tb is not None, timeouts.values())
+        missing_exits = [tb for tb in timeouts.values() if tb is not None]
         self.assertFalse(
             missing_exits, 'Failed to exit all ChunkWriteTimeouts.\n' +
             ''.join(['No exit from ChunkWriteTimeout entered at:\n' +
