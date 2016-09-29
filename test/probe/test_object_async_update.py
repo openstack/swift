@@ -18,7 +18,10 @@ from io import StringIO
 from unittest import main
 from uuid import uuid4
 
+from nose import SkipTest
+
 from swiftclient import client
+from swiftclient.exceptions import ClientException
 
 from swift.common import direct_client
 from swift.common.manager import Manager
@@ -57,6 +60,64 @@ class TestObjectAsyncUpdate(ReplProbeTest):
         objs = [o['name'] for o in direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1]]
         self.assertTrue(obj in objs)
+
+    def test_missing_container(self):
+        # In this test, we need to put container at handoff devices, so we
+        # need container devices more than replica count
+        if len(self.container_ring.devs) <= self.container_ring.replica_count:
+            raise SkipTest('Need devices more that replica count')
+
+        container = 'container-%s' % uuid4()
+        cpart, cnodes = self.container_ring.get_nodes(self.account, container)
+
+        # Kill all primary container servers
+        for cnode in cnodes:
+            kill_server((cnode['ip'], cnode['port']), self.ipport2server)
+
+        # Create container, and all of its replicas are placed at handoff
+        # device
+        try:
+            client.put_container(self.url, self.token, container)
+        except ClientException as err:
+            # if the cluster doesn't have enough devices, swift may return
+            # error (ex. When we only have 4 devices in 3-replica cluster).
+            self.assertEqual(err.http_status, 503)
+
+        # Assert handoff device has a container replica
+        another_cnode = self.container_ring.get_more_nodes(cpart).next()
+        direct_client.direct_get_container(
+            another_cnode, cpart, self.account, container)
+
+        # Restart all primary container servers
+        for cnode in cnodes:
+            start_server((cnode['ip'], cnode['port']), self.ipport2server)
+
+        # Create container/obj
+        obj = 'object-%s' % uuid4()
+        client.put_object(self.url, self.token, container, obj, '')
+
+        # Run the object-updater
+        Manager(['object-updater']).once()
+
+        # Run the container-replicator, and now, container replicas
+        # at handoff device get moved to primary servers
+        Manager(['container-replicator']).once()
+
+        # Assert container replicas in primary servers, just moved by
+        # replicator don't know about the object
+        for cnode in cnodes:
+            self.assertFalse(direct_client.direct_get_container(
+                cnode, cpart, self.account, container)[1])
+
+        # Re-run the object-updaters and now container replicas in primary
+        # container servers should get updated
+        Manager(['object-updater']).once()
+
+        # Assert all primary container servers know about container/obj
+        for cnode in cnodes:
+            objs = [o['name'] for o in direct_client.direct_get_container(
+                    cnode, cpart, self.account, container)[1]]
+            self.assertIn(obj, objs)
 
 
 class TestUpdateOverrides(ReplProbeTest):
