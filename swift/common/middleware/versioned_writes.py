@@ -71,10 +71,9 @@ as described above.
 To restore a previous version of an object, find the desired version in the
 archive container then issue a ``COPY`` with a ``Destination`` header
 indicating the original location. This will archive the current version similar
-to a ``PUT`` over the versioned object. If the the client additionally wishes
-to permanently delete what was the current version, it must find the
-newly-created archive in the archive container and issue a separate ``DELETE``
-to it.
+to a ``PUT`` over the versioned object. If the client additionally wishes to
+permanently delete what was the current version, it must find the newly-created
+archive in the archive container and issue a separate ``DELETE`` to it.
 
 --------------------------------------------------
 How to Enable Object Versioning in a Swift Cluster
