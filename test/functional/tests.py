@@ -3998,6 +3998,7 @@ class TestCrossPolicyObjectVersioningEnv(object):
     versioning_enabled = None
     multiple_policies_enabled = None
     policies = None
+    location_header_key = 'X-Versions-Location'
 
     @classmethod
     def setUp(cls):
@@ -4045,7 +4046,7 @@ class TestCrossPolicyObjectVersioningEnv(object):
 
         cls.container = cls.account.container(prefix + "-objs")
         if not cls.container.create(
-                hdrs={'X-Versions-Location': cls.versions_container.name,
+                hdrs={cls.location_header_key: cls.versions_container.name,
                       'X-Storage-Policy': version_policy['name']}):
             if cls.conn.response.status == 412:
                 cls.versioning_enabled = False
