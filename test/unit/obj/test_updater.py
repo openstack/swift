@@ -362,7 +362,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual([0],
                          pickle.load(open(op_path)).get('successes'))
 
-        event = spawn(accept, [404, 500])
+        event = spawn(accept, [404, 201])
         cu.logger._clear()
         cu.run_once()
         err = event.wait()
@@ -371,7 +371,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1})
-        self.assertEqual([0, 1],
+        self.assertEqual([0, 2],
                          pickle.load(open(op_path)).get('successes'))
 
         event = spawn(accept, [201])
