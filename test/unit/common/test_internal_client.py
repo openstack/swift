@@ -25,13 +25,17 @@ from six import StringIO
 from six.moves import range
 from six.moves.urllib.parse import quote
 from test.unit import FakeLogger
-from eventlet.green import urllib2
 from swift.common import exceptions, internal_client, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
+
+if six.PY3:
+    from eventlet.green.urllib import request as urllib2
+else:
+    from eventlet.green import urllib2
 
 
 class FakeConn(object):

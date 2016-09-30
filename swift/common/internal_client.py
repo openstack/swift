@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from eventlet import sleep, Timeout
-from eventlet.green import httplib, socket, urllib2
+from eventlet.green import httplib, socket
 import json
 import six
 from six.moves import range
@@ -31,6 +31,11 @@ from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES
 from swift.common.swob import Request
 from swift.common.utils import quote
 from swift.common.wsgi import loadapp, pipeline_property
+
+if six.PY3:
+    from eventlet.green.urllib import request as urllib2
+else:
+    from eventlet.green import urllib2
 
 
 class UnexpectedResponse(Exception):
