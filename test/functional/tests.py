@@ -4188,7 +4188,7 @@ class TestObjectVersioning(Base):
         prev_version.initialize()
         self.assertEqual("bbbbb", prev_version.read())
         self.assertEqual(prev_version.content_type, 'text/jibberish02')
-        self.assertIn('foo', prev_version.metadata)
+        self.assertNotIn('foo', prev_version.metadata)
         self.assertIn('fu', prev_version.metadata)
 
         # as we delete things, the old contents return
@@ -4365,7 +4365,9 @@ class TestObjectVersioning(Base):
         org_token = self.env.account.conn.storage_token
         self.env.account.conn.storage_token = self.env.conn2.storage_token
         try:
-            self.assertRaises(ResponseError, versioned_obj.delete)
+            with self.assertRaises(ResponseError) as cm:
+                versioned_obj.delete()
+            self.assertEqual(403, cm.exception.status)
         finally:
             self.env.account.conn.storage_token = org_token
 
@@ -4472,7 +4474,7 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         prev_version.initialize()
         self.assertEqual("bbbbb", prev_version.read())
         self.assertEqual(prev_version.content_type, 'text/jibberish02')
-        self.assertIn('foo', prev_version.metadata)
+        self.assertNotIn('foo', prev_version.metadata)
         self.assertIn('fu', prev_version.metadata)
 
         # versioned_obj keeps the newest content
@@ -4562,7 +4564,9 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         org_token = self.env.account.conn.storage_token
         self.env.account.conn.storage_token = self.env.conn2.storage_token
         try:
-            self.assertRaises(ResponseError, versioned_obj.delete)
+            with self.assertRaises(ResponseError) as cm:
+                versioned_obj.delete()
+            self.assertEqual(403, cm.exception.status)
         finally:
             self.env.account.conn.storage_token = org_token
 
@@ -4570,7 +4574,9 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual("bbbbb", versioned_obj.read())
 
         versioned_obj.delete()
-        self.assertRaises(ResponseError, versioned_obj.read)
+        with self.assertRaises(ResponseError) as cm:
+            versioned_obj.read()
+        self.assertEqual(404, cm.exception.status)
 
         # we have 3 objects in the versions_container, 'aaaaa', 'bbbbb'
         # and delete-marker with empty content

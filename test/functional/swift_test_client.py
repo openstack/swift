@@ -899,12 +899,10 @@ class File(Base):
             fobj.close()
 
     def sync_metadata(self, metadata=None, cfg=None, parms=None):
-        if metadata is None:
-            metadata = {}
         if cfg is None:
             cfg = {}
 
-        self.metadata.update(metadata)
+        self.metadata = self.metadata if metadata is None else metadata
 
         if self.metadata:
             headers = self.make_headers(cfg=cfg)
