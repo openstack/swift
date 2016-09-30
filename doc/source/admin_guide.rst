@@ -141,7 +141,7 @@ The first line reports that there are 256 partitions with 3 copies in region 1;
 and this is an expected output in this case (single region with 3 replicas) as
 reported by the "Max" value.
 
-However, there is some inbalance in the cluster, more precisely in zone 3. The
+However, there is some imbalance in the cluster, more precisely in zone 3. The
 "Max" reports a maximum of 1 copy in this zone; however 50.00% of the partitions
 are storing 2 replicas in this zone (which is somewhat expected, because there
 are more disks in this zone).

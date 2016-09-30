@@ -460,7 +460,7 @@ class VersionedWritesContext(WSGIContext):
     def handle_obj_versions_put(self, req, versions_cont, api_version,
                                 account_name, object_name):
         """
-        Copy current version of object to versions_container before proceding
+        Copy current version of object to versions_container before proceeding
         with original request.
 
         :param req: original request.
@@ -485,7 +485,7 @@ class VersionedWritesContext(WSGIContext):
         Handle DELETE requests when in history mode.
 
         Copy current version of object to versions_container and write a
-        delete marker before proceding with original request.
+        delete marker before proceeding with original request.
 
         :param req: original request.
         :param versions_cont: container where previous versions of the object

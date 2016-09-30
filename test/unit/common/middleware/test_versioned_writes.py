@@ -427,7 +427,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '201 Created')
-        # The middleware now auths the request before the inital GET, the
+        # The middleware now auths the request before the initial GET, the
         # same GET that gets the X-Object-Manifest back. So a second auth is
         # now done.
         self.assertEqual(len(self.authorized), 2)
