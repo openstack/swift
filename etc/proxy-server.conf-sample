@@ -327,6 +327,12 @@ user_test5_tester5 = testing5 service
 # auth_uri = http://keystonehost:5000
 # auth_url = http://keystonehost:35357
 # auth_plugin = password
+# The following credentials must match the Keystone credentials for the Swift
+# service and may need to be changed to match your Keystone configuration. The
+# example values shown here assume a user named 'swift' with admin role on a
+# project named 'service', both being in the Keystone domain with id 'default'.
+# Refer to the keystonemiddleware documentation link above [1] for other
+# examples.
 # project_domain_id = default
 # user_domain_id = default
 # project_name = service

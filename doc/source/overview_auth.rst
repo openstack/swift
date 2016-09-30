@@ -131,7 +131,7 @@ Configuring Swift to use Keystone
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Configuring Swift to use Keystone_
-is relatively straight forward.  The first
+is relatively straightforward.  The first
 step is to ensure that you have the ``auth_token`` middleware installed. It can
 either be dropped in your python path or installed via the KeystoneMiddleware_
 package.
@@ -181,7 +181,13 @@ your situation, but in short:
 * The auth credentials (``project_domain_id``, ``user_domain_id``,
   ``username``, ``project_name``, ``password``) will be used to retrieve an
   admin token. That token will be used to authorize user tokens behind the
-  scenes.
+  scenes. These credentials must match the Keystone credentials for the Swift
+  service. The example values shown here assume a user named 'swift' with admin
+  role on a project named 'service', both being in the Keystone domain with id
+  'default'. Refer to the `KeystoneMiddleware documentation
+  <http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration>`_
+  for other examples.
+
 * ``cache`` is set to ``swift.cache``. This means that the middleware
   will get the Swift memcache from the request environment.
 * ``include_service_catalog`` defaults to ``True`` if not set. This means
