@@ -5566,6 +5566,36 @@ class TestSpliterator(unittest.TestCase):
         t2 = si.take(20)
         self.assertRaises(ValueError, next, t2)
 
+    def test_closing(self):
+        input_chunks = ["abcd", "efg", "hij"]
+
+        si = utils.Spliterator(input_chunks)
+        it = si.take(3)  # shorter than first chunk
+        self.assertEqual(next(it), 'abc')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['d', 'efg', 'hij'])
+
+        si = utils.Spliterator(input_chunks)
+        self.assertEqual(list(si.take(1)), ['a'])
+        it = si.take(1)  # still shorter than first chunk
+        self.assertEqual(next(it), 'b')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['cd', 'efg', 'hij'])
+
+        si = utils.Spliterator(input_chunks)
+        it = si.take(6)  # longer than first chunk, shorter than first + second
+        self.assertEqual(next(it), 'abcd')
+        self.assertEqual(next(it), 'ef')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['g', 'hij'])
+
+        si = utils.Spliterator(input_chunks)
+        self.assertEqual(list(si.take(2)), ['ab'])
+        it = si.take(3)  # longer than rest of chunk
+        self.assertEqual(next(it), 'cd')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['efg', 'hij'])
+
 
 class TestParseContentRange(unittest.TestCase):
     def test_good(self):
