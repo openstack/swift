@@ -109,7 +109,7 @@ to be cleaned up at some point - but it absolutely should merge
 because: CRITICAL. BUG. FIX.
 
 You should comment inline to praise code that is "obvious". You should
-comment inline to highlight code that that you found to be "obfuscated".
+comment inline to highlight code that you found to be "obfuscated".
 
 Unfortunately "readability" is often subjective. We should remember
 that it's probably just our own personal preference. Rather than a
