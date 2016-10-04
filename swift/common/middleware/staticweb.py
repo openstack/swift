@@ -128,7 +128,7 @@ import json
 import time
 
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    quote, register_swift_info, get_logger
+    quote, register_swift_info, get_logger, urlparse
 from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound, \
@@ -154,6 +154,8 @@ class _StaticWebContext(WSGIContext):
         self.container = container
         self.obj = obj
         self.app = staticweb.app
+        self.url_scheme = staticweb.url_scheme
+        self.url_host = staticweb.url_host
         self.agent = '%(orig)s StaticWeb'
         # Results from the last call to self._get_container_info.
         self._index = self._error = self._listings = self._listings_css = \
@@ -353,6 +355,16 @@ class _StaticWebContext(WSGIContext):
             css_path = '../' * prefix.count('/') + quote(self._listings_css)
         return css_path
 
+    def _redirect_with_slash(self, env_, start_response):
+        env = {}
+        env.update(env_)
+        if self.url_scheme:
+            env['wsgi.url_scheme'] = self.url_scheme
+        if self.url_host:
+            env['HTTP_HOST'] = self.url_host
+        resp = HTTPMovedPermanently(location=(env['PATH_INFO'] + '/'))
+        return resp(env, start_response)
+
     def handle_container(self, env, start_response):
         """
         Handles a possible static web request for a container.
@@ -374,9 +386,7 @@ class _StaticWebContext(WSGIContext):
                 return HTTPNotFound()(env, start_response)
             return self.app(env, start_response)
         if not env['PATH_INFO'].endswith('/'):
-            resp = HTTPMovedPermanently(
-                location=(env['PATH_INFO'] + '/'))
-            return resp(env, start_response)
+            return self._redirect_with_slash(env, start_response)
         if not self._index:
             return self._listing(env, start_response)
         tmp_env = dict(env)
@@ -445,9 +455,7 @@ class _StaticWebContext(WSGIContext):
             status_int = self._get_status_int()
             if is_success(status_int) or is_redirection(status_int):
                 if not env['PATH_INFO'].endswith('/'):
-                    resp = HTTPMovedPermanently(
-                        location=env['PATH_INFO'] + '/')
-                    return resp(env, start_response)
+                    return self._redirect_with_slash(env, start_response)
                 start_response(self._response_status, self._response_headers,
                                self._response_exc_info)
                 return resp
@@ -465,8 +473,7 @@ class _StaticWebContext(WSGIContext):
                         not json.loads(body):
                     resp = HTTPNotFound()(env, self._start_response)
                     return self._error_response(resp, env, start_response)
-                resp = HTTPMovedPermanently(location=env['PATH_INFO'] + '/')
-                return resp(env, start_response)
+                return self._redirect_with_slash(env, start_response)
             return self._listing(env, start_response, self.obj)
 
 
@@ -485,9 +492,19 @@ class StaticWeb(object):
     def __init__(self, app, conf):
         #: The next WSGI application/filter in the paste.deploy pipeline.
         self.app = app
-        #: The filter configuration dict.
+        #: The filter configuration dict. Only used in tests.
         self.conf = conf
         self.logger = get_logger(conf, log_route='staticweb')
+
+        # We expose a more general "url_base" parameter in case we want
+        # to incorporate the path prefix later. Currently it is discarded.
+        url_base = conf.get('url_base', None)
+        self.url_scheme = None
+        self.url_host = None
+        if url_base:
+            parsed = urlparse(url_base)
+            self.url_scheme = parsed.scheme
+            self.url_host = parsed.netloc
 
     def __call__(self, env, start_response):
         """
