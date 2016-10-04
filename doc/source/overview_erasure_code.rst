@@ -333,7 +333,7 @@ archive of index n with another of index m in some scenarios.
 The transformation function for the replication policy is simply a NOP. For
 reconstruction, the index is appended to the filename just before the .data
 extension. An example filename for a fragment archive storing the 5th fragment
-would like this this::
+would like this::
 
     1418673556.92690#5.data
 
