@@ -550,6 +550,18 @@ use = egg:swift#staticweb
 # set log_level = INFO
 # set log_headers = false
 # set log_address = /dev/log
+#
+# At times when it's impossible for staticweb to guess the outside
+# endpoint correctly, the url_base may be used to supply the URL
+# scheme and/or the host name (and port number) in order to generate
+# redirects.
+# Example values:
+#    http://www.example.com    - redirect to www.example.com
+#    https:                    - changes the schema only
+#    https://                  - same, changes the schema only
+#    //www.example.com:8080    - redirect www.example.com on port 8080
+#                                (schema unchanged)
+# url_base =
 
 # Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
 [filter:tempurl]
