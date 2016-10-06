@@ -483,7 +483,7 @@ You can also run the report for only containers or objects::
     100.00% of object copies found (7857 of 7857)
     Sample represents 1.00% of the object partition space
 
-Alternatively, the dispersion report can also be output in json format. This
+Alternatively, the dispersion report can also be output in JSON format. This
 allows it to be more easily consumed by third party utilities::
 
     $ swift-dispersion-report -j

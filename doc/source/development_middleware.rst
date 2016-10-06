@@ -145,7 +145,7 @@ presented below::
             return WebhookMiddleware(app)
         return webhook_filter
 
-In practice this middleware will call the url stored on the container as
+In practice this middleware will call the URL stored on the container as
 X-Webhook on all successful object uploads.
 
 If this example was at ``<swift-repo>/swift/common/middleware/webhook.py`` -
