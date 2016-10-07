@@ -88,6 +88,7 @@ TMP_BASE = 'tmp'
 get_data_dir = partial(get_policy_string, DATADIR_BASE)
 get_async_dir = partial(get_policy_string, ASYNCDIR_BASE)
 get_tmp_dir = partial(get_policy_string, TMP_BASE)
+MIN_TIME_UPDATE_AUDITOR_STATUS = 60
 
 
 def _get_filename(fd):
@@ -445,6 +446,16 @@ def update_auditor_status(datadir_path, logger, partitions, auditor_type):
         status = status.encode('utf8')
     auditor_status = os.path.join(
         datadir_path, "auditor_status_%s.json" % auditor_type)
+    try:
+        mtime = os.stat(auditor_status).st_mtime
+    except OSError:
+        mtime = 0
+    recently_updated = (mtime + MIN_TIME_UPDATE_AUDITOR_STATUS) > time.time()
+    if recently_updated and len(partitions) > 0:
+        if logger:
+            logger.debug(
+                'Skipping the update of recently changed %s' % auditor_status)
+        return
     try:
         with open(auditor_status, "wb") as statusfile:
             statusfile.write(status)
