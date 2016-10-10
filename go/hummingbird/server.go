@@ -127,7 +127,7 @@ func CopyRequestHeaders(r *http.Request, dst *http.Request) {
 
 type RequestLogger struct {
 	Request *http.Request
-	Logger  SysLogLike
+	Logger  LowLevelLogger
 	W       *WebWriter
 }
 
@@ -168,7 +168,7 @@ type LoggingContext interface {
 	LogPanics(format string)
 }
 
-type SysLogLike interface {
+type LowLevelLogger interface {
 	Err(string) error
 	Info(string) error
 	Debug(string) error
@@ -234,7 +234,7 @@ type Server interface {
 
 	Graceful shutdown/restart gives any open connections 5 minutes to complete, then exits.
 */
-func RunServers(GetServer func(Config, *flag.FlagSet) (string, int, Server, SysLogLike, error), flags *flag.FlagSet) {
+func RunServers(GetServer func(Config, *flag.FlagSet) (string, int, Server, LowLevelLogger, error), flags *flag.FlagSet) {
 	var servers []*HummingbirdServer
 
 	if flags.NArg() != 0 {

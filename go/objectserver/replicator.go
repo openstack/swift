@@ -667,7 +667,7 @@ type Replicator struct {
 	checkMounts        bool
 	deviceRoot         string
 	reconCachePath     string
-	logger             hummingbird.SysLogLike
+	logger             hummingbird.LowLevelLogger
 	logLevel           string
 	port               int
 	bindIp             string
@@ -915,7 +915,6 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 		bindIp:           serverconf.GetDefault("object-replicator", "bind_ip", "0.0.0.0"),
 		quorumDelete:     serverconf.GetBool("object-replicator", "quorum_delete", false),
 		reclaimAge:       int64(serverconf.GetInt("object-replicator", "reclaim_age", int64(hummingbird.ONE_WEEK))),
-		logger:           hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", ""),
 		logLevel:         serverconf.GetDefault("object-replicator", "log_level", "INFO"),
 		Rings:            make(map[int]replicationRing),
 		concurrency:      concurrency,
@@ -939,6 +938,9 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, policy.Index); err != nil {
 			return nil, fmt.Errorf("Unable to load ring.")
 		}
+	}
+	if replicator.logger, err = hummingbird.SetupLogger(serverconf, flags, "app:object-replicator", "object-replicator"); err != nil {
+		return nil, fmt.Errorf("Error setting up logger: %v", err)
 	}
 	devices_flag := flags.Lookup("devices")
 	if devices_flag != nil {

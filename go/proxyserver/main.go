@@ -30,7 +30,7 @@ import (
 
 type ProxyServer struct {
 	C      client.ProxyClient
-	logger hummingbird.SysLogLike
+	logger hummingbird.LowLevelLogger
 	mc     hummingbird.MemcacheRing
 }
 
@@ -107,7 +107,7 @@ func (server *ProxyServer) GetHandler(config hummingbird.Config) http.Handler {
 	).Then(router)
 }
 
-func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (string, int, hummingbird.Server, hummingbird.SysLogLike, error) {
+func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (string, int, hummingbird.Server, hummingbird.LowLevelLogger, error) {
 	var err error
 	server := &ProxyServer{}
 	server.C, err = client.NewProxyDirectClient()
@@ -121,7 +121,9 @@ func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (string, int,
 
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort := serverconf.GetInt("DEFAULT", "bind_port", 8080)
-	server.logger = hummingbird.SetupLogger(serverconf.GetDefault("DEFAULT", "log_facility", "LOG_LOCAL0"), "proxy-server", "")
+	if server.logger, err = hummingbird.SetupLogger(serverconf, flags, "app:proxy-server", "proxy-server"); err != nil {
+		return "", 0, nil, nil, fmt.Errorf("Error setting up logger: %v", err)
+	}
 
 	return bindIP, int(bindPort), server, server.logger, nil
 }

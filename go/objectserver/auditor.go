@@ -38,7 +38,7 @@ type AuditorDaemon struct {
 	checkMounts       bool
 	driveRoot         string
 	policies          hummingbird.PolicyList
-	logger            hummingbird.SysLogLike
+	logger            hummingbird.LowLevelLogger
 	bytesPerSecond    int64
 	logTime           int64
 	regFilesPerSecond int64
@@ -341,6 +341,7 @@ func (d *AuditorDaemon) RunForever() {
 
 // NewAuditor returns a new AuditorDaemon with the given conf.
 func NewAuditor(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingbird.Daemon, error) {
+	var err error
 	if !serverconf.HasSection("object-auditor") {
 		return nil, fmt.Errorf("Unable to find object-auditor config section")
 	}
@@ -348,7 +349,9 @@ func NewAuditor(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingbird
 	d.policies = hummingbird.LoadPolicies()
 	d.driveRoot = serverconf.GetDefault("object-auditor", "devices", "/srv/node")
 	d.checkMounts = serverconf.GetBool("object-auditor", "mount_check", true)
-	d.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-auditor", "log_facility", "LOG_LOCAL0"), "object-auditor", "")
+	if d.logger, err = hummingbird.SetupLogger(serverconf, flags, "app:object-auditor", "object-auditor"); err != nil {
+		return nil, fmt.Errorf("Error setting up logger: %v", err)
+	}
 	d.bytesPerSecond = serverconf.GetInt("object-auditor", "bytes_per_second", 10000000)
 	d.regFilesPerSecond = serverconf.GetInt("object-auditor", "files_per_second", 20)
 	d.zbFilesPerSecond = serverconf.GetInt("object-auditor", "zero_byte_files_per_second", 50)

@@ -220,6 +220,7 @@ func main() {
 
 	proxyFlags := flag.NewFlagSet("proxy server", flag.ExitOnError)
 	proxyFlags.Bool("d", false, "Close stdio once the server is running")
+	proxyFlags.Bool("v", false, "Send all log messages to the console (if -d is not specified)")
 	proxyFlags.String("c", findConfig("proxy"), "Config file/directory to use")
 	proxyFlags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "hummingbird proxy [ARGS]\n")
@@ -229,6 +230,7 @@ func main() {
 
 	objectFlags := flag.NewFlagSet("object server", flag.ExitOnError)
 	objectFlags.Bool("d", false, "Close stdio once the server is running")
+	objectFlags.Bool("v", false, "Send all log messages to the console (if -d is not specified)")
 	objectFlags.String("c", findConfig("object"), "Config file/directory to use")
 	objectFlags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "hummingbird object [ARGS]\n")
@@ -239,6 +241,7 @@ func main() {
 	objectReplicatorFlags := flag.NewFlagSet("object replicator", flag.ExitOnError)
 	objectReplicatorFlags.Bool("q", false, "Quorum Delete. Will delete handoff node if pushed to #replicas/2 + 1 nodes.")
 	objectReplicatorFlags.Bool("d", false, "Close stdio once the daemon is running")
+	objectReplicatorFlags.Bool("v", false, "Send all log messages to the console (if -d is not specified)")
 	objectReplicatorFlags.String("c", findConfig("object"), "Config file/directory to use")
 	objectReplicatorFlags.Bool("once", false, "Run one pass of the replicator")
 	objectReplicatorFlags.String("devices", "", "Replicate only given devices. Comma-separated list.")
@@ -251,6 +254,7 @@ func main() {
 
 	objectAuditorFlags := flag.NewFlagSet("object auditor", flag.ExitOnError)
 	objectAuditorFlags.Bool("d", false, "Close stdio once the daemon is running")
+	objectAuditorFlags.Bool("v", false, "Send all log messages to the console (if -d is not specified)")
 	objectAuditorFlags.String("c", findConfig("object"), "Config file/directory to use")
 	objectAuditorFlags.Bool("once", false, "Run one pass of the auditor")
 	objectAuditorFlags.Usage = func() {

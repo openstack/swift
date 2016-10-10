@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/syslog"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -43,7 +42,7 @@ type ObjectServer struct {
 	checkEtags       bool
 	checkMounts      bool
 	allowedHeaders   map[string]bool
-	logger           *syslog.Writer
+	logger           hummingbird.LowLevelLogger
 	logLevel         string
 	diskInUse        *hummingbird.KeyedLimit
 	accountDiskInUse *hummingbird.KeyedLimit
@@ -495,7 +494,7 @@ func (server *ObjectServer) GetHandler(config hummingbird.Config) http.Handler {
 	return alice.New(middleware.GrepObject).Then(router)
 }
 
-func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (bindIP string, bindPort int, serv hummingbird.Server, logger hummingbird.SysLogLike, err error) {
+func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (bindIP string, bindPort int, serv hummingbird.Server, logger hummingbird.LowLevelLogger, err error) {
 	server := &ObjectServer{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
@@ -535,7 +534,10 @@ func GetServer(serverconf hummingbird.Config, flags *flag.FlagSet) (bindIP strin
 			server.allowedHeaders[textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headers[i]))] = true
 		}
 	}
-	server.logger = hummingbird.SetupLogger(serverconf.GetDefault("app:object-server", "log_facility", "LOG_LOCAL1"), "object-server", "")
+	if server.logger, err = hummingbird.SetupLogger(serverconf, flags, "app:object-server", "object-server"); err != nil {
+		return "", 0, nil, nil, fmt.Errorf("Error setting up logger: %v", err)
+	}
+
 	server.updateTimeout = time.Duration(serverconf.GetFloat("app:object-server", "container_update_timeout", 0.25) * float64(time.Second))
 	connTimeout := time.Duration(serverconf.GetFloat("app:object-server", "conn_timeout", 1.0) * float64(time.Second))
 	nodeTimeout := time.Duration(serverconf.GetFloat("app:object-server", "node_timeout", 10.0) * float64(time.Second))
