@@ -17,6 +17,9 @@
 import unittest
 
 import random
+from contextlib import contextmanager
+
+import eventlet
 
 from six.moves import http_client as httplib
 
@@ -99,6 +102,53 @@ class TestWSGIServerProcessHandling(unittest.TestCase):
             ring = Ring('/etc/swift', ring_name=server)
             node = random.choice(ring.get_part_nodes(1))
             self._check_reload(server, node['ip'], node['port'])
+
+
+@contextmanager
+def spawn_services(ip_ports, timeout=10):
+    q = eventlet.Queue()
+
+    def service(sock):
+        try:
+            conn, address = sock.accept()
+            q.put(address)
+            eventlet.sleep(timeout)
+            conn.close()
+        finally:
+            sock.close()
+
+    pool = eventlet.GreenPool()
+    for ip, port in ip_ports:
+        sock = eventlet.listen((ip, port))
+        pool.spawn(service, sock)
+
+    try:
+        yield q
+    finally:
+        for gt in list(pool.coroutines_running):
+            gt.kill()
+
+
+class TestHungDaemon(unittest.TestCase):
+
+    def setUp(self):
+        resetswift()
+        self.ip_ports = [
+            (dev['ip'], dev['port'])
+            for dev in Ring('/etc/swift', ring_name='account').devs
+            if dev
+        ]
+
+    def test_main(self):
+        reconciler = Manager(['container-reconciler'])
+        with spawn_services(self.ip_ports) as q:
+            reconciler.start()
+            # wait for the reconciler to connect
+            q.get()
+            # once it's hung in our connection - send it sig term
+            print('Attempting to stop reconciler!')
+            reconciler.stop()
+        self.assertEqual(1, reconciler.status())
 
 
 if __name__ == '__main__':
