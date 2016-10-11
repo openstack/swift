@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import os
-import sys
 import time
 import signal
 from re import sub
@@ -46,9 +45,10 @@ class Daemon(object):
         utils.capture_stdio(self.logger, **kwargs)
 
         def kill_children(*args):
+            self.logger.info('SIGTERM received')
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             os.killpg(0, signal.SIGTERM)
-            sys.exit()
+            os._exit(0)
 
         signal.signal(signal.SIGTERM, kill_children)
         if once:
