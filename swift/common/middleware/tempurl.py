@@ -112,6 +112,16 @@ If you do not want the object to be downloaded, you can cause
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
     temp_url_expires=1323479485&inline
 
+In some cases, the client might not able to present the content of the object,
+but you still want the content able to save to local with the specific
+filename. So you can cause ``Content-Disposition: inline; filename=...`` to be
+set on the response by adding the ``inline&filename=...`` parameter to the
+query string, like so::
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=1323479485&inline&filename=My+Test+File.pdf
+
 ---------------------
 Cluster Configuration
 ---------------------
@@ -220,9 +230,15 @@ def get_tempurl_keys_from_metadata(meta):
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
 
 
-def disposition_format(filename):
-    return '''attachment; filename="%s"; filename*=UTF-8''%s''' % (
-        quote(filename, safe=' /'), quote(filename))
+def disposition_format(disposition_type, filename):
+    # Content-Disposition in HTTP is defined in
+    # https://tools.ietf.org/html/rfc6266 and references
+    # https://tools.ietf.org/html/rfc5987#section-3.2
+    # to explain the filename*= encoding format. The summary
+    # is that it's the charset, then an optional (and empty) language
+    # then the filename. Looks funny, but it's right.
+    return '''%s; filename="%s"; filename*=UTF-8''%s''' % (
+        disposition_type, quote(filename, safe=' /'), quote(filename))
 
 
 def authorize_same_account(account_to_match):
@@ -413,14 +429,20 @@ class TempURL(object):
                     else:
                         existing_disposition = v
                 if inline_disposition:
-                    disposition_value = 'inline'
+                    if filename:
+                        disposition_value = disposition_format('inline',
+                                                               filename)
+                    else:
+                        disposition_value = 'inline'
                 elif filename:
-                    disposition_value = disposition_format(filename)
+                    disposition_value = disposition_format('attachment',
+                                                           filename)
                 elif existing_disposition:
                     disposition_value = existing_disposition
                 else:
                     name = basename(env['PATH_INFO'].rstrip('/'))
-                    disposition_value = disposition_format(name)
+                    disposition_value = disposition_format('attachment',
+                                                           name)
                 # this is probably just paranoia, I couldn't actually get a
                 # newline into existing_disposition
                 value = disposition_value.replace('\n', '%0A')
