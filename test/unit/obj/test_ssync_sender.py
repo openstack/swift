@@ -143,7 +143,7 @@ class TestSender(BaseTest):
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
-                '1.2.3.4:5678/sda1/9 EXCEPTION in replication.Sender:'))
+                '1.2.3.4:5678/sda1/9 EXCEPTION in ssync.Sender:'))
 
     def test_call_catches_exception_handling_exception(self):
         job = node = None  # Will cause inside exception handler to fail
@@ -156,7 +156,7 @@ class TestSender(BaseTest):
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
-                'EXCEPTION in replication.Sender'))
+                'EXCEPTION in ssync.Sender'))
 
     def test_call_calls_others(self):
         self.sender.suffixes = ['abc']
@@ -461,7 +461,10 @@ class TestSender(BaseTest):
             ))
         self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
-        self.sender.df_mgr.get_diskfile_from_hash = mock.MagicMock()
+        df = mock.MagicMock()
+        df.content_length = 0
+        self.sender.df_mgr.get_diskfile_from_hash = mock.MagicMock(
+            return_value=df)
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
         self.assertTrue(success)
