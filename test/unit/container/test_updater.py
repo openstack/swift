@@ -57,29 +57,8 @@ class TestContainerUpdater(unittest.TestCase):
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
 
-    def test_creation(self):
-        cu = container_updater.ContainerUpdater({
-            'devices': self.devices_dir,
-            'mount_check': 'false',
-            'swift_dir': self.testdir,
-            'interval': '1',
-            'concurrency': '2',
-            'node_timeout': '5.5',
-        })
-        self.assertTrue(hasattr(cu, 'logger'))
-        self.assertTrue(cu.logger is not None)
-        self.assertEqual(cu.devices, self.devices_dir)
-        self.assertEqual(cu.interval, 1)
-        self.assertEqual(cu.concurrency, 2)
-        self.assertEqual(cu.node_timeout, 5.5)
-        self.assertTrue(cu.get_account_ring() is not None)
-
-    @mock.patch.object(container_updater, 'ismount')
-    @mock.patch.object(container_updater.ContainerUpdater, 'container_sweep')
-    def test_run_once_with_device_unmounted(self, mock_sweep, mock_ismount):
-
-        mock_ismount.return_value = False
-        cu = container_updater.ContainerUpdater({
+    def _get_container_updater(self, conf_updates=None):
+        conf = {
             'devices': self.devices_dir,
             'mount_check': 'false',
             'swift_dir': self.testdir,
@@ -87,7 +66,29 @@ class TestContainerUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15',
             'account_suppression_time': 0
-        })
+        }
+        if conf_updates:
+            conf.update(conf_updates)
+        return container_updater.ContainerUpdater(conf)
+
+    def test_creation(self):
+        cu = self._get_container_updater({'concurrency': '2',
+                                          'node_timeout': '5.5'})
+        self.assertTrue(hasattr(cu, 'logger'))
+        self.assertTrue(cu.logger is not None)
+        self.assertEqual(cu.devices, self.devices_dir)
+        self.assertEqual(cu.interval, 1)
+        self.assertEqual(cu.concurrency, 2)
+        self.assertEqual(cu.node_timeout, 5.5)
+        self.assertEqual(cu.account_suppression_time, 0)
+        self.assertTrue(cu.get_account_ring() is not None)
+
+    @mock.patch.object(container_updater, 'ismount')
+    @mock.patch.object(container_updater.ContainerUpdater, 'container_sweep')
+    def test_run_once_with_device_unmounted(self, mock_sweep, mock_ismount):
+
+        mock_ismount.return_value = False
+        cu = self._get_container_updater()
         containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
         partition_dir = os.path.join(containers_dir, "a")
@@ -100,16 +101,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertTrue(mock_sweep.called)
 
         mock_sweep.reset_mock()
-
-        cu = container_updater.ContainerUpdater({
-            'devices': self.devices_dir,
-            'mount_check': 'true',
-            'swift_dir': self.testdir,
-            'interval': '1',
-            'concurrency': '1',
-            'node_timeout': '15',
-            'account_suppression_time': 0
-        })
+        cu = self._get_container_updater({'mount_check': 'true'})
         cu.logger = FakeLogger()
         cu.run_once()
         log_lines = cu.logger.get_lines_for_level('warning')
@@ -120,15 +112,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertFalse(mock_sweep.called)
 
     def test_run_once(self):
-        cu = container_updater.ContainerUpdater({
-            'devices': self.devices_dir,
-            'mount_check': 'false',
-            'swift_dir': self.testdir,
-            'interval': '1',
-            'concurrency': '1',
-            'node_timeout': '15',
-            'account_suppression_time': 0
-        })
+        cu = self._get_container_updater()
         cu.run_once()
         containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
@@ -208,15 +192,7 @@ class TestContainerUpdater(unittest.TestCase):
     def test_listdir_with_exception(self, mock_listdir):
         e = OSError('permission_denied')
         mock_listdir.side_effect = e
-        cu = container_updater.ContainerUpdater({
-            'devices': self.devices_dir,
-            'mount_check': 'false',
-            'swift_dir': self.testdir,
-            'interval': '1',
-            'concurrency': '1',
-            'node_timeout': '15',
-            'account_suppression_time': 0
-        })
+        cu = self._get_container_updater()
         cu.logger = FakeLogger()
         paths = cu.get_paths()
         self.assertEqual(paths, [])
@@ -227,15 +203,7 @@ class TestContainerUpdater(unittest.TestCase):
 
     @mock.patch('os.listdir', return_value=['foo', 'bar'])
     def test_listdir_without_exception(self, mock_listdir):
-        cu = container_updater.ContainerUpdater({
-            'devices': self.devices_dir,
-            'mount_check': 'false',
-            'swift_dir': self.testdir,
-            'interval': '1',
-            'concurrency': '1',
-            'node_timeout': '15',
-            'account_suppression_time': 0
-        })
+        cu = self._get_container_updater()
         cu.logger = FakeLogger()
         path = cu._listdir('foo/bar/')
         self.assertEqual(path, ['foo', 'bar'])
@@ -243,14 +211,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(len(log_lines), 0)
 
     def test_unicode(self):
-        cu = container_updater.ContainerUpdater({
-            'devices': self.devices_dir,
-            'mount_check': 'false',
-            'swift_dir': self.testdir,
-            'interval': '1',
-            'concurrency': '1',
-            'node_timeout': '15',
-        })
+        cu = self._get_container_updater()
         containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
         subdir = os.path.join(containers_dir, 'subdir')
