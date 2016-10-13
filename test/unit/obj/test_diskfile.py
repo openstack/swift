@@ -38,7 +38,7 @@ from contextlib import closing, contextmanager
 from gzip import GzipFile
 
 from eventlet import hubs, timeout, tpool
-from swift.obj.diskfile import MD5_OF_EMPTY_STRING
+from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
@@ -491,10 +491,13 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "2", "a", "b"))
 
-            # Auditor starts, there are two partitions to check
-            gen = diskfile.object_audit_location_generator(tmpdir, False)
-            gen.next()
-            gen.next()
+            # Pretend that some time passed between each partition
+            with mock.patch('os.stat') as mock_stat:
+                mock_stat.return_value.st_mtime = time() - 60
+                # Auditor starts, there are two partitions to check
+                gen = diskfile.object_audit_location_generator(tmpdir, False)
+                gen.next()
+                gen.next()
 
             # Auditor stopped for some reason without raising StopIterator in
             # the generator and restarts There is now only one remaining
@@ -519,6 +522,43 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             gen = diskfile.object_audit_location_generator(tmpdir, False)
             gen.next()
             gen.next()
+
+    def test_update_auditor_status_throttle(self):
+        # If there are a lot of nearly empty partitions, the
+        # update_auditor_status will write the status file many times a second,
+        # creating some unexpected high write load. This test ensures that the
+        # status file is only written once a minute.
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
+            with mock.patch('__builtin__.open') as mock_open:
+                # File does not exist yet - write expected
+                update_auditor_status(tmpdir, None, ['42'], "ALL")
+                self.assertEqual(1, mock_open.call_count)
+
+                mock_open.reset_mock()
+
+                # File exists, updated just now - no write expected
+                with mock.patch('os.stat') as mock_stat:
+                    mock_stat.return_value.st_mtime = time()
+                    update_auditor_status(tmpdir, None, ['42'], "ALL")
+                    self.assertEqual(0, mock_open.call_count)
+
+                mock_open.reset_mock()
+
+                # File exists, updated just now, but empty partition list. This
+                # is a finalizing call, write expected
+                with mock.patch('os.stat') as mock_stat:
+                    mock_stat.return_value.st_mtime = time()
+                    update_auditor_status(tmpdir, None, [], "ALL")
+                    self.assertEqual(1, mock_open.call_count)
+
+                mock_open.reset_mock()
+
+                # File updated more than 60 seconds ago - write expected
+                with mock.patch('os.stat') as mock_stat:
+                    mock_stat.return_value.st_mtime = time() - 61
+                    update_auditor_status(tmpdir, None, ['42'], "ALL")
+                    self.assertEqual(1, mock_open.call_count)
 
 
 class TestDiskFileRouter(unittest.TestCase):
