@@ -2368,7 +2368,7 @@ class TestObjectController(unittest.TestCase):
         timestamp = utils.Timestamp(time()).internal
 
         def put_with_index(expected_rsp, frag_index, node_index=None):
-            data_file_tail = '#%d.data' % frag_index
+            data_file_tail = '#%d#d.data' % frag_index
             headers = {'X-Timestamp': timestamp,
                        'Content-Length': '6',
                        'Content-Type': 'application/octet-stream',
@@ -2420,7 +2420,7 @@ class TestObjectController(unittest.TestCase):
                 # disk file
                 put_with_index(201, 7, 6)
 
-    def test_PUT_durable_files(self):
+    def test_PUT_commits_data(self):
         for policy in POLICIES:
             timestamp = utils.Timestamp(int(time())).internal
             data_file_tail = '.data'
@@ -2429,8 +2429,9 @@ class TestObjectController(unittest.TestCase):
                        'Content-Type': 'application/octet-stream',
                        'X-Backend-Storage-Policy-Index': int(policy)}
             if policy.policy_type == EC_POLICY:
+                # commit renames data file
                 headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
-                data_file_tail = '#2.data'
+                data_file_tail = '#2#d.data'
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers=headers)
@@ -2446,12 +2447,6 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue(os.path.isfile(data_file),
                             'Expected file %r not found in %r for policy %r'
                             % (data_file, os.listdir(obj_dir), int(policy)))
-            durable_file = os.path.join(obj_dir, timestamp) + '.durable'
-            if policy.policy_type == EC_POLICY:
-                self.assertTrue(os.path.isfile(durable_file))
-                self.assertFalse(os.path.getsize(durable_file))
-            else:
-                self.assertFalse(os.path.isfile(durable_file))
             rmtree(obj_dir)
 
     def test_HEAD(self):
@@ -3237,7 +3232,7 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
-        # PUT again at ts_2 but without a .durable file
+        # PUT again at ts_2 but without making the data file durable
         ts_2 = next(ts_iter)
         headers = {'X-Timestamp': ts_2.internal,
                    'Content-Length': '5',
@@ -3249,8 +3244,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers)
         req.body = 'NEWER'
-        # patch the commit method to do nothing so EC object gets
-        # no .durable file
+        # patch the commit method to do nothing so EC object is non-durable
         with mock.patch('swift.obj.diskfile.ECDiskFileWriter.commit'):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -6853,15 +6847,17 @@ class TestObjectServer(unittest.TestCase):
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
-        # verify successful object data and durable state file write
+        # verify successful object data file write
         found_files = self.find_files()
-        # .data file is there
+        # non durable .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # but .durable isn't
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And no container update
         self.assertFalse(_container_update.called)
 
@@ -6891,15 +6887,17 @@ class TestObjectServer(unittest.TestCase):
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
-        # verify successful object data and durable state file write
+        # verify successful object data file write
         found_files = self.find_files()
-        # .data file is there
+        # non durable .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # but .durable isn't
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And no container update
         self.assertFalse(_container_update.called)
 
@@ -6948,7 +6946,7 @@ class TestObjectServer(unittest.TestCase):
             resp.read()
             resp.close()
 
-        # verify successful object data and durable state file write
+        # verify successful object data file write
         put_timestamp = context['put_timestamp']
         found_files = self.find_files()
         # .data file is there
@@ -6956,8 +6954,10 @@ class TestObjectServer(unittest.TestCase):
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # replicated objects do not have a .durable file
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -6991,13 +6991,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # .durable file is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -7047,8 +7046,7 @@ class TestObjectServer(unittest.TestCase):
 
         # no artifacts left on disk
         found_files = self.find_files()
-        self.assertEqual(len(found_files['.data']), 0)
-        self.assertEqual(len(found_files['.durable']), 0)
+        self.assertFalse(found_files)
         # ... and no container update
         _container_update = context['mock_container_update']
         self.assertFalse(_container_update.called)
@@ -7112,13 +7110,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # .durable file is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -7139,15 +7136,17 @@ class TestObjectServer(unittest.TestCase):
             resp.close()
         put_timestamp = context['put_timestamp']
         _container_update = context['mock_container_update']
-        # verify that durable file was NOT created
+        # verify that durable data file was NOT created
         found_files = self.find_files()
-        # .data file is there
+        # non durable .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # but .durable isn't
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And no container update
         self.assertFalse(_container_update.called)
 
@@ -7196,13 +7195,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # .durable file is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -7246,13 +7244,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # ... and .durable is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # but no container update
         self.assertFalse(context['mock_container_update'].called)
 

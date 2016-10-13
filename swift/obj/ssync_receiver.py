@@ -277,8 +277,8 @@ class Receiver(object):
             self.frag_index in df.fragments[remote['ts_data']] and
             (df.durable_timestamp is None or
              df.durable_timestamp < remote['ts_data'])):
-            # We have the frag, just missing a .durable, so try to create the
-            # .durable now. Try this just once to avoid looping if it fails.
+            # We have the frag, just missing durable state, so make the frag
+            # durable now. Try this just once to avoid looping if it fails.
             try:
                 with df.create() as writer:
                     writer.commit(remote['ts_data'])

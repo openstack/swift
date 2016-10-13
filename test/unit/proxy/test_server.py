@@ -1825,16 +1825,6 @@ class TestObjectController(unittest.TestCase):
                 contents = ''.join(df.reader())
                 got_pieces.add(contents)
 
-                # check presence for a .durable file for the timestamp
-                durable_file = os.path.join(
-                    _testdir, node['device'], storage_directory(
-                        diskfile.get_data_dir(policy),
-                        partition, hash_path('a', 'ec-con', 'o1')),
-                    utils.Timestamp(df.timestamp).internal + '.durable')
-
-                if os.path.isfile(durable_file):
-                    got_durable.append(True)
-
                 lmeta = dict((k.lower(), v) for k, v in meta.items())
                 got_indices.add(
                     lmeta['x-object-sysmeta-ec-frag-index'])
@@ -1855,11 +1845,24 @@ class TestObjectController(unittest.TestCase):
                     lmeta['etag'],
                     md5(contents).hexdigest())
 
+                # check presence for a durable data file for the timestamp
+                durable_file = (
+                    utils.Timestamp(df.timestamp).internal +
+                    '#%s' % lmeta['x-object-sysmeta-ec-frag-index'] +
+                    '#d.data')
+                durable_file = os.path.join(
+                    _testdir, node['device'], storage_directory(
+                        diskfile.get_data_dir(policy),
+                        partition, hash_path('a', 'ec-con', 'o1')),
+                    durable_file)
+                if os.path.isfile(durable_file):
+                    got_durable.append(True)
+
         self.assertEqual(expected_pieces, got_pieces)
         self.assertEqual(set(('0', '1', '2')), got_indices)
 
         # verify at least 2 puts made it all the way to the end of 2nd
-        # phase, ie at least 2 .durable statuses were written
+        # phase, ie at least 2 durable statuses were written
         num_durable_puts = sum(d is True for d in got_durable)
         self.assertGreaterEqual(num_durable_puts, 2)
 
@@ -1908,16 +1911,21 @@ class TestObjectController(unittest.TestCase):
                 node['device'], partition, 'a',
                 'ec-con', 'o2', policy=ec_policy)
             with df.open():
+                meta = df.get_metadata()
                 contents = ''.join(df.reader())
                 fragment_archives.append(contents)
                 self.assertEqual(len(contents), expected_length)
 
-                # check presence for a .durable file for the timestamp
+                # check presence for a durable data file for the timestamp
+                durable_file = (
+                    utils.Timestamp(df.timestamp).internal +
+                    '#%s' % meta['X-Object-Sysmeta-Ec-Frag-Index'] +
+                    '#d.data')
                 durable_file = os.path.join(
                     _testdir, node['device'], storage_directory(
                         diskfile.get_data_dir(ec_policy),
                         partition, hash_path('a', 'ec-con', 'o2')),
-                    utils.Timestamp(df.timestamp).internal + '.durable')
+                    durable_file)
 
                 if os.path.isfile(durable_file):
                     got_durable.append(True)
@@ -1947,7 +1955,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(seg, obj[segment_start:segment_end])
 
         # verify at least 2 puts made it all the way to the end of 2nd
-        # phase, ie at least 2 .durable statuses were written
+        # phase, ie at least 2 durable statuses were written
         num_durable_puts = sum(d is True for d in got_durable)
         self.assertGreaterEqual(num_durable_puts, 2)
 
@@ -5618,8 +5626,8 @@ class TestECGets(unittest.TestCase):
         :param node_state: a dict that maps a node index to the desired state
                            for that node. Each desired state is a list of
                            dicts, with each dict describing object reference,
-                           frag_index and file extensions to be moved to the
-                           node's hash_dir.
+                           frag_index and whether the file moved to the node's
+                           hash_dir should be marked as durable or not.
         """
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
          obj2srv, obj3srv) = _test_servers
@@ -5682,19 +5690,19 @@ class TestECGets(unittest.TestCase):
         # node state is in form:
         # {node_index: [{ref: object reference,
         #                frag_index: index,
-        #                exts: ['.data' etc]}, ...],
+        #                durable: True or False}, ...],
         #  node_index: ...}
         for node_index, state in node_state.items():
             dest = node_hash_dirs[node_index]
             for frag_info in state:
                 src = node_tmp_dirs[frag_info['frag_index']][frag_info['ref']]
-                src_files = [f for f in os.listdir(src)
-                             if f.endswith(frag_info['exts'])]
-                self.assertEqual(len(frag_info['exts']), len(src_files),
-                                 'Bad test setup for node %s, obj %s'
-                                 % (node_index, frag_info['ref']))
-                for f in src_files:
-                    move(os.path.join(src, f), os.path.join(dest, f))
+                src_files = os.listdir(src)
+                # sanity check, expect just a single .data file
+                self.assertFalse(src_files[1:])
+                dest_file = src_files[0].replace(
+                    '#d', '#d' if frag_info['durable'] else '')
+                move(os.path.join(src, src_files[0]),
+                     os.path.join(dest, dest_file))
 
         # do an object GET
         get_req = Request.blank(obj_path, method='GET')
@@ -5707,9 +5715,9 @@ class TestECGets(unittest.TestCase):
 
         # durable missing from 2/3 nodes
         node_state = {
-            0: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
-            1: [dict(ref='obj1', frag_index=1, exts=('.data',))],
-            2: [dict(ref='obj1', frag_index=2, exts=('.data',))]
+            0: [dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj1', frag_index=1, durable=False)],
+            2: [dict(ref='obj1', frag_index=2, durable=False)]
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
@@ -5719,9 +5727,9 @@ class TestECGets(unittest.TestCase):
         # all files missing on 1 node, durable missing from 1/2 other nodes
         # durable missing from 2/3 nodes
         node_state = {
-            0: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
+            0: [dict(ref='obj1', frag_index=0, durable=True)],
             1: [],
-            2: [dict(ref='obj1', frag_index=2, exts=('.data',))]
+            2: [dict(ref='obj1', frag_index=2, durable=False)]
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
@@ -5730,9 +5738,9 @@ class TestECGets(unittest.TestCase):
 
         # durable missing from all 3 nodes
         node_state = {
-            0: [dict(ref='obj1', frag_index=0, exts=('.data',))],
-            1: [dict(ref='obj1', frag_index=1, exts=('.data',))],
-            2: [dict(ref='obj1', frag_index=2, exts=('.data',))]
+            0: [dict(ref='obj1', frag_index=0, durable=False)],
+            1: [dict(ref='obj1', frag_index=1, durable=False)],
+            2: [dict(ref='obj1', frag_index=2, durable=False)]
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
@@ -5746,8 +5754,8 @@ class TestECGets(unittest.TestCase):
         # scenario: only two frags, both on same node
         node_state = {
             0: [],
-            1: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable')),
-                dict(ref='obj1', frag_index=1, exts=('.data',))],
+            1: [dict(ref='obj1', frag_index=0, durable=True),
+                dict(ref='obj1', frag_index=1, durable=False)],
             2: []
         }
 
@@ -5758,9 +5766,9 @@ class TestECGets(unittest.TestCase):
         # scenario: all 3 frags on same node
         node_state = {
             0: [],
-            1: [dict(ref='obj1', frag_index=0, exts=('.data', '.durable')),
-                dict(ref='obj1', frag_index=1, exts=('.data',)),
-                dict(ref='obj1', frag_index=2, exts=('.data',))],
+            1: [dict(ref='obj1', frag_index=0, durable=True),
+                dict(ref='obj1', frag_index=1, durable=False),
+                dict(ref='obj1', frag_index=2, durable=False)],
             2: []
         }
 
@@ -5778,32 +5786,32 @@ class TestECGets(unittest.TestCase):
 
         # newer non-durable frags do not prevent proxy getting the durable obj1
         node_state = {
-            0: [dict(ref='obj3', frag_index=0, exts=('.data',)),
-                dict(ref='obj2', frag_index=0, exts=('.data',)),
-                dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
-            1: [dict(ref='obj3', frag_index=1, exts=('.data',)),
-                dict(ref='obj2', frag_index=1, exts=('.data',)),
-                dict(ref='obj1', frag_index=1, exts=('.data', '.durable'))],
-            2: [dict(ref='obj3', frag_index=2, exts=('.data',)),
-                dict(ref='obj2', frag_index=2, exts=('.data',)),
-                dict(ref='obj1', frag_index=2, exts=('.data', '.durable'))],
+            0: [dict(ref='obj3', frag_index=0, durable=False),
+                dict(ref='obj2', frag_index=0, durable=False),
+                dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj3', frag_index=1, durable=False),
+                dict(ref='obj2', frag_index=1, durable=False),
+                dict(ref='obj1', frag_index=1, durable=True)],
+            2: [dict(ref='obj3', frag_index=2, durable=False),
+                dict(ref='obj2', frag_index=2, durable=False),
+                dict(ref='obj1', frag_index=2, durable=True)],
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, objs['obj1']['body'])
 
-        # .durables at two timestamps: in this scenario proxy is guaranteed
+        # durable frags at two timestamps: in this scenario proxy is guaranteed
         # to see the durable at ts_2 with one of the first 2 responses, so will
         # then prefer that when requesting from third obj server
         node_state = {
-            0: [dict(ref='obj3', frag_index=0, exts=('.data',)),
-                dict(ref='obj2', frag_index=0, exts=('.data',)),
-                dict(ref='obj1', frag_index=0, exts=('.data', '.durable'))],
-            1: [dict(ref='obj3', frag_index=1, exts=('.data',)),
-                dict(ref='obj2', frag_index=1, exts=('.data', '.durable'))],
-            2: [dict(ref='obj3', frag_index=2, exts=('.data',)),
-                dict(ref='obj2', frag_index=2, exts=('.data', '.durable'))],
+            0: [dict(ref='obj3', frag_index=0, durable=False),
+                dict(ref='obj2', frag_index=0, durable=False),
+                dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj3', frag_index=1, durable=False),
+                dict(ref='obj2', frag_index=1, durable=True)],
+            2: [dict(ref='obj3', frag_index=2, durable=False),
+                dict(ref='obj2', frag_index=2, durable=True)],
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
@@ -5826,10 +5834,10 @@ class TestECGets(unittest.TestCase):
         # back two responses with frag index 1, and will then return to node 0
         # for frag_index 0.
         node_state = {
-            0: [dict(ref='obj1a', frag_index=0, exts=('.data',)),
-                dict(ref='obj1a', frag_index=1, exts=('.data',))],
-            1: [dict(ref='obj1b', frag_index=1, exts=('.data', '.durable'))],
-            2: [dict(ref='obj1c', frag_index=1, exts=('.data', '.durable'))]
+            0: [dict(ref='obj1a', frag_index=0, durable=False),
+                dict(ref='obj1a', frag_index=1, durable=False)],
+            1: [dict(ref='obj1b', frag_index=1, durable=True)],
+            2: [dict(ref='obj1c', frag_index=1, durable=True)]
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
@@ -5840,9 +5848,9 @@ class TestECGets(unittest.TestCase):
         # 404 (the third, 'extra', obj server GET will return 404 because it
         # will be sent frag prefs that exclude frag_index 1)
         node_state = {
-            0: [dict(ref='obj1a', frag_index=1, exts=('.data',))],
-            1: [dict(ref='obj1b', frag_index=1, exts=('.data', '.durable'))],
-            2: [dict(ref='obj1c', frag_index=1, exts=('.data',))]
+            0: [dict(ref='obj1a', frag_index=1, durable=False)],
+            1: [dict(ref='obj1b', frag_index=1, durable=True)],
+            2: [dict(ref='obj1c', frag_index=1, durable=False)]
         }
 
         resp = self._setup_nodes_and_do_GET(objs, node_state)
@@ -5947,7 +5955,6 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
     def test_ec_disconnect_cleans_up(self):
         self._check_disconnect_cleans_up('ec')
         found_files = self.find_files()
-        self.assertEqual(found_files['.durable'], [])
         self.assertEqual(found_files['.data'], [])
 
     def test_repl_chunked_transfer_disconnect_cleans_up(self):
@@ -5958,7 +5965,6 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
     def test_ec_chunked_transfer_disconnect_cleans_up(self):
         self._check_disconnect_cleans_up('ec', is_chunked=True)
         found_files = self.find_files()
-        self.assertEqual(found_files['.durable'], [])
         self.assertEqual(found_files['.data'], [])
 
 
