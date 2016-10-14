@@ -1,9 +1,13 @@
 #!/bin/bash
 
-swift-init all stop
+set -e
+
+swift-init all kill
 # Remove the following line if you did not set up rsyslog for individual logging:
 sudo find /var/log/swift -type f -exec rm -f {} \;
-sudo umount /mnt/sdb1
+if cut -d' ' -f2 /proc/mounts | grep -q /mnt/sdb1 ; then
+    sudo umount /mnt/sdb1
+fi
 # If you are using a loopback device set SAIO_BLOCK_DEVICE to "/srv/swift-disk"
 sudo mkfs.xfs -f ${SAIO_BLOCK_DEVICE:-/dev/sdb1}
 sudo mount /mnt/sdb1

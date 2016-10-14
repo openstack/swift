@@ -4,7 +4,6 @@
 # SWIFT_TEST_IN_PROCESS=1 tox -e func -- --pdb test.functional.tests.TestFile.testCopy
 
 SRC_DIR=$(python -c "import os; print os.path.dirname(os.path.realpath('$0'))")
-set -e
 
 cd ${SRC_DIR}
 export TESTS_DIR=${SRC_DIR}/test/functional
