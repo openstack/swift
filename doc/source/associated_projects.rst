@@ -93,6 +93,8 @@ Storage Backends (DiskFile API implementations)
 
 Developer Tools
 ---------------
+* `SAIO bash scripts <https://github.com/ntata/swift-setup-scripts.git>`_ -
+  Well commented simple bash scripts for Swift all in one setup.
 * `vagrant-swift-all-in-one
   <https://github.com/swiftstack/vagrant-swift-all-in-one>`_ - Quickly setup a
   standard development environment using Vagrant and Chef cookbooks in an
