@@ -77,8 +77,7 @@ class RebuildingECDiskFileStream(object):
         self.datafile_metadata = datafile_metadata
 
         # the new FA is going to have the same length as others in the set
-        self._content_length = self.datafile_metadata['Content-Length']
-
+        self._content_length = int(self.datafile_metadata['Content-Length'])
         # update the FI and delete the ETag, the obj server will
         # recalc on the other side...
         self.datafile_metadata['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index

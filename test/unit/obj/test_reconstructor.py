@@ -2506,7 +2506,7 @@ class TestObjectReconstructor(unittest.TestCase):
         node = part_nodes[1]
         metadata = {
             'name': '/a/c/o',
-            'Content-Length': 0,
+            'Content-Length': '0',
             'ETag': 'etag',
         }
 
@@ -2539,6 +2539,7 @@ class TestObjectReconstructor(unittest.TestCase):
                     *codes, body_iter=body_iter, headers=headers):
                 df = self.reconstructor.reconstruct_fa(
                     job, node, metadata)
+                self.assertEqual(0, df.content_length)
                 fixed_body = ''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
                 self.assertEqual(md5(fixed_body).hexdigest(),

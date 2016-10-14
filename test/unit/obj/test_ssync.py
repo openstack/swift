@@ -29,9 +29,10 @@ from swift.common import utils
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, server
-from swift.obj.reconstructor import RebuildingECDiskFileStream
+from swift.obj.reconstructor import RebuildingECDiskFileStream, \
+    ObjectReconstructor
 
-from test.unit import patch_policies
+from test.unit import patch_policies, debug_logger
 from test.unit.obj.common import BaseTest, FakeReplicator
 
 
@@ -60,13 +61,14 @@ class TestBaseSsync(BaseTest):
             'mount_check': 'false',
             'replication_one_per_device': 'false',
             'log_requests': 'false'}
-        self.rx_controller = server.ObjectController(conf)
+        self.rx_logger = debug_logger()
+        self.rx_controller = server.ObjectController(conf, self.rx_logger)
         self.ts_iter = (Timestamp(t)
                         for t in itertools.count(int(time.time())))
         self.rx_ip = '127.0.0.1'
         sock = eventlet.listen((self.rx_ip, 0))
         self.rx_server = eventlet.spawn(
-            eventlet.wsgi.server, sock, self.rx_controller, utils.NullLogger())
+            eventlet.wsgi.server, sock, self.rx_controller, self.rx_logger)
         self.rx_port = sock.getsockname()[1]
         self.rx_node = {'replication_ip': self.rx_ip,
                         'replication_port': self.rx_port,
@@ -728,6 +730,317 @@ class TestSsyncEC(TestBaseSsync):
         self.assertFalse(results['rx_missing'])
         self.assertFalse(results['tx_updates'])
         self.assertFalse(results['rx_updates'])
+
+
+class FakeResponse(object):
+    def __init__(self, frag_index, data):
+        self.headers = {
+            'X-Object-Sysmeta-Ec-Frag-Index': str(frag_index),
+            'X-Object-Sysmeta-Ec-Etag': 'the etag',
+            'X-Backend-Timestamp': '1234567890.12345'
+        }
+        self.data = data
+
+    def getheaders(self):
+        return self.headers
+
+    def read(self, length):
+        if isinstance(self.data, Exception):
+            raise self.data
+        val = self.data
+        self.data = ''
+        return val
+
+
+@patch_policies(with_ec_default=True)
+class TestSsyncECReconstructorSyncJob(TestBaseSsync):
+    def setUp(self):
+        super(TestSsyncECReconstructorSyncJob, self).setUp()
+        self.policy = POLICIES.default
+        self.rx_node_index = 0
+        self.tx_node_index = 1
+
+        # create sender side diskfiles...
+        self.tx_objs = {}
+        tx_df_mgr = self.daemon._diskfile_router[self.policy]
+        t1 = next(self.ts_iter)
+        self.tx_objs['o1'] = self._create_ondisk_files(
+            tx_df_mgr, 'o1', self.policy, t1, (self.tx_node_index,))
+        t2 = next(self.ts_iter)
+        self.tx_objs['o2'] = self._create_ondisk_files(
+            tx_df_mgr, 'o2', self.policy, t2, (self.tx_node_index,))
+
+        self.suffixes = set()
+        for diskfiles in list(self.tx_objs.values()):
+            for df in diskfiles:
+                self.suffixes.add(
+                    os.path.basename(os.path.dirname(df._datadir)))
+
+        self.job_node = dict(self.rx_node)
+        self.job_node['index'] = self.rx_node_index
+
+        self.frag_length = int(
+            self.tx_objs['o1'][0].get_metadata()['Content-Length'])
+
+    def _test_reconstructor_sync_job(self, frag_responses):
+        # Helper method to mock reconstructor to consume given lists of fake
+        # responses while reconstructing a fragment for a sync type job. The
+        # tests verify that when the reconstructed fragment iter fails in some
+        # way then ssync does not mistakenly create fragments on the receiving
+        # node which have incorrect data.
+        # See https://bugs.launchpad.net/swift/+bug/1631144
+
+        # frag_responses is a list of two lists of responses to each
+        # reconstructor GET request for a fragment archive. The two items in
+        # the outer list are lists of responses for each of the two fragments
+        # to be reconstructed. Items in the inner lists are responses for each
+        # of the other fragments fetched during the reconstructor rebuild.
+        path_to_responses = {}
+        fake_get_response_calls = []
+
+        def fake_get_response(recon, node, part, path, headers, policy):
+            # select a list of fake responses for this path and return the next
+            # from the list
+            if path not in path_to_responses:
+                path_to_responses[path] = frag_responses.pop(0)
+            response = path_to_responses[path].pop()
+            fake_get_response_calls.append(path)
+            return response
+
+        def fake_get_part_nodes(part):
+            # the reconstructor will try to remove the receiver node from the
+            # object ring part nodes, but the fake node we created for our
+            # receiver is not actually in the ring part nodes, so append it
+            # here simply so that the reconstructor does not fail to remove it.
+            return (self.policy.object_ring._get_part_nodes(part) +
+                    [self.job_node])
+
+        def fake_reconstruct(self, policy, fragment_payload, frag_index):
+            # fake EC reconstruction by returning first frag, which is ok
+            # because all frags would be same length
+            return fragment_payload[0]
+
+        with mock.patch(
+                'swift.obj.reconstructor.ObjectReconstructor._get_response',
+                fake_get_response):
+            with mock.patch(
+                    'swift.obj.reconstructor.ObjectReconstructor._reconstruct',
+                    fake_reconstruct):
+                with mock.patch.object(
+                        self.policy.object_ring, 'get_part_nodes',
+                        fake_get_part_nodes):
+                    self.reconstructor = ObjectReconstructor(
+                        {}, logger=debug_logger('test_reconstructor'))
+                    job = {
+                        'device': self.device,
+                        'partition': self.partition,
+                        'policy': self.policy,
+                        'sync_diskfile_builder':
+                            self.reconstructor.reconstruct_fa
+                    }
+                    sender = ssync_sender.Sender(
+                        self.daemon, self.job_node, job, self.suffixes)
+                    sender.connect, trace = self.make_connect_wrapper(sender)
+                    sender()
+        return trace
+
+    def test_sync_reconstructor_partial_rebuild(self):
+        # First fragment to sync gets partial content from reconstructor.
+        # Expect ssync job to exit early with no file written on receiver.
+        frag_responses = [
+            [FakeResponse(i, 'x' * (self.frag_length - 1))
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
+            [FakeResponse(i, 'y' * self.frag_length)
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
+
+        self._test_reconstructor_sync_job(frag_responses)
+        msgs = []
+        for obj_name in ('o1', 'o2'):
+            try:
+                df = self._open_rx_diskfile(
+                    obj_name, self.policy, self.rx_node_index)
+                msgs.append('Unexpected rx diskfile for %r with content %r' %
+                            (obj_name, ''.join([d for d in df.reader()])))
+            except DiskFileNotExist:
+                pass  # expected outcome
+        if msgs:
+            self.fail('Failed with:\n%s' % '\n'.join(msgs))
+        log_lines = self.daemon.logger.get_lines_for_level('error')
+        self.assertIn('Sent data length does not match content-length',
+                      log_lines[0])
+        self.assertFalse(log_lines[1:])
+        # trampoline for the receiver to write a log
+        eventlet.sleep(0)
+        log_lines = self.rx_logger.get_lines_for_level('warning')
+        self.assertIn('ssync subrequest failed with 499',
+                      log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+
+    def test_sync_reconstructor_no_rebuilt_content(self):
+        # First fragment to sync gets no content in any response to
+        # reconstructor. Expect ssync job to exit early with no file written on
+        # receiver.
+        frag_responses = [
+            [FakeResponse(i, '')
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
+            [FakeResponse(i, 'y' * self.frag_length)
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
+
+        self._test_reconstructor_sync_job(frag_responses)
+        msgs = []
+        for obj_name in ('o1', 'o2'):
+            try:
+                df = self._open_rx_diskfile(
+                    obj_name, self.policy, self.rx_node_index)
+                msgs.append('Unexpected rx diskfile for %r with content %r' %
+                            (obj_name, ''.join([d for d in df.reader()])))
+            except DiskFileNotExist:
+                pass  # expected outcome
+        if msgs:
+            self.fail('Failed with:\n%s' % '\n'.join(msgs))
+        log_lines = self.daemon.logger.get_lines_for_level('error')
+        self.assertIn('Sent data length does not match content-length',
+                      log_lines[0])
+        self.assertFalse(log_lines[1:])
+        # trampoline for the receiver to write a log
+        eventlet.sleep(0)
+        log_lines = self.rx_logger.get_lines_for_level('warning')
+        self.assertIn('ssync subrequest failed with 499',
+                      log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+
+    def test_sync_reconstructor_exception_during_rebuild(self):
+        # First fragment to sync has some reconstructor get responses raise
+        # exception while rebuilding. Expect ssync job to exit early with no
+        # files written on receiver.
+        frag_responses = [
+            # ec_ndata responses are ok, but one of these will be ignored as
+            # it is for the frag index being rebuilt
+            [FakeResponse(i, 'x' * self.frag_length)
+             for i in range(self.policy.ec_ndata)] +
+            # ec_nparity responses will raise an Exception - at least one of
+            # these will be used during rebuild
+            [FakeResponse(i, Exception('raised in response read method'))
+             for i in range(self.policy.ec_ndata,
+                            self.policy.ec_ndata + self.policy.ec_nparity)],
+            # second set of response are all good
+            [FakeResponse(i, 'y' * self.frag_length)
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
+
+        self._test_reconstructor_sync_job(frag_responses)
+        msgs = []
+        for obj_name in ('o1', 'o2'):
+            try:
+                df = self._open_rx_diskfile(
+                    obj_name, self.policy, self.rx_node_index)
+                msgs.append('Unexpected rx diskfile for %r with content %r' %
+                            (obj_name, ''.join([d for d in df.reader()])))
+            except DiskFileNotExist:
+                pass  # expected outcome
+        if msgs:
+            self.fail('Failed with:\n%s' % '\n'.join(msgs))
+
+        log_lines = self.reconstructor.logger.get_lines_for_level('error')
+        self.assertIn('Error trying to rebuild', log_lines[0])
+        log_lines = self.daemon.logger.get_lines_for_level('error')
+        self.assertIn('Sent data length does not match content-length',
+                      log_lines[0])
+        self.assertFalse(log_lines[1:])
+        # trampoline for the receiver to write a log
+        eventlet.sleep(0)
+        log_lines = self.rx_logger.get_lines_for_level('warning')
+        self.assertIn('ssync subrequest failed with 499',
+                      log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+
+    def test_sync_reconstructor_no_responses(self):
+        # First fragment to sync gets no responses for reconstructor to rebuild
+        # with, nothing is sent to receiver so expect to skip that fragment and
+        # continue with second.
+        frag_responses = [
+            [None
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
+            [FakeResponse(i, 'y' * self.frag_length)
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
+
+        trace = self._test_reconstructor_sync_job(frag_responses)
+        results = self._analyze_trace(trace)
+        self.assertEqual(2, len(results['tx_missing']))
+        self.assertEqual(2, len(results['rx_missing']))
+        self.assertEqual(1, len(results['tx_updates']))
+        self.assertFalse(results['rx_updates'])
+        self.assertEqual('PUT', results['tx_updates'][0].get('method'))
+        synced_obj_name = results['tx_updates'][0].get('path')[-2:]
+
+        msgs = []
+        obj_name = synced_obj_name
+        try:
+            df = self._open_rx_diskfile(
+                obj_name, self.policy, self.rx_node_index)
+            self.assertEqual('y' * self.frag_length,
+                             ''.join([d for d in df.reader()]))
+        except DiskFileNotExist:
+            msgs.append('Missing rx diskfile for %r' % obj_name)
+
+        obj_names = list(self.tx_objs)
+        obj_names.remove(synced_obj_name)
+        obj_name = obj_names[0]
+        try:
+            df = self._open_rx_diskfile(
+                obj_name, self.policy, self.rx_node_index)
+            msgs.append('Unexpected rx diskfile for %r with content %r' %
+                        (obj_name, ''.join([d for d in df.reader()])))
+        except DiskFileNotExist:
+            pass  # expected outcome
+        if msgs:
+            self.fail('Failed with:\n%s' % '\n'.join(msgs))
+        self.assertFalse(self.daemon.logger.get_lines_for_level('error'))
+        log_lines = self.reconstructor.logger.get_lines_for_level('error')
+        self.assertIn('Unable to get enough responses', log_lines[0])
+        # trampoline for the receiver to write a log
+        eventlet.sleep(0)
+        self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
+        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
+
+    def test_sync_reconstructor_rebuild_ok(self):
+        # Sanity test for this class of tests. Both fragments get a full
+        # complement of responses and rebuild correctly.
+        frag_responses = [
+            [FakeResponse(i, 'x' * self.frag_length)
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
+            [FakeResponse(i, 'y' * self.frag_length)
+             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
+
+        trace = self._test_reconstructor_sync_job(frag_responses)
+        results = self._analyze_trace(trace)
+        self.assertEqual(2, len(results['tx_missing']))
+        self.assertEqual(2, len(results['rx_missing']))
+        self.assertEqual(2, len(results['tx_updates']))
+        self.assertFalse(results['rx_updates'])
+        msgs = []
+        rx_frags = []
+        for obj_name in self.tx_objs:
+            try:
+                df = self._open_rx_diskfile(
+                    obj_name, self.policy, self.rx_node_index)
+                rx_frags.append(''.join([d for d in df.reader()]))
+            except DiskFileNotExist:
+                msgs.append('Missing rx diskfile for %r' % obj_name)
+        if msgs:
+            self.fail('Failed with:\n%s' % '\n'.join(msgs))
+        self.assertIn('x' * self.frag_length, rx_frags)
+        self.assertIn('y' * self.frag_length, rx_frags)
+        self.assertFalse(rx_frags[2:])
+        self.assertFalse(self.daemon.logger.get_lines_for_level('error'))
+        self.assertFalse(
+            self.reconstructor.logger.get_lines_for_level('error'))
+        # trampoline for the receiver to write a log
+        eventlet.sleep(0)
+        self.assertFalse(self.rx_logger.get_lines_for_level('warning'))
+        self.assertFalse(self.rx_logger.get_lines_for_level('error'))
 
 
 @patch_policies
