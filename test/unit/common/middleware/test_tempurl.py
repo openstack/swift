@@ -267,7 +267,9 @@ class TestTempURL(unittest.TestCase):
         self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.headers['content-disposition'], 'inline')
+        self.assertEqual(resp.headers['content-disposition'],
+                         'inline; filename="bob %22killer%22.txt"; ' +
+                         "filename*=UTF-8''bob%20%22killer%22.txt")
         self.assertIn('expires', resp.headers)
         self.assertEqual('Thu, 01 Jan 1970 00:00:01 GMT',
                          resp.headers['expires'])
