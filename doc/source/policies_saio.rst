@@ -145,4 +145,5 @@ Storage Policies effect placement of data in Swift.
         Content-Type: text/plain; charset=utf-8
         Accept-Ranges: bytes
         X-Trans-Id: tx96e7496b19bb44abb55a3-0053482c75
+        X-Openstack-Request-Id: tx96e7496b19bb44abb55a3-0053482c75
         Date: Fri, 11 Apr 2014 17:55:01 GMT

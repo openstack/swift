@@ -24,6 +24,7 @@ as ``goodbye.txt``:
     Content-Length: 76
     Content-Type: text/html; charset=UTF-8
     X-Trans-Id: txa9b5e57d7f354d7ea9f57-0052e17e13
+    X-Openstack-Request-Id: txa9b5e57d7f354d7ea9f57-0052e17e13
     Date: Thu, 23 Jan 2014 20:39:47 GMT
 
     <html><h1>Accepted</h1><p>The request is accepted for processing.</p></html>

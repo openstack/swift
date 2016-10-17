@@ -1774,6 +1774,7 @@ class Controller(object):
         path = '/%s' % account
         headers = {'X-Timestamp': Timestamp(time.time()).internal,
                    'X-Trans-Id': self.trans_id,
+                   'X-Openstack-Request-Id': self.trans_id,
                    'Connection': 'close'}
         # transfer any x-account-sysmeta headers from original request
         # to the autocreate PUT

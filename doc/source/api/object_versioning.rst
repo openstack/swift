@@ -58,6 +58,7 @@ Example Using ``X-Versions-Location``
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: txb91810fb717347d09eec8-0052e18997
+       X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
        Date: Thu, 23 Jan 2014 21:28:55 GMT
 
 #. Create the first version of an object in the ``current`` container:
@@ -74,6 +75,7 @@ Example Using ``X-Versions-Location``
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+       X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
        Date: Thu, 23 Jan 2014 21:31:22 GMT
 
    Nothing is written to the non-current version container when you
@@ -106,6 +108,7 @@ Example Using ``X-Versions-Location``
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
+       X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
        Date: Thu, 23 Jan 2014 21:41:32 GMT
 
 #. Issue a **GET** request to a versioned object to get the current
@@ -128,6 +131,7 @@ Example Using ``X-Versions-Location``
        X-Container-Bytes-Used: 0
        Content-Type: text/plain; charset=utf-8
        X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
+       X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
        Date: Thu, 23 Jan 2014 21:45:50 GMT
 
        009my_object/1390512682.92052
@@ -151,6 +155,7 @@ Example Using ``X-Versions-Location``
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
+       X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
        Date: Thu, 23 Jan 2014 21:51:25 GMT
 
    List objects in the ``archive`` container to show that the archived
@@ -170,6 +175,7 @@ Example Using ``X-Versions-Location``
        X-Container-Bytes-Used: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
+       X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
        Date: Thu, 23 Jan 2014 21:51:41 GMT
 
    This next-most current version carries with it any metadata last set
@@ -191,6 +197,7 @@ Example Using ``X-History-Location``
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: txb91810fb717347d09eec8-0052e18997
+       X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
        Date: Thu, 23 Jan 2014 21:28:55 GMT
 
 #. Create the first version of an object in the ``current`` container:
@@ -207,6 +214,7 @@ Example Using ``X-History-Location``
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+       X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
        Date: Thu, 23 Jan 2014 21:31:22 GMT
 
    Nothing is written to the non-current version container when you
@@ -239,6 +247,7 @@ Example Using ``X-History-Location``
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
+       X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
        Date: Thu, 23 Jan 2014 21:41:32 GMT
 
 #. Issue a **GET** request to a versioned object to get the current
@@ -261,6 +270,7 @@ Example Using ``X-History-Location``
        X-Container-Bytes-Used: 0
        Content-Type: text/plain; charset=utf-8
        X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
+       X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
        Date: Thu, 23 Jan 2014 21:45:50 GMT
 
        009my_object/1390512682.92052
@@ -285,6 +295,7 @@ Example Using ``X-History-Location``
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
+       X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
        Date: Thu, 23 Jan 2014 21:51:25 GMT
 
    List older versions of the object in the ``archive`` container::
@@ -303,6 +314,7 @@ Example Using ``X-History-Location``
        X-Container-Bytes-Used: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
+       X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
        Date: Thu, 23 Jan 2014 21:51:41 GMT
 
        009my_object/1390512682.92052
@@ -332,6 +344,7 @@ value.
     Content-Length: 76
     Content-Type: text/html; charset=UTF-8
     X-Trans-Id: txe2476de217134549996d0-0052e19038
+    X-Openstack-Request-Id: txe2476de217134549996d0-0052e19038
     Date: Thu, 23 Jan 2014 21:57:12 GMT
 
     <html><h1>Accepted</h1><p>The request is accepted for processing.</p></html>

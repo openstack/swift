@@ -40,6 +40,7 @@ Verify operation of the Object Storage service.
           X-Account-Project-Domain-Id: default
                           X-Timestamp: 1444143887.71539
                            X-Trans-Id: tx1396aeaf17254e94beb34-0056143bde
+               X-Openstack-Request-Id: tx1396aeaf17254e94beb34-0056143bde
                          Content-Type: text/plain; charset=utf-8
                         Accept-Ranges: bytes
 

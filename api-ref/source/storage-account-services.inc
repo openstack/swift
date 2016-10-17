@@ -100,6 +100,7 @@ Response Parameters
    - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - X-Account-Bytes-Used: X-Account-Bytes-Used
    - X-Account-Container-Count: X-Account-Container-Count
@@ -194,6 +195,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx8c2dd6aee35442a4a5646-0052d954fb
+     X-Openstack-Request-Id: tx8c2dd6aee35442a4a5646-0052d954fb
      Date: Fri, 17 Jan 2014 16:06:19 GMT
 
 
@@ -212,6 +214,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx1439b96137364ab581156-0052d95532
+     X-Openstack-Request-Id: tx1439b96137364ab581156-0052d95532
      Date: Fri, 17 Jan 2014 16:07:14 GMT
 
 
@@ -230,6 +233,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx411cf57701424da99948a-0052d9556f
+     X-Openstack-Request-Id: tx411cf57701424da99948a-0052d9556f
      Date: Fri, 17 Jan 2014 16:08:15 GMT
 
 
@@ -266,6 +270,7 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
 
 
 Show account metadata
@@ -312,6 +317,7 @@ Show account metadata request:
    Content-Type: text/plain; charset=utf-8
    Accept-Ranges: bytes
    X-Trans-Id: txafb3504870144b8ca40f7-0052d955d4
+   X-Openstack-Request-Id: txafb3504870144b8ca40f7-0052d955d4
    Date: Fri, 17 Jan 2014 16:09:56 GMT
 
 
@@ -344,6 +350,7 @@ Response Parameters
    - X-Account-Meta-Temp-URL-Key-2: X-Account-Meta-Temp-URL-Key-2_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - X-Account-Bytes-Used: X-Account-Bytes-Used
    - X-Account-Object-Count: X-Account-Object-Count
