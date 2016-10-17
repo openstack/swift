@@ -43,7 +43,8 @@ from swift.proxy.controllers.base import \
 from swift.common.storage_policy import POLICIES, ECDriverError, StoragePolicy
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
-    debug_logger, patch_policies, SlowBody, FakeStatus
+    debug_logger, patch_policies, SlowBody, FakeStatus, \
+    encode_frag_archive_bodies
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -2205,22 +2206,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
     def _make_ec_archive_bodies(self, test_body, policy=None):
         policy = policy or self.policy
-        segment_size = policy.ec_segment_size
-        # split up the body into buffers
-        chunks = [test_body[x:x + segment_size]
-                  for x in range(0, len(test_body), segment_size)]
-        # encode the buffers into fragment payloads
-        fragment_payloads = []
-        for chunk in chunks:
-            fragments = self.policy.pyeclib_driver.encode(chunk)
-            if not fragments:
-                break
-            fragment_payloads.append(fragments)
-
-        # join up the fragment payloads per node
-        ec_archive_bodies = [''.join(frags)
-                             for frags in zip(*fragment_payloads)]
-        return ec_archive_bodies
+        return encode_frag_archive_bodies(policy, test_body)
 
     def _make_ec_object_stub(self, test_body=None, policy=None,
                              timestamp=None):

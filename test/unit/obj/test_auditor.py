@@ -34,7 +34,7 @@ from swift.obj.diskfile import (
 from swift.common.utils import (
     mkdirs, normalize_timestamp, Timestamp, readconf)
 from swift.common.storage_policy import (
-    ECStoragePolicy, StoragePolicy, POLICIES)
+    ECStoragePolicy, StoragePolicy, POLICIES, EC_POLICY)
 
 
 _mocked_policies = [
@@ -155,6 +155,8 @@ class TestAuditor(unittest.TestCase):
             auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                    self.rcache, self.devices)
             data = b'0' * 1024
+            if disk_file.policy.policy_type == EC_POLICY:
+                data = disk_file.policy.pyeclib_driver.encode(data)[0]
             etag = md5()
             with disk_file.create() as writer:
                 writer.write(data)
@@ -225,6 +227,83 @@ class TestAuditor(unittest.TestCase):
             AuditLocation(self.disk_file._datadir, 'sda', '0',
                           policy=POLICIES.legacy))
         self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
+
+    def test_object_audit_checks_EC_fragments(self):
+        disk_file = self.disk_file_ec
+
+        def do_test(data):
+            # create diskfile and set ETag and content-length to match the data
+            etag = md5(data).hexdigest()
+            timestamp = str(normalize_timestamp(time.time()))
+            with disk_file.create() as writer:
+                writer.write(data)
+                metadata = {
+                    'ETag': etag,
+                    'X-Timestamp': timestamp,
+                    'Content-Length': len(data),
+                }
+                writer.put(metadata)
+                writer.commit(Timestamp(timestamp))
+
+            auditor_worker = auditor.AuditorWorker(self.conf, FakeLogger(),
+                                                   self.rcache, self.devices)
+            self.assertEqual(0, auditor_worker.quarantines)  # sanity check
+            auditor_worker.object_audit(
+                AuditLocation(disk_file._datadir, 'sda', '0',
+                              policy=disk_file.policy))
+            return auditor_worker
+
+        # two good frags in an EC archive
+        frag_0 = disk_file.policy.pyeclib_driver.encode(
+            'x' * disk_file.policy.ec_segment_size)[0]
+        frag_1 = disk_file.policy.pyeclib_driver.encode(
+            'y' * disk_file.policy.ec_segment_size)[0]
+        data = frag_0 + frag_1
+        auditor_worker = do_test(data)
+        self.assertEqual(0, auditor_worker.quarantines)
+        self.assertFalse(auditor_worker.logger.get_lines_for_level('error'))
+
+        # corrupt second frag headers
+        corrupt_frag_1 = 'blah' * 16 + frag_1[64:]
+        data = frag_0 + corrupt_frag_1
+        auditor_worker = do_test(data)
+        self.assertEqual(1, auditor_worker.quarantines)
+        log_lines = auditor_worker.logger.get_lines_for_level('error')
+        self.assertIn('failed audit and was quarantined: '
+                      'Invalid EC metadata at offset 0x%x' %
+                      len(frag_0),
+                      log_lines[0])
+
+        # dangling extra corrupt frag data
+        data = frag_0 + frag_1 + 'wtf' * 100
+        auditor_worker = do_test(data)
+        self.assertEqual(1, auditor_worker.quarantines)
+        log_lines = auditor_worker.logger.get_lines_for_level('error')
+        self.assertIn('failed audit and was quarantined: '
+                      'Invalid EC metadata at offset 0x%x' %
+                      len(frag_0 + frag_1),
+                      log_lines[0])
+
+        # simulate bug https://bugs.launchpad.net/bugs/1631144 by writing start
+        # of an ssync subrequest into the diskfile
+        data = (
+            b'PUT /a/c/o\r\n' +
+            b'Content-Length: 999\r\n' +
+            b'Content-Type: image/jpeg\r\n' +
+            b'X-Object-Sysmeta-Ec-Content-Length: 1024\r\n' +
+            b'X-Object-Sysmeta-Ec-Etag: 1234bff7eb767cc6d19627c6b6f9edef\r\n' +
+            b'X-Object-Sysmeta-Ec-Frag-Index: 1\r\n' +
+            b'X-Object-Sysmeta-Ec-Scheme: ' + DEFAULT_TEST_EC_TYPE + '\r\n' +
+            b'X-Object-Sysmeta-Ec-Segment-Size: 1048576\r\n' +
+            b'X-Timestamp: 1471512345.17333\r\n\r\n'
+        )
+        data += frag_0[:disk_file.policy.fragment_size - len(data)]
+        auditor_worker = do_test(data)
+        self.assertEqual(1, auditor_worker.quarantines)
+        log_lines = auditor_worker.logger.get_lines_for_level('error')
+        self.assertIn('failed audit and was quarantined: '
+                      'Invalid EC metadata at offset 0x0',
+                      log_lines[0])
 
     def test_object_audit_no_meta(self):
         timestamp = str(normalize_timestamp(time.time()))

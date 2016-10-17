@@ -45,7 +45,8 @@ from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE
-from test.unit import connect_tcp, readuntil2crlfs, patch_policies
+from test.unit import connect_tcp, readuntil2crlfs, patch_policies, \
+    encode_frag_archive_bodies
 from swift.obj import server as object_server
 from swift.obj import updater
 from swift.obj import diskfile
@@ -59,7 +60,8 @@ from swift.common.swob import Request, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
-from swift.common.exceptions import DiskFileDeviceUnavailable, DiskFileNoSpace
+from swift.common.exceptions import DiskFileDeviceUnavailable, \
+    DiskFileNoSpace, DiskFileQuarantined
 
 
 def mock_time(*args, **kwargs):
@@ -121,6 +123,7 @@ class TestObjectController(unittest.TestCase):
 
         self.logger = debug_logger('test-object-controller')
         self.ts = make_timestamp_iter()
+        self.ec_policies = [p for p in POLICIES if p.policy_type == EC_POLICY]
 
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
@@ -2357,6 +2360,72 @@ class TestObjectController(unittest.TestCase):
                 resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
+    def test_EC_GET_PUT_data(self):
+        for policy in self.ec_policies:
+            raw_data = ('VERIFY' * policy.ec_segment_size)[:-432]
+            frag_archives = encode_frag_archive_bodies(policy, raw_data)
+            frag_index = random.randint(0, len(frag_archives) - 1)
+            # put EC frag archive
+            req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
+                'X-Timestamp': next(self.ts).internal,
+                'Content-Type': 'application/verify',
+                'Content-Length': len(frag_archives[frag_index]),
+                'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+                'X-Backend-Storage-Policy-Index': int(policy),
+            })
+            req.body = frag_archives[frag_index]
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201)
+
+            # get EC frag archive
+            req = Request.blank('/sda1/p/a/c/o', headers={
+                'X-Backend-Storage-Policy-Index': int(policy),
+            })
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, frag_archives[frag_index])
+
+    def test_EC_GET_quarantine_invalid_frag_archive(self):
+        policy = random.choice(self.ec_policies)
+        raw_data = ('VERIFY' * policy.ec_segment_size)[:-432]
+        frag_archives = encode_frag_archive_bodies(policy, raw_data)
+        frag_index = random.randint(0, len(frag_archives) - 1)
+        content_length = len(frag_archives[frag_index])
+        # put EC frag archive
+        req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'Content-Type': 'application/verify',
+            'Content-Length': content_length,
+            'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+        corrupt = 'garbage' + frag_archives[frag_index]
+        req.body = corrupt[:content_length]
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # get EC frag archive
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        with self.assertRaises(DiskFileQuarantined) as ctx:
+            resp.body
+        self.assertIn("Invalid EC metadata", str(ctx.exception))
+
+        # nothing is logged on *our* loggers
+        errors = self.object_controller.logger.get_lines_for_level('error')
+        self.assertEqual(errors, [])
+
+        # get EC frag archive - it's gone
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+
     def test_PUT_ssync_multi_frag(self):
         timestamp = utils.Timestamp(time()).internal
 
@@ -3200,22 +3269,37 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
 
+    def assertECBodyEqual(self, resp, expected):
+        # we pull the policy index from the request environ since it seems to
+        # be missing from the response headers
+        policy_index = int(
+            resp.request.headers['X-Backend-Storage-Policy-Index'])
+        policy = POLICIES[policy_index]
+        frags = encode_frag_archive_bodies(policy, expected)
+        frag_index = int(resp.headers['X-Object-Sysmeta-Ec-Frag-Index'])
+        self.assertEqual(resp.body, frags[frag_index])
+
     def _create_ondisk_fragments(self, policy):
         # Create some on disk files...
         ts_iter = make_timestamp_iter()
 
         # PUT at ts_0
         ts_0 = next(ts_iter)
+        body = 'OLDER'
         headers = {'X-Timestamp': ts_0.internal,
                    'Content-Length': '5',
                    'Content-Type': 'application/octet-stream',
                    'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
-            headers['X-Object-Sysmeta-Ec-Frag-Index'] = '0'
+            body = encode_frag_archive_bodies(policy, body)[0]
+            headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '0',
+                'Content-Length': len(body),
+            })
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers)
-        req.body = 'OLDER'
+        req.body = body
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
@@ -3232,16 +3316,21 @@ class TestObjectController(unittest.TestCase):
 
         # PUT again at ts_2 but without a .durable file
         ts_2 = next(ts_iter)
+        body = 'NEWER'
         headers = {'X-Timestamp': ts_2.internal,
                    'Content-Length': '5',
                    'Content-Type': 'application/octet-stream',
                    'X-Backend-Storage-Policy-Index': int(policy)}
         if policy.policy_type == EC_POLICY:
-            headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
+            body = encode_frag_archive_bodies(policy, body)[2]
+            headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '2',
+                'Content-Length': len(body),
+            })
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=headers)
-        req.body = 'NEWER'
+        req.body = body
         # patch the commit method to do nothing so EC object gets
         # no .durable file
         with mock.patch('swift.obj.diskfile.ECDiskFileWriter.commit'):
@@ -3287,7 +3376,7 @@ class TestObjectController(unittest.TestCase):
 
             if policy.policy_type == EC_POLICY:
                 _assert_frag_0_at_ts_0(resp)
-                self.assertEqual(resp.body, 'OLDER')
+                self.assertECBodyEqual(resp, 'OLDER')
             else:
                 _assert_repl_data_at_ts_2()
                 self.assertEqual(resp.body, 'NEWER')
@@ -3295,6 +3384,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c/o', headers=headers,
                                 environ={'REQUEST_METHOD': 'HEAD'})
             resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
             if policy.policy_type == EC_POLICY:
                 _assert_frag_0_at_ts_0(resp)
             else:
@@ -3311,7 +3401,7 @@ class TestObjectController(unittest.TestCase):
 
             if policy.policy_type == EC_POLICY:
                 _assert_frag_0_at_ts_0(resp)
-                self.assertEqual(resp.body, 'OLDER')
+                self.assertECBodyEqual(resp, 'OLDER')
             else:
                 _assert_repl_data_at_ts_2()
                 self.assertEqual(resp.body, 'NEWER')
@@ -3350,9 +3440,10 @@ class TestObjectController(unittest.TestCase):
 
             if policy.policy_type == EC_POLICY:
                 _assert_frag_2_at_ts_2(resp)
+                self.assertECBodyEqual(resp, 'NEWER')
             else:
                 _assert_repl_data_at_ts_2()
-            self.assertEqual(resp.body, 'NEWER')
+                self.assertEqual(resp.body, 'NEWER')
 
             req = Request.blank('/sda1/p/a/c/o', headers=headers,
                                 environ={'REQUEST_METHOD': 'HEAD'})
@@ -3374,9 +3465,10 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             if policy.policy_type == EC_POLICY:
                 _assert_frag_2_at_ts_2(resp)
+                self.assertECBodyEqual(resp, 'NEWER')
             else:
                 _assert_repl_data_at_ts_2()
-            self.assertEqual(resp.body, 'NEWER')
+                self.assertEqual(resp.body, 'NEWER')
 
             req = Request.blank('/sda1/p/a/c/o', headers=headers,
                                 environ={'REQUEST_METHOD': 'HEAD'})
@@ -3420,9 +3512,10 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             if policy.policy_type == EC_POLICY:
                 _assert_frag_2_at_ts_2(resp)
+                self.assertECBodyEqual(resp, 'NEWER')
             else:
                 _assert_repl_data_at_ts_2()
-            self.assertEqual(resp.body, 'NEWER')
+                self.assertEqual(resp.body, 'NEWER')
 
             req = Request.blank('/sda1/p/a/c/o', headers=headers,
                                 environ={'REQUEST_METHOD': 'HEAD'})
@@ -6748,7 +6841,7 @@ class TestObjectServer(unittest.TestCase):
         the context at the commit phase (after getting the second expect-100
         continue response.
 
-        It can setup a resonable stub request, but you can over-ride some
+        It can setup a reasonable stub request, but you can over-ride some
         characteristics of the request via kwargs.
 
         :param test_doc: first part of the mime conversation before the object
@@ -6756,11 +6849,11 @@ class TestObjectServer(unittest.TestCase):
                          object body
         :param headers: headers to send along with the initial request; some
                         object-metadata (e.g.  X-Backend-Obj-Content-Length)
-                        is generally expected tomatch the test_doc)
+                        is generally expected to match the test_doc)
         :param finish_body: boolean, if true send "0\r\n\r\n" after test_doc
                             and wait for 100-continue before yielding context
         """
-        test_data = 'obj data'
+        test_data = encode_frag_archive_bodies(POLICIES[1], 'obj data')[0]
         footer_meta = {
             "X-Object-Sysmeta-Ec-Frag-Index": "2",
             "Etag": md5(test_data).hexdigest(),
@@ -6782,7 +6875,6 @@ class TestObjectServer(unittest.TestCase):
 
         # phase1 - PUT request with object metadata in footer and
         # multiphase commit conversation
-        put_timestamp = utils.Timestamp(time())
         headers = headers or {
             'Content-Type': 'text/plain',
             'Transfer-Encoding': 'chunked',
