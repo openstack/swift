@@ -96,6 +96,16 @@ class BaseTest(unittest.TestCase):
             frag_index=frag_index)
         write_diskfile(df, timestamp, data=body, extra_metadata=extra_metadata,
                        commit=commit)
+        if commit:
+            # when we write and commit stub data, sanity check it's readable
+            # and not quarantined because of any validation check
+            with df.open():
+                self.assertEqual(''.join(df.reader()), body)
+            # sanity checks
+            listing = os.listdir(df._datadir)
+            self.assertTrue(listing)
+            for filename in listing:
+                self.assertTrue(filename.startswith(timestamp.internal))
         return df
 
     def _make_open_diskfile(self, device='dev', partition='9',
