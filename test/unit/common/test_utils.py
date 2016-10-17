@@ -1377,6 +1377,28 @@ class TestUtils(unittest.TestCase):
         finally:
             rmtree(testdir_base)
 
+    def test_dump_recon_cache_set_owner(self):
+        testdir_base = mkdtemp()
+        testcache_file = os.path.join(testdir_base, 'cache.recon')
+        logger = utils.get_logger(None, 'server', log_route='server')
+        try:
+            submit_dict = {'key1': {'value1': 1, 'value2': 2}}
+
+            _ret = lambda: None
+            _ret.pw_uid = 100
+            _mock_getpwnam = MagicMock(return_value=_ret)
+            _mock_chown = mock.Mock()
+
+            with patch('os.chown', _mock_chown), \
+                    patch('pwd.getpwnam', _mock_getpwnam):
+                utils.dump_recon_cache(submit_dict, testcache_file,
+                                       logger, set_owner="swift")
+
+            _mock_getpwnam.assert_called_once_with("swift")
+            self.assertEqual(_mock_chown.call_args[0][1], 100)
+        finally:
+            rmtree(testdir_base)
+
     def test_dump_recon_cache_permission_denied(self):
         testdir_base = mkdtemp()
         testcache_file = os.path.join(testdir_base, 'cache.recon')
