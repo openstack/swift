@@ -208,7 +208,8 @@ if __name__ == '__main__':
                     total_errors += count
     recon_file = recon_cache_path + "/drive.recon"
     dump_recon_cache(recon_errors, recon_file, logger)
-    dump_recon_cache({'drive_audit_errors': total_errors}, recon_file, logger)
+    dump_recon_cache({'drive_audit_errors': total_errors}, recon_file, logger,
+                     set_owner=conf.get("user", "swift"))
 
     if unmounts == 0:
         logger.info("No drives were unmounted")

@@ -3037,13 +3037,15 @@ def put_recon_cache_entry(cache_entry, key, item):
         cache_entry[key] = item
 
 
-def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
+def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
+                     set_owner=None):
     """Update recon cache values
 
     :param cache_dict: Dictionary of cache key/value pairs to write out
     :param cache_file: cache file to update
     :param logger: the logger to use to log an encountered error
     :param lock_timeout: timeout (in seconds)
+    :param set_owner: Set owner of recon cache file
     """
     try:
         with lock_file(cache_file, lock_timeout, unlink=False) as cf:
@@ -3062,6 +3064,8 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
                     tf.write(json.dumps(cache_entry) + '\n')
+                if set_owner:
+                    os.chown(tf.name, pwd.getpwnam(set_owner).pw_uid, -1)
                 renamer(tf.name, cache_file, fsync=False)
             finally:
                 if tf is not None:
