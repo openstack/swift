@@ -113,7 +113,7 @@ Request
    - multipart-manifest: multipart-manifest_get
    - Range: Range
    - If-Match: If-Match
-   - If-None-Match: If-None-Match
+   - If-None-Match: If-None-Match-get-request
    - If-Modified-Since: If-Modified-Since
    - If-Unmodified-Since: If-Unmodified-Since
    - X-Trans-Id-Extra: X-Trans-Id-Extra
@@ -255,7 +255,7 @@ Request
    - X-Delete-At: X-Delete-At
    - X-Delete-After: X-Delete-After
    - X-Object-Meta-name: X-Object-Meta-name
-   - If-None-Match: If-None-Match
+   - If-None-Match: If-None-Match-put-request
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
 
@@ -565,6 +565,10 @@ Request
    - filename: filename
    - multipart-manifest: multipart-manifest_head
    - X-Newest: X-Newest
+   - If-Match: If-Match
+   - If-None-Match: If-None-Match-get-request
+   - If-Modified-Since: If-Modified-Since
+   - If-Unmodified-Since: If-Unmodified-Since
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
 

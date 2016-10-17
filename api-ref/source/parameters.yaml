@@ -196,7 +196,18 @@ If-Modified-Since:
   in: header
   required: false
   type: string
-If-None-Match:
+If-None-Match-get-request:
+  description: |
+    A client that has one or more entities previously
+    obtained from the resource can verify that none of those entities is
+    current by including a list of their associated entity tags in the
+    ``If-None-Match header`` field.
+    See `Request for Comments: 2616 <http://www.ietf.org/rfc/rfc2616.txt>`_
+    for details.
+  in: header
+  required: false
+  type: string
+If-None-Match-put-request:
   description: |
     In combination with ``Expect: 100-Continue``,
     specify an ``"If-None-Match: *"`` header to query whether the
