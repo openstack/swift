@@ -19,7 +19,7 @@ This section applies to Ubuntu 14.04 (LTS) and Debian.
    .. code-block:: console
 
       # curl -o /etc/swift/swift.conf \
-        https://git.openstack.org/cgit/openstack/swift/plain/etc/swift.conf-sample?h=stable/mitaka
+        https://git.openstack.org/cgit/openstack/swift/plain/etc/swift.conf-sample?h=stable/newton
 
 #. Edit the ``/etc/swift/swift.conf`` file and complete the following
    actions:
