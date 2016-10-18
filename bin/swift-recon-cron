@@ -30,6 +30,8 @@ def get_async_count(device_dir, logger):
     async_count = 0
     for i in os.listdir(device_dir):
         device = os.path.join(device_dir, i)
+        if not os.path.isdir(device):
+            continue
         for asyncdir in os.listdir(device):
             # skip stuff like "accounts", "containers", etc.
             if not (asyncdir == ASYNCDIR_BASE or
