@@ -155,7 +155,7 @@ use = egg:swift#recon
 # a different region than the local one.
 # rsync_compress = no
 #
-# Format of the rysnc module where the replicator will send data. See
+# Format of the rsync module where the replicator will send data. See
 # etc/rsyncd.conf-sample for some usage examples.
 # rsync_module = {replication_ip}::container
 #
