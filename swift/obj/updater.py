@@ -29,6 +29,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
+from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
 from swift.obj.diskfile import get_tmp_dir, ASYNCDIR_BASE
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
@@ -219,7 +220,7 @@ class ObjectUpdater(Daemon):
             update['account'], update['container'])
         obj = '/%s/%s/%s' % \
               (update['account'], update['container'], update['obj'])
-        headers_out = update['headers'].copy()
+        headers_out = HeaderKeyDict(update['headers'])
         headers_out['user-agent'] = 'object-updater %s' % os.getpid()
         headers_out.setdefault('X-Backend-Storage-Policy-Index',
                                str(int(policy)))
