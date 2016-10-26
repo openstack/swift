@@ -152,18 +152,21 @@ ETag_obj_copied:
 ETag_obj_received:
   description: |
     The MD5 checksum of the uploaded object content.
-    The value is not quoted.
+    The value is not quoted. If it is an SLO, it would
+    be MD5 checksum of the segments' etags.
   in: header
   required: true
   type: string
 ETag_obj_req:
   description: |
     The MD5 checksum value of the request body. For
-    example, the MD5 checksum value of the object content. You are
-    strongly recommended to compute the MD5 checksum value of object
-    content and include it in the request. This enables the Object
-    Storage API to check the integrity of the upload. The value is not
-    quoted.
+    example, the MD5 checksum value of the object content. For
+    manifest objects, this value is the MD5 checksum of the
+    concatenated string of ETag values for each of the segments in
+    the manifest. You are strongly recommended to compute
+    the MD5 checksum value and include it in the request. This 
+    enables the Object Storage API to check the integrity of the
+    upload. The value is not quoted.
   in: header
   required: false
   type: string
@@ -172,7 +175,7 @@ ETag_obj_resp:
     For objects smaller than 5 GB, this value is the
     MD5 checksum of the object content. The value is not quoted.  For
     manifest objects, this value is the MD5 checksum of the
-    concatenated string of MD5 checksums and ETags for each of the
+    concatenated string of ETag values for each of the
     segments in the manifest, and not the MD5 checksum of the content
     that was downloaded. Also the value is enclosed in double-quote
     characters.  You are strongly recommended to compute the MD5
