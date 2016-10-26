@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -180,6 +181,7 @@ func (e *Environment) ObjExists(server int, timestamp string, policy int) bool {
 
 // NewEnvironment creates a new environment.  Arguments should be a series of key, value pairs that are added to the object server configuration file.
 func NewEnvironment(settings ...string) *Environment {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	oldLoadPolicies := hummingbird.LoadPolicies
 	hummingbird.LoadPolicies = func() hummingbird.PolicyList {
 		return hummingbird.PolicyList(map[int]*hummingbird.Policy{
@@ -234,13 +236,19 @@ func NewEnvironment(settings ...string) *Environment {
 		_, _, server, _, _ := objectserver.GetServer(conf, &flag.FlagSet{})
 		ts.Config.Handler = server.GetHandler(conf)
 
-		replicator, _ := objectserver.NewReplicator(conf, &flag.FlagSet{})
+		replicator, err := objectserver.NewReplicator(conf, &flag.FlagSet{})
+		if err != nil {
+			log.Fatal(err)
+		}
 		replicator.(*objectserver.Replicator).Rings[0] = env.ring
 		replicator.(*objectserver.Replicator).Rings[1] = env.ring
 		trs.Config.Handler = replicator.(*objectserver.Replicator).GetHandler()
 
 		replicatorServer := &TestReplicatorWebServer{Server: trs, host: host, port: port, root: driveRoot, replicator: replicator.(*objectserver.Replicator)}
-		auditor, _ := objectserver.NewAuditor(conf, &flag.FlagSet{})
+		auditor, err := objectserver.NewAuditor(conf, &flag.FlagSet{})
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		env.ring.(*FakeRing).devices = append(env.ring.(*FakeRing).devices, &hummingbird.Device{
 			Id: i, Device: "sda", Ip: host, Port: port, Region: 0, ReplicationIp: trsHost, ReplicationPort: trsPort, Weight: 1, Zone: i,

@@ -937,7 +937,7 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 			continue
 		}
 		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, policy.Index); err != nil {
-			return nil, fmt.Errorf("Unable to load ring.")
+			return nil, fmt.Errorf("Unable to load ring for Policy %d.", policy.Index)
 		}
 	}
 	devices_flag := flags.Lookup("devices")
