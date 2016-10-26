@@ -624,8 +624,28 @@ class BaseDiskFileManager(object):
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.reclaim_age = int(conf.get('reclaim_age', DEFAULT_RECLAIM_AGE))
-        self.replication_one_per_device = config_true_value(
-            conf.get('replication_one_per_device', 'true'))
+        replication_concurrency_per_device = conf.get(
+            'replication_concurrency_per_device')
+        replication_one_per_device = conf.get('replication_one_per_device')
+        if replication_concurrency_per_device is None \
+                and replication_one_per_device is not None:
+            self.logger.warning('Option replication_one_per_device is '
+                                'deprecated and will be removed in a future '
+                                'version. Update your configuration to use '
+                                'option replication_concurrency_per_device.')
+            if config_true_value(replication_one_per_device):
+                replication_concurrency_per_device = 1
+            else:
+                replication_concurrency_per_device = 0
+        elif replication_one_per_device is not None:
+            self.logger.warning('Option replication_one_per_device ignored as '
+                                'replication_concurrency_per_device is '
+                                'defined.')
+        if replication_concurrency_per_device is None:
+            self.replication_concurrency_per_device = 1
+        else:
+            self.replication_concurrency_per_device = int(
+                replication_concurrency_per_device)
         self.replication_lock_timeout = int(conf.get(
             'replication_lock_timeout', 15))
 
@@ -1208,12 +1228,13 @@ class BaseDiskFileManager(object):
         :raises ReplicationLockTimeout: If the lock on the device
             cannot be granted within the configured timeout.
         """
-        if self.replication_one_per_device:
+        if self.replication_concurrency_per_device:
             dev_path = self.get_dev_path(device)
             with lock_path(
                     dev_path,
                     timeout=self.replication_lock_timeout,
-                    timeout_class=ReplicationLockTimeout):
+                    timeout_class=ReplicationLockTimeout,
+                    limit=self.replication_concurrency_per_device):
                 yield True
         else:
             yield True

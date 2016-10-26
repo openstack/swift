@@ -960,9 +960,66 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         locations = list(self.df_mgr.object_audit_location_generator())
         self.assertEqual(locations, [])
 
+    def test_replication_one_per_device_deprecation(self):
+        conf = dict(**self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 1)
+
+        conf = dict(replication_concurrency_per_device='0', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 0)
+
+        conf = dict(replication_concurrency_per_device='2', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+
+        conf = dict(replication_concurrency_per_device=2, **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+
+        # Check backward compatibility
+        conf = dict(replication_one_per_device='true', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 1)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device is deprecated',
+                      log_lines[-1])
+
+        conf = dict(replication_one_per_device='false', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 0)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device is deprecated',
+                      log_lines[-1])
+
+        # If defined, new parameter has precedence
+        conf = dict(replication_concurrency_per_device='2',
+                    replication_one_per_device='true', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device ignored',
+                      log_lines[-1])
+
+        conf = dict(replication_concurrency_per_device='2',
+                    replication_one_per_device='false', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device ignored',
+                      log_lines[-1])
+
+        conf = dict(replication_concurrency_per_device='0',
+                    replication_one_per_device='true', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        self.assertEqual(mgr.replication_concurrency_per_device, 0)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device ignored',
+                      log_lines[-1])
+
     def test_replication_lock_on(self):
         # Double check settings
-        self.df_mgr.replication_one_per_device = True
+        self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
         dev_path = os.path.join(self.testdir, self.existing_device)
         with self.df_mgr.replication_lock(self.existing_device):
@@ -981,14 +1038,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_replication_lock_off(self):
         # Double check settings
-        self.df_mgr.replication_one_per_device = False
+        self.df_mgr.replication_concurrency_per_device = 0
         self.df_mgr.replication_lock_timeout = 0.1
         dev_path = os.path.join(self.testdir, self.existing_device)
-        with self.df_mgr.replication_lock(dev_path):
+
+        # 2 locks must succeed
+        with self.df_mgr.replication_lock(self.existing_device):
             lock_exc = None
             exc = None
             try:
-                with self.df_mgr.replication_lock(dev_path):
+                with self.df_mgr.replication_lock(self.existing_device):
                     raise Exception(
                         '%r was not replication locked!' % dev_path)
             except ReplicationLockTimeout as err:
@@ -998,9 +1057,62 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.assertTrue(lock_exc is None)
             self.assertTrue(exc is not None)
 
+        # 3 locks must succeed
+        with self.df_mgr.replication_lock(self.existing_device):
+            with self.df_mgr.replication_lock(self.existing_device):
+                lock_exc = None
+                exc = None
+                try:
+                    with self.df_mgr.replication_lock(self.existing_device):
+                        raise Exception(
+                            '%r was not replication locked!' % dev_path)
+                except ReplicationLockTimeout as err:
+                    lock_exc = err
+                except Exception as err:
+                    exc = err
+                self.assertTrue(lock_exc is None)
+                self.assertTrue(exc is not None)
+
+    def test_replication_lock_2(self):
+        # Double check settings
+        self.df_mgr.replication_concurrency_per_device = 2
+        self.df_mgr.replication_lock_timeout = 0.1
+        dev_path = os.path.join(self.testdir, self.existing_device)
+
+        # 2 locks with replication_concurrency_per_device=2 must succeed
+        with self.df_mgr.replication_lock(self.existing_device):
+            lock_exc = None
+            exc = None
+            try:
+                with self.df_mgr.replication_lock(self.existing_device):
+                    raise Exception(
+                        '%r was not replication locked!' % dev_path)
+            except ReplicationLockTimeout as err:
+                lock_exc = err
+            except Exception as err:
+                exc = err
+            self.assertTrue(lock_exc is None)
+            self.assertTrue(exc is not None)
+
+        # 3 locks with replication_concurrency_per_device=2 must fail
+        with self.df_mgr.replication_lock(self.existing_device):
+            with self.df_mgr.replication_lock(self.existing_device):
+                lock_exc = None
+                exc = None
+                try:
+                    with self.df_mgr.replication_lock(self.existing_device):
+                        raise Exception(
+                            '%r was not replication locked!' % dev_path)
+                except ReplicationLockTimeout as err:
+                    lock_exc = err
+                except Exception as err:
+                    exc = err
+                self.assertTrue(lock_exc is not None)
+                self.assertTrue(exc is None)
+
     def test_replication_lock_another_device_fine(self):
         # Double check settings
-        self.df_mgr.replication_one_per_device = True
+        self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
         with self.df_mgr.replication_lock(self.existing_device):
             lock_exc = None

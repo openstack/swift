@@ -225,11 +225,12 @@ should not specify any value for "replication_server".
 Set to restrict the number of concurrent incoming SSYNC requests
 Set to 0 for unlimited (the default is 4). Note that SSYNC requests are only used
 by the object reconstructor or the object replicator when configured to use ssync.
-.IP "\fBreplication_one_per_device\fR"
-Restricts incoming SSYNC requests to one per device,
-replication_currency above allowing. This can help control I/O to each
-device, but you may wish to set this to False to allow multiple SSYNC
-requests (up to the above replication_concurrency setting) per device. The default is true.
+.IP "\fBreplication_concurrency_per_device\fR"
+Set to restrict the number of concurrent incoming SSYNC requests per device;
+set to 0 for unlimited requests per devices. This can help control I/O to each
+device. This does not override replication_concurrency described above, so you
+may need to adjust both parameters depending on your hardware or network
+capacity. Defaults to 1.
 .IP "\fBreplication_lock_timeout\fR"
 Number of seconds to wait for an existing replication device lock before
 giving up. The default is 15.
