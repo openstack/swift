@@ -1,4 +1,5 @@
 [drive-audit]
+# user = swift
 # device_dir = /srv/node
 #
 # You can specify default log routing here if you want:

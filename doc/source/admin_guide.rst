@@ -264,6 +264,8 @@ settings:
 ==================  ==============  ===========================================
 Option              Default         Description
 ------------------  --------------  -------------------------------------------
+user                swift           Drop privileges to this user for non-root
+                                    tasks
 log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Log level
 device_dir          /srv/node       Directory devices are mounted under
