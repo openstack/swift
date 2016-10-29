@@ -485,8 +485,10 @@ class Range(object):
             else:
                 start = None
             if end:
-                # when end contains non numeric value, this also causes
-                # ValueError
+                # We could just rely on int() raising the ValueError, but
+                # this catches things like '--0'
+                if not end.isdigit():
+                    raise ValueError('Invalid Range header: %s' % headerval)
                 end = int(end)
                 if end < 0:
                     raise ValueError('Invalid Range header: %s' % headerval)
