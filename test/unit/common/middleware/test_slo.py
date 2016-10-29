@@ -418,7 +418,7 @@ class TestSloPutManifest(SloTestCase):
 
         def my_fake_start_response(*args, **kwargs):
             gen_etag = '"' + md5hex('etagoftheobjectsegment') + '"'
-            self.assertTrue(('Etag', gen_etag) in args[1])
+            self.assertIn(('Etag', gen_etag), args[1])
 
         self.slo(req.environ, my_fake_start_response)
         self.assertIn('X-Static-Large-Object', req.headers)
@@ -552,17 +552,13 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual(self.app.call_count, 5)
         errors = json.loads(body)['Errors']
 
-        self.assertEqual(len(errors), 5)
-        self.assertEqual(errors[0][0], '/checktest/a_1')
-        self.assertEqual(errors[0][1], 'Size Mismatch')
-        self.assertEqual(errors[1][0], '/checktest/badreq')
-        self.assertEqual(errors[1][1], '400 Bad Request')
-        self.assertEqual(errors[2][0], '/checktest/b_2')
-        self.assertEqual(errors[2][1], 'Etag Mismatch')
-        self.assertEqual(errors[3][0], '/checktest/slob')
-        self.assertEqual(errors[3][1], 'Size Mismatch')
-        self.assertEqual(errors[4][0], '/checktest/slob')
-        self.assertEqual(errors[4][1], 'Etag Mismatch')
+        self.assertEqual([
+            [u'/checktest/a_1', u'Size Mismatch'],
+            [u'/checktest/b_2', u'Etag Mismatch'],
+            [u'/checktest/badreq', u'400 Bad Request'],
+            [u'/checktest/slob', u'Etag Mismatch'],
+            [u'/checktest/slob', u'Size Mismatch'],
+        ], sorted(errors))
 
     def test_handle_multipart_put_skip_size_check(self):
         good_data = json.dumps(
@@ -675,21 +671,25 @@ class TestSloPutManifest(SloTestCase):
               'size_bytes': 2, 'range': '-1'},
              {'path': '/checktest/b_2', 'etag': None,
               'size_bytes': 2, 'range': '0-0'},
+             {'path': '/checktest/a_1', 'etag': None,
+              'size_bytes': None},
              {'path': '/cont/object', 'etag': None,
               'size_bytes': None, 'range': '10-40'}])
         req = Request.blank(
             '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
         status, headers, body = self.call_slo(req)
-        expected_etag = '"%s"' % md5hex('ab:1-1;b:0-0;etagoftheobjectsegment:'
+        expected_etag = '"%s"' % md5hex('ab:1-1;b:0-0;aetagoftheobjectsegment:'
                                         '10-40;')
         self.assertEqual(expected_etag, dict(headers)['Etag'])
         self.assertEqual([
-            ('HEAD', '/v1/AUTH_test/checktest/a_1'),
+            ('HEAD', '/v1/AUTH_test/checktest/a_1'),  # Only once!
             ('HEAD', '/v1/AUTH_test/checktest/b_2'),  # Only once!
             ('HEAD', '/v1/AUTH_test/cont/object'),
+        ], sorted(self.app.calls[:-1]))
+        self.assertEqual(
             ('PUT', '/v1/AUTH_test/checktest/man_3?multipart-manifest=put'),
-        ], self.app.calls)
+            self.app.calls[-1])
 
         # Check that we still populated the manifest properly from our HEADs
         req = Request.blank(
@@ -699,9 +699,10 @@ class TestSloPutManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_app(req)
         manifest_data = json.loads(body)
+        self.assertEqual(len(manifest_data), 5)
+
         self.assertEqual('a', manifest_data[0]['hash'])
         self.assertNotIn('range', manifest_data[0])
-        self.assertNotIn('segment_bytes', manifest_data[0])
 
         self.assertEqual('b', manifest_data[1]['hash'])
         self.assertEqual('1-1', manifest_data[1]['range'])
@@ -709,8 +710,11 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual('b', manifest_data[2]['hash'])
         self.assertEqual('0-0', manifest_data[2]['range'])
 
-        self.assertEqual('etagoftheobjectsegment', manifest_data[3]['hash'])
-        self.assertEqual('10-40', manifest_data[3]['range'])
+        self.assertEqual('a', manifest_data[3]['hash'])
+        self.assertNotIn('range', manifest_data[3])
+
+        self.assertEqual('etagoftheobjectsegment', manifest_data[4]['hash'])
+        self.assertEqual('10-40', manifest_data[4]['range'])
 
 
 class TestSloDeleteManifest(SloTestCase):
