@@ -6159,12 +6159,26 @@ class TestObjectECRangedGET(unittest.TestCase):
 
     def test_unsatisfiable(self):
         # Goes just one byte too far off the end of the object, so it's
-        # unsatisfiable
+        # unsatisfiable. This should be close enough that the object servers
+        # actually responded 206
+        obj_len = len(self.obj)
         status, headers, _junk = self._get_obj(
-            "bytes=%d-%d" % (len(self.obj), len(self.obj) + 100))
+            "bytes=%d-%d" % (obj_len, obj_len + 100))
         self.assertEqual(status, 416)
         self.assertEqual(self.obj_etag, headers.get('Etag'))
         self.assertEqual('bytes', headers.get('Accept-Ranges'))
+        self.assertIn('Content-Range', headers)
+        self.assertEqual('bytes */%d' % obj_len, headers['Content-Range'])
+
+        # Goes *way* too far off the end of the object, so we're looking at
+        # the (massaged) 416 from an object server
+        status, headers, _junk = self._get_obj(
+            "bytes=%d-" % (obj_len + 2 ** 30))
+        self.assertEqual(status, 416)
+        self.assertEqual(self.obj_etag, headers.get('Etag'))
+        self.assertEqual('bytes', headers.get('Accept-Ranges'))
+        self.assertIn('Content-Range', headers)
+        self.assertEqual('bytes */%d' % obj_len, headers['Content-Range'])
 
     def test_off_end(self):
         # Ranged GET that's mostly off the end of the object, but overlaps
