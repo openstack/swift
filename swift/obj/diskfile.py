@@ -35,6 +35,7 @@ import errno
 import fcntl
 import json
 import os
+import re
 import time
 import uuid
 import hashlib
@@ -560,6 +561,9 @@ class BaseDiskFileManager(object):
         self.use_splice = False
         self.pipe_size = None
 
+        # regex for rsync temp files e.g. '.1472017820.44503.data.QBYCYU'
+        self.rsync_temp_file_exp = re.compile('^\..*\.[0-9a-zA-Z]{6}$')
+
         conf_wants_splice = config_true_value(conf.get('splice', 'no'))
         # If the operator wants zero-copy with splice() but we don't have the
         # requisite kernel support, complain so they can go fix it.
@@ -785,6 +789,7 @@ class BaseDiskFileManager(object):
         # The exts dict will be modified during subsequent processing as files
         # are removed to be discarded or ignored.
         exts = defaultdict(list)
+
         for afile in files:
             # Categorize files by extension
             try:
@@ -793,9 +798,11 @@ class BaseDiskFileManager(object):
                 exts[file_info['ext']].append(file_info)
             except DiskFileError as e:
                 file_path = os.path.join(datadir or '', afile)
-                self.logger.warning('Unexpected file %s: %s',
-                                    file_path, e)
                 results.setdefault('unexpected', []).append(file_path)
+                # log warnings if it's not a rsync temp file
+                if self.rsync_temp_file_exp.match(afile) is None:
+                    self.logger.warning('Unexpected file %s: %s',
+                                        file_path, e)
         for ext in exts:
             # For each extension sort files into reverse chronological order.
             exts[ext] = sorted(
