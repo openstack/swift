@@ -1241,6 +1241,15 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         with mock.patch('swift.obj.diskfile.os.listdir', lambda *args: files):
             self.assertRaises(DiskFileNotExist, class_under_test.open)
 
+    def test_get_ondisk_files_no_rsync_temp_file_warning(self):
+        # get_ondisk_files logs no warnings for rsync temp files
+
+        class_under_test = self._get_diskfile(POLICIES[0])
+        files = ['.1472017820.44503.data.QBYCYU']
+        class_under_test._get_ondisk_files(files)
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertFalse(lines)
+
     def test_verify_ondisk_files(self):
         # ._verify_ondisk_files should only return False if get_ondisk_files
         # has produced a bad set of files due to a bug, so to test it we need
