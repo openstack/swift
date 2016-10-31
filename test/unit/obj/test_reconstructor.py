@@ -862,7 +862,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 self.suffixes = suffixes
                 self.daemon = daemon
                 self.job = job
-                hash_gen = self.daemon._diskfile_mgr.yield_hashes(
+                hash_gen = self.daemon._df_router[job['policy']].yield_hashes(
                     self.job['device'], self.job['partition'],
                     self.job['policy'], self.suffixes,
                     frag_index=self.job.get('frag_index'))

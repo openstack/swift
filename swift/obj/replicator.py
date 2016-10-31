@@ -38,7 +38,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj import ssync_sender
-from swift.obj.diskfile import DiskFileManager, get_data_dir, get_tmp_dir
+from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter
 from swift.common.storage_policy import POLICIES, REPL_POLICY
 
 DEFAULT_RSYNC_TIMEOUT = 900
@@ -121,7 +121,7 @@ class ObjectReplicator(Daemon):
                                 'operation, please disable handoffs_first and '
                                 'handoff_delete before the next '
                                 'normal rebalance')
-        self._diskfile_mgr = DiskFileManager(conf, self.logger)
+        self._df_router = DiskFileRouter(conf, self.logger)
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -406,9 +406,10 @@ class ObjectReplicator(Daemon):
         target_devs_info = set()
         failure_devs_info = set()
         begin = time.time()
+        df_mgr = self._df_router[job['policy']]
         try:
             hashed, local_hash = tpool_reraise(
-                self._diskfile_mgr._get_hashes, job['path'],
+                df_mgr._get_hashes, job['path'],
                 do_listdir=_do_listdir(
                     int(job['partition']),
                     self.replication_cycle),
@@ -462,7 +463,7 @@ class ObjectReplicator(Daemon):
                         self.stats['hashmatch'] += 1
                         continue
                     hashed, recalc_hash = tpool_reraise(
-                        self._diskfile_mgr._get_hashes,
+                        df_mgr._get_hashes,
                         job['path'], recalculate=suffixes,
                         reclaim_age=self.reclaim_age)
                     self.logger.update_stats('suffix.hashes', hashed)

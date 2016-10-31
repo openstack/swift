@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import collections
 import unittest
 import os
 import mock
@@ -26,10 +26,10 @@ from collections import defaultdict
 from errno import ENOENT, ENOTEMPTY, ENOTDIR
 
 from eventlet.green import subprocess
-from eventlet import Timeout, tpool
+from eventlet import Timeout
 
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mocked_http_conn)
+                       mocked_http_conn, FakeLogger)
 from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)
@@ -1623,68 +1623,80 @@ class TestObjectReplicator(unittest.TestCase):
             object_replicator.http_connect = was_connector
 
     def test_run_once_recover_from_timeout(self):
+        # verify that replicator will pass over all policies' partitions even
+        # if a timeout occurs while replicating one partition to one node.
+        timeouts = [Timeout()]
+
+        def fake_get_hashes(df_mgr, part_path, **kwargs):
+            self.get_hash_count += 1
+            # Simulate a REPLICATE timeout by raising Timeout for second call
+            # to get_hashes (with recalculate suffixes) for a specific
+            # partition
+            if (timeouts and '/objects/' in part_path and
+                    part_path.endswith('0') and 'recalculate' in kwargs):
+                raise timeouts.pop(0)
+            return 1, {'abc': 'def'}
+
+        # map partition_path -> [nodes]
+        sync_paths = collections.defaultdict(list)
+
+        def fake_sync(node, job, suffixes, *args, **kwargs):
+            sync_paths[job['path']].append(node)
+            return True, {}
+
         conf = dict(swift_dir=self.testdir, devices=self.devices,
-                    bind_ips=_ips()[0],
+                    bind_ip=_ips()[0],  # local dev has id=0
                     mount_check='false', timeout='300', stats_interval='1')
-        replicator = object_replicator.ObjectReplicator(conf)
-        was_connector = object_replicator.http_connect
-        was_get_hashes = object_replicator.DiskFileManager._get_hashes
-        was_execute = tpool.execute
-        self.get_hash_count = 0
-        try:
+        with mock.patch('swift.obj.diskfile.DiskFileManager._get_hashes',
+                        fake_get_hashes):
+            with mock.patch('swift.obj.replicator.http_connect',
+                            mock_http_connect(200)):
+                with mock.patch('swift.obj.replicator.dump_recon_cache'):
+                    replicator = object_replicator.ObjectReplicator(
+                        conf, logger=FakeLogger())
 
-            def fake_get_hashes(*args, **kwargs):
-                self.get_hash_count += 1
-                if self.get_hash_count == 3:
-                    # raise timeout on last call to get hashes
-                    raise Timeout()
-                return 2, {'abc': 'def'}
+                    self.get_hash_count = 0
+                    with mock.patch.object(replicator, 'sync', fake_sync):
+                        replicator.run_once()
 
-            def fake_exc(tester, *args, **kwargs):
-                if 'Error syncing partition timeout' in args[0]:
-                    tester.i_failed = True
+        log_lines = replicator.logger.get_lines_for_level('error')
+        self.assertIn("Error syncing with node:", log_lines[0])
+        self.assertFalse(log_lines[1:])
+        # setup creates 4 partitions; partition 1 does not map to local dev id
+        # 0 so will be handled by update_delete(); partitions 0, 2, 3 are
+        # handled by update() for each of two policies, so expect 6 paths to be
+        # sync'd
+        self.assertEqual(6, len(sync_paths))
+        # partition 3 has 2 nodes in remote region, only first node is sync'd.
+        # partition 0 in policy 0 has fake_get_hashes timeout before first
+        # sync, so only second node is sync'd.
+        # other partitions are sync'd to 2 nodes in same region.
+        expected_node_count = {  # map path_end -> expected sync node count
+            '/objects/0': 1,
+            '/objects/1': 2,
+            '/objects/2': 2,
+            '/objects/3': 1,
+            '/objects-1/0': 2,
+            '/objects-1/1': 2,
+            '/objects-1/2': 2,
+            '/objects-1/3': 1
+        }
+        for path, nodes in sync_paths.items():
+            path_end = path[path.index('/objects'):]
+            self.assertEqual(expected_node_count[path_end], len(nodes),
+                             'Expected %s but got %s for path %s' %
+                             (expected_node_count[path_end], len(nodes), path))
+        # partitions 0 and 2 attempt 3 calls each per policy to get_hashes = 12
+        # partitions 3 attempts 2 calls per policy to get_hashes = 4
+        # partitions 1 dosn't get_hashes because of update_deleted
+        self.assertEqual(16, self.get_hash_count)
 
-            self.i_failed = False
-            object_replicator.http_connect = mock_http_connect(200)
-            object_replicator.DiskFileManager._get_hashes = fake_get_hashes
-            replicator.logger.exception = \
-                lambda *args, **kwargs: fake_exc(self, *args, **kwargs)
-            # Write some files into '1' and run replicate- they should be moved
-            # to the other partitions and then node should get deleted.
-            cur_part = '1'
-            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
-                                          policy=POLICIES.legacy)
-            mkdirs(df._datadir)
-            f = open(os.path.join(df._datadir,
-                                  normalize_timestamp(time.time()) + '.data'),
-                     'wb')
-            f.write('1234567890')
-            f.close()
-            ohash = hash_path('a', 'c', 'o')
-            data_dir = ohash[-3:]
-            whole_path_from = os.path.join(self.objects, cur_part, data_dir)
-            process_arg_checker = []
-            ring = replicator.load_object_ring(POLICIES[0])
-            nodes = [node for node in
-                     ring.get_part_nodes(int(cur_part))
-                     if node['ip'] not in _ips()]
-
-            for node in nodes:
-                rsync_mod = '%s::object/sda/objects/%s' % (node['ip'],
-                                                           cur_part)
-                process_arg_checker.append(
-                    (0, '', ['rsync', whole_path_from, rsync_mod]))
-            self.assertTrue(os.access(os.path.join(self.objects,
-                                                   '1', data_dir, ohash),
-                                      os.F_OK))
-            with _mock_process(process_arg_checker):
-                replicator.run_once()
-            self.assertFalse(process_errors)
-            self.assertFalse(self.i_failed)
-        finally:
-            object_replicator.http_connect = was_connector
-            object_replicator.DiskFileManager._get_hashes = was_get_hashes
-            tpool.execute = was_execute
+        # attempt to 16 times but succeeded only 15 times due to Timeout
+        suffix_hashes = sum(
+            count for (metric, count), _junk in
+            replicator.logger.log_dict['update_stats']
+            if metric == 'suffix.hashes')
+        self.assertEqual(15, suffix_hashes)
 
     def test_run(self):
         with _mock_process([(0, '')] * 100):
@@ -1737,7 +1749,8 @@ class TestObjectReplicator(unittest.TestCase):
         do_listdir_results = [False, False, True, False, True, False]
         mock_do_listdir.side_effect = do_listdir_results
         expected_tpool_calls = [
-            mock.call(self.replicator._diskfile_mgr._get_hashes, job['path'],
+            mock.call(self.replicator._df_router[job['policy']]._get_hashes,
+                      job['path'],
                       do_listdir=do_listdir,
                       reclaim_age=self.replicator.reclaim_age)
             for job, do_listdir in zip(jobs, do_listdir_results)

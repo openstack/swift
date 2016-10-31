@@ -24,9 +24,10 @@ from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, diskfile, ssync_receiver
+from swift.obj.replicator import ObjectReplicator
 
-from test.unit import patch_policies, make_timestamp_iter
-from test.unit.obj.common import FakeReplicator, BaseTest
+from test.unit import patch_policies, make_timestamp_iter, debug_logger
+from test.unit.obj.common import BaseTest
 
 
 class NullBufferedHTTPConnection(object):
@@ -84,10 +85,10 @@ class TestSender(BaseTest):
 
     def setUp(self):
         super(TestSender, self).setUp()
-        self.testdir = os.path.join(self.tmpdir, 'tmp_test_ssync_sender')
-        utils.mkdirs(os.path.join(self.testdir, 'dev'))
-        self.daemon = FakeReplicator(self.testdir)
-        self.sender = ssync_sender.Sender(self.daemon, None, None, None)
+        self.daemon = ObjectReplicator(self.daemon_conf,
+                                       debug_logger('test-ssync-sender'))
+        job = {'policy': POLICIES.legacy}  # sufficient for Sender.__init__
+        self.sender = ssync_sender.Sender(self.daemon, None, job, None)
 
     def test_call_catches_MessageTimeout(self):
 
@@ -146,8 +147,7 @@ class TestSender(BaseTest):
                 '1.2.3.4:5678/sda1/9 EXCEPTION in ssync.Sender:'))
 
     def test_call_catches_exception_handling_exception(self):
-        job = node = None  # Will cause inside exception handler to fail
-        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
+        self.sender.node = None  # Will cause inside exception handler to fail
         self.sender.suffixes = ['abc']
         self.sender.connect = 'cause exception'
         success, candidates = self.sender()
@@ -459,7 +459,7 @@ class TestSender(BaseTest):
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'
             ))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
         df = mock.MagicMock()
         df.content_length = 0
@@ -505,7 +505,7 @@ class TestSender(BaseTest):
                 ':MISSING_CHECK: START\r\n'
                 '9d41d8cd98f00b204e9800998ecf0abc d\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
@@ -541,7 +541,7 @@ class TestSender(BaseTest):
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
@@ -578,7 +578,7 @@ class TestSender(BaseTest):
                 ':MISSING_CHECK: START\r\n'
                 '9d41d8cd98f00b204e9800998ecf0abc d\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
@@ -743,7 +743,7 @@ class TestSender(BaseTest):
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.missing_check()
         self.assertEqual(
             ''.join(self.sender.connection.sent),
@@ -791,7 +791,7 @@ class TestSender(BaseTest):
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.missing_check()
         self.assertEqual(
             ''.join(self.sender.connection.sent),
@@ -836,7 +836,7 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc']
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.response = FakeResponse(chunk_body='\r\n')
         exc = None
         try:
@@ -875,7 +875,7 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc']
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.response = FakeResponse(
             chunk_body=':MISSING_CHECK: START\r\n')
         exc = None
@@ -915,7 +915,7 @@ class TestSender(BaseTest):
             'policy': POLICIES.legacy,
         }
         self.sender.suffixes = ['abc']
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.response = FakeResponse(chunk_body='OH HAI\r\n')
         exc = None
         try:
@@ -959,7 +959,7 @@ class TestSender(BaseTest):
                 ':MISSING_CHECK: START\r\n'
                 '0123abc dm\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.missing_check()
         self.assertEqual(
             ''.join(self.sender.connection.sent),
@@ -1001,7 +1001,7 @@ class TestSender(BaseTest):
                 ':MISSING_CHECK: START\r\n'
                 '0123abc d extra response parts\r\n'
                 ':MISSING_CHECK: END\r\n'))
-        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.df_mgr.yield_hashes = yield_hashes
         self.sender.missing_check()
         self.assertEqual(self.sender.send_map,
                          {'0123abc': {'data': True}})
@@ -1307,7 +1307,7 @@ class TestSender(BaseTest):
         self.assertEqual(path, '/a/c/o')
         self.assertTrue(isinstance(df, diskfile.DiskFile))
         self.assertEqual(expected, df.get_metadata())
-        self.assertEqual(os.path.join(self.testdir, 'dev/objects/9/',
+        self.assertEqual(os.path.join(self.tx_testdir, 'dev/objects/9/',
                                       object_hash[-3:], object_hash),
                          df._datadir)
 
