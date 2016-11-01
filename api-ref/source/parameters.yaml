@@ -732,6 +732,14 @@ X-Object-Meta-name_resp:
   in: header
   required: false
   type: string
+X-Openstack-Request-Id:
+  description: |
+    A unique transaction ID for this request. Your
+    service provider might need this value if you report a problem.
+    (same as ``X-Trans-Id``)
+  in: header
+  required: true
+  type: string
 X-Remove-Account-name:
   description: |
     Removes the metadata item named ``name``.
