@@ -143,7 +143,7 @@ class TestReconstructorRevert(ECProbeTest):
                                   self.container_name,
                                   self.object_name)
         for key in headers_post:
-            self.assertTrue(key in meta)
+            self.assertIn(key, meta)
             self.assertEqual(meta[key], headers_post[key])
 
         # handoffs are empty
