@@ -124,6 +124,15 @@ class TestRunDaemon(unittest.TestCase):
                 daemon.run_daemon(MyDaemon, conf_file, logger=logger)
             self.assertTrue('user quit' in sio.getvalue().lower())
 
+            # test missing section
+            sample_conf = "[default]\nuser = %s\n" % getuser()
+            with tmpfile(sample_conf) as conf_file:
+                self.assertRaisesRegexp(SystemExit,
+                                        'Unable to find my-daemon '
+                                        'config section in.*',
+                                        daemon.run_daemon, MyDaemon,
+                                        conf_file, once=True)
+
 
 if __name__ == '__main__':
     unittest.main()

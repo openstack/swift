@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import sys
 import time
 import signal
 from re import sub
@@ -74,8 +75,13 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     if section_name is '':
         section_name = sub(r'([a-z])([A-Z])', r'\1-\2',
                            klass.__name__).lower()
-    conf = utils.readconf(conf_file, section_name,
-                          log_name=kwargs.get('log_name'))
+    try:
+        conf = utils.readconf(conf_file, section_name,
+                              log_name=kwargs.get('log_name'))
+    except (ValueError, IOError) as e:
+        # The message will be printed to stderr
+        # and results in an exit code of 1.
+        sys.exit(e)
 
     # once on command line (i.e. daemonize=false) will over-ride config
     once = once or not utils.config_true_value(conf.get('daemonize', 'true'))

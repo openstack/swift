@@ -19,6 +19,7 @@ import os
 import mock
 import unittest
 
+from getpass import getuser
 from swift.common import swob
 from swift.common.middleware.crypto import keymaster
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
@@ -26,6 +27,7 @@ from swift.common.swob import Request
 from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 from test.unit.common.middleware.crypto.crypto_helpers import (
     TEST_KEYMASTER_CONF)
+from test.unit import tmpfile
 
 
 def capture_start_response():
@@ -123,6 +125,14 @@ class TestKeymaster(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'PUT'})
         start_response, _ = capture_start_response()
         self.assertRaises(Exception, app, req.environ, start_response)
+
+    def test_missing_conf_section(self):
+        sample_conf = "[default]\nuser = %s\n" % getuser()
+        with tmpfile(sample_conf) as conf_file:
+            self.assertRaisesRegexp(
+                ValueError, 'Unable to find keymaster config section in.*',
+                keymaster.KeyMaster, self.swift, {
+                    'keymaster_config_path': conf_file})
 
     def test_root_secret(self):
         for secret in (os.urandom(32), os.urandom(33), os.urandom(50)):

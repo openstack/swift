@@ -2416,6 +2416,8 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
                      not defined)
     :param defaults: dict of default values to pre-populate the config with
     :returns: dict of config items
+    :raises ValueError: if section_name does not exist
+    :raises IOError: if reading the file failed
     """
     if defaults is None:
         defaults = {}
@@ -2432,15 +2434,15 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         else:
             success = c.read(conf_path)
         if not success:
-            print(_("Unable to read config from %s") % conf_path)
-            sys.exit(1)
+            raise IOError(_("Unable to read config from %s") %
+                          conf_path)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print(_("Unable to find %(section)s config section in %(conf)s") %
-                  {'section': section_name, 'conf': conf_path})
-            sys.exit(1)
+            raise ValueError(
+                _("Unable to find %(section)s config section in %(conf)s") %
+                {'section': section_name, 'conf': conf_path})
         if "log_name" not in conf:
             if log_name is not None:
                 conf['log_name'] = log_name

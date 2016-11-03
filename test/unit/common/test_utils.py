@@ -1983,9 +1983,12 @@ log_name = yarr'''
             expected = {'__file__': conffile, 'log_name': 'section1',
                         'foo': 'bar', 'bar': 'baz'}
             self.assertEqual(result, expected)
-        self.assertRaises(SystemExit, utils.readconf, temppath, 'section3')
+
+        self.assertRaisesRegexp(
+            ValueError, 'Unable to find section3 config section in.*',
+            utils.readconf, temppath, 'section3')
         os.unlink(temppath)
-        self.assertRaises(SystemExit, utils.readconf, temppath)
+        self.assertRaises(IOError, utils.readconf, temppath)
 
     def test_readconf_raw(self):
         conf = '''[section1]
@@ -2009,7 +2012,7 @@ log_name = %(yarr)s'''
                         'section2': {'log_name': '%(yarr)s'}}
             self.assertEqual(result, expected)
         os.unlink(temppath)
-        self.assertRaises(SystemExit, utils.readconf, temppath)
+        self.assertRaises(IOError, utils.readconf, temppath)
 
     def test_readconf_dir(self):
         config_dir = {
