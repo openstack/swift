@@ -30,7 +30,7 @@ from swift.common.utils import (
     get_logger, ratelimit_sleep, dump_recon_cache, list_from_csv, listdir,
     unlink_paths_older_than, readconf, config_auto_int_value)
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist,\
-    DiskFileDeleted
+    DiskFileDeleted, DiskFileExpired
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES
 
@@ -265,6 +265,8 @@ class AuditorWorker(object):
             self.logger.error(_('ERROR Object %(obj)s failed audit and was'
                                 ' quarantined: %(err)s'),
                               {'obj': location, 'err': err})
+        except DiskFileExpired:
+            pass  # ignore expired objects
         except DiskFileDeleted:
             # If there is a reclaimable tombstone, we'll invalidate the hash
             # to trigger the replicator to rehash/cleanup this suffix
