@@ -35,7 +35,7 @@ from swift.common.utils import (
     mkdirs, normalize_timestamp, Timestamp, readconf)
 from swift.common.storage_policy import (
     ECStoragePolicy, StoragePolicy, POLICIES, EC_POLICY)
-
+from test.unit.obj.common import write_diskfile
 
 _mocked_policies = [
     StoragePolicy(0, 'zero', False),
@@ -899,6 +899,32 @@ class TestAuditor(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
         self.assertFalse(os.path.exists(
             os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+
+    def _test_expired_object_is_ignored(self, zero_byte_fps):
+        # verify that an expired object does not get mistaken for a tombstone
+        audit = auditor.ObjectAuditor(self.conf)
+        audit.logger = FakeLogger()
+        audit.log_time = 0
+        now = time.time()
+        write_diskfile(self.disk_file, Timestamp(now - 20),
+                       extra_metadata={'X-Delete-At': now - 10})
+        files = os.listdir(self.disk_file._datadir)
+        self.assertTrue([f for f in files if f.endswith('.data')])  # sanity
+        with mock.patch.object(auditor, 'dump_recon_cache'):
+            audit.run_audit(mode='once', zero_byte_fps=zero_byte_fps)
+        self.assertTrue(os.path.exists(self.disk_file._datadir))
+        part_dir = dirname(dirname(self.disk_file._datadir))
+        self.assertFalse(os.path.exists(
+            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+        self.assertEqual(files, os.listdir(self.disk_file._datadir))
+        self.assertFalse(audit.logger.get_lines_for_level('error'))
+        self.assertFalse(audit.logger.get_lines_for_level('warning'))
+
+    def test_expired_object_is_ignored(self):
+        self._test_expired_object_is_ignored(0)
+
+    def test_expired_object_is_ignored_with_zero_byte_fps(self):
+        self._test_expired_object_is_ignored(50)
 
     def test_auditor_reclaim_age(self):
         # if we don't have access to the replicator config section we'll use
