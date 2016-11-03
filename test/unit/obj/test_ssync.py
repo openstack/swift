@@ -26,13 +26,13 @@ from six.moves import urllib
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted
 from swift.common import utils
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, server
 from swift.obj.reconstructor import RebuildingECDiskFileStream, \
     ObjectReconstructor
 
-from test.unit import patch_policies, debug_logger
+from test.unit import patch_policies, debug_logger, encode_frag_archive_bodies
 from test.unit.obj.common import BaseTest, FakeReplicator
 
 
@@ -73,6 +73,7 @@ class TestBaseSsync(BaseTest):
         self.rx_node = {'replication_ip': self.rx_ip,
                         'replication_port': self.rx_port,
                         'device': self.device}
+        self.obj_data = {}  # maps obj path -> obj data
 
     def tearDown(self):
         self.rx_server.kill()
@@ -116,27 +117,27 @@ class TestBaseSsync(BaseTest):
             sender.readline = make_readline_wrapper(sender.readline)
         return wrapped_connect, trace
 
+    def _get_object_data(self, path, **kwargs):
+        # return data for given path
+        if path not in self.obj_data:
+            self.obj_data[path] = '%s___data' % path
+        return self.obj_data[path]
+
     def _create_ondisk_files(self, df_mgr, obj_name, policy, timestamp,
                              frag_indexes=None, commit=True):
-        frag_indexes = [None] if frag_indexes is None else frag_indexes
+        frag_indexes = frag_indexes or [None]
         metadata = {'Content-Type': 'plain/text'}
         diskfiles = []
         for frag_index in frag_indexes:
-            object_data = '/a/c/%s___%s' % (obj_name, frag_index)
-            if frag_index is not None:
+            object_data = self._get_object_data('/a/c/%s' % obj_name,
+                                                frag_index=frag_index)
+            if policy.policy_type == EC_POLICY:
                 metadata['X-Object-Sysmeta-Ec-Frag-Index'] = str(frag_index)
             df = self._make_diskfile(
                 device=self.device, partition=self.partition, account='a',
                 container='c', obj=obj_name, body=object_data,
                 extra_metadata=metadata, timestamp=timestamp, policy=policy,
                 frag_index=frag_index, df_mgr=df_mgr, commit=commit)
-            if commit:
-                df.open()
-                # sanity checks
-                listing = os.listdir(df._datadir)
-                self.assertTrue(listing)
-                for filename in listing:
-                    self.assertTrue(filename.startswith(timestamp.internal))
             diskfiles.append(df)
         return diskfiles
 
@@ -171,7 +172,8 @@ class TestBaseSsync(BaseTest):
             else:
                 self.assertEqual(v, rx_metadata.pop(k), k)
         self.assertFalse(rx_metadata)
-        expected_body = '%s___%s' % (tx_df._name, frag_index)
+        expected_body = self._get_object_data(tx_df._name,
+                                              frag_index=frag_index)
         actual_body = ''.join([chunk for chunk in rx_df.reader()])
         self.assertEqual(expected_body, actual_body)
 
@@ -304,7 +306,23 @@ class TestBaseSsync(BaseTest):
 
 
 @patch_policies(with_ec_default=True)
-class TestSsyncEC(TestBaseSsync):
+class TestBaseSsyncEC(TestBaseSsync):
+    def setUp(self):
+        super(TestBaseSsyncEC, self).setUp()
+        self.policy = POLICIES.default
+
+    def _get_object_data(self, path, frag_index=None, **kwargs):
+        # return a frag archive for given object name and frag index.
+        # for EC policies obj_data maps obj path -> list of frag archives
+        if path not in self.obj_data:
+            # make unique frag archives for each object name
+            data = path * 2 * (self.policy.ec_ndata + self.policy.ec_nparity)
+            self.obj_data[path] = encode_frag_archive_bodies(
+                self.policy, data)
+        return self.obj_data[path][frag_index]
+
+
+class TestSsyncEC(TestBaseSsyncEC):
     def test_handoff_fragment_revert(self):
         # test that a sync_revert type job does send the correct frag archives
         # to the receiver
@@ -334,7 +352,7 @@ class TestSsyncEC(TestBaseSsync):
         tx_objs['o3'] = self._create_ondisk_files(
             tx_df_mgr, 'o3', policy, t3, (rx_node_index,))
         rx_objs['o3'] = self._create_ondisk_files(
-            rx_df_mgr, 'o3', policy, t3, (14,))
+            rx_df_mgr, 'o3', policy, t3, (13,))
         # o4 primary and handoff fragment archives on tx, handoff in sync on rx
         t4 = next(self.ts_iter)
         tx_objs['o4'] = self._create_ondisk_files(
@@ -380,7 +398,8 @@ class TestSsyncEC(TestBaseSsync):
                 self.assertTrue(
                     'X-Object-Sysmeta-Ec-Frag-Index: %s' % rx_node_index
                     in subreq.get('headers'))
-                expected_body = '%s___%s' % (subreq['path'], rx_node_index)
+                expected_body = self._get_object_data(subreq['path'],
+                                                      rx_node_index)
                 self.assertEqual(expected_body, subreq['body'])
             elif subreq.get('method') == 'DELETE':
                 self.assertEqual('/a/c/o5', subreq['path'])
@@ -427,7 +446,7 @@ class TestSsyncEC(TestBaseSsync):
         tx_objs[obj_name] = self._create_ondisk_files(
             tx_df_mgr, obj_name, policy, t2, (tx_node_index, rx_node_index,))
         rx_objs[obj_name] = self._create_ondisk_files(
-            rx_df_mgr, obj_name, policy, t2, (13, 14), commit=False)
+            rx_df_mgr, obj_name, policy, t2, (12, 13), commit=False)
         expected_subreqs['PUT'].append(obj_name)
 
         # o3 on rx has frag at other time missing .durable - PUT required
@@ -486,7 +505,8 @@ class TestSsyncEC(TestBaseSsync):
                             % (method, obj, expected_subreqs[method]))
             expected_subreqs[method].remove(obj)
             if method == 'PUT':
-                expected_body = '%s___%s' % (subreq['path'], rx_node_index)
+                expected_body = self._get_object_data(
+                    subreq['path'], frag_index=rx_node_index)
                 self.assertEqual(expected_body, subreq['body'])
         # verify all expected subreqs consumed
         for _method, expected in expected_subreqs.items():
@@ -549,7 +569,8 @@ class TestSsyncEC(TestBaseSsync):
             if len(reconstruct_fa_calls) == 2:
                 # simulate second reconstruct failing
                 raise DiskFileError
-            content = '%s___%s' % (metadata['name'], rx_node_index)
+            content = self._get_object_data(metadata['name'],
+                                            frag_index=rx_node_index)
             return RebuildingECDiskFileStream(
                 metadata, rx_node_index, iter([content]))
 
@@ -584,7 +605,8 @@ class TestSsyncEC(TestBaseSsync):
                 self.assertTrue(
                     'X-Object-Sysmeta-Ec-Frag-Index: %s' % rx_node_index
                     in subreq.get('headers'))
-                expected_body = '%s___%s' % (subreq['path'], rx_node_index)
+                expected_body = self._get_object_data(
+                    subreq['path'], frag_index=rx_node_index)
                 self.assertEqual(expected_body, subreq['body'])
             elif subreq.get('method') == 'DELETE':
                 self.assertEqual('/a/c/o5', subreq['path'])
@@ -660,13 +682,22 @@ class TestSsyncEC(TestBaseSsync):
 
 
 class FakeResponse(object):
-    def __init__(self, frag_index, data):
+    def __init__(self, frag_index, obj_data, length=None):
         self.headers = {
             'X-Object-Sysmeta-Ec-Frag-Index': str(frag_index),
             'X-Object-Sysmeta-Ec-Etag': 'the etag',
             'X-Backend-Timestamp': '1234567890.12345'
         }
-        self.data = data
+        self.frag_index = frag_index
+        self.obj_data = obj_data
+        self.data = ''
+        self.length = length
+
+    def init(self, path):
+        if isinstance(self.obj_data, Exception):
+            self.data = self.obj_data
+        else:
+            self.data = self.obj_data[path][self.frag_index]
 
     def getheaders(self):
         return self.headers
@@ -676,14 +707,12 @@ class FakeResponse(object):
             raise self.data
         val = self.data
         self.data = ''
-        return val
+        return val if self.length is None else val[:self.length]
 
 
-@patch_policies(with_ec_default=True)
-class TestSsyncECReconstructorSyncJob(TestBaseSsync):
+class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
     def setUp(self):
         super(TestSsyncECReconstructorSyncJob, self).setUp()
-        self.policy = POLICIES.default
         self.rx_node_index = 0
         self.tx_node_index = 1
 
@@ -731,6 +760,11 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
             if path not in path_to_responses:
                 path_to_responses[path] = frag_responses.pop(0)
             response = path_to_responses[path].pop()
+            # the frag_responses list is in ssync task order, we only know the
+            # path when consuming the responses so initialise the path in the
+            # response now
+            if response:
+                response.init(path)
             fake_get_response_calls.append(path)
             return response
 
@@ -742,42 +776,34 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
             return (self.policy.object_ring._get_part_nodes(part) +
                     [self.job_node])
 
-        def fake_reconstruct(self, policy, fragment_payload, frag_index):
-            # fake EC reconstruction by returning first frag, which is ok
-            # because all frags would be same length
-            return fragment_payload[0]
-
         with mock.patch(
                 'swift.obj.reconstructor.ObjectReconstructor._get_response',
-                fake_get_response):
-            with mock.patch(
-                    'swift.obj.reconstructor.ObjectReconstructor._reconstruct',
-                    fake_reconstruct):
-                with mock.patch.object(
-                        self.policy.object_ring, 'get_part_nodes',
-                        fake_get_part_nodes):
-                    self.reconstructor = ObjectReconstructor(
-                        {}, logger=debug_logger('test_reconstructor'))
-                    job = {
-                        'device': self.device,
-                        'partition': self.partition,
-                        'policy': self.policy,
-                        'sync_diskfile_builder':
-                            self.reconstructor.reconstruct_fa
-                    }
-                    sender = ssync_sender.Sender(
-                        self.daemon, self.job_node, job, self.suffixes)
-                    sender.connect, trace = self.make_connect_wrapper(sender)
-                    sender()
+                fake_get_response), \
+                mock.patch.object(
+                    self.policy.object_ring, 'get_part_nodes',
+                    fake_get_part_nodes):
+            self.reconstructor = ObjectReconstructor(
+                {}, logger=debug_logger('test_reconstructor'))
+            job = {
+                'device': self.device,
+                'partition': self.partition,
+                'policy': self.policy,
+                'sync_diskfile_builder':
+                    self.reconstructor.reconstruct_fa
+            }
+            sender = ssync_sender.Sender(
+                self.daemon, self.job_node, job, self.suffixes)
+            sender.connect, trace = self.make_connect_wrapper(sender)
+            sender()
         return trace
 
     def test_sync_reconstructor_partial_rebuild(self):
         # First fragment to sync gets partial content from reconstructor.
         # Expect ssync job to exit early with no file written on receiver.
         frag_responses = [
-            [FakeResponse(i, 'x' * (self.frag_length - 1))
+            [FakeResponse(i, self.obj_data, length=-1)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
-            [FakeResponse(i, 'y' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
 
         self._test_reconstructor_sync_job(frag_responses)
@@ -809,9 +835,9 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
         # reconstructor. Expect ssync job to exit early with no file written on
         # receiver.
         frag_responses = [
-            [FakeResponse(i, '')
+            [FakeResponse(i, self.obj_data, length=0)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
-            [FakeResponse(i, 'y' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
 
         self._test_reconstructor_sync_job(frag_responses)
@@ -845,7 +871,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
         frag_responses = [
             # ec_ndata responses are ok, but one of these will be ignored as
             # it is for the frag index being rebuilt
-            [FakeResponse(i, 'x' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata)] +
             # ec_nparity responses will raise an Exception - at least one of
             # these will be used during rebuild
@@ -853,7 +879,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
              for i in range(self.policy.ec_ndata,
                             self.policy.ec_ndata + self.policy.ec_nparity)],
             # second set of response are all good
-            [FakeResponse(i, 'y' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
 
         self._test_reconstructor_sync_job(frag_responses)
@@ -890,7 +916,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
         frag_responses = [
             [None
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
-            [FakeResponse(i, 'y' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
 
         trace = self._test_reconstructor_sync_job(frag_responses)
@@ -900,15 +926,18 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
         self.assertEqual(1, len(results['tx_updates']))
         self.assertFalse(results['rx_updates'])
         self.assertEqual('PUT', results['tx_updates'][0].get('method'))
-        synced_obj_name = results['tx_updates'][0].get('path')[-2:]
+        synced_obj_path = results['tx_updates'][0].get('path')
+        synced_obj_name = synced_obj_path[-2:]
 
         msgs = []
         obj_name = synced_obj_name
         try:
             df = self._open_rx_diskfile(
                 obj_name, self.policy, self.rx_node_index)
-            self.assertEqual('y' * self.frag_length,
-                             ''.join([d for d in df.reader()]))
+            self.assertEqual(
+                self._get_object_data(synced_obj_path,
+                                      frag_index=self.rx_node_index),
+                ''.join([d for d in df.reader()]))
         except DiskFileNotExist:
             msgs.append('Missing rx diskfile for %r' % obj_name)
 
@@ -936,9 +965,9 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
         # Sanity test for this class of tests. Both fragments get a full
         # complement of responses and rebuild correctly.
         frag_responses = [
-            [FakeResponse(i, 'x' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)],
-            [FakeResponse(i, 'y' * self.frag_length)
+            [FakeResponse(i, self.obj_data)
              for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]]
 
         trace = self._test_reconstructor_sync_job(frag_responses)
@@ -948,19 +977,18 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsync):
         self.assertEqual(2, len(results['tx_updates']))
         self.assertFalse(results['rx_updates'])
         msgs = []
-        rx_frags = []
         for obj_name in self.tx_objs:
             try:
                 df = self._open_rx_diskfile(
                     obj_name, self.policy, self.rx_node_index)
-                rx_frags.append(''.join([d for d in df.reader()]))
+                self.assertEqual(
+                    self._get_object_data(df._name,
+                                          frag_index=self.rx_node_index),
+                    ''.join([d for d in df.reader()]))
             except DiskFileNotExist:
                 msgs.append('Missing rx diskfile for %r' % obj_name)
         if msgs:
             self.fail('Failed with:\n%s' % '\n'.join(msgs))
-        self.assertIn('x' * self.frag_length, rx_frags)
-        self.assertIn('y' * self.frag_length, rx_frags)
-        self.assertFalse(rx_frags[2:])
         self.assertFalse(self.daemon.logger.get_lines_for_level('error'))
         self.assertFalse(
             self.reconstructor.logger.get_lines_for_level('error'))
@@ -1050,7 +1078,7 @@ class TestSsyncReplication(TestBaseSsync):
             if subreq.get('method') == 'PUT':
                 self.assertTrue(
                     subreq['path'] in ('/a/c/o1', '/a/c/o2', '/a/c/o3'))
-                expected_body = '%s___None' % subreq['path']
+                expected_body = self._get_object_data(subreq['path'])
                 self.assertEqual(expected_body, subreq['body'])
             elif subreq.get('method') == 'DELETE':
                 self.assertTrue(subreq['path'] in ('/a/c/o5', '/a/c/o7'))
@@ -1224,7 +1252,7 @@ class TestSsyncReplication(TestBaseSsync):
                             % (method, obj, expected_subreqs[method]))
             expected_subreqs[method].remove(obj)
             if method == 'PUT':
-                expected_body = '%s___None' % subreq['path']
+                expected_body = self._get_object_data(subreq['path'])
                 self.assertEqual(expected_body, subreq['body'])
         # verify all expected subreqs consumed
         for _method, expected in expected_subreqs.items():
@@ -1463,7 +1491,7 @@ class TestSsyncReplication(TestBaseSsync):
                             % (method, obj, expected_subreqs[method]))
             expected_subreqs[method].remove(obj)
             if method == 'PUT':
-                expected_body = '%s___None' % subreq['path']
+                expected_body = self._get_object_data(subreq['path'])
                 self.assertEqual(expected_body, subreq['body'])
         # verify all expected subreqs consumed
         for _method, expected in expected_subreqs.items():
