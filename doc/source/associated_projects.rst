@@ -117,3 +117,4 @@ Other
 * `swift-ui <https://github.com/fanatic/swift-ui>`_ - OpenStack Swift web browser
 * `Swift Durability Calculator <https://github.com/enovance/swift-durability-calculator>`_ - Data Durability Calculation Tool for Swift
 * `swiftbackmeup <https://github.com/redhat-cip/swiftbackmeup>`_ -  Utility that allows one to create backups and upload them to OpenStack Swift
+* `Multi Swift <https://github.com/ntata/multi-swift-POC>`_ - Bash scripts to spin up multiple Swift clusters sharing the same hardware
