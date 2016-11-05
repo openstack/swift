@@ -250,6 +250,7 @@ class TestRange(unittest.TestCase):
         """
 
         _assert_invalid_range(None)
+        _assert_invalid_range('nonbytes=0-')
         _assert_invalid_range('nonbytes=foobar,10-2')
         _assert_invalid_range('bytes=5-3')
         _assert_invalid_range('bytes=-')
@@ -260,6 +261,7 @@ class TestRange(unittest.TestCase):
         _assert_invalid_range('bytes=nonumber-5')
         _assert_invalid_range('bytes=nonumber')
         _assert_invalid_range('bytes=--1')
+        _assert_invalid_range('bytes=--0')
 
 
 class TestMatch(unittest.TestCase):
