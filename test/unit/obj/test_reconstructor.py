@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import itertools
+import json
 import unittest
 import os
 from hashlib import md5
@@ -2508,6 +2509,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': '0',
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
@@ -2541,16 +2543,24 @@ class TestObjectReconstructor(unittest.TestCase):
                     job, node, metadata)
                 self.assertEqual(0, df.content_length)
                 fixed_body = ''.join(df.reader())
-                self.assertEqual(len(fixed_body), len(broken_body))
-                self.assertEqual(md5(fixed_body).hexdigest(),
-                                 md5(broken_body).hexdigest())
-                for called_header in called_headers:
-                    called_header = HeaderKeyDict(called_header)
-                    self.assertTrue('Content-Length' in called_header)
-                    self.assertEqual(called_header['Content-Length'], '0')
-                    self.assertTrue('User-Agent' in called_header)
-                    user_agent = called_header['User-Agent']
-                    self.assertTrue(user_agent.startswith('obj-reconstructor'))
+        self.assertEqual(len(fixed_body), len(broken_body))
+        self.assertEqual(md5(fixed_body).hexdigest(),
+                         md5(broken_body).hexdigest())
+        self.assertEqual(len(part_nodes) - 1, len(called_headers))
+        for called_header in called_headers:
+            called_header = HeaderKeyDict(called_header)
+            self.assertIn('Content-Length', called_header)
+            self.assertEqual(called_header['Content-Length'], '0')
+            self.assertIn('User-Agent', called_header)
+            user_agent = called_header['User-Agent']
+            self.assertTrue(user_agent.startswith('obj-reconstructor'))
+            self.assertIn('X-Backend-Storage-Policy-Index', called_header)
+            self.assertEqual(called_header['X-Backend-Storage-Policy-Index'],
+                             self.policy)
+            self.assertIn('X-Backend-Fragment-Preferences', called_header)
+            self.assertEqual(
+                [{'timestamp': '1234567890.12345', 'exclude': []}],
+                json.loads(called_header['X-Backend-Fragment-Preferences']))
 
     def test_reconstruct_fa_errors_works(self):
         job = {
@@ -2563,6 +2573,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
@@ -2604,6 +2615,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         # make up some data (trim some amount to make it unaligned with
@@ -2647,6 +2659,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         possible_errors = [404, Timeout(), Exception('kaboom!')]
@@ -2667,6 +2680,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
@@ -2717,6 +2731,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
@@ -2768,6 +2783,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
@@ -2809,6 +2825,7 @@ class TestObjectReconstructor(unittest.TestCase):
             'name': '/a/c/o',
             'Content-Length': 0,
             'ETag': 'etag',
+            'X-Timestamp': '1234567890.12345'
         }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
