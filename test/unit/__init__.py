@@ -200,6 +200,7 @@ class PatchPolicies(object):
     def __enter__(self):
         self._orig_POLICIES = storage_policy._POLICIES
         storage_policy._POLICIES = self.policies
+        self._setup_rings()
 
     def __exit__(self, *args):
         storage_policy._POLICIES = self._orig_POLICIES

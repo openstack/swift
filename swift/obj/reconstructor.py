@@ -354,7 +354,7 @@ class ObjectReconstructor(Daemon):
                 self.reconstruction_device_count):
             elapsed = (time.time() - self.start) or 0.000001
             rate = self.reconstruction_part_count / elapsed
-            total_part_count = (self.part_count *
+            total_part_count = (1.0 * self.part_count *
                                 self.device_count /
                                 self.reconstruction_device_count)
             self.logger.info(
