@@ -21,6 +21,7 @@ from posix import stat_result, statvfs_result
 from shutil import rmtree
 import unittest
 from unittest import TestCase
+import sys
 
 from swift import __version__ as swiftver
 from swift.common import ring, utils
@@ -313,23 +314,33 @@ class TestReconSuccess(TestCase):
     def test_get_ring_md5(self):
         # We should only see configured and present rings, so to handle the
         # "normal" case just patch the policies to match the existing rings.
-        expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    '11e0c98abb209474d40d6a9a8a523803',
-                    '%s/container.ring.gz' % self.tempdir:
-                    '6685496a4045ce0be123068e0165a64d',
-                    '%s/object.ring.gz' % self.tempdir:
-                    '782728be98644fb725e165d4bf5728d4',
-                    '%s/object-1.ring.gz' % self.tempdir:
-                    '7c3a4bc9f724d4eb69c9b797cdc28b8c',
-                    '%s/object-2.ring.gz' % self.tempdir:
-                    '324b9c4da20cf7ef097edbd219d296e0'}
+        expt_out = {'little': {'%s/account.ring.gz' % self.tempdir:
+                               '672c6c50dfcb77e04f5a2124aef87596',
+                               '%s/container.ring.gz' % self.tempdir:
+                               '4c4392f8bf816596990ca7cd4d4b6e50',
+                               '%s/object.ring.gz' % self.tempdir:
+                               'a34178f7399706e41395eb3ac8b2c4f3',
+                               '%s/object-1.ring.gz' % self.tempdir:
+                               'cd54c473676ce5e3103e68f0e9f2326d',
+                               '%s/object-2.ring.gz' % self.tempdir:
+                               '8783ec76f29bbcfd3f51acc63b2fc337'},
+                    'big': {'%s/account.ring.gz' % self.tempdir:
+                            '70d2dde8144c09e5b42858e0fa17ab7e',
+                            '%s/container.ring.gz' % self.tempdir:
+                            '0bd14f4327cbea88bde7ab7850d4d77d',
+                            '%s/object.ring.gz' % self.tempdir:
+                            '2d17555687af36fd8c7ee5b0c492c582',
+                            '%s/object-1.ring.gz' % self.tempdir:
+                            'bc1145d31771d7957d939077fe40e2e8',
+                            '%s/object-2.ring.gz' % self.tempdir:
+                            'cd95a01ae1ab158f2e9e4c207aeb1769'}}
 
         # We need to instantiate app after overriding the configured policies.
         # object-{1,2}.ring.gz should both appear as they are present on disk
         # and were configured as policies.
         app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
         self.assertEqual(sorted(app.get_ring_md5().items()),
-                         sorted(expt_out.items()))
+                         sorted(expt_out[sys.byteorder].items()))
 
     def test_get_ring_md5_ioerror_produces_none_hash(self):
         # Ring files that are present but produce an IOError on read should
@@ -369,13 +380,18 @@ class TestReconSuccess(TestCase):
                 raise IOError
             return open(fn, fmode)
 
-        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
-                    '%s/container.ring.gz' % self.tempdir: None,
-                    '%s/object.ring.gz' % self.tempdir:
-                    '782728be98644fb725e165d4bf5728d4'}
+        expt_out = {'little': {'%s/account.ring.gz' % self.tempdir: None,
+                               '%s/container.ring.gz' % self.tempdir: None,
+                               '%s/object.ring.gz' % self.tempdir:
+                               'a34178f7399706e41395eb3ac8b2c4f3'},
+                    'big': {'%s/account.ring.gz' % self.tempdir: None,
+                            '%s/container.ring.gz' % self.tempdir: None,
+                            '%s/object.ring.gz' % self.tempdir:
+                            '2d17555687af36fd8c7ee5b0c492c582'}}
+
         ringmd5 = self.app.get_ring_md5(openr=fake_open_objonly)
         self.assertEqual(sorted(ringmd5.items()),
-                         sorted(expt_out.items()))
+                         sorted(expt_out[sys.byteorder].items()))
 
     @patch_policies([
         StoragePolicy(0, 'stagecoach'),
@@ -386,14 +402,22 @@ class TestReconSuccess(TestCase):
         # If a configured ring is missing when the app is instantiated, but is
         # later moved into place, we shouldn't need to restart object-server
         # for it to appear in recon.
-        expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    '11e0c98abb209474d40d6a9a8a523803',
-                    '%s/container.ring.gz' % self.tempdir:
-                    '6685496a4045ce0be123068e0165a64d',
-                    '%s/object.ring.gz' % self.tempdir:
-                    '782728be98644fb725e165d4bf5728d4',
-                    '%s/object-2.ring.gz' % self.tempdir:
-                    '324b9c4da20cf7ef097edbd219d296e0'}
+        expt_out = {'little': {'%s/account.ring.gz' % self.tempdir:
+                               '672c6c50dfcb77e04f5a2124aef87596',
+                               '%s/container.ring.gz' % self.tempdir:
+                               '4c4392f8bf816596990ca7cd4d4b6e50',
+                               '%s/object.ring.gz' % self.tempdir:
+                               'a34178f7399706e41395eb3ac8b2c4f3',
+                               '%s/object-2.ring.gz' % self.tempdir:
+                               '8783ec76f29bbcfd3f51acc63b2fc337'},
+                    'big': {'%s/account.ring.gz' % self.tempdir:
+                            '70d2dde8144c09e5b42858e0fa17ab7e',
+                            '%s/container.ring.gz' % self.tempdir:
+                            '0bd14f4327cbea88bde7ab7850d4d77d',
+                            '%s/object.ring.gz' % self.tempdir:
+                            '2d17555687af36fd8c7ee5b0c492c582',
+                            '%s/object-2.ring.gz' % self.tempdir:
+                            'cd95a01ae1ab158f2e9e4c207aeb1769'}}
 
         # We need to instantiate app after overriding the configured policies.
         # object-1.ring.gz should not appear as it's present but unconfigured.
@@ -401,7 +425,7 @@ class TestReconSuccess(TestCase):
         # present.
         app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
         self.assertEqual(sorted(app.get_ring_md5().items()),
-                         sorted(expt_out.items()))
+                         sorted(expt_out[sys.byteorder].items()))
 
         # Simulate the configured policy's missing ringfile being moved into
         # place during runtime
@@ -412,12 +436,14 @@ class TestReconSuccess(TestCase):
                    array.array('H', [1, 1, 0, 3])]
         self._create_ring(os.path.join(self.tempdir, ringfn),
                           ringmap, self.ring_devs, self.ring_part_shift)
-        expt_out[ringpath] = 'a7e591642beea6933f64aebd56f357d9'
+        expt_out[sys.byteorder][ringpath] = \
+            '77f752964f3bd4719e1b9b6cee47659f' if sys.byteorder == 'little' \
+            else '3e189e6c668a4d159707438dfb87589a'
 
         # We should now see it in the ringmd5 response, without a restart
         # (using the same app instance)
         self.assertEqual(sorted(app.get_ring_md5().items()),
-                         sorted(expt_out.items()))
+                         sorted(expt_out[sys.byteorder].items()))
 
     @patch_policies([
         StoragePolicy(0, 'stagecoach', is_default=True),
@@ -427,14 +453,22 @@ class TestReconSuccess(TestCase):
     def test_get_ring_md5_excludes_configured_missing_obj_rings(self):
         # Object rings that are configured but missing aren't meant to appear
         # in the ringmd5 response.
-        expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    '11e0c98abb209474d40d6a9a8a523803',
-                    '%s/container.ring.gz' % self.tempdir:
-                    '6685496a4045ce0be123068e0165a64d',
-                    '%s/object.ring.gz' % self.tempdir:
-                    '782728be98644fb725e165d4bf5728d4',
-                    '%s/object-2.ring.gz' % self.tempdir:
-                    '324b9c4da20cf7ef097edbd219d296e0'}
+        expt_out = {'little': {'%s/account.ring.gz' % self.tempdir:
+                               '672c6c50dfcb77e04f5a2124aef87596',
+                               '%s/container.ring.gz' % self.tempdir:
+                               '4c4392f8bf816596990ca7cd4d4b6e50',
+                               '%s/object.ring.gz' % self.tempdir:
+                               'a34178f7399706e41395eb3ac8b2c4f3',
+                               '%s/object-2.ring.gz' % self.tempdir:
+                               '8783ec76f29bbcfd3f51acc63b2fc337'},
+                    'big': {'%s/account.ring.gz' % self.tempdir:
+                            '70d2dde8144c09e5b42858e0fa17ab7e',
+                            '%s/container.ring.gz' % self.tempdir:
+                            '0bd14f4327cbea88bde7ab7850d4d77d',
+                            '%s/object.ring.gz' % self.tempdir:
+                            '2d17555687af36fd8c7ee5b0c492c582',
+                            '%s/object-2.ring.gz' % self.tempdir:
+                            'cd95a01ae1ab158f2e9e4c207aeb1769'}}
 
         # We need to instantiate app after overriding the configured policies.
         # object-1.ring.gz should not appear as it's present but unconfigured.
@@ -442,7 +476,7 @@ class TestReconSuccess(TestCase):
         # present.
         app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
         self.assertEqual(sorted(app.get_ring_md5().items()),
-                         sorted(expt_out.items()))
+                         sorted(expt_out[sys.byteorder].items()))
 
     @patch_policies([
         StoragePolicy(0, 'zero', is_default=True),
@@ -450,19 +484,25 @@ class TestReconSuccess(TestCase):
     def test_get_ring_md5_excludes_unconfigured_present_obj_rings(self):
         # Object rings that are present but not configured in swift.conf
         # aren't meant to appear in the ringmd5 response.
-        expt_out = {'%s/account.ring.gz' % self.tempdir:
-                    '11e0c98abb209474d40d6a9a8a523803',
-                    '%s/container.ring.gz' % self.tempdir:
-                    '6685496a4045ce0be123068e0165a64d',
-                    '%s/object.ring.gz' % self.tempdir:
-                    '782728be98644fb725e165d4bf5728d4'}
+        expt_out = {'little': {'%s/account.ring.gz' % self.tempdir:
+                               '672c6c50dfcb77e04f5a2124aef87596',
+                               '%s/container.ring.gz' % self.tempdir:
+                               '4c4392f8bf816596990ca7cd4d4b6e50',
+                               '%s/object.ring.gz' % self.tempdir:
+                               'a34178f7399706e41395eb3ac8b2c4f3'},
+                    'big': {'%s/account.ring.gz' % self.tempdir:
+                            '70d2dde8144c09e5b42858e0fa17ab7e',
+                            '%s/container.ring.gz' % self.tempdir:
+                            '0bd14f4327cbea88bde7ab7850d4d77d',
+                            '%s/object.ring.gz' % self.tempdir:
+                            '2d17555687af36fd8c7ee5b0c492c582'}}
 
         # We need to instantiate app after overriding the configured policies.
         # object-{1,2}.ring.gz should not appear as they are present on disk
         # but were not configured as policies.
         app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
         self.assertEqual(sorted(app.get_ring_md5().items()),
-                         sorted(expt_out.items()))
+                         sorted(expt_out[sys.byteorder].items()))
 
     def test_from_recon_cache(self):
         oart = OpenAndReadTester(['{"notneeded": 5, "testkey1": "canhazio"}'])
