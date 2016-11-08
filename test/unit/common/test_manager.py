@@ -605,12 +605,12 @@ class TestServer(unittest.TestCase):
             manager.RUN_DIR = t
             server = manager.Server('proxy', run_dir=t)
             # test get one file
-            iter = server.iter_pid_files()
-            pid_file, pid = next(iter)
+            iterator = server.iter_pid_files()
+            pid_file, pid = next(iterator)
             self.assertEqual(pid_file, self.join_run_dir('proxy-server.pid'))
             self.assertEqual(pid, 1)
             # ... and only one file
-            self.assertRaises(StopIteration, iter.next)
+            self.assertRaises(StopIteration, iterator.next)
             # test invalid value in pid file
             server = manager.Server('auth', run_dir=t)
             pid_file, pid = next(server.iter_pid_files())
