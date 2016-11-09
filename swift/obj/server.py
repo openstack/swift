@@ -686,7 +686,7 @@ class ObjectController(BaseStorageServer):
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
         except DiskFileDeleted as e:
-            orig_metadata = e.metadata
+            orig_metadata = {}
             orig_timestamp = e.timestamp
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
