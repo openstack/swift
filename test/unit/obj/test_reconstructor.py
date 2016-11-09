@@ -1145,6 +1145,9 @@ class TestObjectReconstructor(unittest.TestCase):
         # directly, so you end up with a /0 when you try to show the
         # percentage of complete jobs as ratio of the total job count
         self.reconstructor.job_count = 1
+        # if we ever let a test through without properly patching the
+        # REPLICATE and SSYNC calls - let's fail sort fast-ish
+        self.reconstructor.lockup_timeout = 3
 
     def tearDown(self):
         self.reconstructor._reset_stats()
@@ -1153,6 +1156,29 @@ class TestObjectReconstructor(unittest.TestCase):
 
     def ts(self):
         return next(self.ts_iter)
+
+    def test_two_ec_policies(self):
+        with patch_policies([
+                StoragePolicy(0, name='zero', is_deprecated=True),
+                ECStoragePolicy(1, name='one', is_default=True,
+                                ec_type=DEFAULT_TEST_EC_TYPE,
+                                ec_ndata=4, ec_nparity=3),
+                ECStoragePolicy(2, name='two',
+                                ec_type=DEFAULT_TEST_EC_TYPE,
+                                ec_ndata=8, ec_nparity=2)],
+                            fake_ring_args=[
+                                {}, {'replicas': 7}, {'replicas': 10}]):
+            self._configure_reconstructor()
+            jobs = []
+
+            def process_job(job):
+                jobs.append(job)
+
+            self.reconstructor.process_job = process_job
+
+            os.makedirs(os.path.join(self.devices, 'sda', 'objects-1', '0'))
+            self.reconstructor.run_once()
+            self.assertEqual(1, len(jobs))
 
     def test_collect_parts_skips_non_ec_policy_and_device(self):
         stub_parts = (371, 78, 419, 834)
