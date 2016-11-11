@@ -787,6 +787,27 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                         'Unexpected file %s'
                         % os.path.join(datadir, unexpected)))
 
+    def test_get_ondisk_files_no_rsync_temp_file_warning(self):
+        # get_ondisk_files logs no warnings for rsync temp files
+
+        class_under_test = self._get_diskfile(POLICIES[0])
+        files = [
+            '.1472017820.44503.data.QBYCYU',  # rsync tempfile for a .data
+            '.total-bs.abcdef',   # example of false positive
+        ]
+        paths = [os.path.join(class_under_test._datadir, f) for f in files]
+        expected = {'unexpected': paths}
+        results = class_under_test._get_ondisk_files(files)
+        for k, v in expected.items():
+            self.assertEqual(results[k], v)
+        # no warnings
+        self.assertFalse(self.logger.get_lines_for_level('warning'))
+        # but we do get a debug!
+        lines = self.logger.get_lines_for_level('debug')
+        for path in paths:
+            expected_msg = 'Rsync tempfile: %s' % path
+            self.assertIn(expected_msg, lines)
+
     def test_cleanup_ondisk_files_reclaim_non_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set or 'survives' is True, the filename
@@ -1241,15 +1262,6 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
         with mock.patch('swift.obj.diskfile.os.listdir', lambda *args: files):
             self.assertRaises(DiskFileNotExist, class_under_test.open)
-
-    def test_get_ondisk_files_no_rsync_temp_file_warning(self):
-        # get_ondisk_files logs no warnings for rsync temp files
-
-        class_under_test = self._get_diskfile(POLICIES[0])
-        files = ['.1472017820.44503.data.QBYCYU']
-        class_under_test._get_ondisk_files(files)
-        lines = self.logger.get_lines_for_level('warning')
-        self.assertFalse(lines)
 
     def test_verify_ondisk_files(self):
         # ._verify_ondisk_files should only return False if get_ondisk_files
