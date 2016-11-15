@@ -88,6 +88,7 @@ Response Parameters
    - X-History-Location: X-History-Location_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Content_Type: Content-Type_listing_resp
    - Date: Date
    - hash: hash
@@ -146,6 +147,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx7f6b7fa09bc2443a94df0-0052d58b56
+     X-Openstack-Request-Id: tx7f6b7fa09bc2443a94df0-0052d58b56
      Date: Tue, 14 Jan 2014 19:09:10 GMT
 
 
@@ -164,6 +166,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx06021f10fc8642b2901e7-0052d58f37
+     X-Openstack-Request-Id: tx06021f10fc8642b2901e7-0052d58f37
      Date: Tue, 14 Jan 2014 19:25:43 GMT
 
 - Create a container with an ACL to allow anybody to get an object in the
@@ -180,6 +183,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx06021f10fc8642b2901e7-0052d58f37
+     X-Openstack-Request-Id: tx06021f10fc8642b2901e7-0052d58f37
      Date: Tue, 14 Jan 2014 19:25:43 GMT
 
 Error response codes:201,204,
@@ -222,6 +226,7 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
 
 
 
@@ -273,6 +278,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx05dbd434c651429193139-0052d82635
+     X-Openstack-Request-Id: tx05dbd434c651429193139-0052d82635
      Date: Thu, 16 Jan 2014 18:34:29 GMT
 
 
@@ -291,6 +297,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: txe60c7314bf614bb39dfe4-0052d82653
+     X-Openstack-Request-Id: txe60c7314bf614bb39dfe4-0052d82653
      Date: Thu, 16 Jan 2014 18:34:59 GMT
 
 
@@ -309,6 +316,7 @@ Example requests and responses:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx7997e18da2a34a9e84ceb-0052d826d0
+     X-Openstack-Request-Id: tx7997e18da2a34a9e84ceb-0052d826d0
      Date: Thu, 16 Jan 2014 18:37:04 GMT
 
 
@@ -360,6 +368,7 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
 
 
 
@@ -393,6 +402,7 @@ Show container metadata request:
    X-Container-Bytes-Used: 14
    Content-Type: text/plain; charset=utf-8
    X-Trans-Id: tx0287b982a268461b9ec14-0052d826e2
+   X-Openstack-Request-Id: tx0287b982a268461b9ec14-0052d826e2
    Date: Thu, 16 Jan 2014 18:37:22 GMT
 
 
@@ -439,6 +449,7 @@ Response Parameters
    - X-Container-Sync-To: X-Container-Sync-To_resp
    - Date: Date
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Content-Type: Content-Type_cud_resp
    - X-Versions-Location: X-Versions-Location_resp
    - X-History-Location: X-History-Location_resp
@@ -473,6 +484,7 @@ If the container does not exist, the response is:
    Content-Length: 70
    Content-Type: text/html; charset=UTF-8
    X-Trans-Id: tx4d728126b17b43b598bf7-0052d81e34
+   X-Openstack-Request-Id: tx4d728126b17b43b598bf7-0052d81e34
    Date: Thu, 16 Jan 2014 18:00:20 GMT
 
 
@@ -484,6 +496,7 @@ If the container exists and the deletion succeeds, the response is:
    Content-Length: 0
    Content-Type: text/html; charset=UTF-8
    X-Trans-Id: txf76c375ebece4df19c84c-0052d81f14
+   X-Openstack-Request-Id: txf76c375ebece4df19c84c-0052d81f14
    Date: Thu, 16 Jan 2014 18:04:04 GMT
 
 
@@ -495,6 +508,7 @@ If the container exists but is not empty, the response is:
    Content-Length: 95
    Content-Type: text/html; charset=UTF-8
    X-Trans-Id: tx7782dc6a97b94a46956b5-0052d81f6b
+   X-Openstack-Request-Id: tx7782dc6a97b94a46956b5-0052d81f6b
    Date: Thu, 16 Jan 2014 18:05:31 GMT
    <html>
    <h1>Conflict
@@ -528,6 +542,7 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
 
 
 

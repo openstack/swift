@@ -51,6 +51,7 @@ Example requests and responses:
      X-Object-Meta-Orig-Filename: goodbyeworld.txt
      Content-Type: application/octet-stream
      X-Trans-Id: tx8145a190241f4cf6b05f5-0052d82a34
+     X-Openstack-Request-Id: tx8145a190241f4cf6b05f5-0052d82a34
      Date: Thu, 16 Jan 2014 18:51:32 GMT
      Goodbye World!
 
@@ -71,6 +72,7 @@ Example requests and responses:
      Content-Length: 70
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx073f7cbb850c4c99934b9-0052d82b04
+     X-Openstack-Request-Id: tx073f7cbb850c4c99934b9-0052d82b04
      Date: Thu, 16 Jan 2014 18:55:00 GMT
      <html>
      <h1>Not Found
@@ -134,6 +136,7 @@ Response Parameters
    - ETag: ETag_obj_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - X-Static-Large-Object: X-Static-Large-Object
 
@@ -187,6 +190,7 @@ Example requests and responses:
      Etag: 8b1a9953c4611296a827abf8c47804d7
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx4d5e4f06d357462bb732f-0052d96843
+     X-Openstack-Request-Id: tx4d5e4f06d357462bb732f-0052d96843
      Date: Fri, 17 Jan 2014 17:28:35 GMT
 
 
@@ -207,6 +211,7 @@ Example requests and responses:
      Etag: f688ae26e9cfa3ba6235477831d5122e
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx4d5e4f06d357462bb732f-0052d96843
+     X-Openstack-Request-Id: tx4d5e4f06d357462bb732f-0052d96843
      Date: Fri, 17 Jan 2014 17:28:35 GMT
 
 
@@ -263,6 +268,7 @@ Response Parameters
    - ETag: ETag_obj_received
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - Content-Type: Content-Type_obj_resp
    - last_modified: last_modified
@@ -337,6 +343,7 @@ Example requests and responses:
      Content-Type: text/html; charset=UTF-8
      X-Object-Meta-Movie: AmericanPie
      X-Trans-Id: txdcb481ad49d24e9a81107-0052d97501
+     X-Openstack-Request-Id: txdcb481ad49d24e9a81107-0052d97501
      Date: Fri, 17 Jan 2014 18:22:57 GMT
 
 
@@ -363,6 +370,7 @@ Example requests and responses:
      Content-Type: text/html; charset=UTF-8
      X-Object-Meta-Movie: AmericanPie
      X-Trans-Id: txdcb481ad49d24e9a81107-0052d97501
+     X-Openstack-Request-Id: txdcb481ad49d24e9a81107-0052d97501
      Date: Fri, 17 Jan 2014 18:22:57 GMT
 
 
@@ -407,6 +415,7 @@ Response Parameters
    - ETag: ETag_obj_copied
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - Content-Type: Content-Type_obj_resp
 
@@ -450,6 +459,7 @@ Example request and response:
      Content-Length: 0
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx36c7606fcd1843f59167c-0052d6fdac
+     X-Openstack-Request-Id: tx36c7606fcd1843f59167c-0052d6fdac
      Date: Wed, 15 Jan 2014 21:29:16 GMT
 
 
@@ -485,6 +495,7 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
 
 
 
@@ -521,6 +532,7 @@ Example requests and responses:
      X-Object-Meta-Book: GoodbyeColumbus
      Content-Type: application/octet-stream
      X-Trans-Id: tx37ea34dcd1ed48ca9bc7d-0052d84b6f
+     X-Openstack-Request-Id: tx37ea34dcd1ed48ca9bc7d-0052d84b6f
      Date: Thu, 16 Jan 2014 21:13:19 GMT
 
   Note: The ``--head`` option was used in the above example. If we had
@@ -571,6 +583,7 @@ Response Parameters
    - ETag: ETag_obj_resp
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
    - Date: Date
    - X-Static-Large-Object: X-Static-Large-Object
    - Content-Type: Content-Type_obj_resp
@@ -653,6 +666,7 @@ Example requests and responses:
      Content-Length: 76
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: txb5fb5c91ba1f4f37bb648-0052d84b3f
+     X-Openstack-Request-Id: txb5fb5c91ba1f4f37bb648-0052d84b3f
      Date: Thu, 16 Jan 2014 21:12:31 GMT
      <html>
      <h1>Accepted
@@ -677,6 +691,7 @@ Example requests and responses:
      Content-Length: 76
      Content-Type: text/html; charset=UTF-8
      X-Trans-Id: tx5ec7ab81cdb34ced887c8-0052d84ca4
+     X-Openstack-Request-Id: tx5ec7ab81cdb34ced887c8-0052d84ca4
      Date: Thu, 16 Jan 2014 21:18:28 GMT
      <html>
      <h1>Accepted
@@ -719,6 +734,7 @@ Response Parameters
    - Content-Length: Content-Length_cud_resp
    - Content-Type: Content-Type_cud_resp
    - X-Trans-Id: X-Trans-Id
+   - X-Openstack-Request-Id: X-Openstack-Request-Id
 
 
 
