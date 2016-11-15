@@ -936,7 +936,7 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 			continue
 		}
 		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, policy.Index); err != nil {
-			return nil, fmt.Errorf("Unable to load ring.")
+			return nil, fmt.Errorf("Unable to load ring for Policy %d.", policy.Index)
 		}
 	}
 	if replicator.logger, err = hummingbird.SetupLogger(serverconf, flags, "app:object-replicator", "object-replicator"); err != nil {
