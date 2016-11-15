@@ -239,7 +239,7 @@ def cors_validation(func):
                 expose_headers = set([
                     'cache-control', 'content-language', 'content-type',
                     'expires', 'last-modified', 'pragma', 'etag',
-                    'x-timestamp', 'x-trans-id'])
+                    'x-timestamp', 'x-trans-id', 'x-openstack-request-id'])
                 for header in resp.headers:
                     if header.startswith('X-Container-Meta') or \
                             header.startswith('X-Object-Meta'):

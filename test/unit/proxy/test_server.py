@@ -5221,11 +5221,11 @@ class TestObjectController(unittest.TestCase):
         exposed = set(
             h.strip() for h in
             resp.headers['access-control-expose-headers'].split(','))
-        expected_exposed = set(['cache-control', 'content-language',
-                                'content-type', 'expires', 'last-modified',
-                                'pragma', 'etag', 'x-timestamp',
-                                'x-trans-id', 'x-object-meta-color',
-                                'x-object-meta-color-ex'])
+        expected_exposed = set([
+            'cache-control', 'content-language', 'content-type', 'expires',
+            'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+            'x-openstack-request-id', 'x-object-meta-color',
+            'x-object-meta-color-ex'])
         self.assertEqual(expected_exposed, exposed)
 
         # test allow_origin *
@@ -5272,10 +5272,10 @@ class TestObjectController(unittest.TestCase):
         exposed = set(
             h.strip() for h in
             resp.headers['access-control-expose-headers'].split(','))
-        expected_exposed = set(['cache-control', 'content-language',
-                                'content-type', 'expires', 'last-modified',
-                                'pragma', 'etag', 'x-timestamp',
-                                'x-trans-id', 'x-object-meta-color'])
+        expected_exposed = set([
+            'cache-control', 'content-language', 'content-type', 'expires',
+            'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+            'x-openstack-request-id', 'x-object-meta-color'])
         self.assertEqual(expected_exposed, exposed)
 
         # test allow_origin empty
@@ -7534,10 +7534,10 @@ class TestContainerController(unittest.TestCase):
             exposed = set(
                 h.strip() for h in
                 resp.headers['access-control-expose-headers'].split(','))
-            expected_exposed = set(['cache-control', 'content-language',
-                                    'content-type', 'expires', 'last-modified',
-                                    'pragma', 'etag', 'x-timestamp',
-                                    'x-trans-id', 'x-container-meta-color'])
+            expected_exposed = set([
+                'cache-control', 'content-language', 'content-type', 'expires',
+                'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+                'x-openstack-request-id', 'x-container-meta-color'])
             self.assertEqual(expected_exposed, exposed)
 
     def _gather_x_account_headers(self, controller_call, req, *connect_args,
