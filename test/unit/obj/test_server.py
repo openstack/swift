@@ -1019,8 +1019,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual((node, 99, 'PUT', '/a/c/o'),
                          mock_update.call_args_list[0][0][0:4])
         actual_headers = mock_update.call_args_list[0][0][4]
-        self.assertTrue(
-            actual_headers.pop('user-agent').startswith('object-updater'))
+        # User-Agent is updated.
+        expected_post_headers['User-Agent'] = 'object-updater %s' % os.getpid()
         self.assertDictEqual(expected_post_headers, actual_headers)
         self.assertFalse(
             os.listdir(os.path.join(
