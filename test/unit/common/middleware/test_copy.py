@@ -521,24 +521,16 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_copy_with_no_object_in_x_copy_from_and_account(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c',
                                      'X-Copy-From-Account': 'a'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_copy_with_bad_x_copy_from_account(self):
         req = Request.blank('/v1/a/c/o',
@@ -546,12 +538,8 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c/o',
                                      'X-Copy-From-Account': '/i/am/bad'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_copy_server_error_reading_source(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPServiceUnavailable, {})
@@ -992,36 +980,27 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': 'c_o'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_COPY_account_no_object_in_destination(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': 'c_o',
                                      'Destination-Account': 'a1'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_COPY_account_bad_destination_account(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': '/c/o',
                                      'Destination-Account': '/i/am/bad'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_COPY_server_error_reading_source(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPServiceUnavailable, {})

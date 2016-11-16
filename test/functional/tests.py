@@ -1600,6 +1600,12 @@ class TestFile(Base):
                          cfg={'destination': Utils.create_name()}))
         self.assert_status(412)
 
+        # too many slashes
+        self.assertFalse(file_item.copy(Utils.create_name(),
+                         Utils.create_name(),
+                         cfg={'destination': '//%s' % Utils.create_name()}))
+        self.assert_status(412)
+
     def testCopyFromHeader(self):
         source_filename = Utils.create_name()
         file_item = self.env.container.file(source_filename)
