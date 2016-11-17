@@ -816,12 +816,12 @@ X-Trans-Id-Extra:
     Extra transaction information. Use the ``X-Trans-Id-Extra``
     request header to include extra information to help you
     debug any errors that might occur with large object upload and
-    other Object Storage transactions.  Object Storage appends the
+    other Object Storage transactions.  The server appends the
     first 32 characters of the ``X-Trans-Id-Extra`` request header
     value to the transaction ID value in the generated ``X-Trans-Id``
     response header. You must UTF-8-encode and then URL-encode the
-    extra transaction information before you include it in the ``X
-    -Trans-Id-Extra`` request header.  For example, you can include
+    extra transaction information before you include it in the
+    ``X-Trans-Id-Extra`` request header.  For example, you can include
     extra transaction information when you upload `large objects
     <http://docs.openstack.org/developer/swift/api/large_objects.html>`_
     such as images. When
