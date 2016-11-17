@@ -398,7 +398,8 @@ X-Container-Meta-Access-Control-Expose-Headers:
     - All “simple response headers” as listed on
       `http://www.w3.org/TR/cors/#simple-response-header
       <http://www.w3.org/TR/cors/#simple-response-header>`_.
-    - The headers ``etag``, ``x-timestamp``, ``x-trans-id``.
+    - The headers ``etag``, ``x-timestamp``, ``x-trans-id``,
+      ``x-openstack-request-id``.
     - All metadata headers (``X-Container-Meta-*`` for containers and
       ``X-Object-Meta-*`` for objects).
     - headers listed in ``X-Container-Meta-Access-Control-Expose-Headers``.

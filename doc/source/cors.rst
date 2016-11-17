@@ -43,7 +43,8 @@ returns the following values for this header,
 
 * "simple response headers" as listed on
   http://www.w3.org/TR/cors/#simple-response-header
-* the headers ``etag``, ``x-timestamp``, ``x-trans-id``
+* the headers ``etag``, ``x-timestamp``, ``x-trans-id``,
+  ``x-openstack-request-id``
 * all metadata headers (``X-Container-Meta-*`` for containers and
   ``X-Object-Meta-*`` for objects)
 * headers listed in ``X-Container-Meta-Access-Control-Expose-Headers``
