@@ -801,14 +801,14 @@ class RingBuilder(object):
                 return
             to_place = defaultdict(int)
             for t in sub_tiers:
-                to_place[t] = int(math.floor(
-                    replica_plan[t]['target'] * self.parts))
+                to_place[t] = min(parts, int(math.floor(
+                    replica_plan[t]['target'] * self.parts)))
                 parts -= to_place[t]
 
             # if there's some parts left over, just throw 'em about
             sub_tier_gen = itertools.cycle(sorted(
                 sub_tiers, key=lambda t: replica_plan[t]['target']))
-            while parts:
+            while parts > 0:
                 t = next(sub_tier_gen)
                 to_place[t] += 1
                 parts -= 1
