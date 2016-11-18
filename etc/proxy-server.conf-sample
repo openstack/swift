@@ -698,10 +698,17 @@ use = egg:swift#slo
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
 #
-# When deleting with ?multipart-manifest=delete, multiple deletes may be
-# executed in parallel. Avoid setting this too high, as it gives clients a
-# force multiplier which may be used in DoS attacks. The suggested range is
-# between 2 and 10.
+# When creating an SLO, multiple segment validations may be executed in
+# parallel. Further, multiple deletes may be executed in parallel when deleting
+# with ?multipart-manifest=delete. Use this setting to limit how many
+# subrequests may be executed concurrently. Avoid setting it too high, as it
+# gives clients a force multiplier which may be used in DoS attacks. The
+# suggested range is between 2 and 10.
+# concurrency = 2
+#
+# This may be used to separately tune validation and delete concurrency values.
+# Default is to use the concurrency value from above; all of the same caveats
+# apply regarding recommended ranges.
 # delete_concurrency = 2
 
 # Note: Put after auth and staticweb in the pipeline.
