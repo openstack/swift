@@ -292,10 +292,12 @@ class TestRingBuilder(unittest.TestCase):
         #   >>> bin(int(struct.pack('!f', 1.0/(33)).encode('hex'), 16))
         #   '0b111100111110000011111000010000'
         rb = ring.RingBuilder(8, 3, 1)
-        for id, (region, zone) in enumerate(11 * [(0, 0), (1, 10), (1, 11)]):
-            rb.add_dev({'id': id, 'region': region, 'zone': zone, 'weight': 1,
-                        'ip': '127.0.0.1', 'port': 10000 + region * 100 + zone,
-                        'device': 'sda%d' % id})
+        for dev_id, (region, zone) in enumerate(
+                11 * [(0, 0), (1, 10), (1, 11)]):
+            rb.add_dev({'id': dev_id, 'region': region, 'zone': zone,
+                        'weight': 1, 'ip': '127.0.0.1',
+                        'port': 10000 + region * 100 + zone,
+                        'device': 'sda%d' % dev_id})
         rb.rebalance()
         self.assertEqual(self._partition_counts(rb, 'zone'),
                          {0: 256, 10: 256, 11: 256})
