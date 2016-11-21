@@ -1,3 +1,38 @@
+swift (2.10.1, stable release update)
+
+    * Closed a bug where ssync may have written bad fragment data in
+      some circumstances. A check was added to ensure the correct number
+      of bytes is written for a fragment before finalizing the write.
+      Also, erasure coded fragment metadata will now be validated when read
+      and, if bad data is found, the fragment will be quarantined.
+
+    * Fixed regression in consolidate_hashes that occured when a new
+      file was stored to new suffix to a non-empty partition. This bug
+      was introduced in 2.7.0 and could cause an increase in rsync
+      replication stats during and after upgrade, due to inconsistent
+      hashing of partition suffixes.
+
+    * Fixed non-deterministic suffix updates in hashes.pkl where a partition
+      may be updated much less often than expected.
+
+    * Fixed a rare infinite loop in `swift-ring-builder` while placing parts.
+
+    * Fixed the KeyError message when auditor finds an expired object.
+
+    * Added a "user" option to the drive-audit config file. Its value is
+      used to set the owner of the drive-audit recon cache.
+
+    * Throttle update_auditor_status calls so it updates no more than once
+      per minute. This prevents excessive IO on a new cluster.
+
+    * Daemons using InternalClient can now be properly killed with SIGTERM.
+
+    * Added a configurable URL base to staticweb, fixing issues when the
+      accessible endpoint isn't known to the Swift cluster (eg http vs https).
+
+    * Removed "in-process-" from func env tox name to work with upstream CI.
+
+
 swift (2.10.0, OpenStack Newton)
 
     * Object versioning now supports a "history" mode in addition to
