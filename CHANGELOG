@@ -1,3 +1,30 @@
+swift (2.7.1, stable release update)
+
+    * Closed a bug where ssync may have written bad fragment data in
+      some circumstances. A check was added to ensure the correct number
+      of bytes is written for a fragment before finalizing the write.
+      Also, erasure coded fragment metadata will now be validated on read
+      requests and, if bad data is found, the fragment will be quarantined.
+
+    * Fixed regression in consolidate_hashes that occured when a new
+      file was stored to new suffix to a non-empty partition. This bug
+      was introduced in 2.7.0 and could cause an increase in rsync
+      replication stats during and after upgrade, due to inconsistent
+      hashing of partition suffixes.
+
+    * Fixed non-deterministic suffix updates in hashes.pkl where a partition
+      may be updated much less often than expected.
+
+    * Fixed a rare infinite loop in `swift-ring-builder` while placing parts.
+
+    * Fixed upgrade bug in versioned_writes where older containers servers
+      may have caused out-of-order restores.
+
+    * The object auditor now ignores files in the devices directory when
+      auditing objects.
+
+    * Removed "in-process-" from func env tox name to work with upstream CI.
+
 swift (2.7.0, OpenStack Mitaka)
 
     * Bump PyECLib requirement to >= 1.2.0
