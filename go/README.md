@@ -17,7 +17,8 @@ complete enough to run simple GET, PUT, and DELETE benchmarks.
 Prerequisites: SAIO
 -------------------
 
-First, you should have a working [SAIO][2] with no storage policies.
+First, you should have a working [SAIO][2] with only replication type storage
+policies configured in `/etc/swift.conf`.
 
 You will also need to configure your syslog to listen for UDP packets. If
 you're using rsyslog or a standard SAIO, simply uncomment these two lines in
