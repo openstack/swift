@@ -7,16 +7,17 @@
 # Ying Chun Guo <daisy.ycguo@gmail.com>, 2015
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Eunseop Shin <kairos9603@gmail.com>, 2016. #zanata
+# SeongSoo Cho <nexusz99@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.10.1.dev5\n"
+"Project-Id-Version: swift 2.10.1.dev16\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-11-01 21:27+0000\n"
+"POT-Creation-Date: 2016-11-20 23:59+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-10-21 02:17+0000\n"
-"Last-Translator: Eunseop Shin <kairos9603@gmail.com>\n"
+"PO-Revision-Date: 2016-11-22 02:19+0000\n"
+"Last-Translator: SeongSoo Cho <nexusz99@gmail.com>\n"
 "Language: ko-KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "Generated-By: Babel 2.0\n"
@@ -66,6 +67,10 @@ msgid ""
 msgstr ""
 "%(replicated)d/%(total)d(%(percentage).2f%%)개 파티션이 %(time).2f초"
 "(%(rate).2f/초, %(remaining)s 남음) 안에 복제됨"
+
+#, python-format
+msgid "%(replication_ip)s/%(device)s responded as unmounted"
+msgstr "%(replication_ip)s/%(device)s 가 마운트되지 않았음"
 
 #, python-format
 msgid "%(server)s #%(number)d not running (%(conf)s)"
@@ -307,6 +312,10 @@ msgid ""
 msgstr ""
 "%(path)s의 컨테이너 업데이트 스윕 완료: %(elapsed).02fs, %(success)s개 성공, "
 "%(fail)s개 실패, %(no_change)s개 변경 없음"
+
+#, python-format
+msgid "Could not autocreate account %r"
+msgstr "%r 계정을 자동 생성하지 못하였습니다."
 
 #, python-format
 msgid ""
@@ -745,6 +754,10 @@ msgid "No realm key for %r"
 msgstr "%r에 대한 영역 키가 없음"
 
 #, python-format
+msgid "No space left on device for %(file)s (%(err)s)"
+msgstr "%(file)s를 저장할 디스크 공간이 없음. (%(err)s)"
+
+#, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "노드 오류로 %(ip)s:%(port)s(%(device)s)이(가) 제한됨"
 
@@ -859,6 +872,10 @@ msgstr "파티션 시간: 최대 %(max).4f초, 최소 %(min).4f초, 중간 %(med
 
 msgid "Path required in X-Container-Sync-To"
 msgstr "X-Container-Sync-To에 경로가 필요함"
+
+#, python-format
+msgid "Pipeline was modified. New pipeline is \"%s\"."
+msgstr "파이프라인이 수정되었습니다. 새로운 파이프라인은 \"%s\" 입니다."
 
 #, python-format
 msgid "Problem cleaning up %s"
@@ -1026,6 +1043,10 @@ msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s에서 제한시간 초과 예외 발생"
 
 #, python-format
+msgid "Timeout fetching fragments for %r"
+msgstr "%r 의 조각을 가져오는 동안 타임아웃이 발생하였습니다."
+
+#, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr "%(method)s %(path)s 시도 중"
 
@@ -1155,6 +1176,10 @@ msgstr "%(kill_wait)s초 동안 %(server)s을(를) 대기, 강제 종료 중"
 
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "경고: memcached 클라이언트 없이 전송률을 제한할 수 없음"
+
+#, python-format
+msgid "autocreate account %r"
+msgstr "%r 계정이 자동 생성되었습니다."
 
 #, python-format
 msgid "method %s is not allowed."
