@@ -254,7 +254,7 @@ class AccountBroker(DatabaseBroker):
         :param bytes_used: number of bytes used by the container
         :param storage_policy_index:  the storage policy for this container
         """
-        if delete_timestamp > put_timestamp and \
+        if Timestamp(delete_timestamp) > Timestamp(put_timestamp) and \
                 object_count in (None, '', 0, '0'):
             deleted = 1
         else:
@@ -501,12 +501,14 @@ class AccountBroker(DatabaseBroker):
                     for i in range(5):
                         if record[i] is None and row[i] is not None:
                             record[i] = row[i]
-                    if row[1] > record[1]:  # Keep newest put_timestamp
+                    if Timestamp(row[1]) > \
+                       Timestamp(record[1]):  # Keep newest put_timestamp
                         record[1] = row[1]
-                    if row[2] > record[2]:  # Keep newest delete_timestamp
+                    if Timestamp(row[2]) > \
+                       Timestamp(record[2]):  # Keep newest delete_timestamp
                         record[2] = row[2]
                     # If deleted, mark as such
-                    if record[2] > record[1] and \
+                    if Timestamp(record[2]) > Timestamp(record[1]) and \
                             record[3] in (None, '', 0, '0'):
                         record[5] = 1
                     else:

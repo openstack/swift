@@ -67,6 +67,43 @@ def start_server(ipport, ipport2server):
     return check_server(ipport, ipport2server)
 
 
+def _check_storage(ipport, path):
+    conn = HTTPConnection(*ipport)
+    conn.request('GET', path)
+    resp = conn.getresponse()
+    # 404 because it's a nonsense path (and mount_check is false)
+    # 507 in case the test target is a VM using mount_check
+    if resp.status not in (404, 507):
+        raise Exception(
+            'Unexpected status %s' % resp.status)
+    return resp
+
+
+def _check_proxy(ipport, user, key):
+    url, token = get_auth('http://%s:%d/auth/v1.0' % ipport,
+                          user, key)
+    account = url.split('/')[-1]
+    head_account(url, token)
+    return url, token, account
+
+
+def _retry_timeout(f, args=None, kwargs=None, timeout=CHECK_SERVER_TIMEOUT):
+    args = args or ()
+    kwargs = kwargs or {}
+    try_until = time() + timeout
+    while True:
+        try:
+            return f(*args, **kwargs)
+        except Exception as err:
+            if time() > try_until:
+                print(err)
+                fsignature = '%s(*%r, **%r)' % (f.__name__, args, kwargs)
+                print('Giving up on %s after %s seconds.' % (
+                    fsignature, timeout))
+                raise err
+            sleep(0.1)
+
+
 def check_server(ipport, ipport2server):
     server = ipport2server[ipport]
     if server[:-1] in ('account', 'container', 'object'):
@@ -77,41 +114,11 @@ def check_server(ipport, ipport2server):
             path += '/3'
         elif server[:-1] == 'object':
             path += '/3/4'
-        try_until = time() + CHECK_SERVER_TIMEOUT
-        while True:
-            try:
-                conn = HTTPConnection(*ipport)
-                conn.request('GET', path)
-                resp = conn.getresponse()
-                # 404 because it's a nonsense path (and mount_check is false)
-                # 507 in case the test target is a VM using mount_check
-                if resp.status not in (404, 507):
-                    raise Exception(
-                        'Unexpected status %s' % resp.status)
-                break
-            except Exception as err:
-                if time() > try_until:
-                    print(err)
-                    print('Giving up on %s:%s after %s seconds.' % (
-                        server, ipport, CHECK_SERVER_TIMEOUT))
-                    raise err
-                sleep(0.1)
+        rv = _retry_timeout(_check_storage, args=(ipport, path))
     else:
-        try_until = time() + CHECK_SERVER_TIMEOUT
-        while True:
-            try:
-                url, token = get_auth('http://%s:%d/auth/v1.0' % ipport,
-                                      'test:tester', 'testing')
-                account = url.split('/')[-1]
-                head_account(url, token)
-                return url, token, account
-            except Exception as err:
-                if time() > try_until:
-                    print(err)
-                    print('Giving up on proxy:8080 after 30 seconds.')
-                    raise err
-                sleep(0.1)
-    return None
+        rv = _retry_timeout(_check_proxy, args=(
+            ipport, 'test:tester', 'testing'))
+    return rv
 
 
 def kill_server(ipport, ipport2server):
@@ -361,6 +368,14 @@ class ProbeTest(unittest.TestCase):
             self.ipport2server[proxy_ipport] = 'proxy'
             self.url, self.token, self.account = check_server(
                 proxy_ipport, self.ipport2server)
+            self.account_1 = {
+                'url': self.url, 'token': self.token, 'account': self.account}
+
+            rv = _retry_timeout(_check_proxy, args=(
+                proxy_ipport, 'test2:tester2', 'testing2'))
+            self.account_2 = {
+                k: v for (k, v) in zip(('url', 'token', 'account'), rv)}
+
             self.replicators = Manager(
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])

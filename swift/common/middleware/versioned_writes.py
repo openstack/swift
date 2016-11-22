@@ -15,21 +15,48 @@
 
 """
 Object versioning in swift is implemented by setting a flag on the container
-to tell swift to version all objects in the container. The flag is the
-``X-Versions-Location`` header on the container, and its value is the
-container where the versions are stored.
+to tell swift to version all objects in the container. The value of the flag is
+the container where the versions are stored (commonly referred to as the
+"archive container"). The flag itself is one of two headers, which determines
+how object ``DELETE`` requests are handled:
+
+  * ``X-History-Location``
+
+    On ``DELETE``, copy the current version of the object to the archive
+    container, write a zero-byte "delete marker" object that notes when the
+    delete took place, and delete the object from the versioned container. The
+    object will no longer appear in container listings for the versioned
+    container and future requests there will return ``404 Not Found``. However,
+    the content will still be recoverable from the archive container.
+
+  * ``X-Versions-Location``
+
+    On ``DELETE``, only remove the current version of the object. If any
+    previous versions exist in the archive container, the most recent one is
+    copied over the current version, and the copy in the archive container is
+    deleted. As a result, if you have 5 total versions of the object, you must
+    delete the object 5 times for that object name to start responding with
+    ``404 Not Found``.
+
+Either header may be used for the various containers within an account, but
+only one may be set for any given container. Attempting to set both
+simulataneously will result in a ``400 Bad Request`` response.
 
 .. note::
-    It is recommended to use a different ``X-Versions-Location`` container for
+    It is recommended to use a different archive container for
     each container that is being versioned.
+
+.. note::
+    Enabling versioning on an archive container is not recommended.
 
 When data is ``PUT`` into a versioned container (a container with the
 versioning flag turned on), the existing data in the file is redirected to a
-new object and the data in the ``PUT`` request is saved as the data for the
-versioned object. The new object name (for the previous version) is
-``<archive_container>/<length><object_name>/<timestamp>``, where ``length``
-is the 3-character zero-padded hexadecimal length of the ``<object_name>`` and
-``<timestamp>`` is the timestamp of when the previous version was created.
+new object in the archive container and the data in the ``PUT`` request is
+saved as the data for the versioned object. The new object name (for the
+previous version) is ``<archive_container>/<length><object_name>/<timestamp>``,
+where ``length`` is the 3-character zero-padded hexadecimal length of the
+``<object_name>`` and ``<timestamp>`` is the timestamp of when the previous
+version was created.
 
 A ``GET`` to a versioned object will return the current version of the object
 without having to do any request redirects or metadata lookups.
@@ -39,38 +66,14 @@ but will not create a new version of the object. In other words, new versions
 are only created when the content of the object changes.
 
 A ``DELETE`` to a versioned object will be handled in one of two ways,
-depending on the value of a ``X-Versions-Mode`` header set on the container.
-The available modes are:
-
-  * ``stack``
-
-    Only remove the current version of the object. If any previous versions
-    exist in the archive container, the most recent one is copied over the
-    current version, and the copy in the archive container is deleted. As a
-    result, if you have 5 total versions of the object, you must delete the
-    object 5 times to completely remove the object. This is the default
-    behavior if ``X-Versions-Mode`` has not been set for the container.
-
-  * ``history``
-
-    Copy the current version of the object to the archive container, write
-    a zero-byte "delete marker" object that notes when the delete took place,
-    and delete the object from the versioned container. The object will no
-    longer appear in container listings for the versioned container and future
-    requests there will return 404 Not Found. However, the content will still
-    be recoverable from the archive container.
-
-.. note::
-    While it is possible to switch between 'stack' and 'history' mode on a
-    container, it is not recommended.
+as described above.
 
 To restore a previous version of an object, find the desired version in the
 archive container then issue a ``COPY`` with a ``Destination`` header
-indicating the original location. This will retain a copy of the current
-version similar to a ``PUT`` over the versioned object. Additionally, if the
-container is in ``stack`` mode and the client wishes to permanently delete the
-current version, it may issue a ``DELETE`` to the versioned object as
-described above.
+indicating the original location. This will archive the current version similar
+to a ``PUT`` over the versioned object. If the client additionally wishes to
+permanently delete what was the current version, it must find the newly-created
+archive in the archive container and issue a separate ``DELETE`` to it.
 
 --------------------------------------------------
 How to Enable Object Versioning in a Swift Cluster
@@ -81,14 +84,22 @@ so this functionality was already available in previous releases and every
 attempt was made to maintain backwards compatibility. To allow operators to
 perform a seamless upgrade, it is not required to add the middleware to the
 proxy pipeline and the flag ``allow_versions`` in the container server
-configuration files are still valid. In future releases, ``allow_versions``
-will be deprecated in favor of adding this middleware to the pipeline to enable
-or disable the feature.
+configuration files are still valid, but only when using
+``X-Versions-Location``. In future releases, ``allow_versions`` will be
+deprecated in favor of adding this middleware to the pipeline to enable or
+disable the feature.
 
 In case the middleware is added to the proxy pipeline, you must also
 set ``allow_versioned_writes`` to ``True`` in the middleware options
 to enable the information about this middleware to be returned in a /info
 request.
+
+ .. note::
+     You need to add the middleware to the proxy pipeline and set
+     ``allow_versioned_writes = True`` to use ``X-History-Location``. Setting
+     ``allow_versions = True`` in the container server is not sufficient to
+     enable the use of ``X-History-Location``.
+
 
 Upgrade considerations:
 +++++++++++++++++++++++
@@ -96,25 +107,25 @@ Upgrade considerations:
 If ``allow_versioned_writes`` is set in the filter configuration, you can leave
 the ``allow_versions`` flag in the container server configuration files
 untouched. If you decide to disable or remove the ``allow_versions`` flag, you
-must re-set any existing containers that had the 'X-Versions-Location' flag
+must re-set any existing containers that had the ``X-Versions-Location`` flag
 configured so that it can now be tracked by the versioned_writes middleware.
 
-Clients should not use the 'history' mode until all proxies in the cluster
-have been upgraded to a version of Swift that supports it. Attempting to use
-the 'history' mode during a rolling upgrade may result in some requests being
-served by proxies running old code (which necessarily uses the 'stack' mode),
-leading to data loss.
+Clients should not use the ``X-History-Location`` header until all proxies in
+the cluster have been upgraded to a version of Swift that supports it.
+Attempting to use ``X-History-Location`` during a rolling upgrade may result
+in some requests being served by proxies running old code, leading to data
+loss.
 
--------------------------------------------
-Examples Using ``curl`` with ``stack`` Mode
--------------------------------------------
+----------------------------------------------------
+Examples Using ``curl`` with ``X-Versions-Location``
+----------------------------------------------------
 
 First, create a container with the ``X-Versions-Location`` header or add the
 header to an existing container. Also make sure the container referenced by
 the ``X-Versions-Location`` exists. In this example, the name of that
 container is "versions"::
 
-    curl -i -XPUT -H "X-Auth-Token: <token>" -H "X-Versions-Mode: stack" \
+    curl -i -XPUT -H "X-Auth-Token: <token>" \
 -H "X-Versions-Location: versions" http://<storage_url>/container
     curl -i -XPUT -H "X-Auth-Token: <token>" http://<storage_url>/versions
 
@@ -143,16 +154,16 @@ http://<storage_url>/versions?prefix=008myobject/
     curl -i -XGET -H "X-Auth-Token: <token>" \
 http://<storage_url>/container/myobject
 
----------------------------------------------
-Examples Using ``curl`` with ``history`` Mode
----------------------------------------------
+---------------------------------------------------
+Examples Using ``curl`` with ``X-History-Location``
+---------------------------------------------------
 
-As above, create a container with the ``X-Versions-Location`` header and ensure
-that the container referenced by the ``X-Versions-Location`` exists. In this
+As above, create a container with the ``X-History-Location`` header and ensure
+that the container referenced by the ``X-History-Location`` exists. In this
 example, the name of that container is "versions"::
 
-    curl -i -XPUT -H "X-Auth-Token: <token>" -H "X-Versions-Mode: history" \
--H "X-Versions-Location: versions" http://<storage_url>/container
+    curl -i -XPUT -H "X-Auth-Token: <token>" \
+-H "X-History-Location: versions" http://<storage_url>/container
     curl -i -XPUT -H "X-Auth-Token: <token>" http://<storage_url>/versions
 
 Create an object (the first version)::
@@ -194,7 +205,7 @@ To permanently delete a previous version, ``DELETE`` it from the archive
 container::
 
     curl -i -XDELETE -H "X-Auth-Token: <token>" \
-http://<storage_url>/versions/008myobject/<timestamp> \
+http://<storage_url>/versions/008myobject/<timestamp>
 
 ---------------------------------------------------
 How to Disable Object Versioning in a Swift Cluster
@@ -231,12 +242,11 @@ from swift.common.exceptions import (
     ListingIterNotFound, ListingIterError)
 
 
-VERSIONING_MODES = ('stack', 'history')
 DELETE_MARKER_CONTENT_TYPE = 'application/x-deleted;swift_versions_deleted=1'
-VERSIONS_LOC_CLIENT = 'x-versions-location'
-VERSIONS_LOC_SYSMETA = get_sys_meta_prefix('container') + 'versions-location'
-VERSIONS_MODE_CLIENT = 'x-versions-mode'
-VERSIONS_MODE_SYSMETA = get_sys_meta_prefix('container') + 'versions-mode'
+CLIENT_VERSIONS_LOC = 'x-versions-location'
+CLIENT_HISTORY_LOC = 'x-history-location'
+SYSMETA_VERSIONS_LOC = get_sys_meta_prefix('container') + 'versions-location'
+SYSMETA_VERSIONS_MODE = get_sys_meta_prefix('container') + 'versions-mode'
 
 
 class VersionedWritesContext(WSGIContext):
@@ -450,7 +460,7 @@ class VersionedWritesContext(WSGIContext):
     def handle_obj_versions_put(self, req, versions_cont, api_version,
                                 account_name, object_name):
         """
-        Copy current version of object to versions_container before proceding
+        Copy current version of object to versions_container before proceeding
         with original request.
 
         :param req: original request.
@@ -475,7 +485,7 @@ class VersionedWritesContext(WSGIContext):
         Handle DELETE requests when in history mode.
 
         Copy current version of object to versions_container and write a
-        delete marker before proceding with original request.
+        delete marker before proceeding with original request.
 
         :param req: original request.
         :param versions_cont: container where previous versions of the object
@@ -639,17 +649,18 @@ class VersionedWritesContext(WSGIContext):
             self._response_headers = []
         mode = location = ''
         for key, val in self._response_headers:
-            if key.lower() == VERSIONS_LOC_SYSMETA:
+            if key.lower() == SYSMETA_VERSIONS_LOC:
                 location = val
-            elif key.lower() == VERSIONS_MODE_SYSMETA:
+            elif key.lower() == SYSMETA_VERSIONS_MODE:
                 mode = val
 
         if location:
-            self._response_headers.extend([
-                (VERSIONS_LOC_CLIENT.title(), location)])
-        if mode:
-            self._response_headers.extend([
-                (VERSIONS_MODE_CLIENT.title(), mode)])
+            if mode == 'history':
+                self._response_headers.extend([
+                    (CLIENT_HISTORY_LOC.title(), location)])
+            else:
+                self._response_headers.extend([
+                    (CLIENT_VERSIONS_LOC.title(), location)])
 
         start_response(self._response_status,
                        self._response_headers,
@@ -665,61 +676,70 @@ class VersionedWritesMiddleware(object):
         self.logger = get_logger(conf, log_route='versioned_writes')
 
     def container_request(self, req, start_response, enabled):
-        # set version location header as sysmeta
-        if VERSIONS_LOC_CLIENT in req.headers:
-            val = req.headers.get(VERSIONS_LOC_CLIENT)
-            if val:
+        if CLIENT_VERSIONS_LOC in req.headers and \
+                CLIENT_HISTORY_LOC in req.headers:
+            if not req.headers[CLIENT_HISTORY_LOC]:
+                # defer to versions location entirely
+                del req.headers[CLIENT_HISTORY_LOC]
+            elif req.headers[CLIENT_VERSIONS_LOC]:
+                raise HTTPBadRequest(
+                    request=req, content_type='text/plain',
+                    body='Only one of %s or %s may be specified' % (
+                        CLIENT_VERSIONS_LOC, CLIENT_HISTORY_LOC))
+            else:
+                # history location is present and versions location is
+                # present but empty -- clean it up
+                del req.headers[CLIENT_VERSIONS_LOC]
+
+        if CLIENT_VERSIONS_LOC in req.headers or \
+                CLIENT_HISTORY_LOC in req.headers:
+            if CLIENT_VERSIONS_LOC in req.headers:
+                val = req.headers[CLIENT_VERSIONS_LOC]
+                mode = 'stack'
+            else:
+                val = req.headers[CLIENT_HISTORY_LOC]
+                mode = 'history'
+
+            if not val:
+                # empty value is the same as X-Remove-Versions-Location
+                req.headers['X-Remove-Versions-Location'] = 'x'
+            elif not config_true_value(enabled) and \
+                    req.method in ('PUT', 'POST'):
                 # differently from previous version, we are actually
                 # returning an error if user tries to set versions location
                 # while feature is explicitly disabled.
-                if not config_true_value(enabled) and \
-                        req.method in ('PUT', 'POST'):
-                    raise HTTPPreconditionFailed(
-                        request=req, content_type='text/plain',
-                        body='Versioned Writes is disabled')
-
+                raise HTTPPreconditionFailed(
+                    request=req, content_type='text/plain',
+                    body='Versioned Writes is disabled')
+            else:
+                # OK, we received a value, have versioning enabled, and aren't
+                # trying to set two modes at once. Validate the value and
+                # translate to sysmeta.
                 location = check_container_format(req, val)
-                req.headers[VERSIONS_LOC_SYSMETA] = location
+                req.headers[SYSMETA_VERSIONS_LOC] = location
+                req.headers[SYSMETA_VERSIONS_MODE] = mode
 
-                # reset original header to maintain sanity
+                # reset original header on container server to maintain sanity
                 # now only sysmeta is source of Versions Location
-                req.headers[VERSIONS_LOC_CLIENT] = ''
+                req.headers[CLIENT_VERSIONS_LOC] = ''
 
-                # if both headers are in the same request
+                # if both add and remove headers are in the same request
                 # adding location takes precedence over removing
-                if 'X-Remove-Versions-Location' in req.headers:
-                    del req.headers['X-Remove-Versions-Location']
-            else:
-                # empty value is the same as X-Remove-Versions-Location
-                req.headers['X-Remove-Versions-Location'] = 'x'
+                for header in ['X-Remove-Versions-Location',
+                               'X-Remove-History-Location']:
+                    if header in req.headers:
+                        del req.headers[header]
 
-        # handle removing versions container
-        val = req.headers.get('X-Remove-Versions-Location')
-        if val:
-            req.headers.update({VERSIONS_LOC_SYSMETA: '',
-                                VERSIONS_LOC_CLIENT: ''})
-            del req.headers['X-Remove-Versions-Location']
-
-        # handle versioning mode
-        if VERSIONS_MODE_CLIENT in req.headers:
-            val = req.headers.pop(VERSIONS_MODE_CLIENT)
-            if val:
-                if not config_true_value(enabled) and \
-                        req.method in ('PUT', 'POST'):
-                    raise HTTPPreconditionFailed(
-                        request=req, content_type='text/plain',
-                        body='Versioned Writes is disabled')
-                if val not in VERSIONING_MODES:
-                    raise HTTPBadRequest(
-                        request=req, content_type='text/plain',
-                        body='X-Versions-Mode must be one of %s' % ', '.join(
-                            VERSIONING_MODES))
-                req.headers[VERSIONS_MODE_SYSMETA] = val
-            else:
-                req.headers['X-Remove-Versions-Mode'] = 'x'
-
-        if req.headers.pop('X-Remove-Versions-Mode', None):
-            req.headers.update({VERSIONS_MODE_SYSMETA: ''})
+        if any(req.headers.get(header) for header in [
+                'X-Remove-Versions-Location',
+                'X-Remove-History-Location']):
+            req.headers.update({CLIENT_VERSIONS_LOC: '',
+                                SYSMETA_VERSIONS_LOC: '',
+                                SYSMETA_VERSIONS_MODE: ''})
+            for header in ['X-Remove-Versions-Location',
+                           'X-Remove-History-Location']:
+                if header in req.headers:
+                    del req.headers[header]
 
         # send request and translate sysmeta headers from response
         vw_ctx = VersionedWritesContext(self.app, self.logger)
@@ -819,8 +839,8 @@ def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
     if config_true_value(conf.get('allow_versioned_writes')):
-        register_swift_info('versioned_writes',
-                            allowed_versions_mode=VERSIONING_MODES)
+        register_swift_info('versioned_writes', allowed_flags=(
+            CLIENT_VERSIONS_LOC, CLIENT_HISTORY_LOC))
 
     def obj_versions_filter(app):
         return VersionedWritesMiddleware(app, conf)

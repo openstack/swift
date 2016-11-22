@@ -149,7 +149,7 @@ class Sender(object):
                 # was originally written to shell out to rsync which would do
                 # no such thing.
                 self.daemon.logger.exception(
-                    '%s:%s/%s/%s EXCEPTION in replication.Sender',
+                    '%s:%s/%s/%s EXCEPTION in ssync.Sender',
                     self.node.get('replication_ip'),
                     self.node.get('replication_port'),
                     self.node.get('device'), self.job.get('partition'))
@@ -163,7 +163,7 @@ class Sender(object):
             # This particular exception handler does the minimal amount as it
             # would only get called if the above except Exception handler
             # failed (bad node or job data).
-            self.daemon.logger.exception('EXCEPTION in replication.Sender')
+            self.daemon.logger.exception('EXCEPTION in ssync.Sender')
         return False, {}
 
     def connect(self):
@@ -350,6 +350,11 @@ class Sender(object):
                 if want.get('data'):
                     self.send_delete(url_path, err.timestamp)
             except exceptions.DiskFileError:
+                # DiskFileErrors are expected while opening the diskfile,
+                # before any data is read and sent. Since there is no partial
+                # state on the receiver it's ok to ignore this diskfile and
+                # continue. The diskfile may however be deleted after a
+                # successful ssync since it remains in the send_map.
                 pass
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates end'):
@@ -404,10 +409,21 @@ class Sender(object):
         msg = '\r\n'.join(msg) + '\r\n\r\n'
         with exceptions.MessageTimeout(self.daemon.node_timeout, 'send_put'):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+        bytes_read = 0
         for chunk in df.reader():
+            bytes_read += len(chunk)
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout, 'send_put chunk'):
                 self.connection.send('%x\r\n%s\r\n' % (len(chunk), chunk))
+        if bytes_read != df.content_length:
+            # Since we may now have partial state on the receiver we have to
+            # prevent the receiver finalising what may well be a bad or
+            # partially written diskfile. Unfortunately we have no other option
+            # than to pull the plug on this ssync session. If ssync supported
+            # multiphase PUTs like the proxy uses for EC we could send a bad
+            # etag in a footer of this subrequest, but that is not supported.
+            raise exceptions.ReplicationException(
+                'Sent data length does not match content-length')
 
     def send_post(self, url_path, df):
         metadata = df.get_metafile_metadata()

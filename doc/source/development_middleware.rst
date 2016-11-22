@@ -81,7 +81,11 @@ presented below::
     from swift.proxy.controllers.base import get_container_info
 
     from eventlet import Timeout
-    from eventlet.green import urllib2
+    import six
+    if six.PY3:
+        from eventlet.green.urllib import request as urllib2
+    else:
+        from eventlet.green import urllib2
 
     # x-container-sysmeta-webhook
     SYSMETA_WEBHOOK = get_sys_meta_prefix('container') + 'webhook'
@@ -141,7 +145,7 @@ presented below::
             return WebhookMiddleware(app)
         return webhook_filter
 
-In practice this middleware will call the url stored on the container as
+In practice this middleware will call the URL stored on the container as
 X-Webhook on all successful object uploads.
 
 If this example was at ``<swift-repo>/swift/common/middleware/webhook.py`` -

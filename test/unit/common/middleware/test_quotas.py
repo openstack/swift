@@ -15,7 +15,7 @@
 
 import unittest
 
-from swift.common.swob import Request, HTTPUnauthorized, HTTPOk, HTTPException
+from swift.common.swob import Request, HTTPUnauthorized, HTTPOk
 from swift.common.middleware import container_quotas, copy
 from test.unit.common.middleware.helpers import FakeSwift
 
@@ -315,9 +315,8 @@ class ContainerQuotaCopyingTestCases(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache},
                             headers={'x-copy-from': 'bad_path'})
-        with self.assertRaises(HTTPException) as catcher:
-            req.get_response(self.copy_filter)
-        self.assertEqual(412, catcher.exception.status_int)
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 412)
 
     def test_exceed_counts_quota_copy_from(self):
         self.app.register('GET', '/v1/a/c2/o2', HTTPOk,

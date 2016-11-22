@@ -24,11 +24,12 @@ import sys
 import traceback
 import unittest
 from contextlib import contextmanager
-from shutil import rmtree, copyfile
+from shutil import rmtree, copyfile, move
 import gc
 import time
 from textwrap import dedent
 from hashlib import md5
+import collections
 from pyeclib.ec_iface import ECDriverError
 from tempfile import mkdtemp, NamedTemporaryFile
 import weakref
@@ -55,7 +56,7 @@ from swift.common.utils import hash_path, storage_directory, \
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn, DEFAULT_TEST_EC_TYPE)
+    mocked_http_conn, DEFAULT_TEST_EC_TYPE, make_timestamp_iter)
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.obj import server as object_server
@@ -1824,16 +1825,6 @@ class TestObjectController(unittest.TestCase):
                 contents = ''.join(df.reader())
                 got_pieces.add(contents)
 
-                # check presence for a .durable file for the timestamp
-                durable_file = os.path.join(
-                    _testdir, node['device'], storage_directory(
-                        diskfile.get_data_dir(policy),
-                        partition, hash_path('a', 'ec-con', 'o1')),
-                    utils.Timestamp(df.timestamp).internal + '.durable')
-
-                if os.path.isfile(durable_file):
-                    got_durable.append(True)
-
                 lmeta = dict((k.lower(), v) for k, v in meta.items())
                 got_indices.add(
                     lmeta['x-object-sysmeta-ec-frag-index'])
@@ -1854,11 +1845,24 @@ class TestObjectController(unittest.TestCase):
                     lmeta['etag'],
                     md5(contents).hexdigest())
 
+                # check presence for a durable data file for the timestamp
+                durable_file = (
+                    utils.Timestamp(df.timestamp).internal +
+                    '#%s' % lmeta['x-object-sysmeta-ec-frag-index'] +
+                    '#d.data')
+                durable_file = os.path.join(
+                    _testdir, node['device'], storage_directory(
+                        diskfile.get_data_dir(policy),
+                        partition, hash_path('a', 'ec-con', 'o1')),
+                    durable_file)
+                if os.path.isfile(durable_file):
+                    got_durable.append(True)
+
         self.assertEqual(expected_pieces, got_pieces)
         self.assertEqual(set(('0', '1', '2')), got_indices)
 
         # verify at least 2 puts made it all the way to the end of 2nd
-        # phase, ie at least 2 .durable statuses were written
+        # phase, ie at least 2 durable statuses were written
         num_durable_puts = sum(d is True for d in got_durable)
         self.assertGreaterEqual(num_durable_puts, 2)
 
@@ -1907,16 +1911,21 @@ class TestObjectController(unittest.TestCase):
                 node['device'], partition, 'a',
                 'ec-con', 'o2', policy=ec_policy)
             with df.open():
+                meta = df.get_metadata()
                 contents = ''.join(df.reader())
                 fragment_archives.append(contents)
                 self.assertEqual(len(contents), expected_length)
 
-                # check presence for a .durable file for the timestamp
+                # check presence for a durable data file for the timestamp
+                durable_file = (
+                    utils.Timestamp(df.timestamp).internal +
+                    '#%s' % meta['X-Object-Sysmeta-Ec-Frag-Index'] +
+                    '#d.data')
                 durable_file = os.path.join(
                     _testdir, node['device'], storage_directory(
                         diskfile.get_data_dir(ec_policy),
                         partition, hash_path('a', 'ec-con', 'o2')),
-                    utils.Timestamp(df.timestamp).internal + '.durable')
+                    durable_file)
 
                 if os.path.isfile(durable_file):
                     got_durable.append(True)
@@ -1946,7 +1955,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(seg, obj[segment_start:segment_end])
 
         # verify at least 2 puts made it all the way to the end of 2nd
-        # phase, ie at least 2 .durable statuses were written
+        # phase, ie at least 2 durable statuses were written
         num_durable_puts = sum(d is True for d in got_durable)
         self.assertGreaterEqual(num_durable_puts, 2)
 
@@ -2037,9 +2046,14 @@ class TestObjectController(unittest.TestCase):
                 # diskfile open won't succeed because no durable was written,
                 # so look under the hood for data files.
                 files = os.listdir(df._datadir)
-                num_data_files = len([f for f in files if f.endswith('.data')])
-                self.assertEqual(1, num_data_files)
-                found += 1
+                if len(files) > 0:
+                    # Although the third fragment archive hasn't landed on
+                    # disk, the directory df._datadir is pre-maturely created
+                    # and is empty when we use O_TMPFILE + linkat()
+                    num_data_files = \
+                        len([f for f in files if f.endswith('.data')])
+                    self.assertEqual(1, num_data_files)
+                    found += 1
             except OSError:
                 pass
         self.assertEqual(found, 2)
@@ -2096,7 +2110,8 @@ class TestObjectController(unittest.TestCase):
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'quorum',
                                      policy=POLICIES[3])
-            self.assertFalse(os.path.exists(df._datadir))
+            if os.path.exists(df._datadir):
+                self.assertFalse(os.listdir(df._datadir))  # should be empty
 
     @unpatch_policies
     def test_PUT_ec_fragment_quorum_bad_request(self):
@@ -2154,7 +2169,8 @@ class TestObjectController(unittest.TestCase):
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'quorum',
                                      policy=POLICIES[3])
-            self.assertFalse(os.path.exists(df._datadir))
+            if os.path.exists(df._datadir):
+                self.assertFalse(os.listdir(df._datadir))  # should be empty
 
     @unpatch_policies
     def test_PUT_ec_if_none_match(self):
@@ -2430,10 +2446,14 @@ class TestObjectController(unittest.TestCase):
             raise Exception("doom ba doom")
 
         def explodey_doc_parts_iter(inner_iter_iter):
-            for item in inner_iter_iter:
-                item = item.copy()  # paranoia about mutable data
-                item['part_iter'] = explodey_iter(item['part_iter'])
-                yield item
+            try:
+                for item in inner_iter_iter:
+                    item = item.copy()  # paranoia about mutable data
+                    item['part_iter'] = explodey_iter(item['part_iter'])
+                    yield item
+            except GeneratorExit:
+                inner_iter_iter.close()
+                raise
 
         real_ec_app_iter = swift.proxy.controllers.obj.ECAppIter
 
@@ -4937,7 +4957,7 @@ class TestObjectController(unittest.TestCase):
             expected)
         # check that no coro was left waiting to write
         self.assertTrue(timeouts)  # sanity - WrappedTimeout did get called
-        missing_exits = filter(lambda tb: tb is not None, timeouts.values())
+        missing_exits = [tb for tb in timeouts.values() if tb is not None]
         self.assertFalse(
             missing_exits, 'Failed to exit all ChunkWriteTimeouts.\n' +
             ''.join(['No exit from ChunkWriteTimeout entered at:\n' +
@@ -5201,11 +5221,11 @@ class TestObjectController(unittest.TestCase):
         exposed = set(
             h.strip() for h in
             resp.headers['access-control-expose-headers'].split(','))
-        expected_exposed = set(['cache-control', 'content-language',
-                                'content-type', 'expires', 'last-modified',
-                                'pragma', 'etag', 'x-timestamp',
-                                'x-trans-id', 'x-object-meta-color',
-                                'x-object-meta-color-ex'])
+        expected_exposed = set([
+            'cache-control', 'content-language', 'content-type', 'expires',
+            'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+            'x-openstack-request-id', 'x-object-meta-color',
+            'x-object-meta-color-ex'])
         self.assertEqual(expected_exposed, exposed)
 
         # test allow_origin *
@@ -5252,10 +5272,10 @@ class TestObjectController(unittest.TestCase):
         exposed = set(
             h.strip() for h in
             resp.headers['access-control-expose-headers'].split(','))
-        expected_exposed = set(['cache-control', 'content-language',
-                                'content-type', 'expires', 'last-modified',
-                                'pragma', 'etag', 'x-timestamp',
-                                'x-trans-id', 'x-object-meta-color'])
+        expected_exposed = set([
+            'cache-control', 'content-language', 'content-type', 'expires',
+            'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+            'x-openstack-request-id', 'x-object-meta-color'])
         self.assertEqual(expected_exposed, exposed)
 
         # test allow_origin empty
@@ -5588,6 +5608,255 @@ class TestECMismatchedFA(unittest.TestCase):
         self.assertEqual(resp.status_int, 503)
 
 
+class TestECGets(unittest.TestCase):
+    def tearDown(self):
+        prosrv = _test_servers[0]
+        # don't leak error limits and poison other tests
+        prosrv._error_limiting = {}
+
+    def _setup_nodes_and_do_GET(self, objs, node_state):
+        """
+        A helper method that creates object fragments, stashes them in temp
+        dirs, and then moves selected fragments back into the hash_dirs on each
+        node according to a specified desired node state description.
+
+        :param objs: a dict that maps object references to dicts that describe
+                     the object timestamp and content. Object frags will be
+                     created for each item in this dict.
+        :param node_state: a dict that maps a node index to the desired state
+                           for that node. Each desired state is a list of
+                           dicts, with each dict describing object reference,
+                           frag_index and whether the file moved to the node's
+                           hash_dir should be marked as durable or not.
+        """
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
+         obj2srv, obj3srv) = _test_servers
+        ec_policy = POLICIES[3]
+        container_name = uuid.uuid4().hex
+        obj_name = uuid.uuid4().hex
+        obj_path = os.path.join(os.sep, 'v1', 'a', container_name, obj_name)
+
+        # PUT container, make sure it worked
+        container_path = os.path.join(os.sep, 'v1', 'a', container_name)
+        ec_container = Request.blank(
+            container_path, environ={"REQUEST_METHOD": "PUT"},
+            headers={"X-Storage-Policy": "ec", "X-Auth-Token": "t"})
+        resp = ec_container.get_response(prosrv)
+        self.assertIn(resp.status_int, (201, 202))
+
+        partition, nodes = \
+            ec_policy.object_ring.get_nodes('a', container_name, obj_name)
+
+        # map nodes to hash dirs
+        node_hash_dirs = {}
+        node_tmp_dirs = collections.defaultdict(dict)
+        for node in nodes:
+            node_hash_dirs[node['index']] = os.path.join(
+                _testdir, node['device'], storage_directory(
+                    diskfile.get_data_dir(ec_policy),
+                    partition, hash_path('a', container_name, obj_name)))
+
+        def _put_object(ref, timestamp, body):
+            # PUT an object and then move its disk files to a temp dir
+            headers = {"X-Timestamp": timestamp.internal}
+            put_req1 = Request.blank(obj_path, method='PUT', headers=headers)
+            put_req1.body = body
+            resp = put_req1.get_response(prosrv)
+            self.assertEqual(resp.status_int, 201)
+
+            # GET the obj, should work fine
+            get_req = Request.blank(obj_path, method="GET")
+            resp = get_req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, body)
+
+            # move all hash dir files to per-node, per-obj tempdir
+            for node_index, hash_dir in node_hash_dirs.items():
+                node_tmp_dirs[node_index][ref] = mkdtemp()
+                for f in os.listdir(hash_dir):
+                    move(os.path.join(hash_dir, f),
+                         os.path.join(node_tmp_dirs[node_index][ref], f))
+
+        for obj_ref, obj_info in objs.items():
+            _put_object(obj_ref, **obj_info)
+
+        # sanity check - all hash_dirs are empty and GET returns a 404
+        for hash_dir in node_hash_dirs.values():
+            self.assertFalse(os.listdir(hash_dir))
+        get_req = Request.blank(obj_path, method="GET")
+        resp = get_req.get_response(prosrv)
+        self.assertEqual(resp.status_int, 404)
+
+        # node state is in form:
+        # {node_index: [{ref: object reference,
+        #                frag_index: index,
+        #                durable: True or False}, ...],
+        #  node_index: ...}
+        for node_index, state in node_state.items():
+            dest = node_hash_dirs[node_index]
+            for frag_info in state:
+                src = node_tmp_dirs[frag_info['frag_index']][frag_info['ref']]
+                src_files = os.listdir(src)
+                # sanity check, expect just a single .data file
+                self.assertFalse(src_files[1:])
+                dest_file = src_files[0].replace(
+                    '#d', '#d' if frag_info['durable'] else '')
+                move(os.path.join(src, src_files[0]),
+                     os.path.join(dest, dest_file))
+
+        # do an object GET
+        get_req = Request.blank(obj_path, method='GET')
+        return get_req.get_response(prosrv)
+
+    def test_GET_with_missing_durables(self):
+        # verify object GET behavior when durable files are missing
+        ts_iter = make_timestamp_iter()
+        objs = {'obj1': dict(timestamp=next(ts_iter), body='body')}
+
+        # durable missing from 2/3 nodes
+        node_state = {
+            0: [dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj1', frag_index=1, durable=False)],
+            2: [dict(ref='obj1', frag_index=2, durable=False)]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # all files missing on 1 node, durable missing from 1/2 other nodes
+        # durable missing from 2/3 nodes
+        node_state = {
+            0: [dict(ref='obj1', frag_index=0, durable=True)],
+            1: [],
+            2: [dict(ref='obj1', frag_index=2, durable=False)]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # durable missing from all 3 nodes
+        node_state = {
+            0: [dict(ref='obj1', frag_index=0, durable=False)],
+            1: [dict(ref='obj1', frag_index=1, durable=False)],
+            2: [dict(ref='obj1', frag_index=2, durable=False)]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_GET_with_multiple_frags_per_node(self):
+        # verify object GET behavior when multiple fragments are on same node
+        ts_iter = make_timestamp_iter()
+        objs = {'obj1': dict(timestamp=next(ts_iter), body='body')}
+
+        # scenario: only two frags, both on same node
+        node_state = {
+            0: [],
+            1: [dict(ref='obj1', frag_index=0, durable=True),
+                dict(ref='obj1', frag_index=1, durable=False)],
+            2: []
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # scenario: all 3 frags on same node
+        node_state = {
+            0: [],
+            1: [dict(ref='obj1', frag_index=0, durable=True),
+                dict(ref='obj1', frag_index=1, durable=False),
+                dict(ref='obj1', frag_index=2, durable=False)],
+            2: []
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+    def test_GET_with_multiple_timestamps_on_nodes(self):
+        ts_iter = make_timestamp_iter()
+
+        ts_1, ts_2, ts_3 = [next(ts_iter) for _ in range(3)]
+        objs = {'obj1': dict(timestamp=ts_1, body='body1'),
+                'obj2': dict(timestamp=ts_2, body='body2'),
+                'obj3': dict(timestamp=ts_3, body='body3')}
+
+        # newer non-durable frags do not prevent proxy getting the durable obj1
+        node_state = {
+            0: [dict(ref='obj3', frag_index=0, durable=False),
+                dict(ref='obj2', frag_index=0, durable=False),
+                dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj3', frag_index=1, durable=False),
+                dict(ref='obj2', frag_index=1, durable=False),
+                dict(ref='obj1', frag_index=1, durable=True)],
+            2: [dict(ref='obj3', frag_index=2, durable=False),
+                dict(ref='obj2', frag_index=2, durable=False),
+                dict(ref='obj1', frag_index=2, durable=True)],
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1']['body'])
+
+        # durable frags at two timestamps: in this scenario proxy is guaranteed
+        # to see the durable at ts_2 with one of the first 2 responses, so will
+        # then prefer that when requesting from third obj server
+        node_state = {
+            0: [dict(ref='obj3', frag_index=0, durable=False),
+                dict(ref='obj2', frag_index=0, durable=False),
+                dict(ref='obj1', frag_index=0, durable=True)],
+            1: [dict(ref='obj3', frag_index=1, durable=False),
+                dict(ref='obj2', frag_index=1, durable=True)],
+            2: [dict(ref='obj3', frag_index=2, durable=False),
+                dict(ref='obj2', frag_index=2, durable=True)],
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj2']['body'])
+
+    def test_GET_with_same_frag_index_on_multiple_nodes(self):
+        ts_iter = make_timestamp_iter()
+
+        # this is a trick to be able to get identical frags placed onto
+        # multiple nodes: since we cannot *copy* frags, we generate three sets
+        # of identical frags at same timestamp so we have enough to *move*
+        ts_1 = next(ts_iter)
+        objs = {'obj1a': dict(timestamp=ts_1, body='body'),
+                'obj1b': dict(timestamp=ts_1, body='body'),
+                'obj1c': dict(timestamp=ts_1, body='body')}
+
+        # arrange for duplicate frag indexes across nodes: because the object
+        # server prefers the highest available frag index, proxy will first get
+        # back two responses with frag index 1, and will then return to node 0
+        # for frag_index 0.
+        node_state = {
+            0: [dict(ref='obj1a', frag_index=0, durable=False),
+                dict(ref='obj1a', frag_index=1, durable=False)],
+            1: [dict(ref='obj1b', frag_index=1, durable=True)],
+            2: [dict(ref='obj1c', frag_index=1, durable=True)]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, objs['obj1a']['body'])
+
+        # if all we have across nodes are frags with same index then expect a
+        # 404 (the third, 'extra', obj server GET will return 404 because it
+        # will be sent frag prefs that exclude frag_index 1)
+        node_state = {
+            0: [dict(ref='obj1a', frag_index=1, durable=False)],
+            1: [dict(ref='obj1b', frag_index=1, durable=True)],
+            2: [dict(ref='obj1c', frag_index=1, durable=False)]
+        }
+
+        resp = self._setup_nodes_and_do_GET(objs, node_state)
+        self.assertEqual(resp.status_int, 404)
+
+
 class TestObjectDisconnectCleanup(unittest.TestCase):
 
     # update this if you need to make more different devices in do_setup
@@ -5686,7 +5955,6 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
     def test_ec_disconnect_cleans_up(self):
         self._check_disconnect_cleans_up('ec')
         found_files = self.find_files()
-        self.assertEqual(found_files['.durable'], [])
         self.assertEqual(found_files['.data'], [])
 
     def test_repl_chunked_transfer_disconnect_cleans_up(self):
@@ -5697,7 +5965,6 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
     def test_ec_chunked_transfer_disconnect_cleans_up(self):
         self._check_disconnect_cleans_up('ec', is_chunked=True)
         found_files = self.find_files()
-        self.assertEqual(found_files['.durable'], [])
         self.assertEqual(found_files['.data'], [])
 
 
@@ -7267,10 +7534,10 @@ class TestContainerController(unittest.TestCase):
             exposed = set(
                 h.strip() for h in
                 resp.headers['access-control-expose-headers'].split(','))
-            expected_exposed = set(['cache-control', 'content-language',
-                                    'content-type', 'expires', 'last-modified',
-                                    'pragma', 'etag', 'x-timestamp',
-                                    'x-trans-id', 'x-container-meta-color'])
+            expected_exposed = set([
+                'cache-control', 'content-language', 'content-type', 'expires',
+                'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+                'x-openstack-request-id', 'x-container-meta-color'])
             self.assertEqual(expected_exposed, exposed)
 
     def _gather_x_account_headers(self, controller_call, req, *connect_args,

@@ -1,0 +1,58 @@
+.\"
+.\" Copyright (c) 2016 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH SWIFT-CONTAINER-RECONCILER "1" "August 2016" "OpenStack Swift"
+
+.SH NAME
+swift\-container\-reconciler \- OpenStack Swift container reconciler
+
+.SH SYNOPSIS
+.B swift\-container\-reconciler
+\fICONFIG \fR[\fIoptions\fR]
+
+.SH DESCRIPTION
+.PP
+This daemon will take objects that are in the wrong storage policy and
+move them to the right ones, or delete requests that went to the wrong
+storage policy and apply them to the right ones. It operates on a
+queue similar to the object-expirer's queue.
+
+Discovering that the object is in the wrong policy is done in the container
+replicator; the container reconciler is the daemon that handles them once they
+happen.
+
+Like the object expirer, you only need to run one of these per cluster
+
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message and exit
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Log to console
+.TP
+\fB\-o\fR, \fB\-\-once\fR
+Only run one pass of daemon
+.PP
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to 
+.BI swift\-container\-reconciler
+and also about OpenStack Swift as a whole can be found at 
+.BI http://swift.openstack.org/index.html
+and 
+.BI http://docs.openstack.org

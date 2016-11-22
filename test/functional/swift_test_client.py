@@ -628,7 +628,12 @@ class Container(Base):
                                ['object_count', 'x-container-object-count'],
                                ['last_modified', 'last-modified']]
             optional_fields = [
+                # N.B. swift doesn't return both x-versions-location
+                # and x-history-location at a response so that this is safe
+                # using same variable "versions" for both and it means
+                # versioning is enabled.
                 ['versions', 'x-versions-location'],
+                ['versions', 'x-history-location'],
                 ['tempurl_key', 'x-container-meta-temp-url-key'],
                 ['tempurl_key2', 'x-container-meta-temp-url-key-2']]
 
@@ -894,12 +899,10 @@ class File(Base):
             fobj.close()
 
     def sync_metadata(self, metadata=None, cfg=None, parms=None):
-        if metadata is None:
-            metadata = {}
         if cfg is None:
             cfg = {}
 
-        self.metadata.update(metadata)
+        self.metadata = self.metadata if metadata is None else metadata
 
         if self.metadata:
             headers = self.make_headers(cfg=cfg)

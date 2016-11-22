@@ -2,8 +2,6 @@
 Swift Architectural Overview
 ============================
 
-.. TODO - add links to more detailed overview in each section below.
-
 ------------
 Proxy Server
 ------------
@@ -73,7 +71,8 @@ the cluster), the ring ensures that a minimum number of partitions are moved
 at a time, and only one replica of a partition is moved at a time.
 
 The ring is used by the Proxy server and several background processes
-(like replication).
+(like replication). See :doc:`overview_ring` for complete information on the
+ring.
 
 ----------------
 Storage Policies
@@ -102,6 +101,8 @@ with that policy.
 
 The Storage Policies feature is implemented throughout the entire code base so
 it is an important concept in understanding Swift architecture.
+
+See :doc:`overview_policies` for complete information on storage policies.
 
 -------------
 Object Server
@@ -160,6 +161,8 @@ item (object, container, or account) is deleted, a tombstone is set as the
 latest version of the item. The replicator will see the tombstone and ensure
 that the item is removed from the entire system.
 
+See :doc:`overview_replication` for complete information on replication.
+
 --------------
 Reconstruction
 --------------
@@ -200,4 +203,3 @@ for example), the file is quarantined, and replication will replace the bad
 file from another replica. If other errors are found they are logged (for
 example, an object's listing can't be found on any container server it
 should be).
-

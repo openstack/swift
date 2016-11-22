@@ -445,7 +445,7 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.exception.assert_called_once_with(
-                '1.2.3.4/device/partition EXCEPTION in replication.Receiver')
+                '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
     def test_SSYNC_Exception_Exception(self):
 
@@ -481,7 +481,7 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.exception.assert_called_once_with(
-                'EXCEPTION in replication.Receiver')
+                'EXCEPTION in ssync.Receiver')
 
     def test_MISSING_CHECK_timeout(self):
 
@@ -522,7 +522,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.error.assert_called_once_with(
-                '2.3.4.5/sda1/1 TIMEOUT in replication.Receiver: '
+                '2.3.4.5/sda1/1 TIMEOUT in ssync.Receiver: '
                 '0.01 seconds: missing_check line')
 
     def test_MISSING_CHECK_other_exception(self):
@@ -564,7 +564,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.exception.assert_called_once_with(
-                '3.4.5.6/sda1/1 EXCEPTION in replication.Receiver')
+                '3.4.5.6/sda1/1 EXCEPTION in ssync.Receiver')
 
     def test_MISSING_CHECK_empty_list(self):
 
@@ -671,7 +671,7 @@ class TestReceiver(unittest.TestCase):
         self.controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.controller.logger)
 
-        # make rx disk file but don't commit it, so .durable is missing
+        # make rx disk file but don't commit it, so durable state is missing
         ts1 = next(make_timestamp_iter()).internal
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',
@@ -714,7 +714,7 @@ class TestReceiver(unittest.TestCase):
         self.controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.controller.logger)
 
-        # make rx disk file but don't commit it, so .durable is missing
+        # make rx disk file but don't commit it, so durable state is missing
         ts1 = next(make_timestamp_iter()).internal
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',
@@ -773,7 +773,7 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertTrue(self.controller.logger.exception.called)
         self.assertIn(
-            'EXCEPTION in replication.Receiver while attempting commit of',
+            'EXCEPTION in ssync.Receiver while attempting commit of',
             self.controller.logger.exception.call_args[0][0])
 
     def test_MISSING_CHECK_storage_policy(self):
@@ -970,7 +970,7 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.error.assert_called_once_with(
-                '2.3.4.5/device/partition TIMEOUT in replication.Receiver: '
+                '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
                 '0.01 seconds: updates line')
 
     def test_UPDATES_other_exception(self):
@@ -1017,7 +1017,7 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.exception.assert_called_once_with(
-                '3.4.5.6/device/partition EXCEPTION in replication.Receiver')
+                '3.4.5.6/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_no_problems_no_hard_disconnect(self):
 
@@ -1071,7 +1071,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'need more than 1 value to unpack'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
             with mock.patch.object(
                     self.controller, 'DELETE',
@@ -1093,7 +1093,7 @@ class TestReceiver(unittest.TestCase):
                      ":ERROR: 0 'need more than 1 value to unpack'"])
                 self.assertEqual(resp.status_int, 200)
                 self.controller.logger.exception.assert_called_once_with(
-                    'None/device/partition EXCEPTION in replication.Receiver')
+                    'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_no_headers(self):
             self.controller.logger = mock.MagicMock()
@@ -1110,7 +1110,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'Got no headers for DELETE /a/c/o'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_bad_headers(self):
             self.controller.logger = mock.MagicMock()
@@ -1128,7 +1128,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'need more than 1 value to unpack'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -1146,7 +1146,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'need more than 1 value to unpack'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_bad_content_length(self):
             self.controller.logger = mock.MagicMock()
@@ -1164,7 +1164,7 @@ class TestReceiver(unittest.TestCase):
                  ':ERROR: 0 "invalid literal for int() with base 10: \'a\'"'])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_content_length_with_DELETE(self):
             self.controller.logger = mock.MagicMock()
@@ -1182,7 +1182,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'DELETE subrequest with content-length /a/c/o'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_no_content_length_with_PUT(self):
             self.controller.logger = mock.MagicMock()
@@ -1199,7 +1199,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'No content-length sent for PUT /a/c/o'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_early_termination(self):
             self.controller.logger = mock.MagicMock()
@@ -1217,7 +1217,7 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'Early termination for PUT /a/c/o'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_failures(self):
 
@@ -1250,6 +1250,9 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
+            self.assertTrue(self.controller.logger.warning.called)
+            self.assertEqual(3, self.controller.logger.warning.call_count)
+            self.controller.logger.clear()
 
         # failures hit threshold and no successes, so ratio is like infinity
         with mock.patch.object(self.controller, 'DELETE', _DELETE):
@@ -1274,8 +1277,11 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'Too many 4 failures to 0 successes'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
             self.assertFalse(self.controller.logger.error.called)
+            self.assertTrue(self.controller.logger.warning.called)
+            self.assertEqual(4, self.controller.logger.warning.call_count)
+            self.controller.logger.clear()
 
         # failures hit threshold and ratio hits 1.33333333333
         with mock.patch.object(self.controller, 'DELETE', _DELETE):
@@ -1304,6 +1310,9 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
+            self.assertTrue(self.controller.logger.warning.called)
+            self.assertEqual(4, self.controller.logger.warning.call_count)
+            self.controller.logger.clear()
 
         # failures hit threshold and ratio hits 2.0
         with mock.patch.object(self.controller, 'DELETE', _DELETE):
@@ -1329,8 +1338,11 @@ class TestReceiver(unittest.TestCase):
                  ":ERROR: 0 'Too many 4 failures to 2 successes'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in replication.Receiver')
+                'None/device/partition EXCEPTION in ssync.Receiver')
             self.assertFalse(self.controller.logger.error.called)
+            self.assertTrue(self.controller.logger.warning.called)
+            self.assertEqual(4, self.controller.logger.warning.call_count)
+            self.controller.logger.clear()
 
     def test_UPDATES_PUT(self):
         _PUT_request = [None]
@@ -1658,7 +1670,7 @@ class TestReceiver(unittest.TestCase):
              ":ERROR: 0 'Invalid subrequest method BONK'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in replication.Receiver')
+            'None/device/partition EXCEPTION in ssync.Receiver')
         self.assertEqual(len(_BONK_request), 1)  # sanity
         self.assertEqual(_BONK_request[0], None)
 
@@ -1885,6 +1897,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertFalse(self.controller.logger.exception.called)
         self.assertFalse(self.controller.logger.error.called)
+        self.assertTrue(self.controller.logger.warning.called)
+        self.assertEqual(2, self.controller.logger.warning.call_count)
         self.assertEqual(len(_requests), 2)  # sanity
         req = _requests.pop(0)
         self.assertEqual(req.path, '/device/partition/a/c/o1')

@@ -220,11 +220,12 @@ def load_crypto_meta(value):
     """
     Build the crypto_meta from the json object.
 
-    Note that json.loads always produces unicode strings, to ensure the
-    resultant crypto_meta matches the original object cast all key and value
-    data to a str except the key and iv which are base64 decoded. This will
-    work in py3 as well where all strings are unicode implying the cast is
-    effectively a no-op.
+    Note that json.loads always produces unicode strings; to ensure the
+    resultant crypto_meta matches the original object:
+        * cast all keys to str (effectively a no-op on py3),
+        * base64 decode 'key' and 'iv' values to bytes, and
+        * encode remaining string values as UTF-8 on py2 (while leaving them
+          as native unicode strings on py3).
 
     :param value: a string serialization of a crypto meta dict
     :returns: a dict containing crypto meta items
@@ -235,7 +236,7 @@ def load_crypto_meta(value):
         return {
             str(name): (base64.b64decode(val) if name in ('iv', 'key')
                         else b64_decode_meta(val) if isinstance(val, dict)
-                        else val.encode('utf8'))
+                        else val.encode('utf8') if six.PY2 else val)
             for name, val in crypto_meta.items()}
 
     try:

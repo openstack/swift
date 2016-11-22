@@ -15,7 +15,7 @@
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
 .\"
-.TH swift-get-nodes 1 "8/26/2011" "Linux" "OpenStack Swift"
+.TH swift-get-nodes 1 "10/25/2016" "Linux" "OpenStack Swift"
 
 .SH NAME
 .LP
@@ -25,7 +25,17 @@
 .SH SYNOPSIS
 .LP
 .B swift-get-nodes
-\ <ring.gz> <account> [<container> [<object>]]
+\ [options] <ring.gz> <account> [<container> [<object>]]
+
+Or
+
+.B swift-get-nodes
+[options] <ring.gz> -p <partition>
+
+Or
+
+.B swift-get-nodes
+\ [options] -P policy_name <account> <container> <object>
 
 .SH DESCRIPTION
 .PP
@@ -34,6 +44,24 @@ a particular account, container or object item is located within the
 swift cluster nodes. For example, if you have the account hash and a container
 name that belongs to that account, you can use swift-get-nodes to lookup
 where the container resides by using the container ring.
+
+.SH OPTIONS
+.TP
+\fB\-h --help \fR
+Shows the help message and exit
+.TP
+\fB\-a, --all\fR
+Show all handoff nodes
+.TP
+\fB\-p PARTITION, --partition=PARTITION\fR
+Show nodes for a given partition
+.TP
+\fB\-P POLICY_NAME, --policy-name=POLICY_NAME \fR
+Specify storage policy name
+.TP
+\fB\-d SWIFT_DIR, --swift-dir=SWIFT_DIR\fR
+Pass location of swift configuration file if different from the default
+location /etc/swift
 
 .RS 0
 .IP "\fIExample:\fR"

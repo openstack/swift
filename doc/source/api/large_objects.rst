@@ -107,7 +107,7 @@ json content—not the length of the segment objects. However, after the
 **PUT** operation completes, the ``Content-Length`` metadata is set to
 the total length of all the object segments. A similar situation applies
 to the ``ETag``. If used in the **PUT** operation, it must contain the
-MD5 checksum of the json content. The ``ETag`` metadata value is then
+MD5 checksum of the JSON content. The ``ETag`` metadata value is then
 set to be the MD5 checksum of the concatenated ``ETag`` values of the
 object segments. You can also set the ``Content-Type`` request header
 and custom object metadata.
@@ -167,6 +167,12 @@ downloading until the upload is complete. Also, you can upload a new set
 of segments to a second location and update the manifest to point to
 this new location. During the upload of the new segments, the original
 manifest is still available to download the first set of segments.
+
+.. note::
+
+  When updating a manifest object using a POST request, a
+  ``X-Object-Manifest`` header must be included for the
+  object to continue to behave as a manifest object.
 
 **Example Upload segment of large object request: HTTP**
 

@@ -627,7 +627,7 @@ class TestContainer(unittest2.TestCase):
         resp.read()
         self.assertEqual(resp.status, 403)
 
-        # Now make the container also writeable by the second account
+        # Now make the container also writable by the second account
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
@@ -696,7 +696,7 @@ class TestContainer(unittest2.TestCase):
         resp.read()
         self.assertEqual(resp.status, 403)
 
-        # Now make the container also writeable by the third account
+        # Now make the container also writable by the third account
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,

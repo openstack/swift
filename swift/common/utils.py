@@ -33,6 +33,7 @@ import uuid
 import functools
 import platform
 import email.parser
+from distutils.version import LooseVersion
 from hashlib import md5, sha1
 from random import random, shuffle
 from contextlib import contextmanager, closing
@@ -69,6 +70,7 @@ import swift.common.exceptions
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.linkat import linkat
 
 if six.PY3:
     stdlib_queue = eventlet.patcher.original('queue')
@@ -163,9 +165,10 @@ SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 # These constants are Linux-specific, and Python doesn't seem to know
 # about them. We ask anyway just in case that ever gets fixed.
 #
-# The values were copied from the Linux 3.0 kernel headers.
+# The values were copied from the Linux 3.x kernel headers.
 AF_ALG = getattr(socket, 'AF_ALG', 38)
 F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
+O_TMPFILE = getattr(os, 'O_TMPFILE', 0o20000000 | os.O_DIRECTORY)
 
 # Used by the parse_socket_string() function to validate IPv6 addresses
 IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
@@ -1196,6 +1199,47 @@ def renamer(old, new, fsync=True):
             dirpath = os.path.dirname(dirpath)
 
 
+def link_fd_to_path(fd, target_path, dirs_created=0, retries=2, fsync=True):
+    """
+    Creates a link to file descriptor at target_path specified. This method
+    does not close the fd for you. Unlike rename, as linkat() cannot
+    overwrite target_path if it exists, we unlink and try again.
+
+    Attempts to fix / hide race conditions like empty object directories
+    being removed by backend processes during uploads, by retrying.
+
+    :param fd: File descriptor to be linked
+    :param target_path: Path in filesystem where fd is to be linked
+    :param dirs_created: Number of newly created directories that needs to
+                         be fsync'd.
+    :param retries: number of retries to make
+    :param fsync: fsync on containing directory of target_path and also all
+                  the newly created directories.
+    """
+    dirpath = os.path.dirname(target_path)
+    for _junk in range(0, retries):
+        try:
+            linkat(linkat.AT_FDCWD, "/proc/self/fd/%d" % (fd),
+                   linkat.AT_FDCWD, target_path, linkat.AT_SYMLINK_FOLLOW)
+            break
+        except IOError as err:
+            if err.errno == errno.ENOENT:
+                dirs_created = makedirs_count(dirpath)
+            elif err.errno == errno.EEXIST:
+                try:
+                    os.unlink(target_path)
+                except OSError as e:
+                    if e.errno != errno.ENOENT:
+                        raise
+            else:
+                raise
+
+    if fsync:
+        for i in range(0, dirs_created + 1):
+            fsync_dir(dirpath)
+            dirpath = os.path.dirname(dirpath)
+
+
 def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
     """
     Validate and split the given HTTP request path.
@@ -1321,6 +1365,27 @@ class NullLogger(object):
 
     def write(self, *args):
         # "Logs" the args to nowhere
+        pass
+
+    def exception(self, *args):
+        pass
+
+    def critical(self, *args):
+        pass
+
+    def error(self, *args):
+        pass
+
+    def warning(self, *args):
+        pass
+
+    def info(self, *args):
+        pass
+
+    def debug(self, *args):
+        pass
+
+    def log(self, *args):
         pass
 
 
@@ -2404,6 +2469,7 @@ def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
     """
     if tmp is None:
         tmp = os.path.dirname(dest)
+    mkdirs(tmp)
     fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
     with os.fdopen(fd, 'wb') as fo:
         pickle.dump(obj, fo, pickle_protocol)
@@ -2992,13 +3058,15 @@ def put_recon_cache_entry(cache_entry, key, item):
         cache_entry[key] = item
 
 
-def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
+def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
+                     set_owner=None):
     """Update recon cache values
 
     :param cache_dict: Dictionary of cache key/value pairs to write out
     :param cache_file: cache file to update
     :param logger: the logger to use to log an encountered error
     :param lock_timeout: timeout (in seconds)
+    :param set_owner: Set owner of recon cache file
     """
     try:
         with lock_file(cache_file, lock_timeout, unlink=False) as cf:
@@ -3017,6 +3085,8 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
                     tf.write(json.dumps(cache_entry) + '\n')
+                if set_owner:
+                    os.chown(tf.name, pwd.getpwnam(set_owner).pw_uid, -1)
                 renamer(tf.name, cache_file, fsync=False)
             finally:
                 if tf is not None:
@@ -3354,6 +3424,83 @@ class LRUCache(object):
                 return '<%s %r>' % (im_self.__class__.__name__, f)
 
         return LRUCacheWrapped()
+
+
+class Spliterator(object):
+    """
+    Takes an iterator yielding sliceable things (e.g. strings or lists) and
+    yields subiterators, each yielding up to the requested number of items
+    from the source.
+
+    >>> si = Spliterator(["abcde", "fg", "hijkl"])
+    >>> ''.join(si.take(4))
+    "abcd"
+    >>> ''.join(si.take(3))
+    "efg"
+    >>> ''.join(si.take(1))
+    "h"
+    >>> ''.join(si.take(3))
+    "ijk"
+    >>> ''.join(si.take(3))
+    "l"  # shorter than requested; this can happen with the last iterator
+
+    """
+    def __init__(self, source_iterable):
+        self.input_iterator = iter(source_iterable)
+        self.leftovers = None
+        self.leftovers_index = 0
+        self._iterator_in_progress = False
+
+    def take(self, n):
+        if self._iterator_in_progress:
+            raise ValueError(
+                "cannot call take() again until the first iterator is"
+                " exhausted (has raised StopIteration)")
+        self._iterator_in_progress = True
+
+        try:
+            if self.leftovers:
+                # All this string slicing is a little awkward, but it's for
+                # a good reason. Consider a length N string that someone is
+                # taking k bytes at a time.
+                #
+                # With this implementation, we create one new string of
+                # length k (copying the bytes) on each call to take(). Once
+                # the whole input has been consumed, each byte has been
+                # copied exactly once, giving O(N) bytes copied.
+                #
+                # If, instead of this, we were to set leftovers =
+                # leftovers[k:] and omit leftovers_index, then each call to
+                # take() would copy k bytes to create the desired substring,
+                # then copy all the remaining bytes to reset leftovers,
+                # resulting in an overall O(N^2) bytes copied.
+                llen = len(self.leftovers) - self.leftovers_index
+                if llen <= n:
+                    n -= llen
+                    to_yield = self.leftovers[self.leftovers_index:]
+                    self.leftovers = None
+                    self.leftovers_index = 0
+                    yield to_yield
+                else:
+                    to_yield = self.leftovers[
+                        self.leftovers_index:(self.leftovers_index + n)]
+                    self.leftovers_index += n
+                    n = 0
+                    yield to_yield
+
+            while n > 0:
+                chunk = next(self.input_iterator)
+                cl = len(chunk)
+                if cl <= n:
+                    n -= cl
+                    yield chunk
+                else:
+                    self.leftovers = chunk
+                    self.leftovers_index = n
+                    yield chunk[:n]
+                    n = 0
+        finally:
+            self._iterator_in_progress = False
 
 
 def tpool_reraise(func, *args, **kwargs):
@@ -3821,8 +3968,9 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
         # so if that finally block fires before we read response_body_iter,
         # there's nothing there.
         def string_along(useful_iter, useless_iter_iter, logger):
-            for x in useful_iter:
-                yield x
+            with closing_if_possible(useful_iter):
+                for x in useful_iter:
+                    yield x
 
             try:
                 next(useless_iter_iter)
@@ -4027,3 +4175,28 @@ def modify_priority(conf, logger):
         return
     io_priority = conf.get("ionice_priority", 0)
     _ioprio_set(io_class, io_priority)
+
+
+def o_tmpfile_supported():
+    """
+    Returns True if O_TMPFILE flag is supported.
+
+    O_TMPFILE was introduced in Linux 3.11 but it also requires support from
+    underlying filesystem being used. Some common filesystems and linux
+    versions in which those filesystems added support for O_TMPFILE:
+    xfs (3.15)
+    ext4 (3.11)
+    btrfs (3.16)
+    """
+    return all([linkat.available,
+                platform.system() == 'Linux',
+                LooseVersion(platform.release()) >= LooseVersion('3.16')])
+
+
+def safe_json_loads(value):
+    if value:
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            pass
+    return None

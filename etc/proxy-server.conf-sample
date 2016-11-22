@@ -120,7 +120,7 @@ use = egg:swift#proxy
 # Timeouts from these requests can be recovered from so setting this to
 # something lower than node_timeout would provide quicker error recovery
 # while allowing for a longer timeout for non-recoverable requests (PUTs).
-# Defaults to node_timeout, should be overriden if node_timeout is set to a
+# Defaults to node_timeout, should be overridden if node_timeout is set to a
 # high number to prevent client timeouts from firing before the proxy server
 # has a chance to retry.
 # recoverable_node_timeout = node_timeout
@@ -327,6 +327,12 @@ user_test5_tester5 = testing5 service
 # auth_uri = http://keystonehost:5000
 # auth_url = http://keystonehost:35357
 # auth_plugin = password
+# The following credentials must match the Keystone credentials for the Swift
+# service and may need to be changed to match your Keystone configuration. The
+# example values shown here assume a user named 'swift' with admin role on a
+# project named 'service', both being in the Keystone domain with id 'default'.
+# Refer to the keystonemiddleware documentation link above [1] for other
+# examples.
 # project_domain_id = default
 # user_domain_id = default
 # project_name = service
@@ -544,6 +550,18 @@ use = egg:swift#staticweb
 # set log_level = INFO
 # set log_headers = false
 # set log_address = /dev/log
+#
+# At times when it's impossible for staticweb to guess the outside
+# endpoint correctly, the url_base may be used to supply the URL
+# scheme and/or the host name (and port number) in order to generate
+# redirects.
+# Example values:
+#    http://www.example.com    - redirect to www.example.com
+#    https:                    - changes the schema only
+#    https://                  - same, changes the schema only
+#    //www.example.com:8080    - redirect www.example.com on port 8080
+#                                (schema unchanged)
+# url_base =
 
 # Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
 [filter:tempurl]
@@ -680,10 +698,17 @@ use = egg:swift#slo
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
 #
-# When deleting with ?multipart-manifest=delete, multiple deletes may be
-# executed in parallel. Avoid setting this too high, as it gives clients a
-# force multiplier which may be used in DoS attacks. The suggested range is
-# between 2 and 10.
+# When creating an SLO, multiple segment validations may be executed in
+# parallel. Further, multiple deletes may be executed in parallel when deleting
+# with ?multipart-manifest=delete. Use this setting to limit how many
+# subrequests may be executed concurrently. Avoid setting it too high, as it
+# gives clients a force multiplier which may be used in DoS attacks. The
+# suggested range is between 2 and 10.
+# concurrency = 2
+#
+# This may be used to separately tune validation and delete concurrency values.
+# Default is to use the concurrency value from above; all of the same caveats
+# apply regarding recommended ranges.
 # delete_concurrency = 2
 
 # Note: Put after auth and staticweb in the pipeline.

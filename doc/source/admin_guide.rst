@@ -141,7 +141,7 @@ The first line reports that there are 256 partitions with 3 copies in region 1;
 and this is an expected output in this case (single region with 3 replicas) as
 reported by the "Max" value.
 
-However, there is some inbalance in the cluster, more precisely in zone 3. The
+However, there is some imbalance in the cluster, more precisely in zone 3. The
 "Max" reports a maximum of 1 copy in this zone; however 50.00% of the partitions
 are storing 2 replicas in this zone (which is somewhat expected, because there
 are more disks in this zone).
@@ -264,6 +264,8 @@ settings:
 ==================  ==============  ===========================================
 Option              Default         Description
 ------------------  --------------  -------------------------------------------
+user                swift           Drop privileges to this user for non-root
+                                    tasks
 log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Log level
 device_dir          /srv/node       Directory devices are mounted under
@@ -483,7 +485,7 @@ You can also run the report for only containers or objects::
     100.00% of object copies found (7857 of 7857)
     Sample represents 1.00% of the object partition space
 
-Alternatively, the dispersion report can also be output in json format. This
+Alternatively, the dispersion report can also be output in JSON format. This
 allows it to be more easily consumed by third party utilities::
 
     $ swift-dispersion-report -j

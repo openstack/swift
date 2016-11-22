@@ -40,8 +40,10 @@ class HeaderKeyDict(dict):
     def __setitem__(self, key, value):
         if value is None:
             self.pop(key.title(), None)
-        elif isinstance(value, six.text_type):
+        elif six.PY2 and isinstance(value, six.text_type):
             return dict.__setitem__(self, key.title(), value.encode('utf-8'))
+        elif six.PY3 and isinstance(value, six.binary_type):
+            return dict.__setitem__(self, key.title(), value.decode('latin-1'))
         else:
             return dict.__setitem__(self, key.title(), str(value))
 

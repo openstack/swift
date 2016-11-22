@@ -236,7 +236,7 @@ If ``X-Static-Large-Object`` is set, you need to read the contents. Do this by:
 
 -  Using swift-get-nodes to get the details of the object's location.
 -  Change the ``-X HEAD`` to ``-X GET`` and run ``curl`` against one copy.
--  This lists a json body listing containers and object names
+-  This lists a JSON body listing containers and object names
 -  Delete the objects as described above for DLO segments
 
 Once the segments are deleted, you can delete the object using

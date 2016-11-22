@@ -930,27 +930,30 @@ class TestContainerSync(unittest.TestCase):
             sync.uuid = FakeUUID
             ts_data = Timestamp(1.1)
             timestamp = Timestamp(1.2)
+            put_object_calls = []
 
-            def fake_put_object(sync_to, name=None, headers=None,
-                                contents=None, proxy=None, logger=None,
-                                timeout=None):
+            def fake_put_object(*args, **kwargs):
+                put_object_calls.append((args, kwargs))
+
+            def check_put_object(extra_headers, sync_to, name=None,
+                                 headers=None, contents=None, proxy=None,
+                                 logger=None, timeout=None):
                 self.assertEqual(sync_to, 'http://sync/to/path')
                 self.assertEqual(name, 'object')
+                expected_headers = {
+                    'x-timestamp': timestamp.internal,
+                    'etag': 'etagvalue',
+                    'other-header': 'other header value',
+                    'content-type': 'text/plain'}
                 if realm:
-                    self.assertEqual(headers, {
+                    expected_headers.update({
                         'x-container-sync-auth':
-                        'US abcdef a5fb3cf950738e6e3b364190e246bd7dd21dad3c',
-                        'x-timestamp': timestamp.internal,
-                        'etag': 'etagvalue',
-                        'other-header': 'other header value',
-                        'content-type': 'text/plain'})
+                        'US abcdef a5fb3cf950738e6e3b364190e246bd7dd21dad3c'})
                 else:
-                    self.assertEqual(headers, {
-                        'x-container-sync-key': 'key',
-                        'x-timestamp': timestamp.internal,
-                        'other-header': 'other header value',
-                        'etag': 'etagvalue',
-                        'content-type': 'text/plain'})
+                    expected_headers.update({
+                        'x-container-sync-key': 'key'})
+                expected_headers.update(extra_headers)
+                self.assertDictEqual(expected_headers, headers)
                 self.assertEqual(contents.read(), 'contents')
                 self.assertEqual(proxy, 'http://proxy')
                 self.assertEqual(timeout, 5.0)
@@ -995,6 +998,9 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
+            self.assertEqual(1, len(put_object_calls))
+            check_put_object({'etag': 'etagvalue'},
+                             *put_object_calls[0][0], **put_object_calls[0][1])
             expected_put_count += 1
             self.assertEqual(cs.container_puts, expected_put_count)
 
@@ -1016,6 +1022,7 @@ class TestContainerSync(unittest.TestCase):
             # Success as everything says it worked, also checks 'date' and
             # 'last-modified' headers are removed and that 'etag' header is
             # stripped of double quotes.
+            put_object_calls = []
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
@@ -1024,12 +1031,16 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
+            self.assertEqual(1, len(put_object_calls))
+            check_put_object({'etag': 'etagvalue'},
+                             *put_object_calls[0][0], **put_object_calls[0][1])
             expected_put_count += 1
             self.assertEqual(cs.container_puts, expected_put_count)
 
             # Success as everything says it worked, also check that PUT
             # timestamp equals GET timestamp when it is newer than created_at
             # value.
+            put_object_calls = []
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
@@ -1038,6 +1049,42 @@ class TestContainerSync(unittest.TestCase):
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
+            self.assertEqual(1, len(put_object_calls))
+            check_put_object({'etag': 'etagvalue'},
+                             *put_object_calls[0][0], **put_object_calls[0][1])
+            expected_put_count += 1
+            self.assertEqual(cs.container_puts, expected_put_count)
+
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+                self.assertEqual(headers['X-Newest'], True)
+                self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
+                                 '0')
+                return (200,
+                        {'date': 'date value',
+                         'last-modified': 'last modified value',
+                         'x-timestamp': timestamp.internal,
+                         'other-header': 'other header value',
+                         'etag': '"etagvalue"',
+                         'x-static-large-object': 'true',
+                         'content-type': 'text/plain; swift_bytes=123'},
+                        iter('contents'))
+
+            cs.swift.get_object = fake_get_object
+
+            # Success as everything says it worked, also check that etag
+            # header removed in case of SLO
+            put_object_calls = []
+            self.assertTrue(cs.container_sync_row(
+                {'deleted': False,
+                 'name': 'object',
+                 'created_at': '1.1',
+                 'size': 60}, 'http://sync/to/path',
+                'key', FakeContainerBroker('broker'),
+                {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
+                realm, realm_key))
+            self.assertEqual(1, len(put_object_calls))
+            check_put_object({'x-static-large-object': 'true'},
+                             *put_object_calls[0][0], **put_object_calls[0][1])
             expected_put_count += 1
             self.assertEqual(cs.container_puts, expected_put_count)
 

@@ -123,15 +123,18 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual('PUT', method)
         self.assertEqual('/v1/a/c', path)
         self.assertIn('x-container-sysmeta-versions-location', req_headers)
-        self.assertNotIn('x-container-sysmeta-versions-mode', req_headers)
+        self.assertEqual(req.headers['x-container-sysmeta-versions-location'],
+                         'ver_cont')
+        self.assertIn('x-container-sysmeta-versions-mode', req_headers)
+        self.assertEqual(req.headers['x-container-sysmeta-versions-mode'],
+                         'stack')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
-    def test_put_container_history(self):
+    def test_put_container_history_header(self):
         self.app.register('PUT', '/v1/a/c', swob.HTTPOk, {}, 'passed')
         req = Request.blank('/v1/a/c',
-                            headers={'X-Versions-Location': 'ver_cont',
-                                     'X-Versions-Mode': 'history'},
+                            headers={'X-History-Location': 'ver_cont'},
                             environ={'REQUEST_METHOD': 'PUT'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
@@ -150,17 +153,29 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def test_put_container_both_headers(self):
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Versions-Location': 'ver_cont',
+                                     'X-History-Location': 'ver_cont'},
+                            environ={'REQUEST_METHOD': 'PUT'})
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertFalse(self.app.calls)
+
     def test_container_allow_versioned_writes_false(self):
         self.vw.conf = {'allow_versioned_writes': 'false'}
 
         # PUT/POST container must fail as 412 when allow_versioned_writes
         # set to false
         for method in ('PUT', 'POST'):
-            req = Request.blank('/v1/a/c',
-                                headers={'X-Versions-Location': 'ver_cont'},
-                                environ={'REQUEST_METHOD': method})
-            status, headers, body = self.call_vw(req)
-            self.assertEqual(status, "412 Precondition Failed")
+            for header in ('X-Versions-Location', 'X-History-Location'):
+                req = Request.blank('/v1/a/c',
+                                    headers={header: 'ver_cont'},
+                                    environ={'REQUEST_METHOD': method})
+                status, headers, body = self.call_vw(req)
+                self.assertEqual(status, "412 Precondition Failed",
+                                 'Got %s instead of 412 when %sing '
+                                 'with %s header' % (status, method, header))
 
         # GET performs as normal
         self.app.register('GET', '/v1/a/c', swob.HTTPOk, {}, 'passed')
@@ -172,117 +187,34 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             status, headers, body = self.call_vw(req)
             self.assertEqual(status, '200 OK')
 
-    def test_remove_versions_location(self):
-        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
+    def _test_removal(self, headers):
+        self.app.register('POST', '/v1/a/c', swob.HTTPNoContent, {}, 'passed')
         req = Request.blank('/v1/a/c',
-                            headers={'X-Remove-Versions-Location': 'x'},
+                            headers=headers,
                             environ={'REQUEST_METHOD': 'POST'})
         status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
+        self.assertEqual(status, '204 No Content')
 
         # check for sysmeta header
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[0]
         self.assertEqual('POST', method)
         self.assertEqual('/v1/a/c', path)
-        self.assertIn('x-container-sysmeta-versions-location', req_headers)
-        self.assertEqual('',
-                         req_headers['x-container-sysmeta-versions-location'])
-        self.assertIn('x-versions-location', req_headers)
-        self.assertEqual('', req_headers['x-versions-location'])
+        for header in ['x-container-sysmeta-versions-location',
+                       'x-container-sysmeta-versions-mode',
+                       'x-versions-location']:
+            self.assertIn(header, req_headers)
+            self.assertEqual('', req_headers[header])
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+
+    def test_remove_headers(self):
+        self._test_removal({'X-Remove-Versions-Location': 'x'})
+        self._test_removal({'X-Remove-History-Location': 'x'})
 
     def test_empty_versions_location(self):
-        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
-        req = Request.blank('/v1/a/c',
-                            headers={'X-Versions-Location': ''},
-                            environ={'REQUEST_METHOD': 'POST'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-
-        # check for sysmeta header
-        calls = self.app.calls_with_headers
-        method, path, req_headers = calls[0]
-        self.assertEqual('POST', method)
-        self.assertEqual('/v1/a/c', path)
-        self.assertIn('x-container-sysmeta-versions-location', req_headers)
-        self.assertEqual('',
-                         req_headers['x-container-sysmeta-versions-location'])
-        self.assertIn('x-versions-location', req_headers)
-        self.assertEqual('', req_headers['x-versions-location'])
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-
-    def test_post_versions_mode(self):
-        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
-        req = Request.blank('/v1/a/c',
-                            headers={'X-Versions-Mode': 'stack'},
-                            environ={'REQUEST_METHOD': 'POST'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-
-        # check for sysmeta header
-        calls = self.app.calls_with_headers
-        method, path, req_headers = calls[0]
-        self.assertEqual('POST', method)
-        self.assertEqual('/v1/a/c', path)
-        self.assertIn('x-container-sysmeta-versions-mode', req_headers)
-        self.assertEqual('stack',
-                         req_headers['x-container-sysmeta-versions-mode'])
-        self.assertNotIn('x-versions-mode', req_headers)
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-
-    def test_remove_versions_mode(self):
-        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
-        req = Request.blank('/v1/a/c',
-                            headers={'X-Remove-Versions-Mode': 'x'},
-                            environ={'REQUEST_METHOD': 'POST'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-
-        # check for sysmeta header
-        calls = self.app.calls_with_headers
-        method, path, req_headers = calls[0]
-        self.assertEqual('POST', method)
-        self.assertEqual('/v1/a/c', path)
-        self.assertIn('x-container-sysmeta-versions-mode', req_headers)
-        self.assertEqual('',
-                         req_headers['x-container-sysmeta-versions-mode'])
-        self.assertNotIn('x-versions-mode', req_headers)
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-
-    def test_empty_versions_mode(self):
-        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
-        req = Request.blank('/v1/a/c',
-                            headers={'X-Versions-Mode': ''},
-                            environ={'REQUEST_METHOD': 'POST'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '200 OK')
-
-        # check for sysmeta header
-        calls = self.app.calls_with_headers
-        method, path, req_headers = calls[0]
-        self.assertEqual('POST', method)
-        self.assertEqual('/v1/a/c', path)
-        self.assertIn('x-container-sysmeta-versions-mode', req_headers)
-        self.assertEqual('',
-                         req_headers['x-container-sysmeta-versions-mode'])
-        self.assertNotIn('x-versions-mode', req_headers)
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-
-    def test_bad_versions_mode(self):
-        self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
-        req = Request.blank('/v1/a/c',
-                            headers={'X-Versions-Mode': 'foo'},
-                            environ={'REQUEST_METHOD': 'POST'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '400 Bad Request')
-        self.assertEqual(len(self.authorized), 0)
-        self.assertEqual('X-Versions-Mode must be one of stack, history', body)
+        self._test_removal({'X-Versions-Location': ''})
+        self._test_removal({'X-History-Location': ''})
 
     def test_remove_add_versions_precedence(self):
         self.app.register(
@@ -308,6 +240,43 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def _test_blank_add_versions_precedence(self, blank_header, add_header):
+        self.app.register(
+            'POST', '/v1/a/c', swob.HTTPOk,
+            {'x-container-sysmeta-versions-location': 'ver_cont'},
+            'passed')
+        req = Request.blank('/v1/a/c',
+                            headers={blank_header: '',
+                                     add_header: 'ver_cont'},
+                            environ={'REQUEST_METHOD': 'POST'})
+
+        status, headers, body = self.call_vw(req)
+        self.assertEqual(status, '200 OK')
+
+        # check for sysmeta header
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[-1]
+        self.assertEqual('POST', method)
+        self.assertEqual('/v1/a/c', path)
+        self.assertIn('x-container-sysmeta-versions-location', req_headers)
+        self.assertEqual('ver_cont',
+                         req_headers['x-container-sysmeta-versions-location'])
+        self.assertIn('x-container-sysmeta-versions-mode', req_headers)
+        self.assertEqual('history' if add_header == 'X-History-Location'
+                         else 'stack',
+                         req_headers['x-container-sysmeta-versions-mode'])
+        self.assertNotIn('x-remove-versions-location', req_headers)
+        self.assertIn('x-versions-location', req_headers)
+        self.assertEqual('', req_headers['x-versions-location'])
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
+    def test_blank_add_versions_precedence(self):
+        self._test_blank_add_versions_precedence(
+            'X-Versions-Location', 'X-History-Location')
+        self._test_blank_add_versions_precedence(
+            'X-History-Location', 'X-Versions-Location')
+
     def test_get_container(self):
         self.app.register(
             'GET', '/v1/a/c', swob.HTTPOk,
@@ -319,7 +288,6 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
         self.assertIn(('X-Versions-Location', 'ver_cont'), headers)
-        self.assertIn(('X-Versions-Mode', 'stack'), headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -333,8 +301,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             environ={'REQUEST_METHOD': 'HEAD'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '200 OK')
-        self.assertIn(('X-Versions-Location', 'other_ver_cont'), headers)
-        self.assertIn(('X-Versions-Mode', 'history'), headers)
+        self.assertIn(('X-History-Location', 'other_ver_cont'), headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -460,7 +427,7 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '201 Created')
-        # The middleware now auths the request before the inital GET, the
+        # The middleware now auths the request before the initial GET, the
         # same GET that gets the X-Object-Manifest back. So a second auth is
         # now done.
         self.assertEqual(len(self.authorized), 2)
@@ -849,17 +816,6 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         method, path, req_headers = calls.pop()
         self.assertTrue(path.startswith('/v1/a/ver_cont/001o/3'))
         self.assertNotIn('x-if-delete-at', [h.lower() for h in req_headers])
-
-    def test_post_bad_mode(self):
-        req = Request.blank(
-            '/v1/a/c',
-            environ={'REQUEST_METHOD': 'POST',
-                     'CONTENT_LENGTH': '0',
-                     'HTTP_X_VERSIONS_MODE': 'bad-mode'})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '400 Bad Request')
-        self.assertEqual('X-Versions-Mode must be one of stack, history', body)
-        self.assertFalse(self.app.calls_with_headers)
 
     @mock.patch('swift.common.middleware.versioned_writes.time.time',
                 return_value=1234)
@@ -1526,8 +1482,8 @@ class TestSwiftInfo(unittest.TestCase):
         swift_info = utils.get_swift_info()
         self.assertIn('versioned_writes', swift_info)
         self.assertEqual(
-            swift_info['versioned_writes'].get('allowed_versions_mode'),
-            ('stack', 'history'))
+            swift_info['versioned_writes'].get('allowed_flags'),
+            ('x-versions-location', 'x-history-location'))
 
 
 if __name__ == '__main__':

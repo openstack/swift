@@ -210,6 +210,38 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def test_POST_as_COPY_dynamic_large_object_manifest(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Object-Manifest': 'orig_manifest'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='POST',
+                            headers={'X-Object-Manifest': 'new_manifest'})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '202 Accepted')
+
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('new_manifest', req_headers['x-object-manifest'])
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
+    def test_POST_as_COPY_dynamic_large_object_no_manifest(self):
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'X-Object-Manifest': 'orig_manifest'}, 'passed')
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {})
+        req = Request.blank('/v1/a/c/o', method='POST',
+                            headers={})
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '202 Accepted')
+
+        calls = self.app.calls_with_headers
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        self.assertNotIn('X-Object-Manifest', req_headers)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
     def test_basic_put_with_x_copy_from(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')
         self.app.register('PUT', '/v1/a/c/o2', swob.HTTPCreated, {})
@@ -489,24 +521,16 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_copy_with_no_object_in_x_copy_from_and_account(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c',
                                      'X-Copy-From-Account': 'a'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_copy_with_bad_x_copy_from_account(self):
         req = Request.blank('/v1/a/c/o',
@@ -514,12 +538,8 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c/o',
                                      'X-Copy-From-Account': '/i/am/bad'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_copy_server_error_reading_source(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPServiceUnavailable, {})
@@ -960,36 +980,27 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': 'c_o'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_COPY_account_no_object_in_destination(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': 'c_o',
                                      'Destination-Account': 'a1'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_COPY_account_bad_destination_account(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': '/c/o',
                                      'Destination-Account': '/i/am/bad'})
-        try:
-            status, headers, body = self.call_ssc(req)
-        except HTTPException as resp:
-            self.assertEqual("412 Precondition Failed", str(resp))
-        else:
-            self.fail("Expecting HTTPException.")
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_COPY_server_error_reading_source(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPServiceUnavailable, {})
@@ -1410,6 +1421,30 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('Not Bar', req_headers.get('X-Foo'))
         self.assertIn('X-Fresh-Metadata', req_headers)
 
+    def test_COPY_with_single_range(self):
+        # verify that source etag is not copied when copying a range
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
+                          {'etag': 'bogus etag'}, "abcdefghijklmnop")
+        self.app.register('PUT', '/v1/a/c1/o', swob.HTTPCreated, {})
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='COPY',
+            headers={'Destination': 'c1/o',
+                     'Range': 'bytes=5-10'})
+
+        status, headers, body = self.call_ssc(req)
+
+        self.assertEqual(status, '201 Created')
+        calls = self.app.calls_with_headers
+        self.assertEqual(2, len(calls))
+        method, path, req_headers = calls[1]
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c1/o', path)
+        self.assertNotIn('etag', (h.lower() for h in req_headers))
+        self.assertEqual('6', req_headers['content-length'])
+        req = swob.Request.blank('/v1/a/c1/o', method='GET')
+        status, headers, body = self.call_ssc(req)
+        self.assertEqual('fghijk', body)
+
 
 class TestServerSideCopyConfiguration(unittest.TestCase):
 
@@ -1498,7 +1533,7 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
         self.policy = POLICIES.default
         self.app.container_info = dict(self.container_info)
 
-    def test_COPY_with_ranges(self):
+    def test_COPY_with_single_range(self):
         req = swob.Request.blank(
             '/v1/a/c/o', method='COPY',
             headers={'Destination': 'c1/o',
@@ -1528,10 +1563,24 @@ class TestServerSideCopyMiddlewareWithEC(unittest.TestCase):
             'X-Obj-Metadata-Footer': 'yes',
             'X-Obj-Multiphase-Commit': 'yes'
         }
+
+        put_hdrs = []
+
+        def capture_conn(host, port, dev, part, method, path, *args, **kwargs):
+            if method == 'PUT':
+                put_hdrs.append(args[0])
+
         with set_http_connect(*status_codes, body_iter=body_iter,
-                              headers=headers, expect_headers=expect_headers):
+                              headers=headers, expect_headers=expect_headers,
+                              give_connect=capture_conn):
             resp = req.get_response(self.ssc)
+
         self.assertEqual(resp.status_int, 201)
+        expected_puts = POLICIES.default.ec_ndata + POLICIES.default.ec_nparity
+        self.assertEqual(expected_puts, len(put_hdrs))
+        for hdrs in put_hdrs:
+            # etag should not be copied from source
+            self.assertNotIn('etag', (h.lower() for h in hdrs))
 
     def test_COPY_with_invalid_ranges(self):
         # real body size is segment_size - 10 (just 1 segment)

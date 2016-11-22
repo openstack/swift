@@ -22,9 +22,9 @@ Content-Disposition:
   in: header
   required: false
   type: string
-Content-Disposition_1:
+Content-Disposition_resp:
   description: |
-    If set, specifies the override behavior for the
+    If present, specifies the override behavior for the
     browser. For example, this header might specify that the browser
     use a download program to save this file rather than show the
     file, which is the default.  If not set, this header is not
@@ -39,37 +39,36 @@ Content-Encoding:
   in: header
   required: false
   type: string
-Content-Encoding_1:
+Content-Encoding_resp:
   description: |
-    If set, the value of the ``Content-Encoding``
+    If present, the value of the ``Content-Encoding``
     metadata.  If not set, the operation does not return this header.
   in: header
   required: false
   type: string
-Content-Length:
+Content-Length_cud_resp:
   description: |
     If the operation succeeds, this value is zero
-    (0). If the operation fails, this value is the length of the error
+    (0) or the length of informational or error
     text in the response body.
   in: header
   required: true
   type: string
-Content-Length_1:
+Content-Length_get_resp:
   description: |
-    Set to the length of the object content. Do not
-    set if chunked transfer encoding is being used.
-  in: header
-  required: false
-  type: integer
-Content-Length_2:
-  description: |
-    The length of the response body that contains the
-    list of names. If the operation fails, this value is the length of
-    the error text in the response body.
+    The length of the object content in the response
+    body, in bytes.
   in: header
   required: true
   type: string
-Content-Length_3:
+Content-Length_listing_resp:
+  description: |
+    If the operation succeeds, the length of the response body
+    in bytes. On error, this is the length of the error text.
+  in: header
+  required: true
+  type: string
+Content-Length_obj_head_resp:
   description: |
     HEAD operations do not return content. The
     ``Content-Length`` header value is not the size of the response
@@ -77,57 +76,52 @@ Content-Length_3:
   in: header
   required: true
   type: string
-Content-Length_4:
+Content-Length_put_req:
   description: |
-    The length of the object content in the response
-    body, in bytes.
+    Set to the length of the object content (i.e. the length in bytes
+    of the request body). Do not
+    set if chunked transfer encoding is being used.
   in: header
-  required: true
-  type: string
-Content-Type:
+  required: false
+  type: integer
+Content-Type_cud_resp:
   description: |
-    Changes the MIME type for the object.
+    If present, this value is the MIME
+    type of the informational or error text in the response body.
   in: header
   required: false
   type: string
-Content-Type_1:
+Content-Type_listing_resp:
   description: |
-    If the operation fails, this value is the MIME
-    type of the error text in the response body.
+    If the operation succeeds, this value is the MIME type of the list
+    response. The MIME type is determined by the listing format specified by
+    the request and will be one of ``text/plain``, ``application/json``,
+    ``application/xml``, or ``text/xml``. If the operation fails, this value is
+    the MIME type of the error text in the response body.
   in: header
   required: true
   type: string
-Content-Type_2:
+Content-Type_obj_cu_req:
   description: |
-    The MIME type of the object.
+    Sets the MIME type for the object.
   in: header
-  required: true
+  required: false
   type: string
-Content-Type_3:
+Content-Type_obj_resp:
   description: |
-    The MIME type of the list of names. If the
-    operation fails, this value is the MIME type of the error text in
-    the response body.
+    If the operation succeeds, this value is the MIME type of the object. If
+    the operation fails, this value is the MIME type of the error text in the
+    response body.
   in: header
   required: true
   type: string
 Date:
   description: |
-    The transaction date and time.
-
-    The date and time stamp format is `ISO 8601
-    <https://en.wikipedia.org/wiki/ISO_8601>`_:
-
-    ::
-
-       CCYY-MM-DDThh:mm:ss±hh:mm
-
-    For example, ``2015-08-27T09:49:58-05:00``.
-
-    The ``±hh:mm`` value, if included, is the time zone as an offset
-    from UTC. In the previous example, the offset value is ``-05:00``.
-
-    A ``null`` value indicates that the token never expires.
+    The date and time the system responded to the request,
+    using the preferred format of
+    `RFC 7231 <https://tools.ietf.org/html/rfc7231#section-7.1.1.1>`_ as
+    shown in this example ``Thu, 16 Jun 2016 15:10:38 GMT``. The time is
+    always in UTC.
   in: header
   required: true
   type: string
@@ -140,14 +134,29 @@ Destination:
   in: header
   required: true
   type: string
-ETag:
+Destination-Account:
+  description: |
+    Specifies the account name where the object is copied to. If not
+    specified, the object is copied to the account which owns the object
+    (i.e., the account in the path).
+  in: header
+  required: false
+  type: string
+ETag_obj_copied:
   description: |
     The MD5 checksum of the copied object content.
     The value is not quoted.
   in: header
   required: true
   type: string
-ETag_1:
+ETag_obj_received:
+  description: |
+    The MD5 checksum of the uploaded object content.
+    The value is not quoted.
+  in: header
+  required: true
+  type: string
+ETag_obj_req:
   description: |
     The MD5 checksum value of the request body. For
     example, the MD5 checksum value of the object content. You are
@@ -158,7 +167,7 @@ ETag_1:
   in: header
   required: false
   type: string
-ETag_2:
+ETag_obj_resp:
   description: |
     For objects smaller than 5 GB, this value is the
     MD5 checksum of the object content. The value is not quoted.  For
@@ -190,7 +199,7 @@ If-Modified-Since:
 If-None-Match:
   description: |
     In combination with ``Expect: 100-Continue``,
-    specify an ``"If- None-Match: *"`` header to query whether the
+    specify an ``"If-None-Match: *"`` header to query whether the
     server already has a copy of the object before any data is sent.
   in: header
   required: false
@@ -205,19 +214,10 @@ If-Unmodified-Since:
 Last-Modified:
   description: |
     The date and time when the object was created or its metadata was
-    changed.
+    changed. The date and time is formaatted as shown in this
+    example: ``Fri, 12 Aug 2016 14:24:16 GMT``
 
-    The date and time stamp format is `ISO 8601
-    <https://en.wikipedia.org/wiki/ISO_8601>`_:
-
-    ::
-
-       CCYY-MM-DDThh:mm:ss±hh:mm
-
-    For example, ``2015-08-27T09:49:58-05:00``.
-
-    The ``±hh:mm`` value, if included, is the time zone as an offset
-    from UTC. In the previous example, the offset value is ``-05:00``.
+    The time is always in UTC.
   in: header
   required: true
   type: string
@@ -233,18 +233,21 @@ Range:
     do, the value   defaults to the offset of the last byte of data.
     - **Suffix byte range specification**. Use LENGTH bytes to specify
     the length of the data range.  The following forms of the header
-    specify the following ranges of data:  - ``Range: bytes=-5``. The
-    last five bytes.  - ``Range: bytes=10-15``. The five bytes of data
-    after a 10-byte   offset.  - ``Range: bytes=10-15,-5``. A multi-
-    part response that contains the   last five bytes and the five
-    bytes of data after a 10-byte   offset. The ``Content-Type``
-    response header contains   ``multipart/byteranges``.  - ``Range:
-    bytes=4-6``. Bytes 4 to 6 inclusive.  - ``Range: bytes=2-2``. Byte
-    2, the third byte of the data.  - ``Range: bytes=6-``. Byte 6 and
-    after.  - ``Range: bytes=1-3,2-5``. A multi-part response that
-    contains   bytes 1 to 3 inclusive, and bytes 2 to 5 inclusive. The
-    ``Content-Type`` response header contains
-    ``multipart/byteranges``.
+    specify the following ranges of data:
+
+    - ``Range: bytes=-5``. The last five bytes.
+    - ``Range: bytes=10-15``. The six bytes of data after a 10-byte   offset.
+    - ``Range: bytes=10-15,-5``. A multi-part response that contains the
+      last five bytes and the six
+      bytes of data after a 10-byte offset. The ``Content-Type``
+      response header contains   ``multipart/byteranges``.
+    - ``Range: bytes=4-6``. Bytes 4 to 6 inclusive.
+    - ``Range: bytes=2-2``. Byte 2, the third byte of the data.
+    - ``Range: bytes=6-``. Byte 6 and after.
+    - ``Range: bytes=1-3,2-5``. A multi-part response that
+      contains   bytes 1 to 3 inclusive, and bytes 2 to 5 inclusive. The
+      ``Content-Type`` response header contains
+      ``multipart/byteranges``.
   in: header
   required: false
   type: string
@@ -272,42 +275,84 @@ X-Account-Container-Count:
 X-Account-Meta-name:
   description: |
     The custom account metadata item, where
-    ``{name}`` is the name of the metadata item.  One ``X-Account-
-    Meta- {name}`` response header appears for each metadata item (for
-    each ``{name}``).
+    ``name`` is the name of the metadata item.  One ``X-Account-Meta-name``
+    response header appears for each metadata item (for
+    each ``name``).
   in: header
   required: false
   type: string
-X-Account-Meta-name_1:
+X-Account-Meta-name_req:
   description: |
-    The account metadata. The ``{name}`` is the name
+    The account metadata. The ``name`` is the name
     of metadata item that you want to add, update, or delete. To
     delete this item, send an empty value in this header.  You must
-    specify an ``X-Account-Meta- {name}`` header for each metadata
-    item (for each ``{name}``) that you want to add, update, or
+    specify an ``X-Account-Meta-name`` header for each metadata
+    item (for each ``name``) that you want to add, update, or
     delete.
   in: header
   required: false
   type: string
-X-Account-Meta-Temp-URL-Key:
+X-Account-Meta-Quota-Bytes_resp:
+  description: |
+    If present, this is the limit on the total size in bytes of objects stored
+    in the account.
+    Typically this value is set by an administrator.
+  in: header
+  required: false
+  type: string
+X-Account-Meta-Temp-URL-Key-2_req:
+  description: |
+    A second secret key value for temporary URLs.
+    The second key enables you to rotate keys by having
+    two active keys at the same time.
+  in: header
+  required: false
+  type: string
+X-Account-Meta-Temp-URL-Key-2_resp:
+  description: |
+    The second secret key value for temporary URLs. If
+    not set, this header is not returned in the response.
+  in: header
+  required: false
+  type: string
+X-Account-Meta-Temp-URL-Key_req:
+  description: |
+    The secret key value for temporary URLs.
+  in: header
+  required: false
+  type: string
+X-Account-Meta-Temp-URL-Key_resp:
   description: |
     The secret key value for temporary URLs. If not
     set, this header is not returned in the response.
   in: header
   required: false
   type: string
-X-Account-Meta-Temp-URL-Key-2:
-  description: |
-    A second secret key value for temporary URLs. If
-    not set, this header is not returned in the response.
-    The second key enables you to rotate keys by having
-    two active keys at the same time.
-  in: header
-  required: false
-  type: string
 X-Account-Object-Count:
   description: |
     The number of objects in the account.
+  in: header
+  required: true
+  type: integer
+X-Account-Storage-Policy-name-Bytes-Used:
+  description: |
+    The total number of bytes that are stored in
+    in a given storage policy, where ``name`` is the
+    name of the storage policy.
+  in: header
+  required: true
+  type: integer
+X-Account-Storage-Policy-name-Container-Count:
+  description: |
+    The number of containers in the account that use the given
+    storage policy where ``name`` is the name of the storage policy.
+  in: header
+  required: true
+  type: integer
+X-Account-Storage-Policy-name-Object-Count:
+  description: |
+    The number of objects in given storage policy where ``name`` is
+    the name of the storage policy.
   in: header
   required: true
   type: integer
@@ -318,12 +363,6 @@ X-Auth-Token:
     through an access control list (ACL).
   in: header
   required: false
-  type: string
-X-Auth-Token_1:
-  description: |
-    Authentication token.
-  in: header
-  required: true
   type: string
 X-Container-Bytes-Used:
   description: |
@@ -354,14 +393,16 @@ X-Container-Meta-Access-Control-Expose-Headers:
     Headers the Object Storage service exposes to the
     browser (technically, through the ``user-agent`` setting), in the
     request response, separated by spaces.  By default the Object
-    Storage service returns the following values for this header:  -
-    All “simple response headers” as listed on
-    `http://www.w3.org/TR/cors/#simple-response-header
-    <http://www.w3.org/TR/cors/#simple-response-header>`_.  - The
-    headers ``etag``, ``x-timestamp``, ``x-trans-id``.  - All metadata
-    headers (``X-Container-Meta-*`` for containers and   ``X-Object-
-    Meta-*`` for objects) headers listed in ``X-Container-   Meta-
-    Access-Control-Expose-Headers``.
+    Storage service returns the following headers:
+
+    - All “simple response headers” as listed on
+      `http://www.w3.org/TR/cors/#simple-response-header
+      <http://www.w3.org/TR/cors/#simple-response-header>`_.
+    - The headers ``etag``, ``x-timestamp``, ``x-trans-id``,
+      ``x-openstack-request-id``.
+    - All metadata headers (``X-Container-Meta-*`` for containers and
+      ``X-Object-Meta-*`` for objects).
+    - headers listed in ``X-Container-Meta-Access-Control-Expose-Headers``.
   in: header
   required: false
   type: string
@@ -376,21 +417,21 @@ X-Container-Meta-Access-Control-Max-Age:
   type: string
 X-Container-Meta-name:
   description: |
-    The container metadata, where ``{name}`` is the
-    name of metadata item.  You must specify an ``X-Container-Meta-
-    {name}`` header for each metadata item (for each ``{name}``) that
+    The custom container metadata item, where
+    ``name`` is the name of the metadata item.  One ``X-Container-Meta-name``
+    response header appears for each metadata item (for
+    each ``name``).
+  in: header
+  required: true
+  type: string
+X-Container-Meta-name_req:
+  description: |
+    The container metadata, where ``name`` is the
+    name of metadata item.  You must specify an ``X-Container-Meta-name``
+    header for each metadata item (for each ``name``) that
     you want to add or update.
   in: header
   required: false
-  type: string
-X-Container-Meta-name_1:
-  description: |
-    The custom container metadata item, where
-    ``{name}`` is the name of the metadata item.  One ``X-Container-
-    Meta- {name}`` response header appears for each metadata item (for
-    each ``{name}``).
-  in: header
-  required: true
   type: string
 X-Container-Meta-Quota-Bytes:
   description: |
@@ -398,6 +439,17 @@ X-Container-Meta-Quota-Bytes:
     Typically these values are set by an administrator. Returns a 413
     response (request entity too large) when an object PUT operation
     exceeds this quota value.
+    This value does not take effect immediately. see
+    `Container Quotas
+    <http://docs.openstack.org/developer/swift/api/container_quotas.html>`_
+    for more information.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Quota-Bytes_resp:
+  description: |
+    The maximum size of the container, in bytes. If not set, this header is not
+    returned by this operation.
   in: header
   required: false
   type: string
@@ -407,20 +459,45 @@ X-Container-Meta-Quota-Count:
     Typically these values are set by an administrator. Returns a 413
     response (request entity too large) when an object PUT operation
     exceeds this quota value.
+    This value does not take effect immediately. see
+    `Container Quotas
+    <http://docs.openstack.org/developer/swift/api/container_quotas.html>`_
+    for more information.
   in: header
   required: false
   type: string
-X-Container-Meta-Temp-URL-Key:
+X-Container-Meta-Quota-Count_resp:
+  description: |
+    The maximum object count of the container. If not set, this header is not
+    returned by this operation.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Temp-URL-Key-2_req:
+  description: |
+    A second secret key value for temporary URLs.
+    The second key enables you to rotate keys by having
+    two active keys at the same time.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Temp-URL-Key-2_resp:
+  description: |
+    The second secret key value for temporary URLs. If
+    not set, this header is not returned in the response.
+  in: header
+  required: false
+  type: string
+X-Container-Meta-Temp-URL-Key_req:
   description: |
     The secret key value for temporary URLs.
   in: header
   required: false
   type: string
-X-Container-Meta-Temp-URL-Key-2:
+X-Container-Meta-Temp-URL-Key_resp:
   description: |
-    A second secret key value for temporary URLs. The
-    second key enables you to rotate keys by having two active keys at
-    the same time.
+    The secret key value for temporary URLs. If not
+    set, this header is not returned in the response.
   in: header
   required: false
   type: string
@@ -431,7 +508,7 @@ X-Container-Meta-Web-Directory-Type:
     ``application/directory``. Directory marker objects are 0-byte
     objects that represent directories to create a simulated
     hierarchical structure.  For example, if you set ``"X-Container-
-    Meta-Web-Directory- Type: text/directory"``, Object Storage treats
+    Meta-Web-Directory-Type: text/directory"``, Object Storage treats
     0-byte objects with a content-type of ``text/directory`` as
     directories rather than objects.
   in: header
@@ -446,47 +523,18 @@ X-Container-Object-Count:
 X-Container-Read:
   description: |
     Sets a container access control list (ACL) that grants read access.
-    Container ACLs are available on any Object Storage cluster, and are
-    enabled by container rather than by cluster.
+    The scope of the access is specific to the container. The ACL grants
+    the ability to perform GET or HEAD operations on objects in the container
+    or to perform a GET or HEAD operation on the container itself.
 
-    To set the container read ACL:
-
-    .. code-block:: bash
-
-       $ curl -X {PUT|POST} -i -H "X-Auth-Token: TOKEN" -H \
-              "X-Container-Read: ACL" STORAGE_URL/CONTAINER
-
-    For example:
-
-    .. code-block:: bash
-
-       $ curl -X PUT -i \
-              -H "X-Auth-Token: 0101010101" \
-              -H "X-Container-Read: .r:*" \
-              http://swift.example.com/v1/AUTH_bob/read_container
-
-    In the command, specify the ACL in the ``X-Container-Read`` header,
-    as follows:
-
-    - ``.r:*`` All referrers.
-
-    - ``.r:example.com,swift.example.com`` Comma-separated list of
-      referrers.
-
-    - ``.rlistings`` Container listing access.
-
-    - ``AUTH_username`` Access to a user who authenticates through a
-      legacy or non-OpenStack-Identity-based authentication system.
-
-    - ``LDAP_`` Access to all users who authenticate through an LDAP-
-      based legacy or non-OpenStack-Identity-based authentication
-      system.
+    The format and scope of the ACL is dependent on the authorization system
+    used by the Object Storage service.
   in: header
   required: false
   type: string
-X-Container-Read_1:
+X-Container-Read_resp:
   description: |
-    The ACL that grants read access. If not set, this
+    The ACL that grants read access. If there is no ACL, this
     header is not returned by this operation.
   in: header
   required: false
@@ -496,10 +544,13 @@ X-Container-Sync-Key:
     Sets the secret key for container
     synchronization. If you remove the secret key, synchronization is
     halted.
+    For more information, see `Container to Container Synchronization
+    <http://docs.openstack.org/developer/swift/overview_
+    container_sync.html>`_
   in: header
   required: false
   type: string
-X-Container-Sync-Key_1:
+X-Container-Sync-Key_resp:
   description: |
     The secret key for container synchronization. If
     not set, this header is not returned by this operation.
@@ -516,7 +567,7 @@ X-Container-Sync-To:
   in: header
   required: false
   type: string
-X-Container-Sync-To_1:
+X-Container-Sync-To_resp:
   description: |
     The destination for container synchronization. If
     not set, this header is not returned by this operation.
@@ -525,13 +576,21 @@ X-Container-Sync-To_1:
   type: string
 X-Container-Write:
   description: |
-    Sets an ACL that grants write access.
+    Sets a container access control list (ACL) that grants write access.
+    The scope of the access is specific to the container. The ACL grants
+    the ability to perform PUT, POST and DELETE operations on
+    objects in the container. It does not grant write access to the container
+    metadata.
+
+    The format of the ACL is dependent on the authorization system
+    used by the Object Storage service.
+
   in: header
   required: false
   type: string
-X-Container-Write_1:
-  description: |
-    The ACL that grants write access. If not set,
+X-Container-Write_resp:
+  description:
+    The ACL that grants write access. If there is no ACL,
     this header is not returned by this operation.
   in: header
   required: false
@@ -541,6 +600,13 @@ X-Copied-From:
     For a copied object, shows the container and
     object name from which the new object was copied. The value is in
     the ``{container}/{object}`` format.
+  in: header
+  required: false
+  type: string
+X-Copied-From-Account:
+  description: |
+    For a copied object, shows the account
+    from which the new object was copied.
   in: header
   required: false
   type: string
@@ -572,7 +638,7 @@ X-Delete-After:
   description: |
     The number of seconds after which the system
     removes the object. Internally, the Object Storage system stores
-    this value in the ``X -Delete-At`` metadata item.
+    this value in the ``X-Delete-At`` metadata item.
   in: header
   required: false
   type: integer
@@ -585,21 +651,11 @@ X-Delete-At:
   in: header
   required: false
   type: integer
-X-Delete-At_1:
-  description: |
-    If set, the date and time in `UNIX Epoch time
-    stamp format <https://en.wikipedia.org/wiki/Unix_time>`_ when the
-    system deletes the object.  For example, ``1440619048`` is
-    equivalent to ``Mon, Wed, 26 Aug 2015 19:57:28 GMT``.  If not set,
-    this operation does not return this header.
-  in: header
-  required: false
-  type: integer
 X-Detect-Content-Type:
   description: |
     If set to ``true``, Object Storage guesses the
     content type based on the file extension and ignores the value
-    sent in the ``Content- Type`` header, if present.
+    sent in the ``Content-Type`` header, if present.
   in: header
   required: false
   type: boolean
@@ -611,6 +667,27 @@ X-Fresh-Metadata:
   in: header
   required: false
   type: boolean
+X-History-Location:
+  description: |
+    The URL-encoded UTF-8 representation of the container that stores
+    previous versions of objects. If neither this nor ``X-Versions-Location``
+    is set, versioning is disabled for this container. ``X-History-Location``
+    and ``X-Versions-Location`` cannot both be set at the same time. For more
+    information about object versioning, see `Object versioning
+    <http://docs.openstack.org/ developer/swift/api/object_versioning.html>`_.
+  in: header
+  required: false
+  type: string
+X-History-Location_resp:
+  description: |
+    If present, this container has versioning enabled and the value
+    is the UTF-8 encoded name of another container.
+    For more information about object versioning,
+    see `Object versioning <http://docs.openstack.org/developer/
+    swift/api/object_versioning.html>`_.
+  in: header
+  required: false
+  type: string
 X-Newest:
   description: |
     If set to true , Object Storage queries all
@@ -631,9 +708,9 @@ X-Object-Manifest:
   in: header
   required: false
   type: string
-X-Object-Manifest_1:
+X-Object-Manifest_resp:
   description: |
-    If set, to this is a dynamic large object
+    If present, this is a dynamic large object
     manifest object. The value is the container and object name prefix
     of the segment objects in the form ``container/prefix``.
   in: header
@@ -641,32 +718,65 @@ X-Object-Manifest_1:
   type: string
 X-Object-Meta-name:
   description: |
-    The object metadata, where ``{name}`` is the name
-    of the metadata item.  You must specify an ``X-Object-Meta-
-    {name}`` header for each metadata ``{name}`` item that you want to
-    add or update.
+    The object metadata, where ``name`` is the name
+    of the metadata item.  You must specify an
+    ``X-Object-Meta-name`` header for each metadata ``name`` item that
+    you want to add or update.
   in: header
   required: false
   type: string
-X-Object-Meta-name_1:
+X-Object-Meta-name_resp:
   description: |
-    The custom object metadata item, where ``{name}``
-    is the name of the metadata item.  One ``X-Object-Meta- {name}``
-    response header appears for each metadata ``{name}`` item.
+    If present, the custom object metadata item, where ``name``
+    is the name of the metadata item.  One``X-Object-Meta-name``
+    response header appears for each metadata ``name`` item.
+  in: header
+  required: false
+  type: string
+X-Openstack-Request-Id:
+  description: |
+    A unique transaction ID for this request. Your
+    service provider might need this value if you report a problem.
+    (same as ``X-Trans-Id``)
   in: header
   required: true
   type: string
+X-Remove-Account-name:
+  description: |
+    Removes the metadata item named ``name``.
+    For example, ``X-Remove-Account-Meta-Blue`` removes
+    custom metadata.
+  in: header
+  required: false
+  type: string
 X-Remove-Container-name:
   description: |
-    Removes the metadata item named ``{name}``. For
-    example, ``X -Remove-Container-Read`` removes the ``X-Container-
-    Read`` metadata item.
+    Removes the metadata item named ``name``. For
+    example, ``X-Remove-Container-Read`` removes the
+    ``X-Container-Read`` metadata item and ``X-Remove-Container-Meta-Blue``
+    removes custom metadata.
+  in: header
+  required: false
+  type: string
+X-Remove-History-Location:
+  description: |
+    Set to any value to disable versioning. Note that this disables version
+    that was set via ``X-Versions-Location`` as well.
   in: header
   required: false
   type: string
 X-Remove-Versions-Location:
   description: |
-    Set to any value to disable versioning.
+    Set to any value to disable versioning. Note that this disables version
+    that was set via ``X-History-Location`` as well.
+  in: header
+  required: false
+  type: string
+X-Service-Token:
+  description: |
+    A service token. See `OpenStack Service Using Composite Tokens
+    <http://docs.openstack.org/developer/swift/overview_auth.html#openstack-
+    service-using-composite-tokens>`_ for more information.
   in: header
   required: false
   type: string
@@ -677,6 +787,14 @@ X-Static-Large-Object:
   in: header
   required: true
   type: boolean
+X-Storage-Policy:
+  description: |
+    In requests, specifies the name of the storage policy to use for
+    the container. In responses, is the storage policy name.
+    The storage policy of the container cannot be changed.
+  in: header
+  required: false
+  type: string
 X-Timestamp:
   description: |
     The date and time in `UNIX Epoch time stamp
@@ -696,23 +814,23 @@ X-Trans-Id:
   type: string
 X-Trans-Id-Extra:
   description: |
-    Extra transaction information. Use the ``X-Trans-
-    Id-Extra`` request header to include extra information to help you
+    Extra transaction information. Use the ``X-Trans-Id-Extra``
+    request header to include extra information to help you
     debug any errors that might occur with large object upload and
-    other Object Storage transactions.  Object Storage appends the
-    first 32 characters of the ``X-Trans-Id- Extra`` request header
+    other Object Storage transactions.  The server appends the
+    first 32 characters of the ``X-Trans-Id-Extra`` request header
     value to the transaction ID value in the generated ``X-Trans-Id``
     response header. You must UTF-8-encode and then URL-encode the
-    extra transaction information before you include it in the ``X
-    -Trans-Id-Extra`` request header.  For example, you can include
+    extra transaction information before you include it in the
+    ``X-Trans-Id-Extra`` request header.  For example, you can include
     extra transaction information when you upload `large objects
-    <http://docs.openstack.org/user-
-    guide/cli_swift_large_object_creation.html>`_ such as images. When
+    <http://docs.openstack.org/developer/swift/api/large_objects.html>`_
+    such as images. When
     you upload each segment and the manifest, include the same value
     in the ``X-Trans-Id-Extra`` request header. If an error occurs,
     you can find all requests that are related to the large object
-    upload in the Object Storage logs.  You can also use ``X-Trans-Id-
-    Extra`` strings to help operators debug requests that fail to
+    upload in the Object Storage logs.  You can also use ``X-Trans-Id-Extra``
+    strings to help operators debug requests that fail to
     receive responses. The operator can search for the extra
     information in the logs.
   in: header
@@ -721,19 +839,19 @@ X-Trans-Id-Extra:
 X-Versions-Location:
   description: |
     The URL-encoded UTF-8 representation of the container that stores
-    previous versions of objects. If not set, versioning is disabled
-    for this container. For more information about object versioning,
-    see `Object versioning <http://docs.openstack.org/developer/
-    swift/api/object_versioning.html>`_.
+    previous versions of objects. If neither this nor ``X-History-Location``
+    is set, versioning is disabled for this container. ``X-Versions-Location``
+    and ``X-History-Location`` cannot both be set at the same time. For more
+    information about object versioning, see `Object versioning
+    <http://docs.openstack.org/ developer/swift/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
-X-Versions-Mode:
+X-Versions-Location_resp:
   description: |
-    The versioning mode for this container. The value must be either
-    ``stack`` or ``history``. If not set, ``stack`` mode will be used.
-    This setting has no impact unless ``X-Versions-Location`` is set
-    for the container. For more information about object versioning,
+    If present, this container has versioning enabled and the value
+    is the UTF-8 encoded name of another container.
+    For more information about object versioning,
     see `Object versioning <http://docs.openstack.org/developer/
     swift/api/object_versioning.html>`_.
   in: header
@@ -750,12 +868,13 @@ account:
   type: string
 container:
   description: |
-    The unique name for the container.  The container
+    The unique (within an account) name for the container.  The container
     name must be from 1 to 256 characters long and can start with any
     character and contain any pattern. Character set must be UTF-8.
     The container name cannot contain a slash (``/``) character
     because this character delimits the container and object name. For
-    example, ``/account/container/object``.
+    example, the path ``/v1/account/www/pages`` specifies the ``www``
+    container, not the ``www/pages`` container.
   in: path
   required: false
   type: string
@@ -767,6 +886,16 @@ object:
   type: string
 
 # variables in query
+bulk-delete:
+  description: |
+    When the ``bulk-delete`` query parameter is present in the POST
+    request, multiple objects or containers can be deleted
+    with a single request. See `Bulk Delete
+    <http://docs.openstack.org/developer/swift/middleware.html?highlight=
+    bulk#bulk-delete>`_ for how this feature is used.
+  in: query
+  required: false
+  type: string
 delimiter:
   description: |
     Delimiter value, which returns the object names
@@ -781,6 +910,16 @@ end_marker:
   description: |
     For a string value, x , returns container names
     that are less than the marker value.
+  in: query
+  required: false
+  type: string
+extract-archive:
+  description: |
+    When the ``extract-archive`` query parameter is present in the POST
+    request, an archive (tar file) is uploaded and extracted to
+    create multiple objects. See `Extract Archive
+    <http://docs.openstack.org/developer/swift/middleware.html?highlight=
+    bulk#extract-archive>`_ for how this feature is used.
   in: query
   required: false
   type: string
@@ -823,23 +962,24 @@ marker:
   in: query
   required: false
   type: string
-multipart-manifest:
+multipart-manifest_copy:
   description: |
-    If ``?multipart-manifest=put``, the object is a
-    static large object manifest and the body contains the manifest.
+    If you include the ``multipart-manifest=get``
+    query parameter and the object is a large object, the object
+    contents are not copied. Instead, the manifest is copied to
+    the new object.
   in: query
   required: false
   type: string
-multipart-manifest_1:
+multipart-manifest_delete:
   description: |
     If you include the ``multipart-manifest=delete``
     query parameter and the object is a static large object, the
     segment objects and manifest object are deleted. If you omit the
-    ``multipart- manifest=delete`` query parameter and the object is a
+    ``multipart-manifest=delete`` query parameter and the object is a
     static large object, the manifest object is deleted but the
-    segment objects are not deleted.  For a bulk delete, the response
-    body looks the same as it does for a normal bulk delete. In
-    contrast, a plain object DELETE response has an empty body.
+    segment objects are not deleted.  The response body will contain
+    the status of the deletion of every processed segment object.
   in: query
   required: false
   type: string
@@ -862,6 +1002,13 @@ multipart-manifest_head:
   in: query
   required: false
   type: string
+multipart-manifest_put:
+  description: |
+    If you include the ``multipart-manifest=put`` query parameter, the object
+    is a static large object manifest and the body contains the manifest.
+  in: query
+  required: false
+  type: string
 path:
   description: |
     For a string value, returns the object names that
@@ -878,11 +1025,9 @@ prefix:
   type: string
 swiftinfo_expires:
   description: |
-    Filters the response by the expiration date and
-    time in `UNIX Epoch time stamp format
-    <https://en.wikipedia.org/wiki/Unix_time>`_.  For example,
-    ``1440619048`` is equivalent to ``Mon, Wed, 26 Aug 2015 19:57:28
-    GMT``.
+    The time at which ``swiftinfo_sig`` expires. The time is in
+    `UNIX Epoch time stamp format
+    <https://en.wikipedia.org/wiki/Unix_time>`_.
   in: query
   required: false
   type: integer

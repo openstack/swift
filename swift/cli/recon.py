@@ -17,7 +17,7 @@
 
 from __future__ import print_function
 
-from eventlet.green import urllib2, socket
+from eventlet.green import socket
 from six.moves.urllib.parse import urlparse
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
@@ -28,7 +28,13 @@ import json
 import optparse
 import time
 import sys
+import six
 import os
+
+if six.PY3:
+    from eventlet.green.urllib import request as urllib2
+else:
+    from eventlet.green import urllib2
 
 
 def seconds2timeunit(seconds):
@@ -233,14 +239,14 @@ class SwiftRecon(object):
         matches = 0
         errors = 0
         ring_names = set()
-        for server_type in ('account', 'container'):
-            ring_name = '%s.ring.gz' % server_type
+        if self.server_type == 'object':
+            for ring_name in os.listdir(swift_dir):
+                if ring_name.startswith('object') and \
+                        ring_name.endswith('ring.gz'):
+                    ring_names.add(ring_name)
+        else:
+            ring_name = '%s.ring.gz' % self.server_type
             ring_names.add(ring_name)
-        # include any other object ring files
-        for ring_name in os.listdir(swift_dir):
-            if ring_name.startswith('object') and \
-                    ring_name.endswith('ring.gz'):
-                ring_names.add(ring_name)
         rings = {}
         for ring_name in ring_names:
             md5sum = md5()
@@ -265,6 +271,8 @@ class SwiftRecon(object):
             success = True
             for remote_ring_file, remote_ring_sum in response.items():
                 remote_ring_name = os.path.basename(remote_ring_file)
+                if not remote_ring_name.startswith(self.server_type):
+                    continue
                 ring_sum = rings.get(remote_ring_name, None)
                 if remote_ring_sum != ring_sum:
                     success = False

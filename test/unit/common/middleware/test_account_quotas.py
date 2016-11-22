@@ -13,8 +13,7 @@
 
 import unittest
 
-from swift.common.swob import Request, wsgify, HTTPForbidden, \
-    HTTPException
+from swift.common.swob import Request, wsgify, HTTPForbidden
 
 from swift.common.middleware import account_quotas, copy
 
@@ -491,9 +490,8 @@ class AccountQuotaCopyingTestCases(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache},
                             headers={'x-copy-from': 'bad_path'})
-        with self.assertRaises(HTTPException) as catcher:
-            req.get_response(self.copy_filter)
-        self.assertEqual(412, catcher.exception.status_int)
+        res = req.get_response(self.copy_filter)
+        self.assertEqual(res.status_int, 412)
 
 if __name__ == '__main__':
     unittest.main()

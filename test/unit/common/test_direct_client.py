@@ -261,34 +261,41 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('GET' in str(err))
 
     def test_direct_delete_account(self):
-        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
         mock_path = 'swift.common.bufferedhttp.http_connect_raw'
         with mock.patch(mock_path) as fake_connect:
             fake_connect.return_value.getresponse.return_value.status = 200
-            direct_client.direct_delete_account(node, part, account)
+            direct_client.direct_delete_account(self.node, part, account)
             args, kwargs = fake_connect.call_args
+            ip = args[0]
+            self.assertEqual(self.node['ip'], ip)
+            port = args[1]
+            self.assertEqual(self.node['port'], port)
             method = args[2]
             self.assertEqual('DELETE', method)
             path = args[3]
             self.assertEqual('/sda/0/a', path)
             headers = args[4]
-            self.assertTrue('X-Timestamp' in headers)
+            self.assertIn('X-Timestamp', headers)
+            self.assertIn('User-Agent', headers)
 
     def test_direct_delete_account_failure(self):
-        node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda'}
         part = '0'
         account = 'a'
 
         with mocked_http_conn(500) as conn:
             try:
-                direct_client.direct_delete_account(node, part, account)
+                direct_client.direct_delete_account(self.node, part, account)
             except ClientException as err:
                 pass
+            self.assertEqual(self.node['ip'], conn.host)
+            self.assertEqual(self.node['port'], conn.port)
             self.assertEqual('DELETE', conn.method)
             self.assertEqual('/sda/0/a', conn.path)
+            self.assertIn('X-Timestamp', conn.req_headers)
+            self.assertIn('User-Agent', conn.req_headers)
             self.assertEqual(err.http_status, 500)
 
     def test_direct_head_container(self):
@@ -297,6 +304,8 @@ class TestDirectClient(unittest.TestCase):
         with mocked_http_conn(200, headers) as conn:
             resp = direct_client.direct_head_container(
                 self.node, self.part, self.account, self.container)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.container_path)
 
@@ -316,6 +325,8 @@ class TestDirectClient(unittest.TestCase):
             else:
                 self.fail('ClientException not raised')
             # check request
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.container_path)
 
@@ -337,6 +348,8 @@ class TestDirectClient(unittest.TestCase):
                 self.assertTrue(isinstance(err, ClientException))
             else:
                 self.fail('ClientException not raised')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.container_path)
 
@@ -390,8 +403,7 @@ class TestDirectClient(unittest.TestCase):
             resp_headers, resp = direct_client.direct_get_container(
                 self.node, self.part, self.account, self.container)
 
-        self.assertEqual(conn.req_headers['user-agent'],
-                         'direct-client %s' % os.getpid())
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual(headers, resp_headers)
         self.assertEqual([], resp)
 
@@ -399,6 +411,8 @@ class TestDirectClient(unittest.TestCase):
         with mocked_http_conn(200) as conn:
             direct_client.direct_delete_container(
                 self.node, self.part, self.account, self.container)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
 
@@ -410,6 +424,8 @@ class TestDirectClient(unittest.TestCase):
             direct_client.direct_delete_container(
                 self.node, self.part, self.account, self.container,
                 headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
             self.assertTrue('X-Timestamp' in conn.req_headers)
@@ -425,6 +441,8 @@ class TestDirectClient(unittest.TestCase):
             else:
                 self.fail('ClientException not raised')
 
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
 
@@ -438,6 +456,8 @@ class TestDirectClient(unittest.TestCase):
             rv = direct_client.direct_put_container_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
             self.assertTrue('x-timestamp' in conn.req_headers)
@@ -456,6 +476,8 @@ class TestDirectClient(unittest.TestCase):
             else:
                 self.fail('ClientException not raised')
 
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -466,6 +488,8 @@ class TestDirectClient(unittest.TestCase):
         with mocked_http_conn(204) as conn:
             rv = direct_client.direct_delete_container_object(
                 self.node, self.part, self.account, self.container, self.obj)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -482,6 +506,8 @@ class TestDirectClient(unittest.TestCase):
             else:
                 self.fail('ClientException not raised')
 
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -495,6 +521,8 @@ class TestDirectClient(unittest.TestCase):
             resp = direct_client.direct_head_object(
                 self.node, self.part, self.account, self.container,
                 self.obj, headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -514,6 +542,8 @@ class TestDirectClient(unittest.TestCase):
                 pass
             else:
                 self.fail('ClientException not raised')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -532,6 +562,8 @@ class TestDirectClient(unittest.TestCase):
                 pass
             else:
                 self.fail('ClientException not raised')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'HEAD')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -545,6 +577,8 @@ class TestDirectClient(unittest.TestCase):
         with mocked_http_conn(200, body=contents) as conn:
             resp_header, obj_body = direct_client.direct_get_object(
                 self.node, self.part, self.account, self.container, self.obj)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(obj_body, contents.getvalue())
@@ -559,6 +593,8 @@ class TestDirectClient(unittest.TestCase):
                 pass
             else:
                 self.fail('ClientException not raised')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -579,6 +615,8 @@ class TestDirectClient(unittest.TestCase):
                 except StopIteration:
                     break
                 downloaded += chunk
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual('GET', conn.method)
             self.assertEqual(self.obj_path, conn.path)
         self.assertEqual('123456', downloaded)
@@ -592,6 +630,8 @@ class TestDirectClient(unittest.TestCase):
             direct_client.direct_post_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'POST')
             self.assertEqual(conn.path, self.obj_path)
 
@@ -610,6 +650,8 @@ class TestDirectClient(unittest.TestCase):
                 pass
             else:
                 self.fail('ClientException not raised')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'POST')
             self.assertEqual(conn.path, self.obj_path)
             for header in headers:
@@ -624,6 +666,8 @@ class TestDirectClient(unittest.TestCase):
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_delete_object(
                 self.node, self.part, self.account, self.container, self.obj)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(resp, None)
@@ -636,6 +680,8 @@ class TestDirectClient(unittest.TestCase):
             direct_client.direct_delete_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 headers=headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
             self.assertTrue('X-Timestamp' in conn.req_headers)
@@ -664,8 +710,8 @@ class TestDirectClient(unittest.TestCase):
                                                           self.part, ['a83'])
             self.assertEqual(conn.method, 'REPLICATE')
             self.assertEqual(conn.path, '/sda/0/a83')
-            self.assertEqual(conn.host, '1.2.3.5')
-            self.assertEqual(conn.port, '7000')
+            self.assertEqual(conn.host, self.node['replication_ip'])
+            self.assertEqual(conn.port, self.node['replication_port'])
             self.assertEqual(data, resp)
 
     def _test_direct_get_suffix_hashes_fail(self, status_code):
@@ -697,6 +743,8 @@ class TestDirectClient(unittest.TestCase):
             resp = direct_client.direct_put_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 contents, 6)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(md5('123456').hexdigest(), resp)
@@ -713,6 +761,8 @@ class TestDirectClient(unittest.TestCase):
                 pass
             else:
                 self.fail('ClientException not raised')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(err.http_status, 500)
@@ -724,6 +774,8 @@ class TestDirectClient(unittest.TestCase):
             resp = direct_client.direct_put_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 contents)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(md5('6\r\n123456\r\n0\r\n\r\n').hexdigest(), resp)
@@ -735,6 +787,8 @@ class TestDirectClient(unittest.TestCase):
             resp = direct_client.direct_put_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 contents, etag="testing-etag", content_type='Text')
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual('PUT', conn.method)
             self.assertEqual(self.obj_path, conn.path)
             self.assertEqual(conn.req_headers['Content-Length'], '0')
@@ -750,6 +804,8 @@ class TestDirectClient(unittest.TestCase):
             resp = direct_client.direct_put_object(
                 self.node, self.part, self.account, self.container, self.obj,
                 contents, headers=stub_headers)
+            self.assertEqual(conn.host, self.node['ip'])
+            self.assertEqual(conn.port, self.node['port'])
             self.assertEqual('PUT', conn.method)
             self.assertEqual(conn.req_headers['Content-length'], '6')
         self.assertEqual(md5('123456').hexdigest(), resp)

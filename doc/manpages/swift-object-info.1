@@ -15,7 +15,7 @@
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
 .\"
-.TH swift-object-info 1 "8/26/2011" "Linux" "OpenStack Swift"
+.TH swift-object-info 1 "10/25/2016" "Linux" "OpenStack Swift"
 
 .SH NAME
 .LP
@@ -25,7 +25,7 @@
 .SH SYNOPSIS
 .LP
 .B swift-object-info
-[OBJECT_FILE] [SWIFT_DIR]
+<object_file> [options]
 
 .SH DESCRIPTION
 .PP
@@ -45,6 +45,21 @@ It will then return several information about that object such as;
 .IP  "- User Metadata "
 .IP  "- Location on the ring "
 .PD
+
+.SH OPTIONS
+.TP
+\fB\-h --help \fR
+Shows the help message and exit
+.TP
+\fB\-n, --no-check-etag\fR
+Don't verify file contents against stored etag
+.TP
+\fB\-d SWIFT_DIR, --swift-dir=SWIFT_DIR\fR
+Pass location of swift configuration file if different from the default
+location /etc/swift
+.TP
+\fB\-P POLICY_NAME, --policy-name=POLICY_NAME \fR
+Specify storage policy name
 
 .SH DOCUMENTATION
 .LP

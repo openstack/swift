@@ -53,6 +53,7 @@ from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
 from mock import MagicMock, patch
 from six.moves.configparser import NoSectionError, NoOptionError
+from uuid import uuid4
 
 from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
@@ -62,7 +63,7 @@ from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import Request, Response
-from test.unit import FakeLogger
+from test.unit import FakeLogger, requires_o_tmpfile_support
 
 threading = eventlet.patcher.original('threading')
 
@@ -1373,6 +1374,28 @@ class TestUtils(unittest.TestCase):
             file_dict = json.loads(fd.readline())
             fd.close()
             self.assertEqual(result_dict, file_dict)
+        finally:
+            rmtree(testdir_base)
+
+    def test_dump_recon_cache_set_owner(self):
+        testdir_base = mkdtemp()
+        testcache_file = os.path.join(testdir_base, 'cache.recon')
+        logger = utils.get_logger(None, 'server', log_route='server')
+        try:
+            submit_dict = {'key1': {'value1': 1, 'value2': 2}}
+
+            _ret = lambda: None
+            _ret.pw_uid = 100
+            _mock_getpwnam = MagicMock(return_value=_ret)
+            _mock_chown = mock.Mock()
+
+            with patch('os.chown', _mock_chown), \
+                    patch('pwd.getpwnam', _mock_getpwnam):
+                utils.dump_recon_cache(submit_dict, testcache_file,
+                                       logger, set_owner="swift")
+
+            _mock_getpwnam.assert_called_once_with("swift")
+            self.assertEqual(_mock_chown.call_args[0][1], 100)
         finally:
             rmtree(testdir_base)
 
@@ -3590,6 +3613,109 @@ cluster_dfw1 = http://dfw1.host/v1/
                 patch('platform.architecture', return_value=('64bit', '')):
             self.assertRaises(OSError, utils.NR_ioprio_set)
 
+    @requires_o_tmpfile_support
+    def test_link_fd_to_path_linkat_success(self):
+        tempdir = mkdtemp(dir='/tmp')
+        fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
+        data = "I'm whatever Gotham needs me to be"
+        _m_fsync_dir = mock.Mock()
+        try:
+            os.write(fd, data)
+            # fd is O_WRONLY
+            self.assertRaises(OSError, os.read, fd, 1)
+            file_path = os.path.join(tempdir, uuid4().hex)
+            with mock.patch('swift.common.utils.fsync_dir', _m_fsync_dir):
+                    utils.link_fd_to_path(fd, file_path, 1)
+            with open(file_path, 'r') as f:
+                self.assertEqual(f.read(), data)
+            self.assertEqual(_m_fsync_dir.call_count, 2)
+        finally:
+            os.close(fd)
+            shutil.rmtree(tempdir)
+
+    @requires_o_tmpfile_support
+    def test_link_fd_to_path_target_exists(self):
+        tempdir = mkdtemp(dir='/tmp')
+        # Create and write to a file
+        fd, path = tempfile.mkstemp(dir=tempdir)
+        os.write(fd, "hello world")
+        os.fsync(fd)
+        os.close(fd)
+        self.assertTrue(os.path.exists(path))
+
+        fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
+        try:
+            os.write(fd, "bye world")
+            os.fsync(fd)
+            utils.link_fd_to_path(fd, path, 0, fsync=False)
+            # Original file now should have been over-written
+            with open(path, 'r') as f:
+                self.assertEqual(f.read(), "bye world")
+        finally:
+            os.close(fd)
+            shutil.rmtree(tempdir)
+
+    @requires_o_tmpfile_support
+    def test_link_fd_to_path_errno_not_EEXIST_or_ENOENT(self):
+        _m_linkat = mock.Mock(
+            side_effect=IOError(errno.EACCES, os.strerror(errno.EACCES)))
+        with mock.patch('swift.common.utils.linkat', _m_linkat):
+            try:
+                utils.link_fd_to_path(0, '/path', 1)
+            except IOError as err:
+                self.assertEqual(err.errno, errno.EACCES)
+            else:
+                self.fail("Expecting IOError exception")
+        self.assertTrue(_m_linkat.called)
+
+    @requires_o_tmpfile_support
+    def test_linkat_race_dir_not_exists(self):
+        tempdir = mkdtemp(dir='/tmp')
+        target_dir = os.path.join(tempdir, uuid4().hex)
+        target_path = os.path.join(target_dir, uuid4().hex)
+        os.mkdir(target_dir)
+        fd = os.open(target_dir, utils.O_TMPFILE | os.O_WRONLY)
+        # Simulating directory deletion by other backend process
+        os.rmdir(target_dir)
+        self.assertFalse(os.path.exists(target_dir))
+        try:
+            utils.link_fd_to_path(fd, target_path, 1)
+            self.assertTrue(os.path.exists(target_dir))
+            self.assertTrue(os.path.exists(target_path))
+        finally:
+            os.close(fd)
+            shutil.rmtree(tempdir)
+
+    def test_safe_json_loads(self):
+        expectations = {
+            None: None,
+            '': None,
+            0: None,
+            1: None,
+            '"asdf"': 'asdf',
+            '[]': [],
+            '{}': {},
+            "{'foo': 'bar'}": None,
+            '{"foo": "bar"}': {'foo': 'bar'},
+        }
+
+        failures = []
+        for value, expected in expectations.items():
+            try:
+                result = utils.safe_json_loads(value)
+            except Exception as e:
+                # it's called safe, if it blows up the test blows up
+                self.fail('%r caused safe method to throw %r!' % (
+                    value, e))
+            try:
+                self.assertEqual(expected, result)
+            except AssertionError:
+                failures.append('%r => %r (expected %r)' % (
+                    value, result, expected))
+        if failures:
+            self.fail('Invalid results from pure function:\n%s' %
+                      '\n'.join(failures))
+
 
 class ResellerConfReader(unittest.TestCase):
 
@@ -5401,6 +5527,98 @@ class TestLRUCache(unittest.TestCase):
         self.assertEqual(f.size(), 4)
 
 
+class TestSpliterator(unittest.TestCase):
+    def test_string(self):
+        input_chunks = ["coun", "ter-", "b", "ra", "nch-mater",
+                        "nit", "y-fungusy", "-nummular"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(8)), "counter-")
+        self.assertEqual(''.join(si.take(7)), "branch-")
+        self.assertEqual(''.join(si.take(10)), "maternity-")
+        self.assertEqual(''.join(si.take(8)), "fungusy-")
+        self.assertEqual(''.join(si.take(8)), "nummular")
+
+    def test_big_input_string(self):
+        input_chunks = ["iridium"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(2)), "ir")
+        self.assertEqual(''.join(si.take(1)), "i")
+        self.assertEqual(''.join(si.take(2)), "di")
+        self.assertEqual(''.join(si.take(1)), "u")
+        self.assertEqual(''.join(si.take(1)), "m")
+
+    def test_chunk_boundaries(self):
+        input_chunks = ["soylent", "green", "is", "people"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(7)), "soylent")
+        self.assertEqual(''.join(si.take(5)), "green")
+        self.assertEqual(''.join(si.take(2)), "is")
+        self.assertEqual(''.join(si.take(6)), "people")
+
+    def test_no_empty_strings(self):
+        input_chunks = ["soylent", "green", "is", "people"]
+        si = utils.Spliterator(input_chunks)
+
+        outputs = (list(si.take(7))     # starts and ends on chunk boundary
+                   + list(si.take(2))   # spans two chunks
+                   + list(si.take(3))   # begins but does not end chunk
+                   + list(si.take(2))   # ends but does not begin chunk
+                   + list(si.take(6)))  # whole chunk + EOF
+        self.assertNotIn('', outputs)
+
+    def test_running_out(self):
+        input_chunks = ["not much"]
+        si = utils.Spliterator(input_chunks)
+
+        self.assertEqual(''.join(si.take(4)), "not ")
+        self.assertEqual(''.join(si.take(99)), "much")  # short
+        self.assertEqual(''.join(si.take(4)), "")
+        self.assertEqual(''.join(si.take(4)), "")
+
+    def test_overlap(self):
+        input_chunks = ["one fish", "two fish", "red fish", "blue fish"]
+
+        si = utils.Spliterator(input_chunks)
+        t1 = si.take(20)  # longer than first chunk
+        self.assertLess(len(next(t1)), 20)  # it's not exhausted
+
+        t2 = si.take(20)
+        self.assertRaises(ValueError, next, t2)
+
+    def test_closing(self):
+        input_chunks = ["abcd", "efg", "hij"]
+
+        si = utils.Spliterator(input_chunks)
+        it = si.take(3)  # shorter than first chunk
+        self.assertEqual(next(it), 'abc')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['d', 'efg', 'hij'])
+
+        si = utils.Spliterator(input_chunks)
+        self.assertEqual(list(si.take(1)), ['a'])
+        it = si.take(1)  # still shorter than first chunk
+        self.assertEqual(next(it), 'b')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['cd', 'efg', 'hij'])
+
+        si = utils.Spliterator(input_chunks)
+        it = si.take(6)  # longer than first chunk, shorter than first + second
+        self.assertEqual(next(it), 'abcd')
+        self.assertEqual(next(it), 'ef')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['g', 'hij'])
+
+        si = utils.Spliterator(input_chunks)
+        self.assertEqual(list(si.take(2)), ['ab'])
+        it = si.take(3)  # longer than rest of chunk
+        self.assertEqual(next(it), 'cd')
+        it.close()
+        self.assertEqual(list(si.take(20)), ['efg', 'hij'])
+
+
 class TestParseContentRange(unittest.TestCase):
     def test_good(self):
         start, end, total = utils.parse_content_range("bytes 100-200/300")
@@ -5702,6 +5920,28 @@ class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
             "\r\n" +
             part2 + "\r\n" +
             "--boundaryboundary--"))
+
+    def test_closed_part_iterator(self):
+        print('test')
+        useful_iter_mock = mock.MagicMock()
+        useful_iter_mock.__iter__.return_value = ['']
+        body_iter = utils.document_iters_to_http_response_body(
+            iter([{'part_iter': useful_iter_mock}]), 'dontcare',
+            multipart=False, logger=FakeLogger())
+        body = ''
+        for s in body_iter:
+            body += s
+        self.assertEqual(body, '')
+        useful_iter_mock.close.assert_called_once_with()
+
+        # Calling "close" on the mock will now raise an AttributeError
+        del useful_iter_mock.close
+        body_iter = utils.document_iters_to_http_response_body(
+            iter([{'part_iter': useful_iter_mock}]), 'dontcare',
+            multipart=False, logger=FakeLogger())
+        body = ''
+        for s in body_iter:
+            body += s
 
 
 class TestPairs(unittest.TestCase):

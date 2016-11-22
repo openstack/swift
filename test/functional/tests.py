@@ -1275,7 +1275,17 @@ class TestFile(Base):
                 self.assertTrue(file_item.copy(
                     '%s%s' % (prefix, cont), dest_filename, hdrs=extra_hdrs))
 
-                self.assertIn(dest_filename, cont.files())
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(file_item.size, obj['bytes'])
+                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(file_item.content_type, obj['content_type'])
 
                 file_copy = cont.file(dest_filename)
 
@@ -1315,6 +1325,19 @@ class TestFile(Base):
                     self.assertIn(k.lower(), resp_headers)
                     self.assertEqual(v, resp_headers[k.lower()])
 
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(file_item.size, obj['bytes'])
+                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(
+                    'application/test-changed', obj['content_type'])
+
                 # repeat copy with X-Fresh-Metadata header - existing user
                 # metadata should not be copied, new completely replaces it.
                 extra_hdrs = {'Content-Type': 'application/test-updated',
@@ -1336,6 +1359,63 @@ class TestFile(Base):
                 resp_headers = dict(file_copy.conn.response.getheaders())
                 for k in ('Content-Disposition', 'Content-Encoding'):
                     self.assertNotIn(k.lower(), resp_headers)
+
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(file_item.size, obj['bytes'])
+                self.assertEqual(file_item.etag, obj['hash'])
+                self.assertEqual(
+                    'application/test-updated', obj['content_type'])
+
+    def testCopyRange(self):
+        # makes sure to test encoded characters
+        source_filename = 'dealde%2Fl04 011e%204c8df/flash.png'
+        file_item = self.env.container.file(source_filename)
+
+        metadata = {Utils.create_ascii_name(): Utils.create_name()}
+
+        data = file_item.write_random(1024)
+        file_item.sync_metadata(metadata)
+        file_item.initialize()
+
+        dest_cont = self.env.account.container(Utils.create_name())
+        self.assertTrue(dest_cont.create())
+
+        expected_body = data[100:201]
+        expected_etag = hashlib.md5(expected_body)
+        # copy both from within and across containers
+        for cont in (self.env.container, dest_cont):
+            # copy both with and without initial slash
+            for prefix in ('', '/'):
+                dest_filename = Utils.create_name()
+
+                file_item.copy('%s%s' % (prefix, cont), dest_filename,
+                               hdrs={'Range': 'bytes=100-200'})
+                self.assertEqual(201, file_item.conn.response.status)
+
+                # verify container listing for copy
+                listing = cont.files(parms={'format': 'json'})
+                for obj in listing:
+                    if obj['name'] == dest_filename:
+                        break
+                else:
+                    self.fail('Failed to find %s in listing' % dest_filename)
+
+                self.assertEqual(101, obj['bytes'])
+                self.assertEqual(expected_etag.hexdigest(), obj['hash'])
+                self.assertEqual(file_item.content_type, obj['content_type'])
+
+                # verify copy object
+                copy_file_item = cont.file(dest_filename)
+                self.assertEqual(expected_body, copy_file_item.read())
+                self.assertTrue(copy_file_item.initialize())
+                self.assertEqual(metadata, copy_file_item.metadata)
 
     def testCopyAccount(self):
         # makes sure to test encoded characters
@@ -1427,10 +1507,9 @@ class TestFile(Base):
 
             # invalid destination container
             file_item = self.env.container.file(source_filename)
-            self.assertTrue(
-                not file_item.copy(
-                    '%s%s' % (prefix, Utils.create_name()),
-                    Utils.create_name()))
+            self.assertFalse(file_item.copy(
+                '%s%s' % (prefix, Utils.create_name()),
+                Utils.create_name()))
 
     def testCopyAccount404s(self):
         acct = self.env.conn.account_name
@@ -1519,6 +1598,12 @@ class TestFile(Base):
         self.assertFalse(file_item.copy(Utils.create_name(),
                          Utils.create_name(),
                          cfg={'destination': Utils.create_name()}))
+        self.assert_status(412)
+
+        # too many slashes
+        self.assertFalse(file_item.copy(Utils.create_name(),
+                         Utils.create_name(),
+                         cfg={'destination': '//%s' % Utils.create_name()}))
         self.assert_status(412)
 
     def testCopyFromHeader(self):
@@ -2671,6 +2756,7 @@ class TestDlo(Base):
     def test_dlo_post_with_manifest_header(self):
         # verify that performing a POST to a DLO manifest
         # preserves the fact that it is a manifest file.
+        # verify that the x-object-manifest header may be updated.
 
         # create a new manifest for this test to avoid test coupling.
         x_o_m = self.env.container.file('man1').info()['x_object_manifest']
@@ -2684,24 +2770,104 @@ class TestDlo(Base):
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
 
-        # POST to the manifest file
-        # include the x-object-manifest in case running with fast-post
+        # POST a modified x-object-manifest value
+        new_x_o_m = x_o_m.rstrip('lower') + 'upper'
         file_item.post({'x-object-meta-foo': 'bar',
-                        'x-object-manifest': x_o_m})
+                        'x-object-manifest': new_x_o_m})
 
-        # Verify x-object-manifest still intact
+        # verify that x-object-manifest was updated
         file_item.info()
         resp_headers = file_item.conn.response.getheaders()
-        self.assertIn(('x-object-manifest', x_o_m), resp_headers)
+        self.assertIn(('x-object-manifest', new_x_o_m), resp_headers)
         self.assertIn(('x-object-meta-foo', 'bar'), resp_headers)
 
         # verify that manifest content was not changed
         manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
         self.assertEqual('manifest-contents', manifest_contents)
 
-        # verify that manifest still points to original content
+        # verify that updated manifest points to new content
+        expected_contents = ''.join([(c * 10) for c in 'ABCDE'])
         contents = file_item.read(parms={})
         self.assertEqual(expected_contents, contents)
+
+        # Now revert the manifest to point to original segments, including a
+        # multipart-manifest=get param just to check that has no effect
+        file_item.post({'x-object-manifest': x_o_m},
+                       parms={'multipart-manifest': 'get'})
+
+        # verify that x-object-manifest was reverted
+        info = file_item.info()
+        self.assertIn('x_object_manifest', info)
+        self.assertEqual(x_o_m, info['x_object_manifest'])
+
+        # verify that manifest content was not changed
+        manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual('manifest-contents', manifest_contents)
+
+        # verify that updated manifest points new content
+        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        contents = file_item.read(parms={})
+        self.assertEqual(expected_contents, contents)
+
+    def test_dlo_post_without_manifest_header(self):
+        # verify that a POST to a DLO manifest object with no
+        # x-object-manifest header will cause the existing x-object-manifest
+        # header to be lost
+
+        # create a new manifest for this test to avoid test coupling.
+        x_o_m = self.env.container.file('man1').info()['x_object_manifest']
+        file_item = self.env.container.file(Utils.create_name())
+        file_item.write('manifest-contents', hdrs={"X-Object-Manifest": x_o_m})
+
+        # sanity checks
+        manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual('manifest-contents', manifest_contents)
+        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        contents = file_item.read(parms={})
+        self.assertEqual(expected_contents, contents)
+
+        # POST with no x-object-manifest header
+        file_item.post({})
+
+        # verify that existing x-object-manifest was removed
+        info = file_item.info()
+        self.assertNotIn('x_object_manifest', info)
+
+        # verify that object content was not changed
+        manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual('manifest-contents', manifest_contents)
+
+        # verify that object is no longer a manifest
+        contents = file_item.read(parms={})
+        self.assertEqual('manifest-contents', contents)
+
+    def test_dlo_post_with_manifest_regular_object(self):
+        # verify that performing a POST to a regular object
+        # with a manifest header will create a DLO.
+
+        # Put a regular object
+        file_item = self.env.container.file(Utils.create_name())
+        file_item.write('file contents', hdrs={})
+
+        # sanity checks
+        file_contents = file_item.read(parms={})
+        self.assertEqual('file contents', file_contents)
+
+        # get the path associated with man1
+        x_o_m = self.env.container.file('man1').info()['x_object_manifest']
+
+        # POST a x-object-manifest value to the regular object
+        file_item.post({'x-object-manifest': x_o_m})
+
+        # verify that the file is now a manifest
+        manifest_contents = file_item.read(parms={'multipart-manifest': 'get'})
+        self.assertEqual('file contents', manifest_contents)
+        expected_contents = ''.join([(c * 10) for c in 'abcde'])
+        contents = file_item.read(parms={})
+        self.assertEqual(expected_contents, contents)
+        file_item.info()
+        resp_headers = file_item.conn.response.getheaders()
+        self.assertIn(('x-object-manifest', x_o_m), resp_headers)
 
 
 class TestDloUTF8(Base2, TestDlo):
@@ -3188,6 +3354,34 @@ class TestSlo(Base):
         self.assertEqual('b', file_contents[1])
         self.assertEqual('b', file_contents[-2])
         self.assertEqual('c', file_contents[-1])
+
+    def test_slo_multi_ranged_get(self):
+        file_item = self.env.container.file('manifest-abcde')
+        file_contents = file_item.read(
+            hdrs={"Range": "bytes=1048571-1048580,2097147-2097156"})
+
+        # See testMultiRangeGets for explanation
+        parser = email.parser.FeedParser()
+        parser.feed("Content-Type: %s\r\n\r\n" % file_item.content_type)
+        parser.feed(file_contents)
+
+        root_message = parser.close()
+        self.assertTrue(root_message.is_multipart())  # sanity check
+
+        byteranges = root_message.get_payload()
+        self.assertEqual(len(byteranges), 2)
+
+        self.assertEqual(byteranges[0]['Content-Type'],
+                         "application/octet-stream")
+        self.assertEqual(
+            byteranges[0]['Content-Range'], "bytes 1048571-1048580/4194305")
+        self.assertEqual(byteranges[0].get_payload(), "aaaaabbbbb")
+
+        self.assertEqual(byteranges[1]['Content-Type'],
+                         "application/octet-stream")
+        self.assertEqual(
+            byteranges[1]['Content-Range'], "bytes 2097147-2097156/4194305")
+        self.assertEqual(byteranges[1].get_payload(), "bbbbbccccc")
 
     def test_slo_ranged_submanifest(self):
         file_item = self.env.container.file('manifest-abcde-submanifest')
@@ -3737,571 +3931,6 @@ class TestSlo(Base):
 
 class TestSloUTF8(Base2, TestSlo):
     set_up = False
-
-
-class TestObjectVersioningEnv(object):
-    versioning_enabled = None  # tri-state: None initially, then True/False
-
-    @classmethod
-    def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.storage_url, cls.storage_token = cls.conn.authenticate()
-
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-
-        # Second connection for ACL tests
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
-
-        # avoid getting a prefix that stops halfway through an encoded
-        # character
-        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
-
-        cls.versions_container = cls.account.container(prefix + "-versions")
-        if not cls.versions_container.create():
-            raise ResponseError(cls.conn.response)
-
-        cls.container = cls.account.container(prefix + "-objs")
-        if not cls.container.create(
-                hdrs={'X-Versions-Location': cls.versions_container.name}):
-            if cls.conn.response.status == 412:
-                cls.versioning_enabled = False
-                return
-            raise ResponseError(cls.conn.response)
-
-        container_info = cls.container.info()
-        # if versioning is off, then X-Versions-Location won't persist
-        cls.versioning_enabled = 'versions' in container_info
-
-        # setup another account to test ACLs
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
-        cls.account2 = cls.conn2.get_account()
-        cls.account2.delete_containers()
-
-        # setup another account with no access to anything to test ACLs
-        config3 = deepcopy(tf.config)
-        config3['account'] = tf.config['account']
-        config3['username'] = tf.config['username3']
-        config3['password'] = tf.config['password3']
-        cls.conn3 = Connection(config3)
-        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
-        cls.account3 = cls.conn3.get_account()
-
-    @classmethod
-    def tearDown(cls):
-        cls.account.delete_containers()
-        cls.account2.delete_containers()
-
-
-class TestCrossPolicyObjectVersioningEnv(object):
-    # tri-state: None initially, then True/False
-    versioning_enabled = None
-    multiple_policies_enabled = None
-    policies = None
-
-    @classmethod
-    def setUp(cls):
-        cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
-
-        if cls.multiple_policies_enabled is None:
-            try:
-                cls.policies = tf.FunctionalStoragePolicyCollection.from_info()
-            except AssertionError:
-                pass
-
-        if cls.policies and len(cls.policies) > 1:
-            cls.multiple_policies_enabled = True
-        else:
-            cls.multiple_policies_enabled = False
-            cls.versioning_enabled = True
-            # We don't actually know the state of versioning, but without
-            # multiple policies the tests should be skipped anyway. Claiming
-            # versioning support lets us report the right reason for skipping.
-            return
-
-        policy = cls.policies.select()
-        version_policy = cls.policies.exclude(name=policy['name']).select()
-
-        cls.account = Account(cls.conn, tf.config.get('account',
-                                                      tf.config['username']))
-
-        # Second connection for ACL tests
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
-
-        # avoid getting a prefix that stops halfway through an encoded
-        # character
-        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
-
-        cls.versions_container = cls.account.container(prefix + "-versions")
-        if not cls.versions_container.create(
-                {'X-Storage-Policy': policy['name']}):
-            raise ResponseError(cls.conn.response)
-
-        cls.container = cls.account.container(prefix + "-objs")
-        if not cls.container.create(
-                hdrs={'X-Versions-Location': cls.versions_container.name,
-                      'X-Storage-Policy': version_policy['name']}):
-            if cls.conn.response.status == 412:
-                cls.versioning_enabled = False
-                return
-            raise ResponseError(cls.conn.response)
-
-        container_info = cls.container.info()
-        # if versioning is off, then X-Versions-Location won't persist
-        cls.versioning_enabled = 'versions' in container_info
-
-        # setup another account to test ACLs
-        config2 = deepcopy(tf.config)
-        config2['account'] = tf.config['account2']
-        config2['username'] = tf.config['username2']
-        config2['password'] = tf.config['password2']
-        cls.conn2 = Connection(config2)
-        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
-        cls.account2 = cls.conn2.get_account()
-        cls.account2.delete_containers()
-
-        # setup another account with no access to anything to test ACLs
-        config3 = deepcopy(tf.config)
-        config3['account'] = tf.config['account']
-        config3['username'] = tf.config['username3']
-        config3['password'] = tf.config['password3']
-        cls.conn3 = Connection(config3)
-        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
-        cls.account3 = cls.conn3.get_account()
-
-    @classmethod
-    def tearDown(cls):
-        cls.account.delete_containers()
-        cls.account2.delete_containers()
-
-
-class TestObjectVersioning(Base):
-    env = TestObjectVersioningEnv
-    set_up = False
-
-    def setUp(self):
-        super(TestObjectVersioning, self).setUp()
-        if self.env.versioning_enabled is False:
-            raise SkipTest("Object versioning not enabled")
-        elif self.env.versioning_enabled is not True:
-            # just some sanity checking
-            raise Exception(
-                "Expected versioning_enabled to be True/False, got %r" %
-                (self.env.versioning_enabled,))
-
-    def _tear_down_files(self):
-        try:
-            # only delete files and not containers
-            # as they were configured in self.env
-            self.env.versions_container.delete_files()
-            self.env.container.delete_files()
-        except ResponseError:
-            pass
-
-    def tearDown(self):
-        super(TestObjectVersioning, self).tearDown()
-        self._tear_down_files()
-
-    def test_clear_version_option(self):
-        # sanity
-        self.assertEqual(self.env.container.info()['versions'],
-                         self.env.versions_container.name)
-        self.env.container.update_metadata(
-            hdrs={'X-Versions-Location': ''})
-        self.assertIsNone(self.env.container.info().get('versions'))
-
-        # set location back to the way it was
-        self.env.container.update_metadata(
-            hdrs={'X-Versions-Location': self.env.versions_container.name})
-        self.assertEqual(self.env.container.info()['versions'],
-                         self.env.versions_container.name)
-
-    def test_overwriting(self):
-        container = self.env.container
-        versions_container = self.env.versions_container
-        cont_info = container.info()
-        self.assertEqual(cont_info['versions'], versions_container.name)
-
-        obj_name = Utils.create_name()
-
-        versioned_obj = container.file(obj_name)
-        put_headers = {'Content-Type': 'text/jibberish01',
-                       'Content-Encoding': 'gzip',
-                       'Content-Disposition': 'attachment; filename=myfile'}
-        versioned_obj.write("aaaaa", hdrs=put_headers)
-        obj_info = versioned_obj.info()
-        self.assertEqual('text/jibberish01', obj_info['content_type'])
-
-        # the allowed headers are configurable in object server, so we cannot
-        # assert that content-encoding or content-disposition get *copied* to
-        # the object version unless they were set on the original PUT, so
-        # populate expected_headers by making a HEAD on the original object
-        resp_headers = dict(versioned_obj.conn.response.getheaders())
-        expected_headers = {}
-        for k, v in put_headers.items():
-            if k.lower() in resp_headers:
-                expected_headers[k] = v
-
-        self.assertEqual(0, versions_container.info()['object_count'])
-        versioned_obj.write("bbbbb", hdrs={'Content-Type': 'text/jibberish02',
-                            'X-Object-Meta-Foo': 'Bar'})
-        versioned_obj.initialize()
-        self.assertEqual(versioned_obj.content_type, 'text/jibberish02')
-        self.assertEqual(versioned_obj.metadata['foo'], 'Bar')
-
-        # the old version got saved off
-        self.assertEqual(1, versions_container.info()['object_count'])
-        versioned_obj_name = versions_container.files()[0]
-        prev_version = versions_container.file(versioned_obj_name)
-        prev_version.initialize()
-        self.assertEqual("aaaaa", prev_version.read())
-        self.assertEqual(prev_version.content_type, 'text/jibberish01')
-
-        resp_headers = dict(prev_version.conn.response.getheaders())
-        for k, v in expected_headers.items():
-            self.assertIn(k.lower(), resp_headers)
-            self.assertEqual(v, resp_headers[k.lower()])
-
-        # make sure the new obj metadata did not leak to the prev. version
-        self.assertNotIn('foo', prev_version.metadata)
-
-        # check that POST does not create a new version
-        versioned_obj.sync_metadata(metadata={'fu': 'baz'})
-        self.assertEqual(1, versions_container.info()['object_count'])
-
-        # if we overwrite it again, there are two versions
-        versioned_obj.write("ccccc")
-        self.assertEqual(2, versions_container.info()['object_count'])
-        versioned_obj_name = versions_container.files()[1]
-        prev_version = versions_container.file(versioned_obj_name)
-        prev_version.initialize()
-        self.assertEqual("bbbbb", prev_version.read())
-        self.assertEqual(prev_version.content_type, 'text/jibberish02')
-        self.assertIn('foo', prev_version.metadata)
-        self.assertIn('fu', prev_version.metadata)
-
-        # as we delete things, the old contents return
-        self.assertEqual("ccccc", versioned_obj.read())
-
-        # test copy from a different container
-        src_container = self.env.account.container(Utils.create_name())
-        self.assertTrue(src_container.create())
-        src_name = Utils.create_name()
-        src_obj = src_container.file(src_name)
-        src_obj.write("ddddd", hdrs={'Content-Type': 'text/jibberish04'})
-        src_obj.copy(container.name, obj_name)
-
-        self.assertEqual("ddddd", versioned_obj.read())
-        versioned_obj.initialize()
-        self.assertEqual(versioned_obj.content_type, 'text/jibberish04')
-
-        # make sure versions container has the previous version
-        self.assertEqual(3, versions_container.info()['object_count'])
-        versioned_obj_name = versions_container.files()[2]
-        prev_version = versions_container.file(versioned_obj_name)
-        prev_version.initialize()
-        self.assertEqual("ccccc", prev_version.read())
-
-        # test delete
-        versioned_obj.delete()
-        self.assertEqual("ccccc", versioned_obj.read())
-        versioned_obj.delete()
-        self.assertEqual("bbbbb", versioned_obj.read())
-        versioned_obj.delete()
-        self.assertEqual("aaaaa", versioned_obj.read())
-        self.assertEqual(0, versions_container.info()['object_count'])
-
-        # verify that all the original object headers have been copied back
-        obj_info = versioned_obj.info()
-        self.assertEqual('text/jibberish01', obj_info['content_type'])
-        resp_headers = dict(versioned_obj.conn.response.getheaders())
-        for k, v in expected_headers.items():
-            self.assertIn(k.lower(), resp_headers)
-            self.assertEqual(v, resp_headers[k.lower()])
-
-        versioned_obj.delete()
-        self.assertRaises(ResponseError, versioned_obj.read)
-
-    def test_versioning_dlo(self):
-        container = self.env.container
-        versions_container = self.env.versions_container
-        obj_name = Utils.create_name()
-
-        for i in ('1', '2', '3'):
-            time.sleep(.01)  # guarantee that the timestamp changes
-            obj_name_seg = obj_name + '/' + i
-            versioned_obj = container.file(obj_name_seg)
-            versioned_obj.write(i)
-            versioned_obj.write(i + i)
-
-        self.assertEqual(3, versions_container.info()['object_count'])
-
-        man_file = container.file(obj_name)
-        man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
-                       (self.env.container.name, obj_name)})
-
-        # guarantee that the timestamp changes
-        time.sleep(.01)
-
-        # write manifest file again
-        man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
-                       (self.env.container.name, obj_name)})
-
-        self.assertEqual(3, versions_container.info()['object_count'])
-        self.assertEqual("112233", man_file.read())
-
-    def test_versioning_container_acl(self):
-        # create versions container and DO NOT give write access to account2
-        versions_container = self.env.account.container(Utils.create_name())
-        self.assertTrue(versions_container.create(hdrs={
-            'X-Container-Write': ''
-        }))
-
-        # check account2 cannot write to versions container
-        fail_obj_name = Utils.create_name()
-        fail_obj = versions_container.file(fail_obj_name)
-        self.assertRaises(ResponseError, fail_obj.write, "should fail",
-                          cfg={'use_token': self.env.storage_token2})
-
-        # create container and give write access to account2
-        # don't set X-Versions-Location just yet
-        container = self.env.account.container(Utils.create_name())
-        self.assertTrue(container.create(hdrs={
-            'X-Container-Write': self.env.conn2.user_acl}))
-
-        # check account2 cannot set X-Versions-Location on container
-        self.assertRaises(ResponseError, container.update_metadata, hdrs={
-            'X-Versions-Location': versions_container},
-            cfg={'use_token': self.env.storage_token2})
-
-        # good! now let admin set the X-Versions-Location
-        # p.s.: sticking a 'x-remove' header here to test precedence
-        # of both headers. Setting the location should succeed.
-        self.assertTrue(container.update_metadata(hdrs={
-            'X-Remove-Versions-Location': versions_container,
-            'X-Versions-Location': versions_container}))
-
-        # write object twice to container and check version
-        obj_name = Utils.create_name()
-        versioned_obj = container.file(obj_name)
-        self.assertTrue(versioned_obj.write("never argue with the data",
-                        cfg={'use_token': self.env.storage_token2}))
-        self.assertEqual(versioned_obj.read(), "never argue with the data")
-
-        self.assertTrue(
-            versioned_obj.write("we don't have no beer, just tequila",
-                                cfg={'use_token': self.env.storage_token2}))
-        self.assertEqual(versioned_obj.read(),
-                         "we don't have no beer, just tequila")
-        self.assertEqual(1, versions_container.info()['object_count'])
-
-        # read the original uploaded object
-        for filename in versions_container.files():
-            backup_file = versions_container.file(filename)
-            break
-        self.assertEqual(backup_file.read(), "never argue with the data")
-
-        # user3 (some random user with no access to anything)
-        # tries to read from versioned container
-        self.assertRaises(ResponseError, backup_file.read,
-                          cfg={'use_token': self.env.storage_token3})
-
-        # user3 cannot write or delete from source container either
-        number_of_versions = versions_container.info()['object_count']
-        self.assertRaises(ResponseError, versioned_obj.write,
-                          "some random user trying to write data",
-                          cfg={'use_token': self.env.storage_token3})
-        self.assertEqual(number_of_versions,
-                         versions_container.info()['object_count'])
-        self.assertRaises(ResponseError, versioned_obj.delete,
-                          cfg={'use_token': self.env.storage_token3})
-        self.assertEqual(number_of_versions,
-                         versions_container.info()['object_count'])
-
-        # user2 can't read or delete from versions-location
-        self.assertRaises(ResponseError, backup_file.read,
-                          cfg={'use_token': self.env.storage_token2})
-        self.assertRaises(ResponseError, backup_file.delete,
-                          cfg={'use_token': self.env.storage_token2})
-
-        # but is able to delete from the source container
-        # this could be a helpful scenario for dev ops that want to setup
-        # just one container to hold object versions of multiple containers
-        # and each one of those containers are owned by different users
-        self.assertTrue(versioned_obj.delete(
-                        cfg={'use_token': self.env.storage_token2}))
-
-        # tear-down since we create these containers here
-        # and not in self.env
-        versions_container.delete_recursive()
-        container.delete_recursive()
-
-    def test_versioning_check_acl(self):
-        container = self.env.container
-        versions_container = self.env.versions_container
-        versions_container.create(hdrs={'X-Container-Read': '.r:*,.rlistings'})
-
-        obj_name = Utils.create_name()
-        versioned_obj = container.file(obj_name)
-        versioned_obj.write("aaaaa")
-        self.assertEqual("aaaaa", versioned_obj.read())
-
-        versioned_obj.write("bbbbb")
-        self.assertEqual("bbbbb", versioned_obj.read())
-
-        # Use token from second account and try to delete the object
-        org_token = self.env.account.conn.storage_token
-        self.env.account.conn.storage_token = self.env.conn2.storage_token
-        try:
-            self.assertRaises(ResponseError, versioned_obj.delete)
-        finally:
-            self.env.account.conn.storage_token = org_token
-
-        # Verify with token from first account
-        self.assertEqual("bbbbb", versioned_obj.read())
-
-        versioned_obj.delete()
-        self.assertEqual("aaaaa", versioned_obj.read())
-
-
-class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
-    set_up = False
-
-    def tearDown(self):
-        self._tear_down_files()
-        super(TestObjectVersioningUTF8, self).tearDown()
-
-
-class TestCrossPolicyObjectVersioning(TestObjectVersioning):
-    env = TestCrossPolicyObjectVersioningEnv
-    set_up = False
-
-    def setUp(self):
-        super(TestCrossPolicyObjectVersioning, self).setUp()
-        if self.env.multiple_policies_enabled is False:
-            raise SkipTest('Cross policy test requires multiple policies')
-        elif self.env.multiple_policies_enabled is not True:
-            # just some sanity checking
-            raise Exception("Expected multiple_policies_enabled "
-                            "to be True/False, got %r" % (
-                                self.env.versioning_enabled,))
-
-
-class TestSloWithVersioning(Base):
-
-    def setUp(self):
-        if 'slo' not in cluster_info:
-            raise SkipTest("SLO not enabled")
-
-        self.conn = Connection(tf.config)
-        self.conn.authenticate()
-        self.account = Account(
-            self.conn, tf.config.get('account', tf.config['username']))
-        self.account.delete_containers()
-
-        # create a container with versioning
-        self.versions_container = self.account.container(Utils.create_name())
-        self.container = self.account.container(Utils.create_name())
-        self.segments_container = self.account.container(Utils.create_name())
-        if not self.container.create(
-                hdrs={'X-Versions-Location': self.versions_container.name}):
-            raise ResponseError(self.conn.response)
-        if 'versions' not in self.container.info():
-            raise SkipTest("Object versioning not enabled")
-
-        for cont in (self.versions_container, self.segments_container):
-            if not cont.create():
-                raise ResponseError(self.conn.response)
-
-        # create some segments
-        self.seg_info = {}
-        for letter, size in (('a', 1024 * 1024),
-                             ('b', 1024 * 1024)):
-            seg_name = letter
-            file_item = self.segments_container.file(seg_name)
-            file_item.write(letter * size)
-            self.seg_info[seg_name] = {
-                'size_bytes': size,
-                'etag': file_item.md5,
-                'path': '/%s/%s' % (self.segments_container.name, seg_name)}
-
-    def _create_manifest(self, seg_name):
-        # create a manifest in the versioning container
-        file_item = self.container.file("my-slo-manifest")
-        file_item.write(
-            json.dumps([self.seg_info[seg_name]]),
-            parms={'multipart-manifest': 'put'})
-        return file_item
-
-    def _assert_is_manifest(self, file_item, seg_name):
-        manifest_body = file_item.read(parms={'multipart-manifest': 'get'})
-        resp_headers = dict(file_item.conn.response.getheaders())
-        self.assertIn('x-static-large-object', resp_headers)
-        self.assertEqual('application/json; charset=utf-8',
-                         file_item.content_type)
-        try:
-            manifest = json.loads(manifest_body)
-        except ValueError:
-            self.fail("GET with multipart-manifest=get got invalid json")
-
-        self.assertEqual(1, len(manifest))
-        key_map = {'etag': 'hash', 'size_bytes': 'bytes', 'path': 'name'}
-        for k_client, k_slo in key_map.items():
-            self.assertEqual(self.seg_info[seg_name][k_client],
-                             manifest[0][k_slo])
-
-    def _assert_is_object(self, file_item, seg_name):
-        file_contents = file_item.read()
-        self.assertEqual(1024 * 1024, len(file_contents))
-        self.assertEqual(seg_name, file_contents[0])
-        self.assertEqual(seg_name, file_contents[-1])
-
-    def tearDown(self):
-        # remove versioning to allow simple container delete
-        self.container.update_metadata(hdrs={'X-Versions-Location': ''})
-        self.account.delete_containers()
-
-    def test_slo_manifest_version(self):
-        file_item = self._create_manifest('a')
-        # sanity check: read the manifest, then the large object
-        self._assert_is_manifest(file_item, 'a')
-        self._assert_is_object(file_item, 'a')
-
-        # upload new manifest
-        file_item = self._create_manifest('b')
-        # sanity check: read the manifest, then the large object
-        self._assert_is_manifest(file_item, 'b')
-        self._assert_is_object(file_item, 'b')
-
-        versions_list = self.versions_container.files()
-        self.assertEqual(1, len(versions_list))
-        version_file = self.versions_container.file(versions_list[0])
-        # check the version is still a manifest
-        self._assert_is_manifest(version_file, 'a')
-        self._assert_is_object(version_file, 'a')
-
-        # delete the newest manifest
-        file_item.delete()
-
-        # expect the original manifest file to be restored
-        self._assert_is_manifest(file_item, 'a')
-        self._assert_is_object(file_item, 'a')
 
 
 class TestTempurlEnv(object):

@@ -20,30 +20,37 @@ To allow object versioning within a cluster, the cloud provider should add the
 ``allow_versioned_writes`` option to ``true`` in the
 ``[filter:versioned_writes]`` section of the proxy-server configuration file.
 
-The ``X-Versions-Location`` header defines the
-container that holds the non-current versions of your objects. You
-must UTF-8-encode and then URL-encode the container name before you
-include it in the ``X-Versions-Location`` header. This header enables
-object versioning for all objects in the container. With a comparable
-``archive`` container in place, changes to objects in the ``current``
-container automatically create non-current versions in the ``archive``
-container.
+To enable object versioning for a container, you must specify an "archive
+container" that will retain non-current versions via either the
+``X-Versions-Location`` or ``X-History-Location`` header. These two headers
+enable two distinct modes of operation. Either mode may be used within a
+cluster, but only one mode may be active for any given container. You must
+UTF-8-encode and then URL-encode the container name before you include it in
+the header.
 
-The ``X-Versions-Mode`` header defines the behavior of ``DELETE`` requests to
-objects in the versioned container. In the default ``stack`` mode, deleting an
-object will restore the most-recent version from the ``archive`` container,
-overwriting the curent version. Alternatively you may specify ``history``
-mode, where deleting an object will copy the current version to the
-``archive`` then remove it from the ``current`` container.
+For both modes, **PUT** requests will archive any pre-existing objects before
+writing new data, and **GET** requests will serve the current version. **COPY**
+requests behave like a **GET** followed by a **PUT**; that is, if the copy
+*source* is in a versioned container then the current version will be copied,
+and if the copy *destination* is in a versioned container then any pre-existing
+object will be archived before writing new data.
 
-Example Using ``stack`` Mode
-----------------------------
+If object versioning was enabled using ``X-History-Location``, then object
+**DELETE** requests will copy the current version to the archive container then
+remove it from the versioned container.
+
+If object versioning was enabled using ``X-Versions-Location``, then object
+**DELETE** requests will restore the most-recent version from the archive
+container, overwriting the curent version.
+
+Example Using ``X-Versions-Location``
+-------------------------------------
 
 #.   Create the ``current`` container:
 
    .. code::
 
-       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive" -H "X-Versions-Mode: stack"
+       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive"
 
    .. code::
 
@@ -51,6 +58,7 @@ Example Using ``stack`` Mode
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: txb91810fb717347d09eec8-0052e18997
+       X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
        Date: Thu, 23 Jan 2014 21:28:55 GMT
 
 #. Create the first version of an object in the ``current`` container:
@@ -67,6 +75,7 @@ Example Using ``stack`` Mode
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+       X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
        Date: Thu, 23 Jan 2014 21:31:22 GMT
 
    Nothing is written to the non-current version container when you
@@ -99,6 +108,7 @@ Example Using ``stack`` Mode
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
+       X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
        Date: Thu, 23 Jan 2014 21:41:32 GMT
 
 #. Issue a **GET** request to a versioned object to get the current
@@ -121,6 +131,7 @@ Example Using ``stack`` Mode
        X-Container-Bytes-Used: 0
        Content-Type: text/plain; charset=utf-8
        X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
+       X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
        Date: Thu, 23 Jan 2014 21:45:50 GMT
 
        009my_object/1390512682.92052
@@ -144,6 +155,7 @@ Example Using ``stack`` Mode
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
+       X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
        Date: Thu, 23 Jan 2014 21:51:25 GMT
 
    List objects in the ``archive`` container to show that the archived
@@ -163,20 +175,21 @@ Example Using ``stack`` Mode
        X-Container-Bytes-Used: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
+       X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
        Date: Thu, 23 Jan 2014 21:51:41 GMT
 
    This next-most current version carries with it any metadata last set
    on it. If want to completely remove an object and you have five
    versions of it, you must **DELETE** it five times.
 
-Example Using ``history`` Mode
-----------------------------
+Example Using ``X-History-Location``
+------------------------------------
 
 #.   Create the ``current`` container:
 
    .. code::
 
-       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-Versions-Location: archive" -H "X-Versions-Mode: history"
+       # curl -i $publicURL/current -X PUT -H "Content-Length: 0" -H "X-Auth-Token: $token" -H "X-History-Location: archive"
 
    .. code::
 
@@ -184,6 +197,7 @@ Example Using ``history`` Mode
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: txb91810fb717347d09eec8-0052e18997
+       X-Openstack-Request-Id: txb91810fb717347d09eec8-0052e18997
        Date: Thu, 23 Jan 2014 21:28:55 GMT
 
 #. Create the first version of an object in the ``current`` container:
@@ -200,6 +214,7 @@ Example Using ``history`` Mode
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx5992d536a4bd4fec973aa-0052e18a2a
+       X-Openstack-Request-Id: tx5992d536a4bd4fec973aa-0052e18a2a
        Date: Thu, 23 Jan 2014 21:31:22 GMT
 
    Nothing is written to the non-current version container when you
@@ -232,6 +247,7 @@ Example Using ``history`` Mode
        Etag: d41d8cd98f00b204e9800998ecf8427e
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx468287ce4fc94eada96ec-0052e18c8c
+       X-Openstack-Request-Id: tx468287ce4fc94eada96ec-0052e18c8c
        Date: Thu, 23 Jan 2014 21:41:32 GMT
 
 #. Issue a **GET** request to a versioned object to get the current
@@ -254,6 +270,7 @@ Example Using ``history`` Mode
        X-Container-Bytes-Used: 0
        Content-Type: text/plain; charset=utf-8
        X-Trans-Id: tx9a441884997542d3a5868-0052e18d8e
+       X-Openstack-Request-Id: tx9a441884997542d3a5868-0052e18d8e
        Date: Thu, 23 Jan 2014 21:45:50 GMT
 
        009my_object/1390512682.92052
@@ -266,7 +283,7 @@ Example Using ``history`` Mode
 #. Issue a **DELETE** request to a versioned object to copy the
    current version of the object to the archive container then delete it from
    the current container. Subsequent **GET** requests to the object in the
-   current container will return 404 Not Found.
+   current container will return ``404 Not Found``.
 
    .. code::
 
@@ -278,6 +295,7 @@ Example Using ``history`` Mode
        Content-Length: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx006d944e02494e229b8ee-0052e18edd
+       X-Openstack-Request-Id: tx006d944e02494e229b8ee-0052e18edd
        Date: Thu, 23 Jan 2014 21:51:25 GMT
 
    List older versions of the object in the ``archive`` container::
@@ -296,6 +314,7 @@ Example Using ``history`` Mode
        X-Container-Bytes-Used: 0
        Content-Type: text/html; charset=UTF-8
        X-Trans-Id: tx044f2a05f56f4997af737-0052e18eed
+       X-Openstack-Request-Id: tx044f2a05f56f4997af737-0052e18eed
        Date: Thu, 23 Jan 2014 21:51:41 GMT
 
        009my_object/1390512682.92052
@@ -325,6 +344,7 @@ value.
     Content-Length: 76
     Content-Type: text/html; charset=UTF-8
     X-Trans-Id: txe2476de217134549996d0-0052e19038
+    X-Openstack-Request-Id: txe2476de217134549996d0-0052e19038
     Date: Thu, 23 Jan 2014 21:57:12 GMT
 
     <html><h1>Accepted</h1><p>The request is accepted for processing.</p></html>

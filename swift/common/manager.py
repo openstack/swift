@@ -571,7 +571,7 @@ class Server(object):
             except InvalidPidFileException as e:
                 if kwargs.get('verbose'):
                     print(_('Removing pid file %(pid_file)s with wrong pid '
-                            '%(pid)d'), {'pid_file': pid_file, 'pid': pid})
+                            '%(pid)d') % {'pid_file': pid_file, 'pid': pid})
                 remove_file(pid_file)
             except OSError as e:
                 if e.errno == errno.ESRCH:

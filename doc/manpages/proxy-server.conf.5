@@ -140,7 +140,7 @@ This optional suffix (default is empty) that would be appended to the swift tran
 id allows one to easily figure out from which cluster that X-Trans-Id belongs to.
 This is very useful when one is managing more than one swift cluster.
 .IP \fBcors_allow_origin\fR
-Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
+Use a comma separated list of full URL (http://foo.bar:1234,https://foo.bar)
 .IP \fBstrict_cors_mode\fR
 The default is true.
 .IP \fBnice_priority\fR
@@ -254,7 +254,7 @@ and also \fI.admin\fR who can do anything within the account.
 
 If neither of these groups are specified, the user can only access containers that
 have been explicitly allowed for them by a \fI.admin\fR or \fI.reseller_admin\fR.
-The trailing optional storage_url allows you to specify an alternate url to hand
+The trailing optional storage_url allows you to specify an alternate URL to hand
 back to the user upon authentication. If not specified, this defaults to
 \fIhttp[s]://<ip>:<port>/v1/<reseller_prefix>_<account>\fR where http or https depends
 on whether cert_file is specified in the [DEFAULT] section, <ip> and <port> are based
@@ -285,6 +285,14 @@ different settings.
 You'll need to have as well the keystoneauth middleware enabled
 and have it in your main pipeline so instead of having tempauth in
 there you can change it to: authtoken keystoneauth
+
+The auth credentials ("project_domain_name", "user_domain_name", "username",
+"project_name", "password")  must match the Keystone credentials for the Swift
+service. The example values shown here assume a user named "swift" with admin
+role on a project named "service", both being in the Keystone domain with id
+"default". Refer to the KeystoneMiddleware documentation at
+.BI  http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration
+for other examples.
 
 .PD 0
 .RS 10
@@ -865,7 +873,7 @@ Note: this middleware requires python-dnspython
 Entry point for paste.deploy for the container_sync middleware. This is the reference to the installed python egg.
 This is normally \fBegg:swift#container_sync\fR.
 .IP \fBallow_full_urls\fR
-Set this to false if you want to disallow any full url values to be set for
+Set this to false if you want to disallow any full URL values to be set for
 any new X-Container-Sync-To headers. This will keep any new full urls from
 coming in, but won't change any existing values already in the cluster.
 Updating those will have to be done manually, as knowing what the true realm

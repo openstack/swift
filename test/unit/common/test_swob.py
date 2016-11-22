@@ -249,6 +249,8 @@ class TestRange(unittest.TestCase):
         6. any combination of the above
         """
 
+        _assert_invalid_range(None)
+        _assert_invalid_range('nonbytes=0-')
         _assert_invalid_range('nonbytes=foobar,10-2')
         _assert_invalid_range('bytes=5-3')
         _assert_invalid_range('bytes=-')
@@ -259,6 +261,7 @@ class TestRange(unittest.TestCase):
         _assert_invalid_range('bytes=nonumber-5')
         _assert_invalid_range('bytes=nonumber')
         _assert_invalid_range('bytes=--1')
+        _assert_invalid_range('bytes=--0')
 
 
 class TestMatch(unittest.TestCase):
@@ -1298,16 +1301,16 @@ class TestResponse(unittest.TestCase):
         resp = req.get_response(test_app)
         resp.conditional_response = True
         body = ''.join(resp([], start_response))
-        self.assertEqual(body, '')
-        self.assertEqual(resp.content_length, 0)
+        self.assertIn('The Range requested is not available', body)
+        self.assertEqual(resp.content_length, len(body))
         self.assertEqual(resp.status, '416 Requested Range Not Satisfiable')
 
         resp = swift.common.swob.Response(
             body='1234567890', request=req,
             conditional_response=True)
         body = ''.join(resp([], start_response))
-        self.assertEqual(body, '')
-        self.assertEqual(resp.content_length, 0)
+        self.assertIn('The Range requested is not available', body)
+        self.assertEqual(resp.content_length, len(body))
         self.assertEqual(resp.status, '416 Requested Range Not Satisfiable')
 
         # Syntactically-invalid Range headers "MUST" be ignored

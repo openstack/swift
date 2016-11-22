@@ -386,8 +386,8 @@ class HTMLViewer(object):
             else:
                 data = stats.print_stats()
             return data, [('content-type', self.format_dict[output_format])]
-        except ODFLIBNotInstalled as ex:
-            raise ex
+        except ODFLIBNotInstalled:
+            raise
         except Exception as ex:
             raise ProfileException(_('Data download error: %s') % ex)
 
@@ -412,7 +412,7 @@ class HTMLViewer(object):
                 nfls.append(func[2])
                 performance.append(metric[metric_selected])
             y_pos = range(len(nfls))
-            error = [random.random() for __ in y_pos]
+            error = [random.random() for _unused in y_pos]
             plt.clf()
             if plot_type == 'pie':
                 plt.pie(x=performance, explode=None, labels=nfls,

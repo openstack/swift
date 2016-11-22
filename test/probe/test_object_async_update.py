@@ -56,7 +56,7 @@ class TestObjectAsyncUpdate(ReplProbeTest):
         # Assert the other primary server now knows about container/obj
         objs = [o['name'] for o in direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1]]
-        self.assertTrue(obj in objs)
+        self.assertIn(obj, objs)
 
 
 class TestUpdateOverrides(ReplProbeTest):

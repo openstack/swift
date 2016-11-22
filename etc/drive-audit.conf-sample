@@ -1,4 +1,7 @@
 [drive-audit]
+# Set owner of the drive-audit recon cache to this user:
+# user = swift
+#
 # device_dir = /srv/node
 #
 # You can specify default log routing here if you want:

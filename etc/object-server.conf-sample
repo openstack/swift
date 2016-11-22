@@ -217,7 +217,7 @@ use = egg:swift#recon
 # slow down the syncing process.
 # rsync_compress = no
 #
-# Format of the rysnc module where the replicator will send data. See
+# Format of the rsync module where the replicator will send data. See
 # etc/rsyncd.conf-sample for some usage examples.
 # rsync_module = {replication_ip}::object
 #

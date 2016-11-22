@@ -21,7 +21,7 @@ import os
 import unittest
 import six.moves.cPickle as pickle
 from array import array
-from collections import defaultdict
+from collections import Counter, defaultdict
 from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -49,11 +49,9 @@ class TestRingBuilder(unittest.TestCase):
         Returns a dictionary mapping the given device key to (number of
         partitions assigned to that key).
         """
-        counts = defaultdict(int)
-        for part2dev_id in builder._replica2part2dev:
-            for dev_id in part2dev_id:
-                counts[builder.devs[dev_id][key]] += 1
-        return counts
+        return Counter(builder.devs[dev_id][key]
+                       for part2dev_id in builder._replica2part2dev
+                       for dev_id in part2dev_id)
 
     def _get_population_by_region(self, builder):
         """
@@ -286,6 +284,32 @@ class TestRingBuilder(unittest.TestCase):
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
         self.assertEqual(counts, {0: 256, 2: 256, 3: 256})
+
+    def test_round_off_error(self):
+        # 3 nodes with 11 disks each is particularly problematic. Probably has
+        # to do with the binary repr. of 1/33? Those ones look suspicious...
+        #
+        #   >>> bin(int(struct.pack('!f', 1.0/(33)).encode('hex'), 16))
+        #   '0b111100111110000011111000010000'
+        rb = ring.RingBuilder(8, 3, 1)
+        for dev_id, (region, zone) in enumerate(
+                11 * [(0, 0), (1, 10), (1, 11)]):
+            rb.add_dev({'id': dev_id, 'region': region, 'zone': zone,
+                        'weight': 1, 'ip': '127.0.0.1',
+                        'port': 10000 + region * 100 + zone,
+                        'device': 'sda%d' % dev_id})
+        rb.rebalance()
+        self.assertEqual(self._partition_counts(rb, 'zone'),
+                         {0: 256, 10: 256, 11: 256})
+        wanted_by_zone = defaultdict(lambda: defaultdict(int))
+        for dev in rb._iter_devs():
+            wanted_by_zone[dev['zone']][dev['parts_wanted']] += 1
+        # We're nicely balanced, but parts_wanted is slightly lumpy
+        # because reasons.
+        self.assertEqual(wanted_by_zone, {
+            0: {0: 10, 1: 1},
+            10: {0: 11},
+            11: {0: 10, -1: 1}})
 
     def test_remove_a_lot(self):
         rb = ring.RingBuilder(3, 3, 1)

@@ -18,7 +18,7 @@ import os
 import sys
 import time
 import signal
-import re
+from os.path import basename, dirname, join
 from random import shuffle
 from swift import gettext_ as _
 from contextlib import closing
@@ -28,12 +28,10 @@ from swift.obj import diskfile, replicator
 from swift.common.utils import (
     get_logger, ratelimit_sleep, dump_recon_cache, list_from_csv, listdir,
     unlink_paths_older_than, readconf, config_auto_int_value)
-from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
+from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist,\
+    DiskFileDeleted, DiskFileExpired
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES
-
-# This matches rsync tempfiles, like ".<timestamp>.data.Xy095a"
-RE_RSYNC_TEMPFILE = re.compile(r'^\..*\.([a-zA-Z0-9_]){6}$')
 
 
 class AuditorWorker(object):
@@ -43,7 +41,6 @@ class AuditorWorker(object):
         self.conf = conf
         self.logger = logger
         self.devices = devices
-        self.diskfile_router = diskfile.DiskFileRouter(conf, self.logger)
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
                                                    10000000))
@@ -56,17 +53,25 @@ class AuditorWorker(object):
         except (KeyError, SystemExit):
             # if we can't parse the real config (generally a KeyError on
             # __file__, or SystemExit on no object-replicator section) we use
-            # a very conservative default
-            default = 86400
+            # a very conservative default for rsync_timeout
+            default_rsync_timeout = 86400
         else:
             replicator_rsync_timeout = int(replicator_config.get(
                 'rsync_timeout', replicator.DEFAULT_RSYNC_TIMEOUT))
             # Here we can do some light math for ops and use the *replicator's*
             # rsync_timeout (plus 15 mins to avoid deleting local tempfiles
             # before the remote replicator kills it's rsync)
-            default = replicator_rsync_timeout + 900
+            default_rsync_timeout = replicator_rsync_timeout + 900
+            # there's not really a good reason to assume the replicator
+            # section's reclaim_age is more appropriate than the reconstructor
+            # reclaim_age - but we're already parsing the config so we can set
+            # the default value in our config if it's not already set
+            if 'reclaim_age' in replicator_config:
+                conf.setdefault('reclaim_age',
+                                replicator_config['reclaim_age'])
         self.rsync_tempfile_timeout = config_auto_int_value(
-            self.conf.get('rsync_tempfile_timeout'), default)
+            self.conf.get('rsync_tempfile_timeout'), default_rsync_timeout)
+        self.diskfile_router = diskfile.DiskFileRouter(conf, self.logger)
 
         self.auditor_type = 'ALL'
         self.zero_byte_only_at_fps = zero_byte_only_at_fps
@@ -251,19 +256,29 @@ class AuditorWorker(object):
                             incr_by=chunk_len)
                         self.bytes_processed += chunk_len
                         self.total_bytes_processed += chunk_len
-        except DiskFileNotExist:
-            pass
         except DiskFileQuarantined as err:
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and was'
                                 ' quarantined: %(err)s'),
                               {'obj': location, 'err': err})
+        except DiskFileExpired:
+            pass  # ignore expired objects
+        except DiskFileDeleted:
+            # If there is a reclaimable tombstone, we'll invalidate the hash
+            # to trigger the replicator to rehash/cleanup this suffix
+            ts = df._ondisk_info['ts_info']['timestamp']
+            if (not self.zero_byte_only_at_fps and
+                    (time.time() - float(ts)) > df.manager.reclaim_age):
+                df.manager.invalidate_hash(dirname(df._datadir))
+        except DiskFileNotExist:
+            pass
+
         self.passes += 1
         # _ondisk_info attr is initialized to None and filled in by open
         ondisk_info_dict = df._ondisk_info or {}
         if 'unexpected' in ondisk_info_dict:
-            is_rsync_tempfile = lambda fpath: RE_RSYNC_TEMPFILE.match(
-                os.path.basename(fpath))
+            is_rsync_tempfile = lambda fpath: (
+                diskfile.RE_RSYNC_TEMPFILE.match(basename(fpath)))
             rsync_tempfile_paths = filter(is_rsync_tempfile,
                                           ondisk_info_dict['unexpected'])
             mtime = time.time() - self.rsync_tempfile_timeout
@@ -282,7 +297,7 @@ class ObjectAuditor(Daemon):
             conf.get('zero_byte_files_per_second', 50))
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
-        self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.rcache = join(self.recon_cache_path, "object.recon")
         self.interval = int(conf.get('interval', 30))
 
     def _sleep(self):

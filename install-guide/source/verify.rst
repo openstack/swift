@@ -37,12 +37,10 @@ Verify operation of the Object Storage service.
                            Containers: 0
                               Objects: 0
                                 Bytes: 0
-      Containers in policy "policy-0": 0
-         Objects in policy "policy-0": 0
-           Bytes in policy "policy-0": 0
           X-Account-Project-Domain-Id: default
                           X-Timestamp: 1444143887.71539
                            X-Trans-Id: tx1396aeaf17254e94beb34-0056143bde
+               X-Openstack-Request-Id: tx1396aeaf17254e94beb34-0056143bde
                          Content-Type: text/plain; charset=utf-8
                         Accept-Ranges: bytes
 

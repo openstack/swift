@@ -67,7 +67,7 @@ EFFECTIVE_CONSTRAINTS = {}  # populated by reload_constraints
 
 def reload_constraints():
     """
-    Parse SWIFT_CONF_FILE and reset module level global contraint attrs,
+    Parse SWIFT_CONF_FILE and reset module level global constraint attrs,
     populating OVERRIDE_CONSTRAINTS AND EFFECTIVE_CONSTRAINTS along the way.
     """
     global SWIFT_CONSTRAINTS_LOADED, OVERRIDE_CONSTRAINTS

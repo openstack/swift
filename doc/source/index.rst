@@ -94,7 +94,7 @@ Administrator Documentation
 Object Storage v1 REST API Documentation
 ========================================
 
-See `Complete Reference for the Object Storage REST API <http://developer.openstack.org/api-ref-objectstorage-v1.html>`_
+See `Complete Reference for the Object Storage REST API <http://developer.openstack.org/api-ref/object-storage/>`_
 
 The following provides supporting information for the REST API:
 

@@ -47,7 +47,7 @@ from swift.common.utils import (
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
-    quorum_size, reiterate, close_if_possible)
+    quorum_size, reiterate, close_if_possible, safe_json_loads)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -92,7 +92,7 @@ class ObjectControllerRouter(object):
     @classmethod
     def register(cls, policy_type):
         """
-        Decorator for Storage Policy implemenations to register
+        Decorator for Storage Policy implementations to register
         their ObjectController implementations.
 
         This also fills in a policy_type attribute on the class.
@@ -1835,9 +1835,262 @@ def trailing_metadata(policy, client_obj_hasher,
     })
 
 
+class ECGetResponseBucket(object):
+    """
+    A helper class to encapsulate the properties of buckets in which fragment
+    getters and alternate nodes are collected.
+    """
+    def __init__(self, policy, timestamp_str):
+        """
+        :param policy: an instance of ECStoragePolicy
+        :param timestamp_str: a string representation of a timestamp
+        """
+        self.policy = policy
+        self.timestamp_str = timestamp_str
+        self.gets = collections.defaultdict(list)
+        self.alt_nodes = collections.defaultdict(list)
+        self._durable = False
+        self.status = self.headers = None
+
+    def set_durable(self):
+        self._durable = True
+
+    def add_response(self, getter, parts_iter):
+        if not self.gets:
+            self.status = getter.last_status
+            # stash first set of backend headers, which will be used to
+            # populate a client response
+            # TODO: each bucket is for a single *data* timestamp, but sources
+            # in the same bucket may have different *metadata* timestamps if
+            # some backends have more recent .meta files than others. Currently
+            # we just use the last received metadata headers - this behavior is
+            # ok and is consistent with a replication policy GET which
+            # similarly does not attempt to find the backend with the most
+            # recent metadata. We could alternatively choose to the *newest*
+            # metadata headers for self.headers by selecting the source with
+            # the latest X-Timestamp.
+            self.headers = getter.last_headers
+        elif (getter.last_headers.get('X-Object-Sysmeta-Ec-Etag') !=
+              self.headers.get('X-Object-Sysmeta-Ec-Etag')):
+            # Fragments at the same timestamp with different etags are never
+            # expected. If somehow it happens then ignore those fragments
+            # to avoid mixing fragments that will not reconstruct otherwise
+            # an exception from pyeclib is almost certain. This strategy leaves
+            # a possibility that a set of consistent frags will be gathered.
+            raise ValueError("ETag mismatch")
+
+        frag_index = getter.last_headers.get('X-Object-Sysmeta-Ec-Frag-Index')
+        frag_index = int(frag_index) if frag_index is not None else None
+        self.gets[frag_index].append((getter, parts_iter))
+
+    def get_responses(self):
+        """
+        Return a list of all useful sources. Where there are multiple sources
+        associated with the same frag_index then only one is included.
+
+        :return: a list of sources, each source being a tuple of form
+                (ResumingGetter, iter)
+        """
+        all_sources = []
+        for frag_index, sources in self.gets.items():
+            if frag_index is None:
+                # bad responses don't have a frag_index (and fake good
+                # responses from some unit tests)
+                all_sources.extend(sources)
+            else:
+                all_sources.extend(sources[:1])
+        return all_sources
+
+    def add_alternate_nodes(self, node, frag_indexes):
+        for frag_index in frag_indexes:
+            self.alt_nodes[frag_index].append(node)
+
+    @property
+    def shortfall(self):
+        # A non-durable bucket always has a shortfall of at least 1
+        result = self.policy.ec_ndata - len(self.get_responses())
+        return max(result, 0 if self._durable else 1)
+
+    @property
+    def shortfall_with_alts(self):
+        # The shortfall that we expect to have if we were to send requests
+        # for frags on the alt nodes.
+        alts = set(self.alt_nodes.keys()).difference(set(self.gets.keys()))
+        result = self.policy.ec_ndata - (len(self.get_responses()) + len(alts))
+        return max(result, 0 if self._durable else 1)
+
+    def __str__(self):
+        # return a string summarising bucket state, useful for debugging.
+        return '<%s, %s, %s, %s(%s), %s>' \
+               % (self.timestamp_str, self.status, self._durable,
+                  self.shortfall, self.shortfall_with_alts, len(self.gets))
+
+
+class ECGetResponseCollection(object):
+    """
+    Manages all successful EC GET responses gathered by ResumingGetters.
+
+    A response comprises a tuple of (<getter instance>, <parts iterator>). All
+    responses having the same data timestamp are placed in an
+    ECGetResponseBucket for that timestamp. The buckets are stored in the
+    'buckets' dict which maps timestamp-> bucket.
+
+    This class encapsulates logic for selecting the best bucket from the
+    collection, and for choosing alternate nodes.
+    """
+    def __init__(self, policy):
+        """
+        :param policy: an instance of ECStoragePolicy
+        """
+        self.policy = policy
+        self.buckets = {}
+        self.node_iter_count = 0
+
+    def _get_bucket(self, timestamp_str):
+        """
+        :param timestamp_str: a string representation of a timestamp
+        :return: ECGetResponseBucket for given timestamp
+        """
+        return self.buckets.setdefault(
+            timestamp_str, ECGetResponseBucket(self.policy, timestamp_str))
+
+    def add_response(self, get, parts_iter):
+        """
+        Add a response to the collection.
+
+        :param get: An instance of
+                    :class:`~swift.proxy.controllers.base.ResumingGetter`
+        :param parts_iter: An iterator over response body parts
+        :raises ValueError: if the response etag or status code values do not
+            match any values previously received for the same timestamp
+        """
+        headers = get.last_headers
+        # Add the response to the appropriate bucket keyed by data file
+        # timestamp. Fall back to using X-Backend-Timestamp as key for object
+        # servers that have not been upgraded.
+        t_data_file = headers.get('X-Backend-Data-Timestamp')
+        t_obj = headers.get('X-Backend-Timestamp', headers.get('X-Timestamp'))
+        self._get_bucket(t_data_file or t_obj).add_response(get, parts_iter)
+
+        # The node may also have alternate fragments indexes (possibly at
+        # different timestamps). For each list of alternate fragments indexes,
+        # find the bucket for their data file timestamp and add the node and
+        # list to that bucket's alternate nodes.
+        frag_sets = safe_json_loads(headers.get('X-Backend-Fragments')) or {}
+        for t_frag, frag_set in frag_sets.items():
+            self._get_bucket(t_frag).add_alternate_nodes(get.node, frag_set)
+        # If the response includes a durable timestamp then mark that bucket as
+        # durable. Note that this may be a different bucket than the one this
+        # response got added to, and that we may never go and get a durable
+        # frag from this node; it is sufficient that we have been told that a
+        # durable frag exists, somewhere, at t_durable.
+        t_durable = headers.get('X-Backend-Durable-Timestamp')
+        if not t_durable and not t_data_file:
+            # obj server not upgraded so assume this response's frag is durable
+            t_durable = t_obj
+        if t_durable:
+            self._get_bucket(t_durable).set_durable()
+
+    def _sort_buckets(self):
+        def key_fn(bucket):
+            # Returns a tuple to use for sort ordering:
+            # buckets with no shortfall sort higher,
+            # otherwise buckets with lowest shortfall_with_alts sort higher,
+            # finally buckets with newer timestamps sort higher.
+            return (bucket.shortfall <= 0,
+                    (not (bucket.shortfall <= 0) and
+                     (-1 * bucket.shortfall_with_alts)),
+                    bucket.timestamp_str)
+
+        return sorted(self.buckets.values(), key=key_fn, reverse=True)
+
+    @property
+    def best_bucket(self):
+        """
+        Return the best bucket in the collection.
+
+        The "best" bucket is the newest timestamp with sufficient getters, or
+        the closest to having a sufficient getters, unless it is bettered by a
+        bucket with potential alternate nodes.
+
+        :return: An instance of :class:`~ECGetResponseBucket` or None if there
+                 are no buckets in the collection.
+        """
+        sorted_buckets = self._sort_buckets()
+        if sorted_buckets:
+            return sorted_buckets[0]
+        return None
+
+    def _get_frag_prefs(self):
+        # Construct the current frag_prefs list, with best_bucket prefs first.
+        frag_prefs = []
+
+        for bucket in self._sort_buckets():
+            if bucket.timestamp_str:
+                exclusions = [fi for fi in bucket.gets if fi is not None]
+                prefs = {'timestamp': bucket.timestamp_str,
+                         'exclude': exclusions}
+                frag_prefs.append(prefs)
+
+        return frag_prefs
+
+    def get_extra_headers(self):
+        frag_prefs = self._get_frag_prefs()
+        return {'X-Backend-Fragment-Preferences': json.dumps(frag_prefs)}
+
+    def _get_alternate_nodes(self):
+        if self.node_iter_count <= self.policy.ec_ndata:
+            # It makes sense to wait before starting to use alternate nodes,
+            # because if we find sufficient frags on *distinct* nodes then we
+            # spread work across mode nodes. There's no formal proof that
+            # waiting for ec_ndata GETs is the right answer, but it seems
+            # reasonable to try *at least* that many primary nodes before
+            # resorting to alternate nodes.
+            return None
+
+        bucket = self.best_bucket
+        if (bucket is None) or (bucket.shortfall <= 0):
+            return None
+
+        alt_frags = set(bucket.alt_nodes.keys())
+        got_frags = set(bucket.gets.keys())
+        wanted_frags = list(alt_frags.difference(got_frags))
+
+        # We may have the same frag_index on more than one node so shuffle to
+        # avoid using the same frag_index consecutively, since we may not get a
+        # response from the last node provided before being asked to provide
+        # another node.
+        random.shuffle(wanted_frags)
+
+        for frag_index in wanted_frags:
+            nodes = bucket.alt_nodes.get(frag_index)
+            if nodes:
+                return nodes
+        return None
+
+    def has_alternate_node(self):
+        return True if self._get_alternate_nodes() else False
+
+    def provide_alternate_node(self):
+        """
+        Callback function that is installed in a NodeIter. Called on every call
+        to NodeIter.next(), which means we can track the number of nodes to
+        which GET requests have been made and selectively inject an alternate
+        node, if we have one.
+
+        :return: A dict describing a node to which the next GET request
+                 should be made.
+        """
+        self.node_iter_count += 1
+        nodes = self._get_alternate_nodes()
+        if nodes:
+            return nodes.pop(0).copy()
+
+
 @ObjectControllerRouter.register(EC_POLICY)
 class ECObjectController(BaseObjectController):
-    def _fragment_GET_request(self, req, node_iter, partition, policy):
+    def _fragment_GET_request(self, req, node_iter, partition, policy,
+                              header_provider=None):
         """
         Makes a GET request for a fragment.
         """
@@ -1848,7 +2101,7 @@ class ECObjectController(BaseObjectController):
                                 partition, req.swift_entity_path,
                                 backend_headers,
                                 client_chunk_size=policy.fragment_size,
-                                newest=False)
+                                newest=False, header_provider=header_provider)
         return (getter, getter.response_parts_iter(req))
 
     def _convert_range(self, req, policy):
@@ -1914,93 +2167,130 @@ class ECObjectController(BaseObjectController):
             resp = self.GETorHEAD_base(
                 req, _('Object'), node_iter, partition,
                 req.swift_entity_path, concurrency)
-        else:  # GET request
-            orig_range = None
-            range_specs = []
-            if req.range:
-                orig_range = req.range
-                range_specs = self._convert_range(req, policy)
+            self._fix_response(req, resp)
+            return resp
 
-            safe_iter = GreenthreadSafeIterator(node_iter)
-            # Sending the request concurrently to all nodes, and responding
-            # with the first response isn't something useful for EC as all
-            # nodes contain different fragments. Also EC has implemented it's
-            # own specific implementation of concurrent gets to ec_ndata nodes.
-            # So we don't need to  worry about plumbing and sending a
-            # concurrency value to ResumingGetter.
-            with ContextPool(policy.ec_ndata) as pool:
-                pile = GreenAsyncPile(pool)
-                for _junk in range(policy.ec_ndata):
-                    pile.spawn(self._fragment_GET_request,
-                               req, safe_iter, partition,
-                               policy)
+        # GET request
+        orig_range = None
+        range_specs = []
+        if req.range:
+            orig_range = req.range
+            range_specs = self._convert_range(req, policy)
 
-                bad_gets = []
-                etag_buckets = collections.defaultdict(list)
-                best_etag = None
-                for get, parts_iter in pile:
-                    if is_success(get.last_status):
-                        etag = HeaderKeyDict(
-                            get.last_headers)['X-Object-Sysmeta-Ec-Etag']
-                        etag_buckets[etag].append((get, parts_iter))
-                        if etag != best_etag and (
-                                len(etag_buckets[etag]) >
-                                len(etag_buckets[best_etag])):
-                            best_etag = etag
-                    else:
-                        bad_gets.append((get, parts_iter))
-                    matching_response_count = max(
-                        len(etag_buckets[best_etag]), len(bad_gets))
-                    if (policy.ec_ndata - matching_response_count >
-                            pile._pending) and node_iter.nodes_left > 0:
-                        # we need more matching responses to reach ec_ndata
-                        # than we have pending gets, as long as we still have
-                        # nodes in node_iter we can spawn another
-                        pile.spawn(self._fragment_GET_request, req,
-                                   safe_iter, partition, policy)
+        safe_iter = GreenthreadSafeIterator(node_iter)
+        # Sending the request concurrently to all nodes, and responding
+        # with the first response isn't something useful for EC as all
+        # nodes contain different fragments. Also EC has implemented it's
+        # own specific implementation of concurrent gets to ec_ndata nodes.
+        # So we don't need to  worry about plumbing and sending a
+        # concurrency value to ResumingGetter.
+        with ContextPool(policy.ec_ndata) as pool:
+            pile = GreenAsyncPile(pool)
+            buckets = ECGetResponseCollection(policy)
+            node_iter.set_node_provider(buckets.provide_alternate_node)
+            # include what may well be an empty X-Backend-Fragment-Preferences
+            # header from the buckets.get_extra_headers to let the object
+            # server know that it is ok to return non-durable fragments
+            for _junk in range(policy.ec_ndata):
+                pile.spawn(self._fragment_GET_request,
+                           req, safe_iter, partition,
+                           policy, buckets.get_extra_headers)
 
-            req.range = orig_range
-            if len(etag_buckets[best_etag]) >= policy.ec_ndata:
-                # headers can come from any of the getters
-                resp_headers = HeaderKeyDict(
-                    etag_buckets[best_etag][0][0].source_headers[-1])
-                resp_headers.pop('Content-Range', None)
-                eccl = resp_headers.get('X-Object-Sysmeta-Ec-Content-Length')
-                obj_length = int(eccl) if eccl is not None else None
-
-                # This is only true if we didn't get a 206 response, but
-                # that's the only time this is used anyway.
-                fa_length = int(resp_headers['Content-Length'])
-                app_iter = ECAppIter(
-                    req.swift_entity_path,
-                    policy,
-                    [iterator for getter, iterator in etag_buckets[best_etag]],
-                    range_specs, fa_length, obj_length,
-                    self.app.logger)
-                resp = Response(
-                    request=req,
-                    headers=resp_headers,
-                    conditional_response=True,
-                    app_iter=app_iter)
+            bad_bucket = ECGetResponseBucket(policy, None)
+            bad_bucket.set_durable()
+            best_bucket = None
+            extra_requests = 0
+            # max_extra_requests is an arbitrary hard limit for spawning extra
+            # getters in case some unforeseen scenario, or a misbehaving object
+            # server, causes us to otherwise make endless requests e.g. if an
+            # object server were to ignore frag_prefs and always respond with
+            # a frag that is already in a bucket.
+            max_extra_requests = 2 * policy.ec_nparity + policy.ec_ndata
+            for get, parts_iter in pile:
+                if get.last_status is None:
+                    # We may have spawned getters that find the node iterator
+                    # has been exhausted. Ignore them.
+                    # TODO: turns out that node_iter.nodes_left can bottom
+                    # out at >0 when number of devs in ring is < 2* replicas,
+                    # which definitely happens in tests and results in status
+                    # of None. We should fix that but keep this guard because
+                    # there is also a race between testing nodes_left/spawning
+                    # a getter and an existing getter calling next(node_iter).
+                    continue
                 try:
-                    app_iter.kickoff(req, resp)
-                except HTTPException as err_resp:
-                    # catch any HTTPException response here so that we can
-                    # process response headers uniformly in _fix_response
-                    resp = err_resp
-            else:
-                statuses = []
-                reasons = []
-                bodies = []
-                headers = []
-                for getter, body_parts_iter in bad_gets:
-                    statuses.extend(getter.statuses)
-                    reasons.extend(getter.reasons)
-                    bodies.extend(getter.bodies)
-                    headers.extend(getter.source_headers)
-                resp = self.best_response(
-                    req, statuses, reasons, bodies, 'Object',
-                    headers=headers)
+                    if is_success(get.last_status):
+                        # 2xx responses are managed by a response collection
+                        buckets.add_response(get, parts_iter)
+                    else:
+                        # all other responses are lumped into a single bucket
+                        bad_bucket.add_response(get, parts_iter)
+                except ValueError as err:
+                    self.app.logger.error(
+                        _("Problem with fragment response: %s"), err)
+                shortfall = bad_bucket.shortfall
+                best_bucket = buckets.best_bucket
+                if best_bucket:
+                    shortfall = min(best_bucket.shortfall, shortfall)
+                if (extra_requests < max_extra_requests and
+                        shortfall > pile._pending and
+                        (node_iter.nodes_left > 0 or
+                         buckets.has_alternate_node())):
+                    # we need more matching responses to reach ec_ndata
+                    # than we have pending gets, as long as we still have
+                    # nodes in node_iter we can spawn another
+                    extra_requests += 1
+                    pile.spawn(self._fragment_GET_request, req,
+                               safe_iter, partition, policy,
+                               buckets.get_extra_headers)
+
+        req.range = orig_range
+        if best_bucket and best_bucket.shortfall <= 0:
+            # headers can come from any of the getters
+            resp_headers = best_bucket.headers
+            resp_headers.pop('Content-Range', None)
+            eccl = resp_headers.get('X-Object-Sysmeta-Ec-Content-Length')
+            obj_length = int(eccl) if eccl is not None else None
+
+            # This is only true if we didn't get a 206 response, but
+            # that's the only time this is used anyway.
+            fa_length = int(resp_headers['Content-Length'])
+            app_iter = ECAppIter(
+                req.swift_entity_path,
+                policy,
+                [parts_iter for
+                 _getter, parts_iter in best_bucket.get_responses()],
+                range_specs, fa_length, obj_length,
+                self.app.logger)
+            resp = Response(
+                request=req,
+                headers=resp_headers,
+                conditional_response=True,
+                app_iter=app_iter)
+            try:
+                app_iter.kickoff(req, resp)
+            except HTTPException as err_resp:
+                # catch any HTTPException response here so that we can
+                # process response headers uniformly in _fix_response
+                resp = err_resp
+        else:
+            # TODO: we can get here if all buckets are successful but none
+            # have ec_ndata getters, so bad_bucket may have no gets and we will
+            # return a 503 when a 404 may be more appropriate. We can also get
+            # here with less than ec_ndata 416's and may then return a 416
+            # which is also questionable because a non-range get for same
+            # object would return 404 or 503.
+            statuses = []
+            reasons = []
+            bodies = []
+            headers = []
+            for getter, _parts_iter in bad_bucket.get_responses():
+                statuses.extend(getter.statuses)
+                reasons.extend(getter.reasons)
+                bodies.extend(getter.bodies)
+                headers.extend(getter.source_headers)
+            resp = self.best_response(
+                req, statuses, reasons, bodies, 'Object',
+                headers=headers)
         self._fix_response(req, resp)
         return resp
 
@@ -2241,7 +2531,7 @@ class ECObjectController(BaseObjectController):
         """
         Given a list of statuses from several requests, determine if a
         satisfactory number of nodes have responded with 1xx or 2xx statuses to
-        deem the transaction for a succssful response to the client.
+        deem the transaction for a successful response to the client.
 
         :param statuses: list of statuses returned so far
         :param min_responses: minimal pass criterion for number of successes
@@ -2329,8 +2619,9 @@ class ECObjectController(BaseObjectController):
 
             self._transfer_data(req, policy, data_source, putters,
                                 nodes, min_conns, etag_hasher)
-            # The .durable file will propagate in a replicated fashion; if
-            # one exists, the reconstructor will spread it around.
+            # The durable state will propagate in a replicated fashion; if
+            # one fragment is durable then the reconstructor will spread the
+            # durable status around.
             # In order to avoid successfully writing an object, but refusing
             # to serve it on a subsequent GET because don't have enough
             # durable data fragments - we require the same number of durable

@@ -1846,7 +1846,7 @@ There are special groups of::
 If neither of these groups are specified, the user can only access containers
 that have been explicitly allowed for them by a .admin or .reseller_admin.
 
-The trailing optional storage_url allows you to specify an alternate url to
+The trailing optional storage_url allows you to specify an alternate URL to
 hand back to the user upon authentication. If not specified, this defaults to::
 
     $HOST/v1/<reseller_prefix>_<account>

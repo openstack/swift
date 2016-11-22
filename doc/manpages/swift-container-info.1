@@ -15,7 +15,7 @@
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
 .\"
-.TH swift-container-info 1 "3/20/2013" "Linux" "OpenStack Swift"
+.TH swift-container-info 1 "10/25/2016" "Linux" "OpenStack Swift"
 
 .SH NAME
 .LP
@@ -25,7 +25,7 @@
 .SH SYNOPSIS
 .LP
 .B swift-container-info
-[CONTAINER_DB_FILE] [SWIFT_DIR]
+<container_db_file> [options]
 
 .SH DESCRIPTION
 .PP
@@ -54,6 +54,15 @@ It will then return several information about that container such as;
 .IP  "- X-Container-Sync-Point 2 "
 .IP  "- Location on the ring "
 .PD
+
+.SH OPTIONS
+.TP
+\fB\-h, --help \fR
+Shows the help message and exit
+.TP
+\fB\-d SWIFT_DIR, --swift-dir=SWIFT_DIR\fR
+Pass location of swift configuration  file if different from the default
+location /etc/swift
 
 .SH DOCUMENTATION
 .LP

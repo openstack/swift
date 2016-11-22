@@ -45,7 +45,8 @@ from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE
-from test.unit import connect_tcp, readuntil2crlfs, patch_policies
+from test.unit import connect_tcp, readuntil2crlfs, patch_policies, \
+    encode_frag_archive_bodies
 from swift.obj import server as object_server
 from swift.obj import updater
 from swift.obj import diskfile
@@ -59,7 +60,8 @@ from swift.common.swob import Request, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
-from swift.common.exceptions import DiskFileDeviceUnavailable, DiskFileNoSpace
+from swift.common.exceptions import DiskFileDeviceUnavailable, \
+    DiskFileNoSpace, DiskFileQuarantined
 
 
 def mock_time(*args, **kwargs):
@@ -121,6 +123,7 @@ class TestObjectController(unittest.TestCase):
 
         self.logger = debug_logger('test-object-controller')
         self.ts = make_timestamp_iter()
+        self.ec_policies = [p for p in POLICIES if p.policy_type == EC_POLICY]
 
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
@@ -181,79 +184,111 @@ class TestObjectController(unittest.TestCase):
         original_headers = self.object_controller.allowed_headers
         test_headers = 'content-encoding foo bar'.split()
         self.object_controller.allowed_headers = set(test_headers)
-        timestamp = normalize_timestamp(time())
+        put_timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': put_timestamp,
+                   'Content-Type': 'application/x-test',
+                   'Foo': 'fooheader',
+                   'Baz': 'bazheader',
+                   'X-Object-Sysmeta-Color': 'blue',
+                   'X-Object-Transient-Sysmeta-Shape': 'circle',
+                   'X-Object-Meta-1': 'One',
+                   'X-Object-Meta-Two': 'Two'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
-                                     'Content-Type': 'application/x-test',
-                                     'Foo': 'fooheader',
-                                     'Baz': 'bazheader',
-                                     'X-Object-Meta-1': 'One',
-                                     'X-Object-Meta-Two': 'Two'})
+                            headers=headers)
         req.body = 'VERIFY'
+        etag = '"%s"' % md5('VERIFY').hexdigest()
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'Etag': etag,
+        })
 
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
+        headers = {'X-Timestamp': post_timestamp,
+                   'X-Object-Meta-3': 'Three',
+                   'X-Object-Meta-4': 'Four',
+                   'Content-Encoding': 'gzip',
+                   'Foo': 'fooheader',
+                   'Bar': 'barheader',
+                   'Content-Type': 'application/x-test'}
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
-                                     'X-Object-Meta-3': 'Three',
-                                     'X-Object-Meta-4': 'Four',
-                                     'Content-Encoding': 'gzip',
-                                     'Foo': 'fooheader',
-                                     'Bar': 'barheader',
-                                     'Content-Type': 'application/x-test'})
+                            headers=headers)
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'blue',
+        })
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("X-Object-Meta-Two", resp.headers)
-        self.assertIn("X-Object-Meta-3", resp.headers)
-        self.assertIn("X-Object-Meta-4", resp.headers)
-        self.assertIn("Foo", resp.headers)
-        self.assertIn("Bar", resp.headers)
-        self.assertNotIn("Baz", resp.headers)
-        self.assertIn("Content-Encoding", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        expected_headers = {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'blue',
+            'X-Object-Meta-3': 'Three',
+            'X-Object-Meta-4': 'Four',
+            'Foo': 'fooheader',
+            'Bar': 'barheader',
+            'Content-Encoding': 'gzip',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        }
+        self.assertEqual(dict(resp.headers), expected_headers)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("X-Object-Meta-Two", resp.headers)
-        self.assertIn("X-Object-Meta-3", resp.headers)
-        self.assertIn("X-Object-Meta-4", resp.headers)
-        self.assertIn("Foo", resp.headers)
-        self.assertIn("Bar", resp.headers)
-        self.assertNotIn("Baz", resp.headers)
-        self.assertIn("Content-Encoding", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), expected_headers)
 
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': post_timestamp,
+                                     'X-Object-Sysmeta-Color': 'red',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'blue',
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-3", resp.headers)
-        self.assertNotIn("X-Object-Meta-4", resp.headers)
-        self.assertNotIn("Foo", resp.headers)
-        self.assertNotIn("Bar", resp.headers)
-        self.assertNotIn("Content-Encoding", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'blue',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        })
 
         # test defaults
         self.object_controller.allowed_headers = original_headers
-        timestamp = normalize_timestamp(time())
+        put_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': put_timestamp,
                                      'Content-Type': 'application/x-test',
                                      'Foo': 'fooheader',
+                                     'X-Object-Sysmeta-Color': 'red',
                                      'X-Object-Meta-1': 'One',
                                      'X-Object-Manifest': 'c/bar',
                                      'Content-Encoding': 'gzip',
@@ -263,48 +298,98 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'Etag': etag,
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("Foo", resp.headers)
-        self.assertIn("Content-Encoding", resp.headers)
-        self.assertIn("X-Object-Manifest", resp.headers)
-        self.assertIn("Content-Disposition", resp.headers)
-        self.assertIn("X-Static-Large-Object", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'red',
+            'X-Object-Meta-1': 'One',
+            'Content-Encoding': 'gzip',
+            'X-Object-Manifest': 'c/bar',
+            'Content-Disposition': 'bar',
+            'X-Static-Large-Object': 'True',
+            'X-Backend-Timestamp': put_timestamp,
+            'X-Timestamp': put_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(put_timestamp)))),
+        })
 
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': post_timestamp,
                                      'X-Object-Meta-3': 'Three',
                                      'Foo': 'fooheader',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'red',
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertNotIn("X-Object-Meta-1", resp.headers)
-        self.assertNotIn("Foo", resp.headers)
-        self.assertNotIn("Content-Encoding", resp.headers)
-        self.assertNotIn("X-Object-Manifest", resp.headers)
-        self.assertNotIn("Content-Disposition", resp.headers)
-        self.assertIn("X-Object-Meta-3", resp.headers)
-        self.assertIn("X-Static-Large-Object", resp.headers)
-        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'red',
+            'X-Object-Meta-3': 'Three',
+            'X-Static-Large-Object': 'True',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        })
 
         # Test for empty metadata
-        timestamp = normalize_timestamp(time())
+        post_timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': post_timestamp,
                                      'Content-Type': 'application/x-test',
                                      'X-Object-Meta-3': ''})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(resp.body)),
+            'X-Object-Sysmeta-Color': 'red',
+        })
+
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.headers["x-object-meta-3"], '')
+        self.assertEqual(dict(resp.headers), {
+            'Content-Type': 'application/x-test',
+            'Content-Length': '6',
+            'Etag': etag,
+            'X-Object-Sysmeta-Color': 'red',
+            'X-Object-Meta-3': '',
+            'X-Static-Large-Object': 'True',
+            'X-Backend-Timestamp': post_timestamp,
+            'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
+            'Last-Modified': strftime(
+                '%a, %d %b %Y %H:%M:%S GMT',
+                gmtime(math.ceil(float(post_timestamp)))),
+        })
 
     def test_POST_old_timestamp(self):
         ts = time()
@@ -934,8 +1019,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual((node, 99, 'PUT', '/a/c/o'),
                          mock_update.call_args_list[0][0][0:4])
         actual_headers = mock_update.call_args_list[0][0][4]
-        self.assertTrue(
-            actual_headers.pop('user-agent').startswith('object-updater'))
+        # User-Agent is updated.
+        expected_post_headers['User-Agent'] = 'object-updater %s' % os.getpid()
         self.assertDictEqual(expected_post_headers, actual_headers)
         self.assertFalse(
             os.listdir(os.path.join(
@@ -988,6 +1073,13 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_no_timestamp(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT',
                                                       'CONTENT_LENGTH': '0'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_PUT_bad_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': 'bad'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
 
@@ -2275,11 +2367,77 @@ class TestObjectController(unittest.TestCase):
                 resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
+    def test_EC_GET_PUT_data(self):
+        for policy in self.ec_policies:
+            raw_data = ('VERIFY' * policy.ec_segment_size)[:-432]
+            frag_archives = encode_frag_archive_bodies(policy, raw_data)
+            frag_index = random.randint(0, len(frag_archives) - 1)
+            # put EC frag archive
+            req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
+                'X-Timestamp': next(self.ts).internal,
+                'Content-Type': 'application/verify',
+                'Content-Length': len(frag_archives[frag_index]),
+                'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+                'X-Backend-Storage-Policy-Index': int(policy),
+            })
+            req.body = frag_archives[frag_index]
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201)
+
+            # get EC frag archive
+            req = Request.blank('/sda1/p/a/c/o', headers={
+                'X-Backend-Storage-Policy-Index': int(policy),
+            })
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, frag_archives[frag_index])
+
+    def test_EC_GET_quarantine_invalid_frag_archive(self):
+        policy = random.choice(self.ec_policies)
+        raw_data = ('VERIFY' * policy.ec_segment_size)[:-432]
+        frag_archives = encode_frag_archive_bodies(policy, raw_data)
+        frag_index = random.randint(0, len(frag_archives) - 1)
+        content_length = len(frag_archives[frag_index])
+        # put EC frag archive
+        req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
+            'X-Timestamp': next(self.ts).internal,
+            'Content-Type': 'application/verify',
+            'Content-Length': content_length,
+            'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+        corrupt = 'garbage' + frag_archives[frag_index]
+        req.body = corrupt[:content_length]
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # get EC frag archive
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        with self.assertRaises(DiskFileQuarantined) as ctx:
+            resp.body
+        self.assertIn("Invalid EC metadata", str(ctx.exception))
+
+        # nothing is logged on *our* loggers
+        errors = self.object_controller.logger.get_lines_for_level('error')
+        self.assertEqual(errors, [])
+
+        # get EC frag archive - it's gone
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'X-Backend-Storage-Policy-Index': int(policy),
+        })
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+
     def test_PUT_ssync_multi_frag(self):
         timestamp = utils.Timestamp(time()).internal
 
         def put_with_index(expected_rsp, frag_index, node_index=None):
-            data_file_tail = '#%d.data' % frag_index
+            data_file_tail = '#%d#d.data' % frag_index
             headers = {'X-Timestamp': timestamp,
                        'Content-Length': '6',
                        'Content-Type': 'application/octet-stream',
@@ -2331,7 +2489,7 @@ class TestObjectController(unittest.TestCase):
                 # disk file
                 put_with_index(201, 7, 6)
 
-    def test_PUT_durable_files(self):
+    def test_PUT_commits_data(self):
         for policy in POLICIES:
             timestamp = utils.Timestamp(int(time())).internal
             data_file_tail = '.data'
@@ -2340,8 +2498,9 @@ class TestObjectController(unittest.TestCase):
                        'Content-Type': 'application/octet-stream',
                        'X-Backend-Storage-Policy-Index': int(policy)}
             if policy.policy_type == EC_POLICY:
+                # commit renames data file
                 headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
-                data_file_tail = '#2.data'
+                data_file_tail = '#2#d.data'
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers=headers)
@@ -2357,12 +2516,6 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue(os.path.isfile(data_file),
                             'Expected file %r not found in %r for policy %r'
                             % (data_file, os.listdir(obj_dir), int(policy)))
-            durable_file = os.path.join(obj_dir, timestamp) + '.durable'
-            if policy.policy_type == EC_POLICY:
-                self.assertTrue(os.path.isfile(durable_file))
-                self.assertFalse(os.path.getsize(durable_file))
-            else:
-                self.assertFalse(os.path.isfile(durable_file))
             rmtree(obj_dir)
 
     def test_HEAD(self):
@@ -3118,6 +3271,262 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
 
+    def assertECBodyEqual(self, resp, expected):
+        # we pull the policy index from the request environ since it seems to
+        # be missing from the response headers
+        policy_index = int(
+            resp.request.headers['X-Backend-Storage-Policy-Index'])
+        policy = POLICIES[policy_index]
+        frags = encode_frag_archive_bodies(policy, expected)
+        frag_index = int(resp.headers['X-Object-Sysmeta-Ec-Frag-Index'])
+        self.assertEqual(resp.body, frags[frag_index])
+
+    def _create_ondisk_fragments(self, policy):
+        # Create some on disk files...
+        ts_iter = make_timestamp_iter()
+
+        # PUT at ts_0
+        ts_0 = next(ts_iter)
+        body = 'OLDER'
+        headers = {'X-Timestamp': ts_0.internal,
+                   'Content-Length': '5',
+                   'Content-Type': 'application/octet-stream',
+                   'X-Backend-Storage-Policy-Index': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            body = encode_frag_archive_bodies(policy, body)[0]
+            headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '0',
+                'Content-Length': len(body),
+            })
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers)
+        req.body = body
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # POST at ts_1
+        ts_1 = next(ts_iter)
+        headers = {'X-Timestamp': ts_1.internal,
+                   'X-Backend-Storage-Policy-Index': int(policy)}
+        headers['X-Object-Meta-Test'] = 'abc'
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        # PUT again at ts_2 but without making the data file durable
+        ts_2 = next(ts_iter)
+        body = 'NEWER'
+        headers = {'X-Timestamp': ts_2.internal,
+                   'Content-Length': '5',
+                   'Content-Type': 'application/octet-stream',
+                   'X-Backend-Storage-Policy-Index': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            body = encode_frag_archive_bodies(policy, body)[2]
+            headers.update({
+                'X-Object-Sysmeta-Ec-Frag-Index': '2',
+                'Content-Length': len(body),
+            })
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers)
+        req.body = body
+        # patch the commit method to do nothing so EC object is non-durable
+        with mock.patch('swift.obj.diskfile.ECDiskFileWriter.commit'):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        return ts_0, ts_1, ts_2
+
+    def test_GET_HEAD_with_fragment_preferences(self):
+        for policy in POLICIES:
+            ts_0, ts_1, ts_2 = self._create_ondisk_fragments(policy)
+
+            backend_frags = {ts_0.internal: [0], ts_2.internal: [2]}
+
+            def _assert_frag_0_at_ts_0(resp):
+                expect = {
+                    'X-Timestamp': ts_1.normal,
+                    'X-Backend-Timestamp': ts_1.internal,
+                    'X-Backend-Data-Timestamp': ts_0.internal,
+                    'X-Backend-Durable-Timestamp': ts_0.internal,
+                    'X-Object-Sysmeta-Ec-Frag-Index': '0',
+                    'X-Object-Meta-Test': 'abc'}
+                self.assertDictContainsSubset(expect, resp.headers)
+                self.assertEqual(backend_frags, json.loads(
+                    resp.headers['X-Backend-Fragments']))
+
+            def _assert_repl_data_at_ts_2():
+                self.assertIn(resp.status_int, (200, 202))
+                expect = {
+                    'X-Timestamp': ts_2.normal,
+                    'X-Backend-Timestamp': ts_2.internal,
+                    'X-Backend-Data-Timestamp': ts_2.internal,
+                    'X-Backend-Durable-Timestamp': ts_2.internal}
+                self.assertDictContainsSubset(expect, resp.headers)
+                self.assertNotIn('X-Object-Meta-Test', resp.headers)
+
+            # Sanity check: Request with no preferences should default to the
+            # durable frag
+            headers = {'X-Backend-Storage-Policy-Index': int(policy)}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+                self.assertECBodyEqual(resp, 'OLDER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with preferences can select the older frag
+            prefs = json.dumps(
+                [{'timestamp': ts_0.internal, 'exclude': [1, 3]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+                self.assertECBodyEqual(resp, 'OLDER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            def _assert_frag_2_at_ts_2(resp):
+                self.assertIn(resp.status_int, (200, 202))
+                # do not expect meta file to be included since it is older
+                expect = {
+                    'X-Timestamp': ts_2.normal,
+                    'X-Backend-Timestamp': ts_2.internal,
+                    'X-Backend-Data-Timestamp': ts_2.internal,
+                    'X-Backend-Durable-Timestamp': ts_0.internal,
+                    'X-Object-Sysmeta-Ec-Frag-Index': '2'}
+                self.assertDictContainsSubset(expect, resp.headers)
+                self.assertEqual(backend_frags, json.loads(
+                    resp.headers['X-Backend-Fragments']))
+                self.assertNotIn('X-Object-Meta-Test', resp.headers)
+
+            # Request with preferences can select the newer non-durable frag
+            prefs = json.dumps(
+                [{'timestamp': ts_2.internal, 'exclude': [1, 3]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+                self.assertECBodyEqual(resp, 'NEWER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with preference for ts_0 but excludes index 0 will
+            # default to newest frag
+            prefs = json.dumps(
+                [{'timestamp': ts_0.internal, 'exclude': [0]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+                self.assertECBodyEqual(resp, 'NEWER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with preferences that exclude all frags get nothing
+            prefs = json.dumps(
+                [{'timestamp': ts_0.internal, 'exclude': [0]},
+                 {'timestamp': ts_2.internal, 'exclude': [2]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                self.assertEqual(resp.status_int, 404)
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                self.assertEqual(resp.status_int, 404)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with empty preferences will get non-durable
+            prefs = json.dumps([])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+                self.assertECBodyEqual(resp, 'NEWER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
     def test_GET_quarantine(self):
         # Test swift.obj.server.ObjectController.GET
         timestamp = normalize_timestamp(time())
@@ -3329,6 +3738,13 @@ class TestObjectController(unittest.TestCase):
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1003_file))
         self.assertEqual(len(os.listdir(os.path.dirname(ts_1003_file))), 1)
+
+    def test_DELETE_bad_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': 'bad'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
 
     def test_DELETE_succeeds_with_later_POST(self):
         t_put = next(self.ts).internal
@@ -6433,7 +6849,7 @@ class TestObjectServer(unittest.TestCase):
         the context at the commit phase (after getting the second expect-100
         continue response.
 
-        It can setup a resonable stub request, but you can over-ride some
+        It can setup a reasonable stub request, but you can over-ride some
         characteristics of the request via kwargs.
 
         :param test_doc: first part of the mime conversation before the object
@@ -6441,11 +6857,11 @@ class TestObjectServer(unittest.TestCase):
                          object body
         :param headers: headers to send along with the initial request; some
                         object-metadata (e.g.  X-Backend-Obj-Content-Length)
-                        is generally expected tomatch the test_doc)
+                        is generally expected to match the test_doc)
         :param finish_body: boolean, if true send "0\r\n\r\n" after test_doc
                             and wait for 100-continue before yielding context
         """
-        test_data = 'obj data'
+        test_data = encode_frag_archive_bodies(POLICIES[1], 'obj data')[0]
         footer_meta = {
             "X-Object-Sysmeta-Ec-Frag-Index": "2",
             "Etag": md5(test_data).hexdigest(),
@@ -6467,7 +6883,6 @@ class TestObjectServer(unittest.TestCase):
 
         # phase1 - PUT request with object metadata in footer and
         # multiphase commit conversation
-        put_timestamp = utils.Timestamp(time())
         headers = headers or {
             'Content-Type': 'text/plain',
             'Transfer-Encoding': 'chunked',
@@ -6524,15 +6939,17 @@ class TestObjectServer(unittest.TestCase):
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
-        # verify successful object data and durable state file write
+        # verify successful object data file write
         found_files = self.find_files()
-        # .data file is there
+        # non durable .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # but .durable isn't
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And no container update
         self.assertFalse(_container_update.called)
 
@@ -6562,15 +6979,17 @@ class TestObjectServer(unittest.TestCase):
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
-        # verify successful object data and durable state file write
+        # verify successful object data file write
         found_files = self.find_files()
-        # .data file is there
+        # non durable .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # but .durable isn't
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And no container update
         self.assertFalse(_container_update.called)
 
@@ -6619,7 +7038,7 @@ class TestObjectServer(unittest.TestCase):
             resp.read()
             resp.close()
 
-        # verify successful object data and durable state file write
+        # verify successful object data file write
         put_timestamp = context['put_timestamp']
         found_files = self.find_files()
         # .data file is there
@@ -6627,8 +7046,10 @@ class TestObjectServer(unittest.TestCase):
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # replicated objects do not have a .durable file
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -6662,13 +7083,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # .durable file is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -6718,8 +7138,7 @@ class TestObjectServer(unittest.TestCase):
 
         # no artifacts left on disk
         found_files = self.find_files()
-        self.assertEqual(len(found_files['.data']), 0)
-        self.assertEqual(len(found_files['.durable']), 0)
+        self.assertFalse(found_files)
         # ... and no container update
         _container_update = context['mock_container_update']
         self.assertFalse(_container_update.called)
@@ -6783,13 +7202,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # .durable file is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -6810,15 +7228,17 @@ class TestObjectServer(unittest.TestCase):
             resp.close()
         put_timestamp = context['put_timestamp']
         _container_update = context['mock_container_update']
-        # verify that durable file was NOT created
+        # verify that durable data file was NOT created
         found_files = self.find_files()
-        # .data file is there
+        # non durable .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # but .durable isn't
-        self.assertEqual(found_files['.durable'], [])
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And no container update
         self.assertFalse(_container_update.called)
 
@@ -6867,13 +7287,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # .durable file is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
@@ -6917,13 +7336,12 @@ class TestObjectServer(unittest.TestCase):
         # .data file is there
         self.assertEqual(len(found_files['.data']), 1)
         obj_datafile = found_files['.data'][0]
-        self.assertEqual("%s#2.data" % put_timestamp.internal,
+        self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
-        # ... and .durable is there
-        self.assertEqual(len(found_files['.durable']), 1)
-        durable_file = found_files['.durable'][0]
-        self.assertEqual("%s.durable" % put_timestamp.internal,
-                         os.path.basename(durable_file))
+        # but no other files
+        self.assertFalse(found_files['.data'][1:])
+        found_files.pop('.data')
+        self.assertFalse(found_files)
         # but no container update
         self.assertFalse(context['mock_container_update'].called)
 

@@ -36,17 +36,19 @@ from tempfile import mkdtemp
 from hashlib import md5
 from contextlib import closing, contextmanager
 from gzip import GzipFile
+import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
-from swift.obj.diskfile import MD5_OF_EMPTY_STRING
+from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
-                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE)
-
+                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
+                       requires_o_tmpfile_support, encode_frag_archive_bodies)
 from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, Timestamp, encode_timestamps
+from swift.common.utils import hash_path, mkdirs, Timestamp, \
+    encode_timestamps, O_TMPFILE
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -56,7 +58,7 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
 from swift.common.storage_policy import (
     POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy,
     BaseStoragePolicy, REPL_POLICY, EC_POLICY)
-
+from test.unit.obj.common import write_diskfile
 
 test_policies = [
     StoragePolicy(0, name='zero', is_default=True),
@@ -115,6 +117,27 @@ def _create_test_ring(path, policy):
             f)
     return ring.Ring(path, ring_name=ring_name,
                      reload_time=intended_reload_time)
+
+
+def _make_datafilename(timestamp, policy, frag_index=None, durable=False):
+    if frag_index is None:
+        frag_index = randint(0, 9)
+    filename = timestamp.internal
+    if policy.policy_type == EC_POLICY:
+        filename += '#%d' % int(frag_index)
+        if durable:
+            filename += '#d'
+    filename += '.data'
+    return filename
+
+
+def _make_metafilename(meta_timestamp, ctype_timestamp=None):
+    filename = meta_timestamp.internal
+    if ctype_timestamp is not None:
+        delta = meta_timestamp.raw - ctype_timestamp.raw
+        filename = '%s-%x' % (filename, delta)
+    filename += '.meta'
+    return filename
 
 
 @patch_policies
@@ -246,6 +269,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertFalse(os.path.isdir(tmp_path))
             pickle_args = (self.existing_device, 'a', 'c', 'o',
                            'data', 0.0, policy)
+            os.makedirs(tmp_path)
             # now create a async update
             self.df_mgr.pickle_async_update(*pickle_args)
             # check tempdir
@@ -468,10 +492,13 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "2", "a", "b"))
 
-            # Auditor starts, there are two partitions to check
-            gen = diskfile.object_audit_location_generator(tmpdir, False)
-            gen.next()
-            gen.next()
+            # Pretend that some time passed between each partition
+            with mock.patch('os.stat') as mock_stat:
+                mock_stat.return_value.st_mtime = time() - 60
+                # Auditor starts, there are two partitions to check
+                gen = diskfile.object_audit_location_generator(tmpdir, False)
+                gen.next()
+                gen.next()
 
             # Auditor stopped for some reason without raising StopIterator in
             # the generator and restarts There is now only one remaining
@@ -496,6 +523,43 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             gen = diskfile.object_audit_location_generator(tmpdir, False)
             gen.next()
             gen.next()
+
+    def test_update_auditor_status_throttle(self):
+        # If there are a lot of nearly empty partitions, the
+        # update_auditor_status will write the status file many times a second,
+        # creating some unexpected high write load. This test ensures that the
+        # status file is only written once a minute.
+        with temptree([]) as tmpdir:
+            os.makedirs(os.path.join(tmpdir, "sdf", "objects", "1", "a", "b"))
+            with mock.patch('__builtin__.open') as mock_open:
+                # File does not exist yet - write expected
+                update_auditor_status(tmpdir, None, ['42'], "ALL")
+                self.assertEqual(1, mock_open.call_count)
+
+                mock_open.reset_mock()
+
+                # File exists, updated just now - no write expected
+                with mock.patch('os.stat') as mock_stat:
+                    mock_stat.return_value.st_mtime = time()
+                    update_auditor_status(tmpdir, None, ['42'], "ALL")
+                    self.assertEqual(0, mock_open.call_count)
+
+                mock_open.reset_mock()
+
+                # File exists, updated just now, but empty partition list. This
+                # is a finalizing call, write expected
+                with mock.patch('os.stat') as mock_stat:
+                    mock_stat.return_value.st_mtime = time()
+                    update_auditor_status(tmpdir, None, [], "ALL")
+                    self.assertEqual(1, mock_open.call_count)
+
+                mock_open.reset_mock()
+
+                # File updated more than 60 seconds ago - write expected
+                with mock.patch('os.stat') as mock_stat:
+                    mock_stat.return_value.st_mtime = time() - 61
+                    update_auditor_status(tmpdir, None, ['42'], "ALL")
+                    self.assertEqual(1, mock_open.call_count)
 
 
 class TestDiskFileRouter(unittest.TestCase):
@@ -589,14 +653,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
     def tearDown(self):
         rmtree(self.tmpdir, ignore_errors=1)
 
-    def _get_diskfile(self, policy, frag_index=None):
+    def _get_diskfile(self, policy, frag_index=None, **kwargs):
         df_mgr = self.df_router[policy]
         return df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
-                                   policy=policy, frag_index=frag_index)
+                                   policy=policy, frag_index=frag_index,
+                                   **kwargs)
 
     def _test_get_ondisk_files(self, scenarios, policy,
-                               frag_index=None):
-        class_under_test = self._get_diskfile(policy, frag_index=frag_index)
+                               frag_index=None, **kwargs):
+        class_under_test = self._get_diskfile(
+            policy, frag_index=frag_index, **kwargs)
         for test in scenarios:
             # test => [('filename.ext', '.ext'|False, ...), ...]
             expected = {
@@ -608,7 +674,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             files = list(list(zip(*test))[0])
 
             for _order in ('ordered', 'shuffled', 'shuffled'):
-                class_under_test = self._get_diskfile(policy, frag_index)
+                class_under_test = self._get_diskfile(
+                    policy, frag_index=frag_index, **kwargs)
                 try:
                     actual = class_under_test._get_ondisk_files(files)
                     self._assertDictContainsSubset(
@@ -619,8 +686,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     self.fail('%s with files %s' % (str(e), files))
                 shuffle(files)
 
-    def _test_cleanup_ondisk_files_files(self, scenarios, policy,
-                                         reclaim_age=None):
+    def _test_cleanup_ondisk_files(self, scenarios, policy,
+                                   reclaim_age=None):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
             class_under_test = self.df_router[policy]
@@ -720,6 +787,27 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                         'Unexpected file %s'
                         % os.path.join(datadir, unexpected)))
 
+    def test_get_ondisk_files_no_rsync_temp_file_warning(self):
+        # get_ondisk_files logs no warnings for rsync temp files
+
+        class_under_test = self._get_diskfile(POLICIES[0])
+        files = [
+            '.1472017820.44503.data.QBYCYU',  # rsync tempfile for a .data
+            '.total-bs.abcdef',   # example of false positive
+        ]
+        paths = [os.path.join(class_under_test._datadir, f) for f in files]
+        expected = {'unexpected': paths}
+        results = class_under_test._get_ondisk_files(files)
+        for k, v in expected.items():
+            self.assertEqual(results[k], v)
+        # no warnings
+        self.assertFalse(self.logger.get_lines_for_level('warning'))
+        # but we do get a debug!
+        lines = self.logger.get_lines_for_level('debug')
+        for path in paths:
+            expected_msg = 'Rsync tempfile: %s' % path
+            self.assertIn(expected_msg, lines)
+
     def test_cleanup_ondisk_files_reclaim_non_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set or 'survives' is True, the filename
@@ -751,8 +839,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             [('%s.meta' % older, False, False),
              ('%s.ts' % older, False, False)]]
 
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
-                                              reclaim_age=1000)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')
@@ -1163,7 +1251,7 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES[0], None)
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES[0])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES[0])
         self._test_yield_hashes_cleanup(scenarios, POLICIES[0])
 
     def test_get_ondisk_files_with_stray_meta(self):
@@ -1246,8 +1334,8 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             [('%s.meta' % older, '.meta'),
              ('%s.data' % much_older, '.data')]]
 
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
-                                              reclaim_age=1000)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_yield_hashes(self):
         old_ts = '1383180000.12345'
@@ -1419,6 +1507,126 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
     mgr_cls = diskfile.ECDiskFileManager
 
+    def test_get_ondisk_files_with_ec_policy_and_legacy_durable(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set then that filename should be returned by
+        # the method under test for that extension type. If the optional
+        # 'survives' is True, the filename should still be in the dir after
+        # cleanup.
+        scenarios = [
+            # highest frag index is chosen by default
+            [('0000000007.00000.durable', '.durable'),
+             ('0000000007.00000#1.data', '.data'),
+             ('0000000007.00000#0.data', False, True)],
+
+            # data older than durable is ignored
+            [('0000000007.00000.durable', '.durable'),
+             ('0000000007.00000#1.data', '.data'),
+             ('0000000006.00000#1.data', False),
+             ('0000000004.00000.ts', False)],
+
+            # data older than durable ignored, even if its only data
+            [('0000000007.00000.durable', False, False),
+             ('0000000006.00000#1.data', False),
+             ('0000000004.00000.ts', False)],
+
+            # newer meta trumps older meta
+            [('0000000009.00000.meta', '.meta'),
+             ('0000000008.00000.meta', False),
+             ('0000000007.00000.durable', '.durable'),
+             ('0000000007.00000#14.data', '.data'),
+             ('0000000004.00000.ts', False)],
+
+            # older meta is ignored
+            [('0000000007.00000.durable', '.durable'),
+             ('0000000007.00000#14.data', '.data'),
+             ('0000000006.00000.meta', False),
+             ('0000000004.00000.ts', False)],
+
+            # tombstone trumps meta, data, durable at older timestamp
+            [('0000000006.00000.ts', '.ts'),
+             ('0000000005.00000.meta', False),
+             ('0000000004.00000.durable', False),
+             ('0000000004.00000#0.data', False)],
+
+            # tombstone trumps meta, data, durable at same timestamp
+            [('0000000006.00000.meta', False),
+             ('0000000006.00000.ts', '.ts'),
+             ('0000000006.00000.durable', False),
+             ('0000000006.00000#0.data', False)]
+        ]
+
+        # these scenarios have same outcome regardless of whether any
+        # fragment preferences are specified
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None)
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None, frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+        self._test_yield_hashes_cleanup(scenarios, POLICIES.default)
+
+        # next scenarios have different outcomes dependent on whether a
+        # frag_prefs parameter is passed to diskfile constructor or not
+        scenarios = [
+            # data with no durable is ignored
+            [('0000000007.00000#0.data', False, True)],
+
+            # data newer than tombstone with no durable is ignored
+            [('0000000007.00000#0.data', False, True),
+             ('0000000006.00000.ts', '.ts', True)],
+
+            # data newer than durable is ignored
+            [('0000000009.00000#2.data', False, True),
+             ('0000000009.00000#1.data', False, True),
+             ('0000000008.00000#3.data', False, True),
+             ('0000000007.00000.durable', '.durable'),
+             ('0000000007.00000#1.data', '.data'),
+             ('0000000007.00000#0.data', False, True)],
+
+            # data newer than durable ignored, even if its only data
+            [('0000000008.00000#1.data', False, True),
+             ('0000000007.00000.durable', False, False)],
+
+            # missing durable invalidates data, older meta deleted
+            [('0000000007.00000.meta', False, True),
+             ('0000000006.00000#0.data', False, True),
+             ('0000000005.00000.meta', False, False),
+             ('0000000004.00000#1.data', False, True)]]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+        scenarios = [
+            # data with no durable is chosen
+            [('0000000007.00000#0.data', '.data', True)],
+
+            # data newer than tombstone with no durable is chosen
+            [('0000000007.00000#0.data', '.data', True),
+             ('0000000006.00000.ts', False, True)],
+
+            # data newer than durable is chosen, older data preserved
+            [('0000000009.00000#2.data', '.data', True),
+             ('0000000009.00000#1.data', False, True),
+             ('0000000008.00000#3.data', False, True),
+             ('0000000007.00000.durable', False, True),
+             ('0000000007.00000#1.data', False, True),
+             ('0000000007.00000#0.data', False, True)],
+
+            # data newer than durable chosen when its only data
+            [('0000000008.00000#1.data', '.data', True),
+             ('0000000007.00000.durable', False, False)],
+
+            # data plus meta chosen without durable, older meta deleted
+            [('0000000007.00000.meta', '.meta', True),
+             ('0000000006.00000#0.data', '.data', True),
+             ('0000000005.00000.meta', False, False),
+             ('0000000004.00000#1.data', False, True)]]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None, frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
     def test_get_ondisk_files_with_ec_policy(self):
         # Each scenario specifies a list of (filename, extension, [survives])
         # tuples. If extension is set then that filename should be returned by
@@ -1431,76 +1639,102 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       ('0000000006.00000.ts', False)],
 
                      # highest frag index is chosen by default
-                     [('0000000007.00000.durable', '.durable'),
-                      ('0000000007.00000#1.data', '.data'),
+                     [('0000000007.00000#1#d.data', '.data'),
                       ('0000000007.00000#0.data', False, True)],
-
-                     # data with no durable is ignored
-                     [('0000000007.00000#0.data', False, True)],
-
-                     # data newer than tombstone with no durable is ignored
-                     [('0000000007.00000#0.data', False, True),
-                      ('0000000006.00000.ts', '.ts', True)],
-
-                     # data newer than durable is ignored
-                     [('0000000008.00000#1.data', False, True),
-                      ('0000000007.00000.durable', '.durable'),
-                      ('0000000007.00000#1.data', '.data'),
-                      ('0000000007.00000#0.data', False, True)],
-
-                     # data newer than durable ignored, even if its only data
-                     [('0000000008.00000#1.data', False, True),
-                      ('0000000007.00000.durable', False, False)],
 
                      # data older than durable is ignored
-                     [('0000000007.00000.durable', '.durable'),
-                      ('0000000007.00000#1.data', '.data'),
-                      ('0000000006.00000#1.data', False),
-                      ('0000000004.00000.ts', False)],
-
-                     # data older than durable ignored, even if its only data
-                     [('0000000007.00000.durable', False, False),
+                     [('0000000007.00000#1#d.data', '.data'),
                       ('0000000006.00000#1.data', False),
                       ('0000000004.00000.ts', False)],
 
                      # newer meta trumps older meta
                      [('0000000009.00000.meta', '.meta'),
                       ('0000000008.00000.meta', False),
-                      ('0000000007.00000.durable', '.durable'),
-                      ('0000000007.00000#14.data', '.data'),
+                      ('0000000007.00000#14#d.data', '.data'),
                       ('0000000004.00000.ts', False)],
 
                      # older meta is ignored
-                     [('0000000007.00000.durable', '.durable'),
-                      ('0000000007.00000#14.data', '.data'),
+                     [('0000000007.00000#14#d.data', '.data'),
                       ('0000000006.00000.meta', False),
                       ('0000000004.00000.ts', False)],
 
-                     # tombstone trumps meta, data, durable at older timestamp
+                     # tombstone trumps meta and data at older timestamp
                      [('0000000006.00000.ts', '.ts'),
                       ('0000000005.00000.meta', False),
-                      ('0000000004.00000.durable', False),
-                      ('0000000004.00000#0.data', False)],
+                      ('0000000004.00000#0#d.data', False)],
 
-                     # tombstone trumps meta, data, durable at same timestamp
+                     # tombstone trumps meta and data at same timestamp
                      [('0000000006.00000.meta', False),
                       ('0000000006.00000.ts', '.ts'),
-                      ('0000000006.00000.durable', False),
-                      ('0000000006.00000#0.data', False)],
-
-                     # missing durable invalidates data
-                     [('0000000006.00000.meta', False, True),
-                      ('0000000006.00000#0.data', False, True)]
+                      ('0000000006.00000#0#d.data', False)],
                      ]
 
-        self._test_get_ondisk_files(scenarios, POLICIES.default, None)
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default)
+        # these scenarios have same outcome regardless of whether any
+        # fragment preferences are specified
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None)
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None, frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
         self._test_yield_hashes_cleanup(scenarios, POLICIES.default)
 
-    def test_get_ondisk_files_with_ec_policy_and_frag_index(self):
-        # Each scenario specifies a list of (filename, extension) tuples. If
-        # extension is set then that filename should be returned by the method
-        # under test for that extension type.
+        # next scenarios have different outcomes dependent on whether a
+        # frag_prefs parameter is passed to diskfile constructor or not
+        scenarios = [
+            # non-durable is ignored
+            [('0000000007.00000#0.data', False, True)],
+
+            # non-durable data newer than tombstone is ignored
+            [('0000000007.00000#0.data', False, True),
+             ('0000000006.00000.ts', '.ts', True)],
+
+            # data newer than durable data is ignored
+            [('0000000009.00000#2.data', False, True),
+             ('0000000009.00000#1.data', False, True),
+             ('0000000008.00000#3.data', False, True),
+             ('0000000007.00000#1#d.data', '.data'),
+             ('0000000007.00000#0#d.data', False, True)],
+
+            # non-durable data ignored, older meta deleted
+            [('0000000007.00000.meta', False, True),
+             ('0000000006.00000#0.data', False, True),
+             ('0000000005.00000.meta', False, False),
+             ('0000000004.00000#1.data', False, True)]]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+        scenarios = [
+            # non-durable data is chosen
+            [('0000000007.00000#0.data', '.data', True)],
+
+            # non-durable data newer than tombstone is chosen
+            [('0000000007.00000#0.data', '.data', True),
+             ('0000000006.00000.ts', False, True)],
+
+            # non-durable data newer than durable data is chosen, older data
+            # preserved
+            [('0000000009.00000#2.data', '.data', True),
+             ('0000000009.00000#1.data', False, True),
+             ('0000000008.00000#3.data', False, True),
+             ('0000000007.00000#1#d.data', False, True),
+             ('0000000007.00000#0#d.data', False, True)],
+
+            # non-durable data plus meta chosen, older meta deleted
+            [('0000000007.00000.meta', '.meta', True),
+             ('0000000006.00000#0.data', '.data', True),
+             ('0000000005.00000.meta', False, False),
+             ('0000000004.00000#1.data', False, True)]]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None, frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+    def test_get_ondisk_files_with_ec_policy_and_frag_index_legacy(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set then that filename should be returned by
+        # the method under test for that extension type.
         scenarios = [[('0000000007.00000#2.data', False, True),
                       ('0000000007.00000#1.data', '.data'),
                       ('0000000007.00000#0.data', False, True),
@@ -1510,20 +1744,20 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      [('0000000007.00000#2.data', False, True),
                       ('0000000007.00000#1.data', False, True),
                       ('0000000007.00000#0.data', False, True),
-                      ('0000000006.00000.durable', '.durable')],
+                      ('0000000006.00000.durable', False)],
 
                      # specific frag older than durable is ignored
                      [('0000000007.00000#2.data', False),
                       ('0000000007.00000#1.data', False),
                       ('0000000007.00000#0.data', False),
-                      ('0000000008.00000.durable', '.durable')],
+                      ('0000000008.00000.durable', False)],
 
                      # specific frag older than newest durable is ignored
                      # even if is also has a durable
                      [('0000000007.00000#2.data', False),
                       ('0000000007.00000#1.data', False),
                       ('0000000007.00000.durable', False),
-                      ('0000000008.00000#0.data', False),
+                      ('0000000008.00000#0.data', False, True),
                       ('0000000008.00000.durable', '.durable')],
 
                      # meta included when frag index is specified
@@ -1557,12 +1791,187 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      # frag_index, get_ondisk_files will tolerate .meta with
                      # no .data
                      [('0000000088.00000.meta', False, True),
-                      ('0000000077.00000.durable', '.durable')]
+                      ('0000000077.00000.durable', False, False)]
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1)
-        # note: not calling self._test_cleanup_ondisk_files_files(scenarios, 0)
-        # here due to the anomalous scenario as commented above
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+        # scenarios for empty frag_prefs, meaning durable not required
+        scenarios = [
+            # specific frag newer than durable is chosen
+            [('0000000007.00000#2.data', False, True),
+             ('0000000007.00000#1.data', '.data', True),
+             ('0000000007.00000#0.data', False, True),
+             ('0000000006.00000.durable', False, False)],
+        ]
+        self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1,
+                                    frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+    def test_get_ondisk_files_with_ec_policy_and_frag_index(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set then that filename should be returned by
+        # the method under test for that extension type.
+        scenarios = [[('0000000007.00000#2#d.data', False, True),
+                      ('0000000007.00000#1#d.data', '.data'),
+                      ('0000000007.00000#0#d.data', False, True)],
+
+                     # specific frag index 1 is returned as long as one durable
+                     [('0000000007.00000#2.data', False, True),
+                      ('0000000007.00000#1.data', '.data', True),
+                      ('0000000007.00000#0#d.data', False, True)],
+
+                     # specific frag newer than durable data is ignored
+                     [('0000000007.00000#2.data', False, True),
+                      ('0000000007.00000#1.data', False, True),
+                      ('0000000007.00000#0.data', False, True),
+                      ('0000000006.00000#0#d.data', False, True)],
+
+                     # specific frag older than durable data is ignored
+                     [('0000000007.00000#2.data', False),
+                      ('0000000007.00000#1.data', False),
+                      ('0000000007.00000#0.data', False),
+                      ('0000000008.00000#0#d.data', False, True)],
+
+                     # specific frag older than newest durable data is ignored
+                     # even if is durable
+                     [('0000000007.00000#2#d.data', False),
+                      ('0000000007.00000#1#d.data', False),
+                      ('0000000008.00000#0#d.data', False, True)],
+
+                     # meta included when frag index is specified
+                     [('0000000009.00000.meta', '.meta'),
+                      ('0000000007.00000#2#d.data', False, True),
+                      ('0000000007.00000#1#d.data', '.data'),
+                      ('0000000007.00000#0#d.data', False, True)],
+
+                     # specific frag older than tombstone is ignored
+                     [('0000000009.00000.ts', '.ts'),
+                      ('0000000007.00000#2#d.data', False),
+                      ('0000000007.00000#1#d.data', False),
+                      ('0000000007.00000#0#d.data', False)],
+
+                     # no data file returned if specific frag index missing
+                     [('0000000007.00000#2#d.data', False, True),
+                      ('0000000007.00000#14#d.data', False, True),
+                      ('0000000007.00000#0#d.data', False, True)],
+
+                     # meta ignored if specific frag index missing
+                     [('0000000008.00000.meta', False, True),
+                      ('0000000007.00000#14#d.data', False, True),
+                      ('0000000007.00000#0#d.data', False, True)],
+
+                     # meta ignored if no data files
+                     # Note: this is anomalous, because we are specifying a
+                     # frag_index, get_ondisk_files will tolerate .meta with
+                     # no .data
+                     [('0000000088.00000.meta', False, True)]
+                     ]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+        # scenarios for empty frag_prefs, meaning durable not required
+        scenarios = [
+            # specific frag newer than durable is chosen
+            [('0000000007.00000#2.data', False, True),
+             ('0000000007.00000#1.data', '.data', True),
+             ('0000000007.00000#0.data', False, True)],
+        ]
+        self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1,
+                                    frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+    def test_get_ondisk_files_with_ec_policy_some_legacy(self):
+        # Test mixture of legacy durable files and durable data files that
+        # might somehow end up in the same object dir.
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set then that filename should be returned by
+        # the method under test for that extension type. If the optional
+        # 'survives' is True, the filename should still be in the dir after
+        # cleanup.
+        scenarios = [
+            # .durable at same timestamp is ok
+            [('0000000007.00000#1#d.data', '.data', True),
+             ('0000000007.00000#0#d.data', False, True),
+             ('0000000007.00000.durable', False, True)],
+
+            # .durable at same timestamp is ok with non durable wanted frag
+            [('0000000007.00000#1.data', '.data', True),
+             ('0000000007.00000#0#d.data', False, True),
+             ('0000000007.00000.durable', False, True)],
+
+            # older .durable file is cleaned up
+            [('0000000007.00000#1#d.data', '.data', True),
+             ('0000000007.00000#0#d.data', False, True),
+             ('0000000006.00000.durable', False, False)],
+
+            # older .durable does not interfere with non durable wanted frag
+            [('0000000007.00000#1.data', '.data', True),
+             ('0000000007.00000#0#d.data', False, True),
+             ('0000000006.00000.durable', False, False)],
+
+            # ...even if it has accompanying .data file
+            [('0000000007.00000#1.data', '.data', True),
+             ('0000000007.00000#0#d.data', False, True),
+             ('0000000006.00000#0.data', False, False),
+             ('0000000006.00000.durable', False, False)],
+
+            # newer .durable file trumps older durable-data
+            [('0000000007.00000#1#d.data', False, False),
+             ('0000000007.00000#0#d.data', False, False),
+             ('0000000008.00000#1.data', '.data', True),
+             ('0000000008.00000.durable', False, True)],
+
+            # newer .durable file with no .data trumps older durable-data
+            [('0000000007.00000#1#d.data', False, False),
+             ('0000000007.00000#0#d.data', False, False),
+             ('0000000008.00000.durable', False, False)],
+        ]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+        self._test_yield_hashes_cleanup(scenarios, POLICIES.default)
+
+    def test_cleanup_ondisk_files_reclaim_with_data_files_legacy_durable(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set or 'survives' is True, the filename
+        # should still be in the dir after cleanup.
+        much_older = Timestamp(time() - 2000).internal
+        older = Timestamp(time() - 1001).internal
+        newer = Timestamp(time() - 900).internal
+        scenarios = [
+            # isolated legacy .durable is cleaned up immediately
+            [('%s.durable' % newer, False, False)],
+
+            # ...even when other older files are in dir
+            [('%s.durable' % older, False, False),
+             ('%s.ts' % much_older, False, False)],
+
+            # isolated .data files are cleaned up when stale
+            # ...even when there is an older legacy durable
+            [('%s#2.data' % older, False, False),
+             ('%s#4.data' % older, False, False),
+             ('%s#2.data' % much_older, '.data', True),
+             ('%s#4.data' % much_older, False, True),
+             ('%s.durable' % much_older, '.durable', True)],
+
+            # tombstone reclaimed despite much older legacy durable
+            [('%s.ts' % older, '.ts', False),
+             ('%s.durable' % much_older, False, False)],
+
+            # .meta not reclaimed if there is legacy durable data
+            [('%s.meta' % older, '.meta', True),
+             ('%s#4.data' % much_older, False, True),
+             ('%s.durable' % much_older, '.durable', True)],
+
+            # stale .meta reclaimed along with stale legacy .durable
+            [('%s.meta' % older, False, False),
+             ('%s.durable' % much_older, False, False)]]
+
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_cleanup_ondisk_files_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
@@ -1572,13 +1981,6 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         older = Timestamp(time() - 1001).internal
         newer = Timestamp(time() - 900).internal
         scenarios = [
-            # isolated .durable is cleaned up immediately
-            [('%s.durable' % newer, False, False)],
-
-            # ...even when other older files are in dir
-            [('%s.durable' % older, False, False),
-             ('%s.ts' % much_older, False, False)],
-
             # isolated .data files are cleaned up when stale
             [('%s#2.data' % older, False, False),
              ('%s#4.data' % older, False, False)],
@@ -1586,9 +1988,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             # ...even when there is an older durable fileset
             [('%s#2.data' % older, False, False),
              ('%s#4.data' % older, False, False),
-             ('%s#2.data' % much_older, '.data', True),
-             ('%s#4.data' % much_older, False, True),
-             ('%s.durable' % much_older, '.durable', True)],
+             ('%s#2#d.data' % much_older, '.data', True),
+             ('%s#4#d.data' % much_older, False, True)],
 
             # ... but preserved if still fresh
             [('%s#2.data' % newer, False, True),
@@ -1605,23 +2006,18 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
             # tombstone reclaimed despite much older durable
             [('%s.ts' % older, '.ts', False),
-             ('%s.durable' % much_older, False, False)],
+             ('%s#4#d.data' % much_older, False, False)],
 
             # .meta not reclaimed if there is durable data
-            [('%s.meta' % older, '.meta'),
-             ('%s#4.data' % much_older, False, True),
-             ('%s.durable' % much_older, '.durable', True)],
+            [('%s.meta' % older, '.meta', True),
+             ('%s#4#d.data' % much_older, False, True)],
 
             # stale .meta reclaimed along with stale non-durable .data
             [('%s.meta' % older, False, False),
-             ('%s#4.data' % much_older, False, False)],
+             ('%s#4.data' % much_older, False, False)]]
 
-            # stale .meta reclaimed along with stale .durable
-            [('%s.meta' % older, False, False),
-             ('%s.durable' % much_older, False, False)]]
-
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
-                                              reclaim_age=1000)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_get_ondisk_files_with_stray_meta(self):
         # get_ondisk_files ignores a stray .meta file
@@ -1640,8 +2036,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
         # sanity
         files = [
-            '0000000006.00000#1.data',
-            '0000000006.00000.durable',
+            '0000000006.00000.meta',
+            '0000000006.00000#1#d.data'
         ]
         with create_files(class_under_test, files):
             class_under_test.open()
@@ -1649,13 +2045,13 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         scenarios = [['0000000007.00000.meta'],
 
                      ['0000000007.00000.meta',
-                      '0000000006.00000.durable'],
+                      '0000000006.00000.durable'],  # legacy durable file
 
                      ['0000000007.00000.meta',
                       '0000000006.00000#1.data'],
 
                      ['0000000007.00000.meta',
-                      '0000000006.00000.durable',
+                      '0000000006.00000.durable',  # legacy durable file
                       '0000000005.00000#1.data']
                      ]
         for files in scenarios:
@@ -1706,13 +2102,37 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         mgr = self.df_router[POLICIES.default]
         for ts in (Timestamp('1234567890.00001'),
                    Timestamp('1234567890.00001', offset=17)):
+            # non-durable data file
             for frag in (0, 2, 14):
                 fname = '%s#%s.data' % (ts.internal, frag)
                 info = mgr.parse_on_disk_filename(fname)
                 self.assertEqual(ts, info['timestamp'])
                 self.assertEqual('.data', info['ext'])
                 self.assertEqual(frag, info['frag_index'])
+                self.assertIs(False, info['durable'])
                 self.assertEqual(mgr.make_on_disk_filename(**info), fname)
+
+            # durable data file
+            for frag in (0, 2, 14):
+                fname = '%s#%s#d.data' % (ts.internal, frag)
+                info = mgr.parse_on_disk_filename(fname)
+                self.assertEqual(ts, info['timestamp'])
+                self.assertEqual('.data', info['ext'])
+                self.assertEqual(frag, info['frag_index'])
+                self.assertIs(True, info['durable'])
+                self.assertEqual(mgr.make_on_disk_filename(**info), fname)
+
+            # data file with unexpected suffix marker, not an error in case
+            # alternative marker suffixes added in future
+            for frag in (0, 2, 14):
+                fname = '%s#%s#junk.data' % (ts.internal, frag)
+                info = mgr.parse_on_disk_filename(fname)
+                self.assertEqual(ts, info['timestamp'])
+                self.assertEqual('.data', info['ext'])
+                self.assertEqual(frag, info['frag_index'])
+                self.assertIs(False, info['durable'])
+                expected = '%s#%s.data' % (ts.internal, frag)
+                self.assertEqual(mgr.make_on_disk_filename(**info), expected)
 
             for ext in ('.meta', '.durable', '.ts'):
                 fname = '%s%s' % (ts.internal, ext)
@@ -1742,8 +2162,16 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 'None': 'bad',
             }
 
+            # non-durable data file
             for frag, msg in expected.items():
                 fname = '%s#%s.data' % (ts.internal, frag)
+                with self.assertRaises(DiskFileError) as cm:
+                    mgr.parse_on_disk_filename(fname)
+                self.assertIn(msg, str(cm.exception).lower())
+
+            # durable data file
+            for frag, msg in expected.items():
+                fname = '%s#%s#d.data' % (ts.internal, frag)
                 with self.assertRaises(DiskFileError) as cm:
                     mgr.parse_on_disk_filename(fname)
                 self.assertIn(msg, str(cm.exception).lower())
@@ -1758,42 +2186,45 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         for ts in (Timestamp('1234567890.00001'),
                    Timestamp('1234567890.00001', offset=17)):
             for frag in (0, '0', 2, '2', 14, '14'):
-                expected = '%s#%s.data' % (ts.internal, frag)
-                actual = mgr.make_on_disk_filename(
-                    ts, '.data', frag_index=frag)
-                self.assertEqual(expected, actual)
-                parsed = mgr.parse_on_disk_filename(actual)
-                self.assertEqual(parsed, {
-                    'timestamp': ts,
-                    'frag_index': int(frag),
-                    'ext': '.data',
-                    'ctype_timestamp': None
-                })
-                # these functions are inverse
-                self.assertEqual(
-                    mgr.make_on_disk_filename(**parsed),
-                    expected)
-
-                for ext in ('.meta', '.durable', '.ts'):
-                    expected = '%s%s' % (ts.internal, ext)
-                    # frag index should not be required
-                    actual = mgr.make_on_disk_filename(ts, ext)
-                    self.assertEqual(expected, actual)
-                    # frag index should be ignored
+                for durable in (True, False):
+                    expected = _make_datafilename(
+                        ts, POLICIES.default, frag_index=frag, durable=durable)
                     actual = mgr.make_on_disk_filename(
-                        ts, ext, frag_index=frag)
+                        ts, '.data', frag_index=frag, durable=durable)
                     self.assertEqual(expected, actual)
                     parsed = mgr.parse_on_disk_filename(actual)
                     self.assertEqual(parsed, {
                         'timestamp': ts,
-                        'frag_index': None,
-                        'ext': ext,
-                        'ctype_timestamp': None
+                        'frag_index': int(frag),
+                        'ext': '.data',
+                        'ctype_timestamp': None,
+                        'durable': durable
                     })
                     # these functions are inverse
                     self.assertEqual(
                         mgr.make_on_disk_filename(**parsed),
                         expected)
+
+                    for ext in ('.meta', '.durable', '.ts'):
+                        expected = '%s%s' % (ts.internal, ext)
+                        # frag index should not be required
+                        actual = mgr.make_on_disk_filename(ts, ext)
+                        self.assertEqual(expected, actual)
+                        # frag index should be ignored
+                        actual = mgr.make_on_disk_filename(
+                            ts, ext, frag_index=frag)
+                        self.assertEqual(expected, actual)
+                        parsed = mgr.parse_on_disk_filename(actual)
+                        self.assertEqual(parsed, {
+                            'timestamp': ts,
+                            'frag_index': None,
+                            'ext': ext,
+                            'ctype_timestamp': None
+                        })
+                        # these functions are inverse
+                        self.assertEqual(
+                            mgr.make_on_disk_filename(**parsed),
+                            expected)
 
             actual = mgr.make_on_disk_filename(ts)
             self.assertEqual(ts, actual)
@@ -1844,7 +2275,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 mgr.make_on_disk_filename(**parsed),
                 expected)
 
-    def test_yield_hashes(self):
+    def test_yield_hashes_legacy_durable(self):
         old_ts = '1383180000.12345'
         fresh_ts = Timestamp(time() - 10).internal
         fresher_ts = Timestamp(time() - 1).internal
@@ -1872,7 +2303,33 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
 
-    def test_yield_hashes_yields_meta_timestamp(self):
+    def test_yield_hashes(self):
+        old_ts = '1383180000.12345'
+        fresh_ts = Timestamp(time() - 10).internal
+        fresher_ts = Timestamp(time() - 1).internal
+        suffix_map = {
+            'abc': {
+                '9373a92d072897b136b3fc06595b4abc': [
+                    fresh_ts + '.ts'],
+            },
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    old_ts + '#2#d.data'],
+                '9373a92d072897b136b3fc06595b7456': [
+                    fresh_ts + '.ts',
+                    fresher_ts + '#2#d.data'],
+            },
+            'def': {},
+        }
+        expected = {
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': fresh_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2)
+
+    def test_yield_hashes_yields_meta_timestamp_legacy_durable(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
         ts1 = next(ts_iter)
         ts2 = next(ts_iter)
@@ -1912,7 +2369,45 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=3)
 
-    def test_yield_hashes_suffix_filter(self):
+    def test_yield_hashes_yields_meta_timestamp(self):
+        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
+        ts1 = next(ts_iter)
+        ts2 = next(ts_iter)
+        ts3 = next(ts_iter)
+        suffix_map = {
+            'abc': {
+                '9373a92d072897b136b3fc06595b4abc': [
+                    ts1.internal + '.ts',
+                    ts2.internal + '.meta'],
+            },
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '.meta',
+                    ts3.internal + '.meta'],
+                '9373a92d072897b136b3fc06595b7456': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '.meta'],
+            },
+        }
+        expected = {
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'ts_meta': ts3},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1,
+                                                 'ts_meta': ts2},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected)
+
+        # but meta timestamp is *not* returned if specified frag index
+        # is not found
+        expected = {
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=3)
+
+    def test_yield_hashes_suffix_filter_legacy_durable(self):
         # test again with limited suffixes
         old_ts = '1383180000.12345'
         fresh_ts = Timestamp(time() - 10).internal
@@ -1940,7 +2435,60 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  suffixes=['456'], frag_index=2)
 
-    def test_yield_hashes_skips_missing_durable(self):
+    def test_yield_hashes_suffix_filter(self):
+        # test again with limited suffixes
+        old_ts = '1383180000.12345'
+        fresh_ts = Timestamp(time() - 10).internal
+        fresher_ts = Timestamp(time() - 1).internal
+        suffix_map = {
+            'abc': {
+                '9373a92d072897b136b3fc06595b4abc': [
+                    fresh_ts + '.ts'],
+            },
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    old_ts + '#2#d.data'],
+                '9373a92d072897b136b3fc06595b7456': [
+                    fresh_ts + '.ts',
+                    fresher_ts + '#2#d.data'],
+            },
+            'def': {},
+        }
+        expected = {
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 suffixes=['456'], frag_index=2)
+
+    def test_yield_hashes_skips_non_durable_data(self):
+        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
+        ts1 = next(ts_iter)
+        suffix_map = {
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#2#d.data'],
+                '9373a92d072897b136b3fc06595b7456': [
+                    ts1.internal + '#2.data'],
+            },
+        }
+        expected = {
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2)
+
+        # if we add a durable it shows up
+        suffix_map['456']['9373a92d072897b136b3fc06595b7456'] = [
+            ts1.internal + '#2#d.data']
+        expected = {
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2)
+
+    def test_yield_hashes_skips_missing_legacy_durable(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
         ts1 = next(ts_iter)
         suffix_map = {
@@ -1968,7 +2516,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
 
-    def test_yield_hashes_skips_data_without_durable(self):
+    def test_yield_hashes_skips_newer_data_without_legacy_durable(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
         ts1 = next(ts_iter)
         ts2 = next(ts_iter)
@@ -2001,6 +2549,44 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
 
+    def test_yield_hashes_skips_newer_non_durable_data(self):
+        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
+        ts1 = next(ts_iter)
+        ts2 = next(ts_iter)
+        ts3 = next(ts_iter)
+        suffix_map = {
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '#2.data',
+                    ts3.internal + '#2.data'],
+            },
+        }
+        expected = {
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=None)
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2)
+
+        # if we make it durable then newer data shows up
+        suffix_map = {
+            '456': {
+                '9373a92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '#2#d.data',
+                    ts3.internal + '#2.data'],
+            },
+        }
+        expected = {
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts2},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=None)
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2)
+
     def test_yield_hashes_ignores_bad_ondisk_filesets(self):
         # this differs from DiskFileManager.yield_hashes which will fail
         # when encountering a bad on-disk file set
@@ -2011,6 +2597,9 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             '456': {
                 # this one is fine
                 '9333a92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#2#d.data'],
+                # this one is fine, legacy durable
+                '9333a92d072897b136b3fc06595b1456': [
                     ts1.internal + '#2.data',
                     ts1.internal + '.durable'],
                 # missing frag index
@@ -2019,7 +2608,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                 # junk
                 '9555a92d072897b136b3fc06595b8456': [
                     'junk_file'],
-                # missing .durable
+                # not durable
                 '9666a92d072897b136b3fc06595b9456': [
                     ts1.internal + '#2.data',
                     ts2.internal + '.meta'],
@@ -2032,11 +2621,18 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                     ts2.internal + '.meta'],
                 # this is good with meta
                 '9999a92d072897b136b3fc06595bb456': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '.meta'],
+                # this is good with meta, legacy durable
+                '9999a92d072897b136b3fc06595bc456': [
                     ts1.internal + '#2.data',
                     ts1.internal + '.durable',
                     ts2.internal + '.meta'],
                 # this one is wrong frag index
                 '9aaaa92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#7#d.data'],
+                # this one is wrong frag index, legacy durable
+                '9aaaa92d072897b136b3fc06595b1456': [
                     ts1.internal + '#7.data',
                     ts1.internal + '.durable'],
             },
@@ -2045,11 +2641,51 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             '9333a92d072897b136b3fc06595b0456': {'ts_data': ts1},
             '9999a92d072897b136b3fc06595bb456': {'ts_data': ts1,
                                                  'ts_meta': ts2},
+            '9333a92d072897b136b3fc06595b1456': {'ts_data': ts1},
+            '9999a92d072897b136b3fc06595bc456': {'ts_data': ts1,
+                                                 'ts_meta': ts2},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
 
     def test_yield_hashes_filters_frag_index(self):
+        ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
+        ts1 = next(ts_iter)
+        ts2 = next(ts_iter)
+        ts3 = next(ts_iter)
+        suffix_map = {
+            '27e': {
+                '1111111111111111111111111111127e': [
+                    ts1.internal + '#2#d.data',
+                    ts1.internal + '#3#d.data',
+                ],
+                '2222222222222222222222222222227e': [
+                    ts1.internal + '#2#d.data',
+                    ts2.internal + '#2#d.data',
+                ],
+            },
+            'd41': {
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaad41': [
+                    ts1.internal + '#3#d.data',
+                ],
+            },
+            '00b': {
+                '3333333333333333333333333333300b': [
+                    ts1.internal + '#2.data',
+                    ts2.internal + '#2.data',
+                    ts3.internal + '#2#d.data',
+                ],
+            },
+        }
+        expected = {
+            '1111111111111111111111111111127e': {'ts_data': ts1},
+            '2222222222222222222222222222227e': {'ts_data': ts2},
+            '3333333333333333333333333333300b': {'ts_data': ts3},
+        }
+        self._check_yield_hashes(POLICIES.default, suffix_map, expected,
+                                 frag_index=2)
+
+    def test_yield_hashes_filters_frag_index_legacy_durable(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
         ts1 = next(ts_iter)
         ts2 = next(ts_iter)
@@ -2091,27 +2727,17 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
 
-    def test_get_diskfile_from_hash_frag_index_filter(self):
+    def _test_get_diskfile_from_hash_frag_index_filter(self, legacy_durable):
         df = self._get_diskfile(POLICIES.default)
         hash_ = os.path.basename(df._datadir)
         self.assertRaises(DiskFileNotExist,
                           self.df_mgr.get_diskfile_from_hash,
                           self.existing_device1, '0', hash_,
                           POLICIES.default)  # sanity
-        frag_index = 7
         timestamp = Timestamp(time())
         for frag_index in (4, 7):
-            with df.create() as writer:
-                data = 'test_data'
-                writer.write(data)
-                metadata = {
-                    'ETag': md5(data).hexdigest(),
-                    'X-Timestamp': timestamp.internal,
-                    'Content-Length': len(data),
-                    'X-Object-Sysmeta-Ec-Frag-Index': str(frag_index),
-                }
-                writer.put(metadata)
-                writer.commit(timestamp)
+            write_diskfile(df, timestamp, frag_index=frag_index,
+                           legacy_durable=legacy_durable)
 
         df4 = self.df_mgr.get_diskfile_from_hash(
             self.existing_device1, '0', hash_, POLICIES.default, frag_index=4)
@@ -2123,6 +2749,12 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         self.assertEqual(df7._frag_index, 7)
         self.assertEqual(
             df7.read_metadata()['X-Object-Sysmeta-Ec-Frag-Index'], '7')
+
+    def test_get_diskfile_from_hash_frag_index_filter(self):
+        self._test_get_diskfile_from_hash_frag_index_filter(False)
+
+    def test_get_diskfile_from_hash_frag_index_filter_legacy_durable(self):
+        self._test_get_diskfile_from_hash_frag_index_filter(True)
 
 
 class DiskFileMixin(BaseDiskFileTestMixin):
@@ -2162,7 +2794,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _create_ondisk_file(self, df, data, timestamp, metadata=None,
                             ctype_timestamp=None,
-                            ext='.data'):
+                            ext='.data', legacy_durable=False):
         mkdirs(df._datadir)
         if timestamp is None:
             timestamp = time()
@@ -2181,7 +2813,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             metadata['Content-Length'] = str(len(data))
         filename = timestamp.internal
         if ext == '.data' and df.policy.policy_type == EC_POLICY:
-            filename = '%s#%s' % (timestamp.internal, df._frag_index)
+            if legacy_durable:
+                filename = '%s#%s' % (timestamp.internal, df._frag_index)
+                durable_file = os.path.join(df._datadir,
+                                            '%s.durable' % timestamp.internal)
+                with open(durable_file, 'wb') as f:
+                    pass
+            else:
+                filename = '%s#%s#d' % (timestamp.internal, df._frag_index)
         if ctype_timestamp:
             metadata.update(
                 {'Content-Type-Timestamp':
@@ -2215,6 +2854,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         if timestamp is None:
             timestamp = time()
         timestamp = Timestamp(timestamp)
+
+        if df.policy.policy_type == EC_POLICY:
+            data = encode_frag_archive_bodies(df.policy, data)[df._frag_index]
+
         with df.create() as writer:
             new_metadata = {
                 'ETag': md5(data).hexdigest(),
@@ -2226,7 +2869,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             writer.put(new_metadata)
             writer.commit(timestamp)
         df.open()
-        return df
+        return df, data
 
     def test_get_dev_path(self):
         self.df_mgr.devices = '/srv'
@@ -2286,7 +2929,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_get_metadata(self):
         timestamp = self.ts().internal
-        df = self._create_test_file('1234567890', timestamp=timestamp)
+        df, df_data = self._create_test_file('1234567890',
+                                             timestamp=timestamp)
         md = df.get_metadata()
         self.assertEqual(md['X-Timestamp'], timestamp)
 
@@ -2319,8 +2963,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         ts_data = next(ts_iter)
         metadata = {'X-Object-Meta-Test': 'test1',
                     'X-Object-Sysmeta-Test': 'test1'}
-        df = self._create_test_file(body, timestamp=ts_data.internal,
-                                    metadata=metadata)
+        df, df_data = self._create_test_file(body, timestamp=ts_data.internal,
+                                             metadata=metadata)
         expected = df.get_metadata()
         ts_meta = next(ts_iter)
         df.write_metadata({'X-Timestamp': ts_meta.internal,
@@ -2343,8 +2987,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         ts_data = next(ts_iter)
         metadata = {'X-Object-Meta-Test': 'test1',
                     'X-Object-Sysmeta-Test': 'test1'}
-        df = self._create_test_file(body, timestamp=ts_data.internal,
-                                    metadata=metadata)
+        df, df_data = self._create_test_file(body, timestamp=ts_data.internal,
+                                             metadata=metadata)
         self.assertIsNone(df.get_metafile_metadata())
 
         # now create a meta file
@@ -2375,7 +3019,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._get_open_disk_file(ts=self.ts().internal,
                                       extra_metadata=orig_metadata)
         with df.open():
-            self.assertEqual('1024', df._metadata['Content-Length'])
+            if df.policy.policy_type == EC_POLICY:
+                expected = df.policy.pyeclib_driver.get_segment_info(
+                    1024, df.policy.ec_segment_size)['fragment_size']
+            else:
+                expected = 1024
+            self.assertEqual(str(expected), df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, at t0+1)
         df = self._simple_get_diskfile()
         df.write_metadata({'X-Timestamp': self.ts().internal,
@@ -2400,7 +3049,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._get_open_disk_file(ts=self.ts().internal,
                                       extra_metadata=orig_metadata)
         with df.open():
-            self.assertEqual('1024', df._metadata['Content-Length'])
+            if df.policy.policy_type == EC_POLICY:
+                expected = df.policy.pyeclib_driver.get_segment_info(
+                    1024, df.policy.ec_segment_size)['fragment_size']
+            else:
+                expected = 1024
+            self.assertEqual(str(expected), df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, at t0+1s)
         df = self._simple_get_diskfile()
         df.write_metadata({'X-Timestamp': self.ts().internal,
@@ -2414,14 +3068,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual('Value1', df._metadata['X-Object-Sysmeta-Key1'])
 
     def test_disk_file_reader_iter(self):
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
-        self.assertEqual(''.join(reader), '1234567890')
+        self.assertEqual(''.join(reader), df_data)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_reader_iter_w_quarantine(self):
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
 
         def raise_dfq(m):
             raise DiskFileQuarantined(m)
@@ -2431,94 +3085,96 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertRaises(DiskFileQuarantined, ''.join, reader)
 
     def test_disk_file_app_iter_corners(self):
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         self.assertEqual(''.join(reader.app_iter_range(0, None)),
-                         '1234567890')
+                         df_data)
         self.assertEqual(quarantine_msgs, [])
         df = self._simple_get_diskfile()
         with df.open():
             reader = df.reader()
-            self.assertEqual(''.join(reader.app_iter_range(5, None)), '67890')
+            self.assertEqual(''.join(reader.app_iter_range(5, None)),
+                             df_data[5:])
 
     def test_disk_file_app_iter_range_w_none(self):
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         self.assertEqual(''.join(reader.app_iter_range(None, None)),
-                         '1234567890')
+                         df_data)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_partial_closes(self):
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_range(0, 5)
-        self.assertEqual(''.join(it), '12345')
+        self.assertEqual(''.join(it), df_data[:5])
         self.assertEqual(quarantine_msgs, [])
         self.assertTrue(reader._fp is None)
 
     def test_disk_file_app_iter_ranges(self):
-        df = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file('012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(0, 10), (10, 20), (20, 30)],
                                     'plain/text',
-                                    '\r\n--someheader\r\n', 30)
+                                    '\r\n--someheader\r\n', len(df_data))
         value = ''.join(it)
-        self.assertIn('0123456789', value)
-        self.assertIn('1123456789', value)
-        self.assertIn('2123456789', value)
+        self.assertIn(df_data[:10], value)
+        self.assertIn(df_data[10:20], value)
+        self.assertIn(df_data[20:30], value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_w_quarantine(self):
-        df = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file('012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
+        self.assertEqual(len(df_data), reader._obj_size)  # sanity check
         reader._obj_size += 1
-        it = reader.app_iter_ranges([(0, 30)],
+        it = reader.app_iter_ranges([(0, len(df_data))],
                                     'plain/text',
-                                    '\r\n--someheader\r\n', 30)
+                                    '\r\n--someheader\r\n', len(df_data))
         value = ''.join(it)
-        self.assertIn('0123456789', value)
-        self.assertIn('1123456789', value)
-        self.assertIn('2123456789', value)
+        self.assertIn(df_data, value)
         self.assertEqual(quarantine_msgs,
-                         ["Bytes read: 30, does not match metadata: 31"])
+                         ["Bytes read: %s, does not match metadata: %s" %
+                          (len(df_data), len(df_data) + 1)])
 
     def test_disk_file_app_iter_ranges_w_no_etag_quarantine(self):
-        df = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file('012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(0, 10)],
                                     'plain/text',
-                                    '\r\n--someheader\r\n', 30)
+                                    '\r\n--someheader\r\n', len(df_data))
         value = ''.join(it)
-        self.assertIn('0123456789', value)
+        self.assertIn(df_data[:10], value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_app_iter_ranges_edges(self):
-        df = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file('012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 2)], 'application/whatever',
-                                    '\r\n--someheader\r\n', 30)
+                                    '\r\n--someheader\r\n', len(df_data))
         value = ''.join(it)
-        self.assertIn('3456789', value)
-        self.assertIn('01', value)
+        self.assertIn(df_data[3:10], value)
+        self.assertIn(df_data[:2], value)
         self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_large_app_iter_ranges(self):
         # This test case is to make sure that the disk file app_iter_ranges
         # method all the paths being tested.
         long_str = '01234567890' * 65536
-        target_strs = ['3456789', long_str[0:65590]]
-        df = self._create_test_file(long_str)
+        df, df_data = self._create_test_file(long_str)
+        target_strs = [df_data[3:10], df_data[0:65590]]
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([(3, 10), (0, 65590)], 'plain/text',
-                                    '5e816ff8b8b8e9a5d355497e5d9e0301', 655360)
+                                    '5e816ff8b8b8e9a5d355497e5d9e0301',
+                                    len(df_data))
 
         # The produced string actually missing the MIME headers
         # need to add these headers to make it as real MIME message.
@@ -2539,11 +3195,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # This test case tests when empty value passed into app_iter_ranges
         # When ranges passed into the method is either empty array or None,
         # this method will yield empty string
-        df = self._create_test_file('012345678911234567892123456789')
+        df, df_data = self._create_test_file('012345678911234567892123456789')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
         it = reader.app_iter_ranges([], 'application/whatever',
-                                    '\r\n--someheader\r\n', 100)
+                                    '\r\n--someheader\r\n', len(df_data))
         self.assertEqual(''.join(it), '')
 
         df = self._simple_get_diskfile()
@@ -2560,6 +3216,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                   diskfile.get_tmp_dir(policy))
             os.rmdir(tmpdir)
             df = self._simple_get_diskfile(policy=policy)
+            df._use_linkat = False
             with df.create():
                 self.assertTrue(os.path.exists(tmpdir))
 
@@ -2573,6 +3230,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile(obj=obj_name, policy=policy,
                                        frag_index=frag_index)
         data = data or '0' * fsize
+        if policy.policy_type == EC_POLICY:
+            archives = encode_frag_archive_bodies(policy, data)
+            try:
+                data = archives[df._frag_index]
+            except IndexError:
+                data = archives[0]
+
         etag = md5()
         if ts:
             timestamp = Timestamp(ts)
@@ -2679,7 +3343,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 pass
             self.assertFalse(boo.called)
 
-        df = self._get_open_disk_file(fsize=5 * 1024, csize=256)
+        df = self._get_open_disk_file(fsize=50 * 1024, csize=256)
         with mock.patch("swift.obj.diskfile.drop_buffer_cache") as goo:
             for _ in df.reader(keep_cache=True):
                 pass
@@ -2871,8 +3535,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self._get_open_disk_file)
 
     def test_quarantine_hashdir_not_a_directory(self):
-        df = self._create_test_file('1234567890', account="abc",
-                                    container='123', obj='xyz')
+        df, df_data = self._create_test_file('1234567890', account="abc",
+                                             container='123', obj='xyz')
         hashdir = df._datadir
         rmtree(hashdir)
         with open(hashdir, 'w'):
@@ -2925,6 +3589,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_create_mkstemp_no_space(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
+        df._use_linkat = False
         for e in (errno.ENOSPC, errno.EDQUOT):
             with mock.patch("swift.obj.diskfile.mkstemp",
                             mock.MagicMock(side_effect=OSError(
@@ -2964,7 +3629,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 pass
 
     def test_write_metadata(self):
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
         file_count = len(os.listdir(df._datadir))
         timestamp = Timestamp(time()).internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
@@ -2976,7 +3641,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_write_metadata_with_content_type(self):
         # if metadata has content-type then its time should be in file name
-        df = self._create_test_file('1234567890')
+        df, df_data = self._create_test_file('1234567890')
         file_count = len(os.listdir(df._datadir))
         timestamp = Timestamp(time())
         metadata = {'X-Timestamp': timestamp.internal,
@@ -2993,7 +3658,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_write_metadata_with_older_content_type(self):
         # if metadata has content-type then its time should be in file name
         ts_iter = make_timestamp_iter()
-        df = self._create_test_file('1234567890', timestamp=ts_iter.next())
+        df, df_data = self._create_test_file('1234567890',
+                                             timestamp=ts_iter.next())
         file_count = len(os.listdir(df._datadir))
         timestamp = ts_iter.next()
         timestamp2 = ts_iter.next()
@@ -3013,7 +3679,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # a meta file without content-type should be cleaned up in favour of
         # a meta file at same time with content-type
         ts_iter = make_timestamp_iter()
-        df = self._create_test_file('1234567890', timestamp=ts_iter.next())
+        df, df_data = self._create_test_file('1234567890',
+                                             timestamp=ts_iter.next())
         file_count = len(os.listdir(df._datadir))
         timestamp = ts_iter.next()
         timestamp2 = ts_iter.next()
@@ -3038,7 +3705,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # file with content-type should be cleaned up in favour of a meta file
         # at newer time with content-type
         ts_iter = make_timestamp_iter()
-        df = self._create_test_file('1234567890', timestamp=ts_iter.next())
+        df, df_data = self._create_test_file('1234567890',
+                                             timestamp=ts_iter.next())
         file_count = len(os.listdir(df._datadir))
         timestamp = ts_iter.next()
         timestamp2 = ts_iter.next()
@@ -3101,61 +3769,61 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 DiskFileNoSpace,
                 diskfile.write_metadata, 'n/a', metadata)
 
-    def _create_diskfile_dir(self, timestamp, policy):
+    def _create_diskfile_dir(self, timestamp, policy, legacy_durable=False):
         timestamp = Timestamp(timestamp)
         df = self._simple_get_diskfile(account='a', container='c',
                                        obj='o_%s' % policy,
                                        policy=policy)
-
-        with df.create() as writer:
-            metadata = {
-                'ETag': 'bogus_etag',
-                'X-Timestamp': timestamp.internal,
-                'Content-Length': '0',
-            }
-            if policy.policy_type == EC_POLICY:
-                metadata['X-Object-Sysmeta-Ec-Frag-Index'] = \
-                    df._frag_index or 7
-            writer.put(metadata)
-            writer.commit(timestamp)
-        return writer._datadir
+        frag_index = None
+        if policy.policy_type == EC_POLICY:
+            frag_index = df._frag_index or 7
+        write_diskfile(df, timestamp, frag_index=frag_index,
+                       legacy_durable=legacy_durable)
+        return df._datadir
 
     def test_commit(self):
         for policy in POLICIES:
-            # create first fileset as starting state
-            timestamp = Timestamp(time()).internal
-            datadir = self._create_diskfile_dir(timestamp, policy)
-            dl = os.listdir(datadir)
-            expected = ['%s.data' % timestamp]
-            if policy.policy_type == EC_POLICY:
-                expected = ['%s#2.data' % timestamp,
-                            '%s.durable' % timestamp]
+            timestamp = Timestamp(time())
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_%s' % policy,
+                                           policy=policy)
+            write_diskfile(df, timestamp, frag_index=2)
+            dl = os.listdir(df._datadir)
+            expected = [_make_datafilename(
+                timestamp, policy, frag_index=2, durable=True)]
             self.assertEqual(len(dl), len(expected),
                              'Unexpected dir listing %s' % dl)
-            self.assertEqual(sorted(expected), sorted(dl))
+            self.assertEqual(expected, dl)
+            if policy.policy_type == EC_POLICY:
+                self.assertEqual(2, df._frag_index)
+
+    def _do_test_write_cleanup(self, policy, legacy_durable=False):
+        # create first fileset as starting state
+        timestamp_1 = Timestamp(time())
+        datadir_1 = self._create_diskfile_dir(
+            timestamp_1, policy, legacy_durable)
+        # second write should clean up first fileset
+        timestamp_2 = Timestamp(time() + 1)
+        datadir_2 = self._create_diskfile_dir(timestamp_2, policy)
+        # sanity check
+        self.assertEqual(datadir_1, datadir_2)
+        dl = os.listdir(datadir_2)
+        expected = [_make_datafilename(
+            timestamp_2, policy, frag_index=2, durable=True)]
+        self.assertEqual(len(dl), len(expected),
+                         'Unexpected dir listing %s' % dl)
+        self.assertEqual(expected, dl)
 
     def test_write_cleanup(self):
         for policy in POLICIES:
-            # create first fileset as starting state
-            timestamp_1 = Timestamp(time()).internal
-            datadir_1 = self._create_diskfile_dir(timestamp_1, policy)
-            # second write should clean up first fileset
-            timestamp_2 = Timestamp(time() + 1).internal
-            datadir_2 = self._create_diskfile_dir(timestamp_2, policy)
-            # sanity check
-            self.assertEqual(datadir_1, datadir_2)
-            dl = os.listdir(datadir_2)
-            expected = ['%s.data' % timestamp_2]
-            if policy.policy_type == EC_POLICY:
-                expected = ['%s#2.data' % timestamp_2,
-                            '%s.durable' % timestamp_2]
-            self.assertEqual(len(dl), len(expected),
-                             'Unexpected dir listing %s' % dl)
-            self.assertEqual(sorted(expected), sorted(dl))
+            self._do_test_write_cleanup(policy)
 
-    def test_commit_fsync(self):
+    def test_write_cleanup_legacy_durable(self):
         for policy in POLICIES:
-            mock_fsync = mock.MagicMock()
+            self._do_test_write_cleanup(policy, legacy_durable=True)
+
+    def test_commit_no_extra_fsync(self):
+        for policy in POLICIES:
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o', policy=policy)
 
@@ -3166,16 +3834,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     'X-Timestamp': timestamp.internal,
                     'Content-Length': '0',
                 }
-                writer.put(metadata)
-                with mock.patch('swift.obj.diskfile.fsync', mock_fsync):
+                with mock.patch('swift.obj.diskfile.fsync') as mock_fsync:
+                    writer.put(metadata)
+                    self.assertEqual(1, mock_fsync.call_count)
                     writer.commit(timestamp)
-            expected = {
-                EC_POLICY: 1,
-                REPL_POLICY: 0,
-            }[policy.policy_type]
-            self.assertEqual(expected, mock_fsync.call_count)
+                    self.assertEqual(1, mock_fsync.call_count)
             if policy.policy_type == EC_POLICY:
-                self.assertTrue(isinstance(mock_fsync.call_args[0][0], int))
+                self.assertIsInstance(mock_fsync.call_args[0][0], int)
 
     def test_commit_ignores_cleanup_ondisk_files_error(self):
         for policy in POLICIES:
@@ -3200,14 +3865,17 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 REPL_POLICY: 0,
             }[policy.policy_type]
             self.assertEqual(expected, mock_cleanup.call_count)
-            expected = ['%s.data' % timestamp.internal]
-            if policy.policy_type == EC_POLICY:
-                expected = ['%s#2.data' % timestamp.internal,
-                            '%s.durable' % timestamp.internal]
+            if expected:
+                self.assertIn(
+                    'Problem cleaning up',
+                    df.manager.logger.get_lines_for_level('error')[0])
+
+            expected = [_make_datafilename(
+                timestamp, policy, frag_index=2, durable=True)]
             dl = os.listdir(df._datadir)
             self.assertEqual(len(dl), len(expected),
                              'Unexpected dir listing %s' % dl)
-            self.assertEqual(sorted(expected), sorted(dl))
+            self.assertEqual(expected, dl)
 
     def test_number_calls_to_cleanup_ondisk_files_during_create(self):
         # Check how many calls are made to cleanup_ondisk_files, and when,
@@ -3317,9 +3985,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertFalse(os.path.exists(ts_fullpath))
 
     def test_from_audit_location(self):
-        hashdir = self._create_test_file(
+        df, df_data = self._create_test_file(
             'blah blah',
-            account='three', container='blind', obj='mice')._datadir
+            account='three', container='blind', obj='mice')
+        hashdir = df._datadir
         df = self.df_mgr.get_diskfile_from_audit_location(
             diskfile.AuditLocation(hashdir, self.existing_device, '0',
                                    policy=POLICIES.default))
@@ -3327,9 +3996,10 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(df._name, '/three/blind/mice')
 
     def test_from_audit_location_with_mismatched_hash(self):
-        hashdir = self._create_test_file(
+        df, df_data = self._create_test_file(
             'blah blah',
-            account='this', container='is', obj='right')._datadir
+            account='this', container='is', obj='right')
+        hashdir = df._datadir
         datafilename = [f for f in os.listdir(hashdir)
                         if f.endswith('.data')][0]
         datafile = os.path.join(hashdir, datafilename)
@@ -3402,15 +4072,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         else:
             self.fail("Expected DiskFileDeleted exception")
 
-    def test_ondisk_search_loop_meta_data_ts(self):
+    def _test_ondisk_search_loop_meta_data_ts(self, legacy_durable=False):
         df = self._simple_get_diskfile()
         self._create_ondisk_file(df, '', ext='.meta', timestamp=10)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=9)
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=8)
-        self._create_ondisk_file(df, 'A', ext='.data', timestamp=7)
-        if df.policy.policy_type == EC_POLICY:
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=8)
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=7)
+        self._create_ondisk_file(
+            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=8)
+        self._create_ondisk_file(
+            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=7)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=6)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=5)
         df = self._simple_get_diskfile()
@@ -3420,7 +4089,14 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                              Timestamp(10).internal)
             self.assertNotIn('deleted', df._metadata)
 
-    def test_ondisk_search_loop_multiple_meta_data(self):
+    def test_ondisk_search_loop_meta_data_ts(self):
+        self._test_ondisk_search_loop_meta_data_ts()
+
+    def test_ondisk_search_loop_meta_data_ts_legacy_durable(self):
+        self._test_ondisk_search_loop_meta_data_ts(legacy_durable=True)
+
+    def _test_ondisk_search_loop_multiple_meta_data(self,
+                                                    legacy_durable=False):
         df = self._simple_get_diskfile()
         self._create_ondisk_file(df, '', ext='.meta', timestamp=10,
                                  metadata={'X-Object-Meta-User': 'user-meta'})
@@ -3428,13 +4104,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                  ctype_timestamp=9,
                                  metadata={'Content-Type': 'newest',
                                            'X-Object-Meta-User': 'blah'})
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=8,
-                                 metadata={'Content-Type': 'newer'})
-        self._create_ondisk_file(df, 'A', ext='.data', timestamp=7,
-                                 metadata={'Content-Type': 'oldest'})
-        if df.policy.policy_type == EC_POLICY:
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=8)
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=7)
+        self._create_ondisk_file(
+            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
+            metadata={'Content-Type': 'newer'})
+        self._create_ondisk_file(
+            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=7,
+            metadata={'Content-Type': 'oldest'})
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
@@ -3445,7 +4120,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertTrue('X-Object-Meta-User' in df._metadata)
             self.assertEqual(df._metadata['X-Object-Meta-User'], 'user-meta')
 
-    def test_ondisk_search_loop_stale_meta_data(self):
+    def test_ondisk_search_loop_multiple_meta_data(self):
+        self._test_ondisk_search_loop_multiple_meta_data()
+
+    def test_ondisk_search_loop_multiple_meta_data_legacy_durable(self):
+        self._test_ondisk_search_loop_multiple_meta_data(legacy_durable=True)
+
+    def _test_ondisk_search_loop_stale_meta_data(self, legacy_durable=False):
         df = self._simple_get_diskfile()
         self._create_ondisk_file(df, '', ext='.meta', timestamp=10,
                                  metadata={'X-Object-Meta-User': 'user-meta'})
@@ -3453,10 +4134,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                  ctype_timestamp=7,
                                  metadata={'Content-Type': 'older',
                                            'X-Object-Meta-User': 'blah'})
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=8,
-                                 metadata={'Content-Type': 'newer'})
-        if df.policy.policy_type == EC_POLICY:
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=8)
+        self._create_ondisk_file(
+            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
+            metadata={'Content-Type': 'newer'})
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
@@ -3467,13 +4147,43 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertTrue('X-Object-Meta-User' in df._metadata)
             self.assertEqual(df._metadata['X-Object-Meta-User'], 'user-meta')
 
-    def test_ondisk_search_loop_data_ts_meta(self):
+    def test_ondisk_search_loop_stale_meta_data(self):
+        self._test_ondisk_search_loop_stale_meta_data()
+
+    def test_ondisk_search_loop_stale_meta_data_legacy_durable(self):
+        self._test_ondisk_search_loop_stale_meta_data(legacy_durable=True)
+
+    def _test_ondisk_search_loop_data_ts_meta(self, legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=10)
-        self._create_ondisk_file(df, 'A', ext='.data', timestamp=9)
-        if df.policy.policy_type == EC_POLICY:
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=10)
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=9)
+        self._create_ondisk_file(
+            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
+        self._create_ondisk_file(
+            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
+        self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
+        self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
+        self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
+        self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
+        df = self._simple_get_diskfile()
+        with df.open():
+            self.assertIn('X-Timestamp', df._metadata)
+            self.assertEqual(df._metadata['X-Timestamp'],
+                             Timestamp(10).internal)
+            self.assertNotIn('deleted', df._metadata)
+
+    def test_ondisk_search_loop_data_ts_meta(self):
+        self._test_ondisk_search_loop_data_ts_meta()
+
+    def test_ondisk_search_loop_data_ts_meta_legacy_durable(self):
+        self._test_ondisk_search_loop_data_ts_meta(legacy_durable=True)
+
+    def _test_ondisk_search_loop_wayward_files_ignored(self,
+                                                       legacy_durable=False):
+        df = self._simple_get_diskfile()
+        self._create_ondisk_file(df, 'X', ext='.bar', timestamp=11)
+        self._create_ondisk_file(
+            df, 'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
+        self._create_ondisk_file(
+            df, 'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
@@ -3486,25 +4196,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
-        df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, 'X', ext='.bar', timestamp=11)
-        self._create_ondisk_file(df, 'B', ext='.data', timestamp=10)
-        self._create_ondisk_file(df, 'A', ext='.data', timestamp=9)
-        if df.policy.policy_type == EC_POLICY:
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=10)
-            self._create_ondisk_file(df, '', ext='.durable', timestamp=9)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
-        self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
-        df = self._simple_get_diskfile()
-        with df.open():
-            self.assertIn('X-Timestamp', df._metadata)
-            self.assertEqual(df._metadata['X-Timestamp'],
-                             Timestamp(10).internal)
-            self.assertNotIn('deleted', df._metadata)
+        self._test_ondisk_search_loop_wayward_files_ignored()
 
-    def test_ondisk_search_loop_listdir_error(self):
+    def test_ondisk_search_loop_wayward_files_ignored_legacy_durable(self):
+        self._test_ondisk_search_loop_wayward_files_ignored(
+            legacy_durable=True)
+
+    def _test_ondisk_search_loop_listdir_error(self, legacy_durable=False):
         df = self._simple_get_diskfile()
 
         def mock_listdir_exp(*args, **kwargs):
@@ -3512,17 +4210,22 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
         with mock.patch("os.listdir", mock_listdir_exp):
             self._create_ondisk_file(df, 'X', ext='.bar', timestamp=11)
-            self._create_ondisk_file(df, 'B', ext='.data', timestamp=10)
-            self._create_ondisk_file(df, 'A', ext='.data', timestamp=9)
-            if df.policy.policy_type == EC_POLICY:
-                self._create_ondisk_file(df, '', ext='.durable', timestamp=10)
-                self._create_ondisk_file(df, '', ext='.durable', timestamp=9)
+            self._create_ondisk_file(df, 'B', ext='.data', timestamp=10,
+                                     legacy_durable=legacy_durable)
+            self._create_ondisk_file(df, 'A', ext='.data', timestamp=9,
+                                     legacy_durable=legacy_durable)
             self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
             self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
             self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
             self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
             df = self._simple_get_diskfile()
             self.assertRaises(DiskFileError, df.open)
+
+    def test_ondisk_search_loop_listdir_error(self):
+        self._test_ondisk_search_loop_listdir_error()
+
+    def test_ondisk_search_loop_listdir_error_legacy_durable(self):
+        self._test_ondisk_search_loop_listdir_error(legacy_durable=True)
 
     def test_exception_in_handle_close_quarantine(self):
         df = self._get_open_disk_file()
@@ -3574,7 +4277,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self._get_open_disk_file()
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertEqual(df.content_length, 1024)
+            if df.policy.policy_type == EC_POLICY:
+                expected = df.policy.pyeclib_driver.get_segment_info(
+                    1024, df.policy.ec_segment_size)['fragment_size']
+            else:
+                expected = 1024
+            self.assertEqual(df.content_length, expected)
 
     def test_diskfile_timestamp_not_open(self):
         df = self._simple_get_diskfile()
@@ -3660,9 +4368,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         with self.assertRaises(DiskFileNotOpen):
             df.content_type
 
-    def test_durable_timestamp(self):
+    def _do_test_durable_timestamp(self, legacy_durable):
         ts_1 = self.ts()
-        df = self._get_open_disk_file(ts=ts_1.internal)
+        df = self._simple_get_diskfile(frag_index=2)
+        write_diskfile(df, ts_1, legacy_durable=legacy_durable)
+        # get a new instance of the diskfile to ensure timestamp variable is
+        # set by the open() and not just the write operations
+        df = self._simple_get_diskfile(frag_index=2)
         with df.open():
             self.assertEqual(df.durable_timestamp, ts_1.internal)
         # verify durable timestamp does not change when metadata is written
@@ -3670,6 +4382,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df.write_metadata({'X-Timestamp': ts_2.internal})
         with df.open():
             self.assertEqual(df.durable_timestamp, ts_1.internal)
+
+    def test_durable_timestamp(self):
+        self._do_test_durable_timestamp(False)
 
     def test_durable_timestamp_not_open(self):
         df = self._simple_get_diskfile()
@@ -3725,14 +4440,18 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.conf['keep_cache_size'] = 16384
         self.conf['disk_chunk_size'] = 4096
 
-        df = self._get_open_disk_file(fsize=16385)
+        df = self._get_open_disk_file(fsize=163840)
         reader = df.reader()
         self.assertTrue(reader.can_zero_copy_send())
         with mock.patch("swift.obj.diskfile.drop_buffer_cache") as dbc:
             with mock.patch("swift.obj.diskfile.DROP_CACHE_WINDOW", 4095):
                 with open('/dev/null', 'w') as devnull:
                     reader.zero_copy_send(devnull.fileno())
-                self.assertEqual(len(dbc.mock_calls), 5)
+                if df.policy.policy_type == EC_POLICY:
+                    expected = 4 + 1
+                else:
+                    expected = (4 * 10) + 1
+                self.assertEqual(len(dbc.mock_calls), expected)
 
     def test_zero_copy_turns_off_when_md5_sockets_not_supported(self):
         if not self._system_can_zero_copy():
@@ -3844,6 +4563,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # Test cleanup when DiskFileNoSpace() is raised.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
+        df._use_linkat = False
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.Mock()
@@ -3866,6 +4586,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     os.strerror(errno.ENOENT)))
         _m_unlink = mock.Mock()
         df = self._simple_get_diskfile()
+        df._use_linkat = False
         data = '0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
@@ -3891,6 +4612,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # Test logging of os.unlink() failures.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
+        df._use_linkat = False
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.MagicMock(side_effect=OSError(errno.ENOENT,
@@ -3910,6 +4632,86 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         for line in error_lines:
             self.assertTrue(line.startswith("Error removing tempfile:"))
 
+    @requires_o_tmpfile_support
+    def test_get_tempfile_use_linkat_os_open_called(self):
+        df = self._simple_get_diskfile()
+        self.assertTrue(df._use_linkat)
+        _m_mkstemp = mock.MagicMock()
+        _m_os_open = mock.Mock(return_value=12345)
+        _m_mkc = mock.Mock()
+        with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
+            with mock.patch("swift.obj.diskfile.os.open", _m_os_open):
+                with mock.patch("swift.obj.diskfile.makedirs_count", _m_mkc):
+                    fd, tmppath = df._get_tempfile()
+        self.assertTrue(_m_mkc.called)
+        flags = O_TMPFILE | os.O_WRONLY
+        _m_os_open.assert_called_once_with(df._datadir, flags)
+        self.assertEqual(tmppath, None)
+        self.assertEqual(fd, 12345)
+        self.assertFalse(_m_mkstemp.called)
+
+    @requires_o_tmpfile_support
+    def test_get_tempfile_fallback_to_mkstemp(self):
+        df = self._simple_get_diskfile()
+        df._logger = debug_logger()
+        self.assertTrue(df._use_linkat)
+        for err in (errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL):
+            _m_open = mock.Mock(side_effect=OSError(err, os.strerror(err)))
+            _m_mkstemp = mock.MagicMock(return_value=(0, "blah"))
+            _m_mkc = mock.Mock()
+            with mock.patch("swift.obj.diskfile.os.open", _m_open):
+                with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
+                    with mock.patch("swift.obj.diskfile.makedirs_count",
+                                    _m_mkc):
+                        fd, tmppath = df._get_tempfile()
+            self.assertTrue(_m_mkc.called)
+            # Fallback should succeed and mkstemp() should be called.
+            self.assertTrue(_m_mkstemp.called)
+            self.assertEqual(tmppath, "blah")
+            # Despite fs not supporting O_TMPFILE, use_linkat should not change
+            self.assertTrue(df._use_linkat)
+            log = df._logger.get_lines_for_level('warning')
+            self.assertTrue(len(log) > 0)
+            self.assertTrue('O_TMPFILE' in log[-1])
+
+    @requires_o_tmpfile_support
+    def test_get_tmpfile_os_open_other_exceptions_are_raised(self):
+        df = self._simple_get_diskfile()
+        _m_open = mock.Mock(side_effect=OSError(errno.ENOSPC,
+                            os.strerror(errno.ENOSPC)))
+        _m_mkstemp = mock.MagicMock()
+        _m_mkc = mock.Mock()
+        with mock.patch("swift.obj.diskfile.os.open", _m_open):
+            with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
+                with mock.patch("swift.obj.diskfile.makedirs_count", _m_mkc):
+                    try:
+                        fd, tmppath = df._get_tempfile()
+                    except OSError as err:
+                        self.assertEqual(err.errno, errno.ENOSPC)
+                    else:
+                        self.fail("Expecting ENOSPC")
+        self.assertTrue(_m_mkc.called)
+        # mkstemp() should not be invoked.
+        self.assertFalse(_m_mkstemp.called)
+
+    @requires_o_tmpfile_support
+    def test_create_use_linkat_renamer_not_called(self):
+        df = self._simple_get_diskfile()
+        data = '0' * 100
+        metadata = {
+            'ETag': md5(data).hexdigest(),
+            'X-Timestamp': Timestamp(time()).internal,
+            'Content-Length': str(100),
+        }
+        _m_renamer = mock.Mock()
+        with mock.patch("swift.obj.diskfile.renamer", _m_renamer):
+            with df.create(size=100) as writer:
+                writer.write(data)
+                writer.put(metadata)
+                self.assertTrue(writer.put_succeeded)
+
+        self.assertFalse(_m_renamer.called)
+
 
 @patch_policies(test_policies)
 class TestDiskFile(DiskFileMixin, unittest.TestCase):
@@ -3922,41 +4724,10 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
     mgr_cls = diskfile.ECDiskFileManager
 
-    def test_commit_raises_DiskFileErrors(self):
-        scenarios = ((errno.ENOSPC, DiskFileNoSpace),
-                     (errno.EDQUOT, DiskFileNoSpace),
-                     (errno.ENOTDIR, DiskFileError),
-                     (errno.EPERM, DiskFileError))
-
-        # Check IOErrors from open() is handled
-        for err_number, expected_exception in scenarios:
-            io_error = IOError()
-            io_error.errno = err_number
-            mock_open = mock.MagicMock(side_effect=io_error)
-            df = self._simple_get_diskfile(account='a', container='c',
-                                           obj='o_%s' % err_number,
-                                           policy=POLICIES.default)
-            timestamp = Timestamp(time())
-            with df.create() as writer:
-                metadata = {
-                    'ETag': 'bogus_etag',
-                    'X-Timestamp': timestamp.internal,
-                    'Content-Length': '0',
-                }
-                writer.put(metadata)
-                with mock.patch('six.moves.builtins.open', mock_open):
-                    self.assertRaises(expected_exception,
-                                      writer.commit,
-                                      timestamp)
-            dl = os.listdir(df._datadir)
-            self.assertEqual(1, len(dl), dl)
-            rmtree(df._datadir)
-
-        # Check OSError from fsync() is handled
-        mock_fsync = mock.MagicMock(side_effect=OSError)
+    def _test_commit_raises_DiskFileError_for_rename_error(self, fake_err):
         df = self._simple_get_diskfile(account='a', container='c',
-                                       obj='o_fsync_error')
-
+                                       obj='o_rename_err',
+                                       policy=POLICIES.default)
         timestamp = Timestamp(time())
         with df.create() as writer:
             metadata = {
@@ -3965,50 +4736,54 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 'Content-Length': '0',
             }
             writer.put(metadata)
-            with mock.patch('swift.obj.diskfile.fsync', mock_fsync):
-                self.assertRaises(DiskFileError,
-                                  writer.commit, timestamp)
+            with mock.patch('swift.obj.diskfile.os.rename',
+                            side_effect=fake_err):
+                with self.assertRaises(DiskFileError) as cm:
+                    writer.commit(timestamp)
+        dl = os.listdir(df._datadir)
+        datafile = _make_datafilename(
+            timestamp, POLICIES.default, frag_index=2, durable=False)
+        self.assertEqual([datafile], dl)
+        return df, cm.exception
 
-    def test_commit_fsync_dir_raises_DiskFileErrors(self):
-        scenarios = ((errno.ENOSPC, DiskFileNoSpace),
-                     (errno.EDQUOT, DiskFileNoSpace),
-                     (errno.ENOTDIR, DiskFileError),
-                     (errno.EPERM, DiskFileError))
+    def test_commit_raises_DiskFileError_for_rename_ENOSPC_IOError(self):
+        df, exc = self._test_commit_raises_DiskFileError_for_rename_error(
+            IOError(errno.ENOSPC, 'ENOSPC'))
+        self.assertIsInstance(exc, DiskFileNoSpace)
+        self.assertIn('No space left on device', str(exc))
+        self.assertIn('No space left on device',
+                      df.manager.logger.get_lines_for_level('error')[0])
+        self.assertFalse(df.manager.logger.get_lines_for_level('error')[1:])
 
-        # Check IOErrors from fsync_dir() is handled
-        for err_number, expected_exception in scenarios:
-            io_error = IOError(err_number, os.strerror(err_number))
-            mock_open = mock.MagicMock(side_effect=io_error)
-            mock_io_error = mock.MagicMock(side_effect=io_error)
-            df = self._simple_get_diskfile(account='a', container='c',
-                                           obj='o_%s' % err_number,
-                                           policy=POLICIES.default)
-            timestamp = Timestamp(time())
-            with df.create() as writer:
-                metadata = {
-                    'ETag': 'bogus_etag',
-                    'X-Timestamp': timestamp.internal,
-                    'Content-Length': '0',
-                }
-                writer.put(metadata)
-                with mock.patch('six.moves.builtins.open', mock_open):
-                    self.assertRaises(expected_exception,
-                                      writer.commit,
-                                      timestamp)
-                with mock.patch('swift.obj.diskfile.fsync_dir', mock_io_error):
-                    self.assertRaises(expected_exception,
-                                      writer.commit,
-                                      timestamp)
-            dl = os.listdir(df._datadir)
-            self.assertEqual(2, len(dl), dl)
-            rmtree(df._datadir)
+    def test_commit_raises_DiskFileError_for_rename_EDQUOT_IOError(self):
+        df, exc = self._test_commit_raises_DiskFileError_for_rename_error(
+            IOError(errno.EDQUOT, 'EDQUOT'))
+        self.assertIsInstance(exc, DiskFileNoSpace)
+        self.assertIn('No space left on device', str(exc))
+        self.assertIn('No space left on device',
+                      df.manager.logger.get_lines_for_level('error')[0])
+        self.assertFalse(df.manager.logger.get_lines_for_level('error')[1:])
 
-        # Check OSError from fsync_dir() is handled
-        mock_os_error = mock.MagicMock(
-            side_effect=OSError(100, 'Some Error'))
+    def test_commit_raises_DiskFileError_for_rename_other_IOError(self):
+        df, exc = self._test_commit_raises_DiskFileError_for_rename_error(
+            IOError(21, 'Some other IO Error'))
+        self.assertIn('Problem making data file durable', str(exc))
+        self.assertIn('Problem making data file durable',
+                      df.manager.logger.get_lines_for_level('error')[0])
+        self.assertFalse(df.manager.logger.get_lines_for_level('error')[1:])
+
+    def test_commit_raises_DiskFileError_for_rename_OSError(self):
+        df, exc = self._test_commit_raises_DiskFileError_for_rename_error(
+            OSError(100, 'Some Error'))
+        self.assertIn('Problem making data file durable', str(exc))
+        self.assertIn('Problem making data file durable',
+                      df.manager.logger.get_lines_for_level('error')[0])
+        self.assertFalse(df.manager.logger.get_lines_for_level('error')[1:])
+
+    def _test_commit_raises_DiskFileError_for_fsync_dir_errors(self, fake_err):
         df = self._simple_get_diskfile(account='a', container='c',
-                                       obj='o_fsync_dir_error')
-
+                                       obj='o_fsync_dir_err',
+                                       policy=POLICIES.default)
         timestamp = Timestamp(time())
         with df.create() as writer:
             metadata = {
@@ -4017,16 +4792,34 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 'Content-Length': '0',
             }
             writer.put(metadata)
-            with mock.patch('swift.obj.diskfile.fsync_dir', mock_os_error):
-                self.assertRaises(DiskFileError,
-                                  writer.commit, timestamp)
+            with mock.patch('swift.obj.diskfile.fsync_dir',
+                            side_effect=fake_err):
+                with self.assertRaises(DiskFileError) as cm:
+                    writer.commit(timestamp)
+        dl = os.listdir(df._datadir)
+        datafile = _make_datafilename(
+            timestamp, POLICIES.default, frag_index=2, durable=True)
+        self.assertEqual([datafile], dl)
+        self.assertIn('Problem making data file durable', str(cm.exception))
+        self.assertIn('Problem making data file durable',
+                      df.manager.logger.get_lines_for_level('error')[0])
+        self.assertFalse(df.manager.logger.get_lines_for_level('error')[1:])
+
+    def test_commit_raises_DiskFileError_for_fsync_dir_IOError(self):
+        self._test_commit_raises_DiskFileError_for_fsync_dir_errors(
+            IOError(21, 'Some IO Error'))
+
+    def test_commit_raises_DiskFileError_for_fsync_dir_OSError(self):
+        self._test_commit_raises_DiskFileError_for_fsync_dir_errors(
+            OSError(100, 'Some Error'))
 
     def test_data_file_has_frag_index(self):
         policy = POLICIES.default
         for good_value in (0, '0', 2, '2', 14, '14'):
             # frag_index set by constructor arg
-            ts = self.ts().internal
-            expected = ['%s#%s.data' % (ts, good_value), '%s.durable' % ts]
+            ts = self.ts()
+            expected = [_make_datafilename(
+                ts, policy, good_value, durable=True)]
             df = self._get_open_disk_file(ts=ts, policy=policy,
                                           frag_index=good_value)
             self.assertEqual(expected, sorted(os.listdir(df._datadir)))
@@ -4035,8 +4828,9 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             self.assertEqual(int(good_value), int(actual))
 
             # metadata value overrides the constructor arg
-            ts = self.ts().internal
-            expected = ['%s#%s.data' % (ts, good_value), '%s.durable' % ts]
+            ts = self.ts()
+            expected = [_make_datafilename(
+                ts, policy, good_value, durable=True)]
             meta = {'X-Object-Sysmeta-Ec-Frag-Index': good_value}
             df = self._get_open_disk_file(ts=ts, policy=policy,
                                           frag_index='99',
@@ -4046,8 +4840,9 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             self.assertEqual(int(good_value), int(actual))
 
             # metadata value alone is sufficient
-            ts = self.ts().internal
-            expected = ['%s#%s.data' % (ts, good_value), '%s.durable' % ts]
+            ts = self.ts()
+            expected = [_make_datafilename(
+                ts, policy, good_value, durable=True)]
             meta = {'X-Object-Sysmeta-Ec-Frag-Index': good_value}
             df = self._get_open_disk_file(ts=ts, policy=policy,
                                           frag_index=None,
@@ -4062,8 +4857,9 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         policy = POLICIES.default
         orig_frag_index = 14
         # frag_index set by constructor arg
-        ts = self.ts().internal
-        expected = ['%s#%s.data' % (ts, orig_frag_index), '%s.durable' % ts]
+        ts = self.ts()
+        expected = [_make_datafilename(
+            ts, policy, frag_index=orig_frag_index, durable=True)]
         df = self._get_open_disk_file(ts=ts, policy=policy, obj_name='my_obj',
                                       frag_index=orig_frag_index)
         self.assertEqual(expected, sorted(os.listdir(df._datadir)))
@@ -4080,12 +4876,12 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         self.assertEqual(int(orig_frag_index), int(actual))
 
         # write metadata to a meta file
-        ts = self.ts().internal
-        metadata = {'X-Timestamp': ts,
+        ts = self.ts()
+        metadata = {'X-Timestamp': ts.internal,
                     'X-Object-Meta-Fruit': 'kiwi'}
         df.write_metadata(metadata)
         # sanity check we did write a meta file
-        expected.append('%s.meta' % ts)
+        expected.append('%s.meta' % ts.internal)
         actual_files = sorted(os.listdir(df._datadir))
         self.assertEqual(expected, actual_files)
 
@@ -4102,8 +4898,8 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         self.assertEqual(int(orig_frag_index), int(actual))
 
         # attempt to overwrite frag index sysmeta
-        ts = self.ts().internal
-        metadata = {'X-Timestamp': ts,
+        ts = self.ts()
+        metadata = {'X-Timestamp': ts.internal,
                     'X-Object-Sysmeta-Ec-Frag-Index': 99,
                     'X-Object-Meta-Fruit': 'apple'}
         df.write_metadata(metadata)
@@ -4167,50 +4963,43 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         ts = self.ts()
         for frag_index in (1, 2):
             df = self._simple_get_diskfile(frag_index=frag_index)
-            with df.create() as writer:
-                data = 'test data'
-                writer.write(data)
-                metadata = {
-                    'ETag': md5(data).hexdigest(),
-                    'X-Timestamp': ts.internal,
-                    'Content-Length': len(data),
-                }
-                writer.put(metadata)
-                writer.commit(ts)
+            write_diskfile(df, ts)
 
         # sanity
         self.assertEqual(sorted(os.listdir(df._datadir)), [
-            ts.internal + '#1.data',
-            ts.internal + '#2.data',
-            ts.internal + '.durable',
+            ts.internal + '#1#d.data',
+            ts.internal + '#2#d.data',
         ])
         df.purge(ts, 2)
-        self.assertEqual(sorted(os.listdir(df._datadir)), [
-            ts.internal + '#1.data',
-            ts.internal + '.durable',
+        self.assertEqual(os.listdir(df._datadir), [
+            ts.internal + '#1#d.data',
         ])
 
     def test_purge_last_fragment_index(self):
         ts = self.ts()
         frag_index = 0
         df = self._simple_get_diskfile(frag_index=frag_index)
-        with df.create() as writer:
-            data = 'test data'
-            writer.write(data)
-            metadata = {
-                'ETag': md5(data).hexdigest(),
-                'X-Timestamp': ts.internal,
-                'Content-Length': len(data),
-            }
-            writer.put(metadata)
-            writer.commit(ts)
+        write_diskfile(df, ts)
+        # sanity
+        self.assertEqual(os.listdir(df._datadir), [
+            ts.internal + '#0#d.data',
+        ])
+        df.purge(ts, frag_index)
+        self.assertFalse(os.listdir(df._datadir))
 
+    def test_purge_last_fragment_index_legacy_durable(self):
+        # a legacy durable file doesn't get purged in case another fragment is
+        # relying on it for durability
+        ts = self.ts()
+        frag_index = 0
+        df = self._simple_get_diskfile(frag_index=frag_index)
+        write_diskfile(df, ts, legacy_durable=True)
         # sanity
         self.assertEqual(sorted(os.listdir(df._datadir)), [
             ts.internal + '#0.data',
             ts.internal + '.durable',
         ])
-        df.purge(ts, 0)
+        df.purge(ts, frag_index)
         self.assertEqual(sorted(os.listdir(df._datadir)), [
             ts.internal + '.durable',
         ])
@@ -4219,27 +5008,16 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         ts = self.ts()
         frag_index = 7
         df = self._simple_get_diskfile(frag_index=frag_index)
-        with df.create() as writer:
-            data = 'test data'
-            writer.write(data)
-            metadata = {
-                'ETag': md5(data).hexdigest(),
-                'X-Timestamp': ts.internal,
-                'Content-Length': len(data),
-            }
-            writer.put(metadata)
-            writer.commit(ts)
+        write_diskfile(df, ts)
 
         # sanity
-        self.assertEqual(sorted(os.listdir(df._datadir)), [
-            ts.internal + '#7.data',
-            ts.internal + '.durable',
+        self.assertEqual(os.listdir(df._datadir), [
+            ts.internal + '#7#d.data',
         ])
         df.purge(ts, 3)
         # no effect
-        self.assertEqual(sorted(os.listdir(df._datadir)), [
-            ts.internal + '#7.data',
-            ts.internal + '.durable',
+        self.assertEqual(os.listdir(df._datadir), [
+            ts.internal + '#7#d.data',
         ])
 
     def test_purge_old_timestamp_frag_index(self):
@@ -4247,27 +5025,16 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         ts = self.ts()
         frag_index = 1
         df = self._simple_get_diskfile(frag_index=frag_index)
-        with df.create() as writer:
-            data = 'test data'
-            writer.write(data)
-            metadata = {
-                'ETag': md5(data).hexdigest(),
-                'X-Timestamp': ts.internal,
-                'Content-Length': len(data),
-            }
-            writer.put(metadata)
-            writer.commit(ts)
+        write_diskfile(df, ts)
 
         # sanity
-        self.assertEqual(sorted(os.listdir(df._datadir)), [
-            ts.internal + '#1.data',
-            ts.internal + '.durable',
+        self.assertEqual(os.listdir(df._datadir), [
+            ts.internal + '#1#d.data',
         ])
         df.purge(old_ts, 1)
         # no effect
-        self.assertEqual(sorted(os.listdir(df._datadir)), [
-            ts.internal + '#1.data',
-            ts.internal + '.durable',
+        self.assertEqual(os.listdir(df._datadir), [
+            ts.internal + '#1#d.data',
         ])
 
     def test_purge_tombstone(self):
@@ -4322,7 +5089,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         # no effect
         self.assertEqual(sorted(os.listdir(df._datadir)), [])
 
-    def test_open_most_recent_durable(self):
+    def _do_test_open_most_recent_durable(self, legacy_durable):
         policy = POLICIES.default
         df_mgr = self.df_router[policy]
 
@@ -4330,17 +5097,14 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                                  'a', 'c', 'o', policy=policy)
 
         ts = self.ts()
-        with df.create() as writer:
-            data = 'test data'
-            writer.write(data)
-            metadata = {
-                'ETag': md5(data).hexdigest(),
-                'X-Timestamp': ts.internal,
-                'Content-Length': len(data),
-                'X-Object-Sysmeta-Ec-Frag-Index': 3,
-            }
-            writer.put(metadata)
-            writer.commit(ts)
+        write_diskfile(df, ts, frag_index=3,
+                       legacy_durable=legacy_durable)
+        metadata = {
+            'ETag': md5('test data').hexdigest(),
+            'X-Timestamp': ts.internal,
+            'Content-Length': str(len('test data')),
+            'X-Object-Sysmeta-Ec-Frag-Index': '3',
+        }
 
         # add some .meta stuff
         extra_meta = {
@@ -4361,22 +5125,20 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         df = df_mgr.get_diskfile(self.existing_device, '0',
                                  'a', 'c', 'o', policy=policy)
         ts = self.ts()
-        with df.create() as writer:
-            data = 'test data'
-            writer.write(data)
-            new_metadata = {
-                'ETag': md5(data).hexdigest(),
-                'X-Timestamp': ts.internal,
-                'Content-Length': len(data),
-                'X-Object-Sysmeta-Ec-Frag-Index': 3,
-            }
-            writer.put(new_metadata)
-            # N.B. don't make it durable
+        write_diskfile(df, ts, frag_index=3, commit=False,
+                       legacy_durable=legacy_durable)
+        # N.B. don't make it durable
 
         # and we still get the old metadata (same as if no .data!)
         df = df_mgr.get_diskfile(self.existing_device, '0',
                                  'a', 'c', 'o', policy=policy)
         self.assertEqual(metadata, df.read_metadata())
+
+    def test_open_most_recent_durable(self):
+        self._do_test_open_most_recent_durable(False)
+
+    def test_open_most_recent_durable_legacy(self):
+        self._do_test_open_most_recent_durable(True)
 
     def test_open_most_recent_missing_durable(self):
         policy = POLICIES.default
@@ -4389,18 +5151,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
         # now create a datafile missing durable
         ts = self.ts()
-        with df.create() as writer:
-            data = 'test data'
-            writer.write(data)
-            new_metadata = {
-                'ETag': md5(data).hexdigest(),
-                'X-Timestamp': ts.internal,
-                'Content-Length': len(data),
-                'X-Object-Sysmeta-Ec-Frag-Index': 3,
-            }
-            writer.put(new_metadata)
-            # N.B. don't make it durable
-
+        write_diskfile(df, ts, frag_index=3, commit=False)
         # add some .meta stuff
         extra_meta = {
             'X-Object-Meta-Foo': 'Bar',
@@ -4416,7 +5167,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                                  frag_index=3)
         self.assertRaises(DiskFileNotExist, df.read_metadata)
 
-        # sanity, withtout the frag_index kwarg
+        # sanity, without the frag_index kwarg
         df = df_mgr.get_diskfile(self.existing_device, '0',
                                  'a', 'c', 'o', policy=policy)
         self.assertRaises(DiskFileNotExist, df.read_metadata)
@@ -4436,16 +5187,27 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         except DiskFileNotExist:
             pass
 
-        # sanity check: should have 2* .data, .durable, .data
+        # sanity check: should have 3* .data
         files = os.listdir(df._datadir)
-        self.assertEqual(4, len(files))
+        self.assertEqual(3, len(files))
         with df.open():
             self.assertEqual(df.fragments, {ts_1: [0, 2], ts_2: [3]})
 
-        # verify frags available even if open fails e.g. if .durable missing
-        for f in filter(lambda f: f.endswith('.durable'), files):
-            os.remove(os.path.join(df._datadir, f))
+    def test_fragments_available_when_not_durable(self):
+        # verify frags available even if open fails e.g. if none are durable
+        ts_1 = self.ts()
+        ts_2 = self.ts()
+        for ts, fi in ((ts_1, 0), (ts_1, 2), (ts_2, 3)):
+            try:
+                df = self._get_open_disk_file(
+                    ts=ts, frag_index=fi, commit=False)
+            except DiskFileNotExist:
+                pass
+        df = self._simple_get_diskfile()
 
+        # sanity check: should have 3* .data
+        files = os.listdir(df._datadir)
+        self.assertEqual(3, len(files))
         self.assertRaises(DiskFileNotExist, df.open)
         self.assertEqual(df.fragments, {ts_1: [0, 2], ts_2: [3]})
 
@@ -4453,7 +5215,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         df = self._simple_get_diskfile()
         self.assertIsNone(df.fragments)
 
-    def test_durable_timestamp_no_durable_file(self):
+    def test_durable_timestamp_when_not_durable(self):
         try:
             self._get_open_disk_file(self.ts().internal, commit=False)
         except DiskFileNotExist:
@@ -4482,10 +5244,375 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         except DiskFileNotExist:
             pass
         df = self._simple_get_diskfile()
-        # sanity check - one .durable file, two .data files
-        self.assertEqual(3, len(os.listdir(df._datadir)))
+        # sanity check - two .data files
+        self.assertEqual(2, len(os.listdir(df._datadir)))
         df.open()
         self.assertEqual(ts1, df.durable_timestamp)
+
+    def test_durable_timestamp_legacy_durable(self):
+        self._do_test_durable_timestamp(True)
+
+    def _test_open_with_fragment_preferences(self, legacy_durable=False):
+        policy = POLICIES.default
+        df_mgr = self.df_router[policy]
+
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+
+        ts_1, ts_2, ts_3, ts_4 = (self.ts() for _ in range(4))
+
+        # create two durable frags, first with index 0
+        frag_0_metadata = write_diskfile(df, ts_1, frag_index=0,
+                                         legacy_durable=legacy_durable)
+
+        # second with index 3
+        frag_3_metadata = write_diskfile(df, ts_1, frag_index=3,
+                                         legacy_durable=legacy_durable)
+
+        # sanity check: should have 2 * .data plus possibly a .durable
+        self.assertEqual(3 if legacy_durable else 2,
+                         len(os.listdir(df._datadir)))
+
+        # add some .meta stuff
+        meta_1_metadata = {
+            'X-Object-Meta-Foo': 'Bar',
+            'X-Timestamp': ts_2.internal,
+        }
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        df.write_metadata(meta_1_metadata)
+        # sanity check: should have 2 * .data, possibly .durable, .meta
+        self.assertEqual(4 if legacy_durable else 3,
+                         len(os.listdir(df._datadir)))
+
+        # sanity: should get frag index 3
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        expected = dict(frag_3_metadata)
+        expected.update(meta_1_metadata)
+        self.assertEqual(expected, df.read_metadata())
+
+        # add a newer datafile for frag index 2
+        # N.B. don't make it durable - skip call to commit()
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        frag_2_metadata = write_diskfile(df, ts_3, frag_index=2, commit=False,
+                                         data='new test data',
+                                         legacy_durable=legacy_durable)
+        # sanity check: should have 2* .data, possibly .durable, .meta, .data
+        self.assertEqual(5 if legacy_durable else 4,
+                         len(os.listdir(df._datadir)))
+
+        # sanity check: with no frag preferences we get old metadata
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_2.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # with empty frag preferences we get metadata from newer non-durable
+        # data file
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=[])
+        self.assertEqual(frag_2_metadata, df.read_metadata())
+        self.assertEqual(ts_3.internal, df.timestamp)
+        self.assertEqual(ts_3.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # check we didn't destroy any potentially valid data by opening the
+        # non-durable data file
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+
+        # now add some newer .meta stuff which should replace older .meta
+        meta_2_metadata = {
+            'X-Object-Meta-Foo': 'BarBarBarAnne',
+            'X-Timestamp': ts_4.internal,
+        }
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        df.write_metadata(meta_2_metadata)
+        # sanity check: should have 2 * .data, possibly .durable, .data, .meta
+        self.assertEqual(5 if legacy_durable else 4,
+                         len(os.listdir(df._datadir)))
+
+        # sanity check: with no frag preferences we get newer metadata applied
+        # to durable data file
+        expected = dict(frag_3_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # with empty frag preferences we still get metadata from newer .meta
+        # but applied to non-durable data file
+        expected = dict(frag_2_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=[])
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_3.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # check we didn't destroy any potentially valid data by opening the
+        # non-durable data file
+        expected = dict(frag_3_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # prefer frags at ts_1, exclude no indexes, expect highest frag index
+        prefs = [{'timestamp': ts_1.internal, 'exclude': []},
+                 {'timestamp': ts_2.internal, 'exclude': []},
+                 {'timestamp': ts_3.internal, 'exclude': []}]
+        expected = dict(frag_3_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # prefer frags at ts_1, exclude frag index 3 so expect frag index 0
+        prefs = [{'timestamp': ts_1.internal, 'exclude': [3]},
+                 {'timestamp': ts_2.internal, 'exclude': []},
+                 {'timestamp': ts_3.internal, 'exclude': []}]
+        expected = dict(frag_0_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # now make ts_3 the preferred timestamp, excluded indexes don't exist
+        prefs = [{'timestamp': ts_3.internal, 'exclude': [4, 5, 6]},
+                 {'timestamp': ts_2.internal, 'exclude': []},
+                 {'timestamp': ts_1.internal, 'exclude': []}]
+        expected = dict(frag_2_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_3.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # now make ts_2 the preferred timestamp - there are no frags at ts_2,
+        # next preference is ts_3 but index 2 is excluded, then at ts_1 index 3
+        # is excluded so we get frag 0 at ts_1
+        prefs = [{'timestamp': ts_2.internal, 'exclude': [1]},
+                 {'timestamp': ts_3.internal, 'exclude': [2]},
+                 {'timestamp': ts_1.internal, 'exclude': [3]}]
+
+        expected = dict(frag_0_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+    def test_open_with_fragment_preferences_legacy_durable(self):
+        self._test_open_with_fragment_preferences(legacy_durable=True)
+
+    def test_open_with_fragment_preferences(self):
+        self._test_open_with_fragment_preferences(legacy_durable=False)
+
+    def test_open_with_bad_fragment_preferences(self):
+        policy = POLICIES.default
+        df_mgr = self.df_router[policy]
+
+        for bad in (
+            'ouch',
+            2,
+            [{'timestamp': '1234.5678', 'excludes': [1]}, {}],
+            [{'timestamp': 'not a timestamp', 'excludes': [1, 2]}],
+            [{'timestamp': '1234.5678', 'excludes': [1, -1]}],
+            [{'timestamp': '1234.5678', 'excludes': 1}],
+            [{'timestamp': '1234.5678'}],
+            [{'excludes': [1, 2]}]
+
+        ):
+            try:
+                df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                    policy=policy, frag_prefs=bad)
+                self.fail('Expected DiskFileError for bad frag_prefs: %r'
+                          % bad)
+            except DiskFileError as e:
+                self.assertIn('frag_prefs', str(e))
+
+    def test_disk_file_app_iter_ranges_checks_only_aligned_frag_data(self):
+        policy = POLICIES.default
+        frag_size = policy.fragment_size
+        # make sure there are two fragment size worth of data on disk
+        data = 'ab' * policy.ec_segment_size
+        df, df_data = self._create_test_file(data)
+        quarantine_msgs = []
+        reader = df.reader(_quarantine_hook=quarantine_msgs.append)
+        # each range uses a fresh reader app_iter_range which triggers a disk
+        # read at the range offset - make sure each of those disk reads will
+        # fetch an amount of data from disk that is greater than but not equal
+        # to a fragment size
+        reader._disk_chunk_size = int(frag_size * 1.5)
+        with mock.patch.object(
+                reader._diskfile.policy.pyeclib_driver, 'get_metadata')\
+                as mock_get_metadata:
+            it = reader.app_iter_ranges(
+                [(0, 10), (10, 20),
+                 (frag_size + 20, frag_size + 30)],
+                'plain/text', '\r\n--someheader\r\n', len(df_data))
+            value = ''.join(it)
+        # check that only first range which starts at 0 triggers a frag check
+        self.assertEqual(1, mock_get_metadata.call_count)
+        self.assertIn(df_data[:10], value)
+        self.assertIn(df_data[10:20], value)
+        self.assertIn(df_data[frag_size + 20:frag_size + 30], value)
+        self.assertEqual(quarantine_msgs, [])
+
+    def test_reader_quarantines_corrupted_ec_archive(self):
+        # This has same purpose as
+        # TestAuditor.test_object_audit_checks_EC_fragments just making
+        # sure that checks happen in DiskFileReader layer.
+        policy = POLICIES.default
+        df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+                                             timestamp=self.ts())
+
+        def do_test(corrupted_frag_body, expected_offset, expected_read):
+            # expected_offset is offset at which corruption should be reported
+            # expected_read is number of bytes that should be read before the
+            # exception is raised
+            ts = self.ts()
+            write_diskfile(df, ts, corrupted_frag_body)
+
+            # at the open for the diskfile, no error occurred
+            # reading first corrupt frag is sufficient to detect the corruption
+            df.open()
+            with self.assertRaises(DiskFileQuarantined) as cm:
+                reader = df.reader()
+                reader._disk_chunk_size = int(policy.fragment_size)
+                bytes_read = 0
+                for chunk in reader:
+                    bytes_read += len(chunk)
+
+            with self.assertRaises(DiskFileNotExist):
+                df.open()
+
+            self.assertEqual(expected_read, bytes_read)
+            self.assertEqual('Invalid EC metadata at offset 0x%x' %
+                             expected_offset, cm.exception.message)
+
+        # TODO with liberasurecode < 1.2.0 the EC metadata verification checks
+        # only the magic number at offset 59 bytes into the frag so we'll
+        # corrupt up to and including that. Once liberasurecode >= 1.2.0 is
+        # required we should be able to reduce the corruption length.
+        corruption_length = 64
+        # corrupted first frag can be detected
+        corrupted_frag_body = (' ' * corruption_length +
+                               df_data[corruption_length:])
+        do_test(corrupted_frag_body, 0, 0)
+
+        # corrupted the second frag can be also detected
+        corrupted_frag_body = (df_data + ' ' * corruption_length +
+                               df_data[corruption_length:])
+        do_test(corrupted_frag_body, len(df_data), len(df_data))
+
+        # if the second frag is shorter than frag size then corruption is
+        # detected when the reader is closed
+        corrupted_frag_body = (df_data + ' ' * corruption_length +
+                               df_data[corruption_length:-10])
+        do_test(corrupted_frag_body, len(df_data), len(corrupted_frag_body))
+
+    def test_reader_ec_exception_causes_quarantine(self):
+        policy = POLICIES.default
+
+        def do_test(exception):
+            df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+                                                 timestamp=self.ts())
+            df.manager.logger.clear()
+
+            with mock.patch.object(df.policy.pyeclib_driver, 'get_metadata',
+                                   side_effect=exception):
+                df.open()
+                with self.assertRaises(DiskFileQuarantined) as cm:
+                    for chunk in df.reader():
+                        pass
+
+            with self.assertRaises(DiskFileNotExist):
+                df.open()
+
+            self.assertEqual('Invalid EC metadata at offset 0x0',
+                             cm.exception.message)
+            log_lines = df.manager.logger.get_lines_for_level('warning')
+            self.assertIn('Quarantined object', log_lines[0])
+            self.assertIn('Invalid EC metadata at offset 0x0', log_lines[0])
+
+        do_test(pyeclib.ec_iface.ECInvalidFragmentMetadata('testing'))
+        do_test(pyeclib.ec_iface.ECBadFragmentChecksum('testing'))
+        do_test(pyeclib.ec_iface.ECInvalidParameter('testing'))
+
+    def test_reader_ec_exception_does_not_cause_quarantine(self):
+        # ECDriverError should not cause quarantine, only certain subclasses
+        policy = POLICIES.default
+
+        df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+                                             timestamp=self.ts())
+
+        with mock.patch.object(
+                df.policy.pyeclib_driver, 'get_metadata',
+                side_effect=pyeclib.ec_iface.ECDriverError('testing')):
+            df.open()
+            read_data = ''.join([d for d in df.reader()])
+        self.assertEqual(df_data, read_data)
+        log_lines = df.manager.logger.get_lines_for_level('warning')
+        self.assertIn('Problem checking EC fragment', log_lines[0])
+
+        df.open()  # not quarantined
+
+    def test_reader_frag_check_does_not_quarantine_if_its_not_binary(self):
+        # This may look weird but for super-safety, check the
+        # ECDiskFileReader._frag_check doesn't quarantine when non-binary
+        # type chunk incomming (that would occurre only from coding bug)
+        policy = POLICIES.default
+
+        df, df_data = self._create_test_file('x' * policy.ec_segment_size,
+                                             timestamp=self.ts())
+        df.open()
+        for invalid_type_chunk in (None, [], [[]], 1):
+            reader = df.reader()
+            reader._check_frag(invalid_type_chunk)
+
+        # None and [] are just skipped and [[]] and 1 are detected as invalid
+        # chunks
+        log_lines = df.manager.logger.get_lines_for_level('warning')
+        self.assertEqual(2, len(log_lines))
+        for log_line in log_lines:
+            self.assertIn(
+                'Unexpected fragment data type (not quarantined)', log_line)
+
+        df.open()  # not quarantined
 
 
 @patch_policies(with_ec_default=True)
@@ -4559,31 +5686,19 @@ class TestSuffixHashes(unittest.TestCase):
             self.policy = policy
             yield policy
 
-    def assertEqual(self, *args):
+    @contextmanager
+    def policy_in_message(self):
         try:
-            unittest.TestCase.assertEqual(self, *args)
+            yield
         except AssertionError as err:
             if not self.policy:
                 raise
             policy_trailer = '\n\n... for policy %r' % self.policy
             raise AssertionError(str(err) + policy_trailer)
 
-    def _datafilename(self, timestamp, policy, frag_index=None):
-        if frag_index is None:
-            frag_index = randint(0, 9)
-        filename = timestamp.internal
-        if policy.policy_type == EC_POLICY:
-            filename += '#%d' % frag_index
-        filename += '.data'
-        return filename
-
-    def _metafilename(self, meta_timestamp, ctype_timestamp=None):
-        filename = meta_timestamp.internal
-        if ctype_timestamp is not None:
-            delta = meta_timestamp.raw - ctype_timestamp.raw
-            filename = '%s-%x' % (filename, delta)
-        filename += '.meta'
-        return filename
+    def assertEqual(self, *args):
+        with self.policy_in_message():
+            unittest.TestCase.assertEqual(self, *args)
 
     def check_cleanup_ondisk_files(self, policy, input_files, output_files):
         orig_unlink = os.unlink
@@ -4618,7 +5733,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_files_purge_data_newer_ts(self):
         for policy in self.iter_policies():
             # purge .data if there's a newer .ts
-            file1 = self._datafilename(self.ts(), policy)
+            file1 = _make_datafilename(self.ts(), policy)
             file2 = self.ts().internal + '.ts'
             file_list = [file1, file2]
             self.check_cleanup_ondisk_files(policy, file_list, [file2])
@@ -4629,7 +5744,7 @@ class TestSuffixHashes(unittest.TestCase):
             file1 = self.ts().internal + '.ts'
             file2 = self.ts().internal + '.ts'
             timestamp = self.ts()
-            file3 = self._datafilename(timestamp, policy)
+            file3 = _make_datafilename(timestamp, policy, durable=False)
             file_list = [file1, file2, file3]
             expected = {
                 # no durable datafile means you can't get rid of the
@@ -4639,27 +5754,36 @@ class TestSuffixHashes(unittest.TestCase):
             }[policy.policy_type]
             self.check_cleanup_ondisk_files(policy, file_list, expected)
 
+    def _do_test_cleanup_ondisk_files_purge_ts_newer_data(
+            self, policy, legacy_durable=False):
+        # purge .ts if there's a newer .data
+        file1 = self.ts().internal + '.ts'
+        timestamp = self.ts()
+        file2 = _make_datafilename(
+            timestamp, policy, durable=not legacy_durable)
+        file_list = [file1, file2]
+        expected = [file2]
+        if policy.policy_type == EC_POLICY and legacy_durable:
+            durable_file = timestamp.internal + '.durable'
+            file_list.append(durable_file)
+            expected.insert(0, durable_file)
+        self.check_cleanup_ondisk_files(policy, file_list, expected)
+
     def test_cleanup_ondisk_files_purge_ts_newer_data(self):
         for policy in self.iter_policies():
-            # purge .ts if there's a newer .data
-            file1 = self.ts().internal + '.ts'
-            timestamp = self.ts()
-            file2 = self._datafilename(timestamp, policy)
-            file_list = [file1, file2]
+            self._do_test_cleanup_ondisk_files_purge_ts_newer_data(policy)
+
+    def test_cleanup_ondisk_files_purge_ts_newer_data_and_legacy_durable(self):
+        for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                durable_file = timestamp.internal + '.durable'
-                file_list.append(durable_file)
-            expected = {
-                EC_POLICY: [durable_file, file2],
-                REPL_POLICY: [file2],
-            }[policy.policy_type]
-            self.check_cleanup_ondisk_files(policy, file_list, expected)
+                self._do_test_cleanup_ondisk_files_purge_ts_newer_data(
+                    policy, legacy_durable=True)
 
     def test_cleanup_ondisk_files_purge_older_ts(self):
         for policy in self.iter_policies():
             file1 = self.ts().internal + '.ts'
             file2 = self.ts().internal + '.ts'
-            file3 = self._datafilename(self.ts(), policy)
+            file3 = _make_datafilename(self.ts(), policy, durable=False)
             file4 = self.ts().internal + '.meta'
             expected = {
                 # no durable means we can only throw out things before
@@ -4671,24 +5795,34 @@ class TestSuffixHashes(unittest.TestCase):
             file_list = [file1, file2, file3, file4]
             self.check_cleanup_ondisk_files(policy, file_list, expected)
 
+    def _do_test_cleanup_ondisk_files_keep_meta_data_purge_ts(
+            self, policy, legacy_durable=False):
+        file1 = self.ts().internal + '.ts'
+        file2 = self.ts().internal + '.ts'
+        timestamp = self.ts()
+        file3 = _make_datafilename(
+            timestamp, policy, durable=not legacy_durable)
+        file_list = [file1, file2, file3]
+        expected = [file3]
+        if policy.policy_type == EC_POLICY and legacy_durable:
+            durable_filename = timestamp.internal + '.durable'
+            file_list.append(durable_filename)
+            expected.insert(0, durable_filename)
+        file4 = self.ts().internal + '.meta'
+        file_list.append(file4)
+        expected.insert(0, file4)
+        # keep .meta and .data if meta newer than data and purge .ts
+        self.check_cleanup_ondisk_files(policy, file_list, expected)
+
     def test_cleanup_ondisk_files_keep_meta_data_purge_ts(self):
         for policy in self.iter_policies():
-            file1 = self.ts().internal + '.ts'
-            file2 = self.ts().internal + '.ts'
-            timestamp = self.ts()
-            file3 = self._datafilename(timestamp, policy)
-            file_list = [file1, file2, file3]
+            self._do_test_cleanup_ondisk_files_keep_meta_data_purge_ts(policy)
+
+    def test_cleanup_ondisk_files_keep_meta_data_purge_ts_legacy_durable(self):
+        for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                durable_filename = timestamp.internal + '.durable'
-                file_list.append(durable_filename)
-            file4 = self.ts().internal + '.meta'
-            file_list.append(file4)
-            # keep .meta and .data if meta newer than data and purge .ts
-            expected = {
-                EC_POLICY: [file4, durable_filename, file3],
-                REPL_POLICY: [file4, file3],
-            }[policy.policy_type]
-            self.check_cleanup_ondisk_files(policy, file_list, expected)
+                self._do_test_cleanup_ondisk_files_keep_meta_data_purge_ts(
+                    policy, legacy_durable=True)
 
     def test_cleanup_ondisk_files_keep_one_ts(self):
         for policy in self.iter_policies():
@@ -4700,9 +5834,9 @@ class TestSuffixHashes(unittest.TestCase):
 
     def test_cleanup_ondisk_files_multi_data_file(self):
         for policy in self.iter_policies():
-            file1 = self._datafilename(self.ts(), policy, 1)
-            file2 = self._datafilename(self.ts(), policy, 2)
-            file3 = self._datafilename(self.ts(), policy, 3)
+            file1 = _make_datafilename(self.ts(), policy, 1, durable=False)
+            file2 = _make_datafilename(self.ts(), policy, 2, durable=False)
+            file3 = _make_datafilename(self.ts(), policy, 3, durable=False)
             expected = {
                 # keep all non-durable datafiles
                 EC_POLICY: [file3, file2, file1],
@@ -4712,40 +5846,56 @@ class TestSuffixHashes(unittest.TestCase):
             file_list = [file1, file2, file3]
             self.check_cleanup_ondisk_files(policy, file_list, expected)
 
+    def _do_test_cleanup_ondisk_files_keeps_one_datafile(self, policy,
+                                                         legacy_durable=False):
+        timestamps = [self.ts() for i in range(3)]
+        file1 = _make_datafilename(timestamps[0], policy, 1,
+                                   durable=not legacy_durable)
+        file2 = _make_datafilename(timestamps[1], policy, 2,
+                                   durable=not legacy_durable)
+        file3 = _make_datafilename(timestamps[2], policy, 3,
+                                   durable=not legacy_durable)
+        file_list = [file1, file2, file3]
+        expected = [file3]
+        if policy.policy_type == EC_POLICY and legacy_durable:
+            for t in timestamps:
+                file_list.append(t.internal + '.durable')
+            expected.insert(0, file_list[-1])
+        self.check_cleanup_ondisk_files(policy, file_list, expected)
+
     def test_cleanup_ondisk_files_keeps_one_datafile(self):
         for policy in self.iter_policies():
-            timestamps = [self.ts() for i in range(3)]
-            file1 = self._datafilename(timestamps[0], policy, 1)
-            file2 = self._datafilename(timestamps[1], policy, 2)
-            file3 = self._datafilename(timestamps[2], policy, 3)
-            file_list = [file1, file2, file3]
+            self._do_test_cleanup_ondisk_files_keeps_one_datafile(policy)
+
+    def test_cleanup_ondisk_files_keeps_one_datafile_and_legacy_durable(self):
+        for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                for t in timestamps:
-                    file_list.append(t.internal + '.durable')
-                latest_durable = file_list[-1]
-            expected = {
-                # keep latest durable and datafile
-                EC_POLICY: [latest_durable, file3],
-                # keep only latest of multiple .data files
-                REPL_POLICY: [file3]
-            }[policy.policy_type]
-            self.check_cleanup_ondisk_files(policy, file_list, expected)
+                self._do_test_cleanup_ondisk_files_keeps_one_datafile(
+                    policy, legacy_durable=True)
+
+    def _do_test_cleanup_ondisk_files_keep_one_meta(self, policy,
+                                                    legacy_durable=False):
+        # keep only latest of multiple .meta files
+        t_data = self.ts()
+        file1 = _make_datafilename(t_data, policy, durable=not legacy_durable)
+        file2, file3 = [self.ts().internal + '.meta' for i in range(2)]
+        file_list = [file1, file2, file3]
+        expected = [file3, file1]
+        if policy.policy_type == EC_POLICY and legacy_durable:
+            durable_file = t_data.internal + '.durable'
+            file_list.append(durable_file)
+            expected.insert(1, durable_file)
+        self.check_cleanup_ondisk_files(policy, file_list, expected)
 
     def test_cleanup_ondisk_files_keep_one_meta(self):
         for policy in self.iter_policies():
-            # keep only latest of multiple .meta files
-            t_data = self.ts()
-            file1 = self._datafilename(t_data, policy)
-            file2, file3 = [self.ts().internal + '.meta' for i in range(2)]
-            file_list = [file1, file2, file3]
+            self._do_test_cleanup_ondisk_files_keep_one_meta(policy)
+
+    def test_cleanup_ondisk_files_keep_one_meta_legacy_durable(self):
+        for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                durable_file = t_data.internal + '.durable'
-                file_list.append(durable_file)
-            expected = {
-                EC_POLICY: [file3, durable_file, file1],
-                REPL_POLICY: [file3, file1]
-            }[policy.policy_type]
-            self.check_cleanup_ondisk_files(policy, file_list, expected)
+                self._do_test_cleanup_ondisk_files_keep_one_meta(
+                    policy, legacy_durable=True)
 
     def test_cleanup_ondisk_files_only_meta(self):
         for policy in self.iter_policies():
@@ -4765,7 +5915,7 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_files_purge_old_data_only(self):
         for policy in self.iter_policies():
             # Oldest .data will be purge, .meta and .ts won't be touched
-            file1 = self._datafilename(self.ts(), policy)
+            file1 = _make_datafilename(self.ts(), policy)
             file2 = self.ts().internal + '.ts'
             file3 = self.ts().internal + '.meta'
             file_list = [file1, file2, file3]
@@ -4791,18 +5941,24 @@ class TestSuffixHashes(unittest.TestCase):
     def test_cleanup_ondisk_files_keep_single_old_data(self):
         for policy in self.iter_policies():
             old_float = time() - (diskfile.ONE_WEEK + 1)
-            file1 = self._datafilename(Timestamp(old_float), policy)
+            file1 = _make_datafilename(
+                Timestamp(old_float), policy, durable=True)
             file_list = [file1]
+            self.check_cleanup_ondisk_files(policy, file_list, file_list)
+
+    def test_cleanup_ondisk_drops_old_non_durable_data(self):
+        for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                # for EC an isolated old .data file is removed, its useless
-                # without a .durable
+                old_float = time() - (diskfile.ONE_WEEK + 1)
+                file1 = _make_datafilename(
+                    Timestamp(old_float), policy, durable=False)
+                file_list = [file1]
+                # for EC an isolated old non-durable .data file is removed
                 expected = []
-            else:
-                # A single old .data file will not be removed
-                expected = file_list
-            self.check_cleanup_ondisk_files(policy, file_list, expected)
+                self.check_cleanup_ondisk_files(policy, file_list, expected)
 
     def test_cleanup_ondisk_files_drops_isolated_durable(self):
+        # check behaviour for legacy durable files
         for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
                 file1 = Timestamp(time()).internal + '.durable'
@@ -4848,7 +6004,7 @@ class TestSuffixHashes(unittest.TestCase):
         for policy in self.iter_policies():
             # Timestamp 1 makes the check routine pretend the file
             # disappeared after listdir before unlink.
-            file1 = self._datafilename(Timestamp(1), policy)
+            file1 = _make_datafilename(Timestamp(1), policy)
             file2 = '0000000002.00000.ts'
             file_list = [file1, file2]
             self.check_cleanup_ondisk_files(policy, file_list, [])
@@ -5052,6 +6208,64 @@ class TestSuffixHashes(unittest.TestCase):
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             self.assertEqual(hashes, {})
 
+    def test_hash_suffix_one_reclaim_tombstone_with_hash_pkl(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix_dir = os.path.dirname(df._datadir)
+            part_dir = os.path.dirname(suffix_dir)
+            hash_file = os.path.join(part_dir, diskfile.HASH_FILE)
+
+            # scale back reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write a tombstone that's just a *little* older
+            old_time = time() - 1001
+            timestamp = Timestamp(old_time)
+            df.delete(timestamp.internal)
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            # sanity
+            self.assertEqual(hashes, {})
+            self.assertFalse(os.path.exists(df._datadir))
+
+            hash_timestamp = os.stat(hash_file).st_mtime
+
+            # if hash.pkl exists, that .ts file is not reclaimed
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            df.delete(timestamp.internal)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            # This was a cached value so the value looks empty
+            self.assertEqual(hashes, {})
+            # and the hash.pkl is not touched
+            self.assertEqual(hash_timestamp, os.stat(hash_file).st_mtime)
+            # and we still have tombstone entry
+            tombstone = '%s.ts' % timestamp.internal
+            self.assertTrue(os.path.exists(df._datadir))
+            self.assertIn(tombstone, os.listdir(df._datadir))
+
+            # However if we call invalidate_hash for the suffix dir,
+            # get_hashes can reclaim the tombstone
+            with mock.patch('swift.obj.diskfile.lock_path'):
+                df_mgr.invalidate_hash(suffix_dir)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+            self.assertEqual(hashes, {})
+            # If we have no other objects in the suffix, get_hashes
+            # doesn't reclaim anything
+            self.assertTrue(os.path.exists(df._datadir))
+            self.assertIn(tombstone, os.listdir(df._datadir))
+            self.assertEqual(hash_timestamp, os.stat(hash_file).st_mtime)
+
+            # *BUT* if suffix value is given to recalc, it can force to recaim!
+            suffix = os.path.dirname(suffix_dir)
+            hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            self.assertFalse(os.path.exists(df._datadir))
+            # hash.pkl was updated
+            self.assertGreater(os.stat(hash_file).st_mtime, hash_timestamp)
+
     def test_hash_suffix_one_reclaim_and_one_valid_tombstone(self):
         for policy in self.iter_policies():
             paths, suffix = find_paths_with_matching_suffixes(2, 1)
@@ -5100,6 +6314,7 @@ class TestSuffixHashes(unittest.TestCase):
                     'Content-Length': len(test_data),
                 }
                 writer.put(metadata)
+                # note - no commit so data is non-durable
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             datafile_hash = md5({
                 EC_POLICY: timestamp.internal,
@@ -5108,7 +6323,7 @@ class TestSuffixHashes(unittest.TestCase):
             expected = {
                 REPL_POLICY: {suffix: datafile_hash},
                 EC_POLICY: {suffix: {
-                    # because there's no .durable file, we have no hash for
+                    # because there's no durable state, we have no hash for
                     # the None key - only the frag index for the data file
                     7: datafile_hash}},
             }[policy.policy_type]
@@ -5147,68 +6362,81 @@ class TestSuffixHashes(unittest.TestCase):
             found_files = os.listdir(df._datadir)
             self.assertEqual(found_files, [filename])
 
-    def test_hash_suffix_multi_file_ends_in_datafile(self):
-        for policy in self.iter_policies():
-            df_mgr = self.df_router[policy]
-            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=policy,
-                                     frag_index=4)
-            suffix = os.path.basename(os.path.dirname(df._datadir))
-            mkdirs(df._datadir)
-            now = time()
-            timestamp = None
-            # go behind the scenes and setup a bunch of weird file names
-            for tdiff in [500, 100, 10, 1]:
-                suffs = ['.meta', '.data']
-                if tdiff > 50:
-                    suffs.append('.ts')
-                if policy.policy_type == EC_POLICY:
-                    suffs.append('.durable')
-                for suff in suffs:
-                    timestamp = Timestamp(now - tdiff)
-                    filename = timestamp.internal
-                    if policy.policy_type == EC_POLICY and suff == '.data':
-                        filename += '#%s' % df._frag_index
-                    filename += suff
-                    open(os.path.join(df._datadir, filename), 'w').close()
-            meta_timestamp = Timestamp(now)
-            metadata_filename = meta_timestamp.internal + '.meta'
-            open(os.path.join(df._datadir, metadata_filename), 'w').close()
+    def _do_hash_suffix_multi_file_ends_in_datafile(self, policy,
+                                                    legacy_durable):
+        # if legacy_durable is True then synthesize legacy durable files
+        # instead of having a durable marker in the data file name
+        frag_index = 4
+        df_mgr = self.df_router[policy]
+        df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=policy,
+                                 frag_index=frag_index)
+        suffix = os.path.basename(os.path.dirname(df._datadir))
+        mkdirs(df._datadir)
+        now = time()
+        timestamp = None
+        # go behind the scenes and setup a bunch of weird file names
+        for tdiff in [500, 100, 10, 1]:
+            suffs = ['.meta', '.data']
+            if tdiff > 50:
+                suffs.append('.ts')
+            if policy.policy_type == EC_POLICY and legacy_durable:
+                suffs.append('.durable')
+            for suff in suffs:
+                timestamp = Timestamp(now - tdiff)
+                if suff == '.data':
+                    filename = _make_datafilename(
+                        timestamp, policy, frag_index,
+                        durable=not legacy_durable)
+                else:
+                    filename = timestamp.internal + suff
+                open(os.path.join(df._datadir, filename), 'w').close()
+        meta_timestamp = Timestamp(now)
+        metadata_filename = meta_timestamp.internal + '.meta'
+        open(os.path.join(df._datadir, metadata_filename), 'w').close()
 
-            # call get_hashes and it should clean things up
-            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+        # call get_hashes and it should clean up all but the most recent files
+        hashes = df_mgr.get_hashes('sda1', '0', [], policy)
 
-            data_filename = timestamp.internal
-            if policy.policy_type == EC_POLICY:
-                data_filename += '#%s' % df._frag_index
-            data_filename += '.data'
-            if policy.policy_type == EC_POLICY:
-                durable_filename = timestamp.internal + '.durable'
-                hasher = md5()
-                hasher.update(metadata_filename)
-                hasher.update(durable_filename)
-                expected = {
-                    suffix: {
-                        # metadata & durable updates are hashed separately
-                        None: hasher.hexdigest(),
-                        4: self.fname_to_ts_hash(data_filename),
-                    }
+        # calculate expected outcome
+        data_filename = _make_datafilename(
+            timestamp, policy, frag_index, durable=not legacy_durable)
+        expected_files = [data_filename, metadata_filename]
+        if policy.policy_type == EC_POLICY:
+            # note: expected hashes is same with or without legacy durable file
+            hasher = md5()
+            hasher.update(metadata_filename)
+            hasher.update(timestamp.internal + '.durable')
+            expected = {
+                suffix: {
+                    # metadata & durable updates are hashed separately
+                    None: hasher.hexdigest(),
+                    4: self.fname_to_ts_hash(data_filename),
                 }
-                expected_files = [data_filename, durable_filename,
-                                  metadata_filename]
-            elif policy.policy_type == REPL_POLICY:
-                hasher = md5()
-                hasher.update(metadata_filename)
-                hasher.update(data_filename)
-                expected = {suffix: hasher.hexdigest()}
-                expected_files = [data_filename, metadata_filename]
-            else:
-                self.fail('unknown policy type %r' % policy.policy_type)
-            msg = 'expected %r != %r for policy %r' % (
-                expected, hashes, policy)
-            self.assertEqual(hashes, expected, msg)
-            # only the meta and data should be left
-            self.assertEqual(sorted(os.listdir(df._datadir)),
-                             sorted(expected_files))
+            }
+            if legacy_durable:
+                expected_files.append(timestamp.internal + '.durable')
+        elif policy.policy_type == REPL_POLICY:
+            hasher = md5()
+            hasher.update(metadata_filename)
+            hasher.update(data_filename)
+            expected = {suffix: hasher.hexdigest()}
+        else:
+            self.fail('unknown policy type %r' % policy.policy_type)
+        self.assertEqual(hashes, expected)
+        # only the meta and data should be left
+        self.assertEqual(sorted(os.listdir(df._datadir)),
+                         sorted(expected_files))
+
+    def test_hash_suffix_multifile_ends_in_datafile(self):
+        for policy in self.iter_policies():
+            self._do_hash_suffix_multi_file_ends_in_datafile(
+                policy, legacy_durable=False)
+
+    def test_hash_suffix_multifile_ends_in_datafile_legacy_durable(self):
+        for policy in self.iter_policies():
+            if policy.policy_type == EC_POLICY:
+                self._do_hash_suffix_multi_file_ends_in_datafile(
+                    policy, legacy_durable=True)
 
     def _verify_get_hashes(self, filenames, ts_data, ts_meta, ts_ctype,
                            policy):
@@ -5226,6 +6454,8 @@ class TestSuffixHashes(unittest.TestCase):
         df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
                                  policy=policy, frag_index=4)
         suffix = os.path.basename(os.path.dirname(df._datadir))
+        partition_dir = os.path.dirname(os.path.dirname(df._datadir))
+        rmtree(partition_dir, ignore_errors=True)  # clean dir for each test
         mkdirs(df._datadir)
 
         # calculate expected result
@@ -5261,123 +6491,163 @@ class TestSuffixHashes(unittest.TestCase):
 
     def test_hash_suffix_with_older_content_type_in_meta(self):
         # single meta file having older content-type
-        for policy in self.iter_policies():
-            ts_data, ts_ctype, ts_meta = (
-                self.ts(), self.ts(), self.ts())
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_data, ts_ctype, ts_meta = (
+                    self.ts(), self.ts(), self.ts())
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_meta, ts_ctype)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_meta, ts_ctype)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_meta, ts_ctype, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_meta, ts_ctype, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_same_age_content_type_in_meta(self):
         # single meta file having same age content-type
-        for policy in self.iter_policies():
-            ts_data, ts_meta = (self.ts(), self.ts())
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_data, ts_meta = (self.ts(), self.ts())
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_meta, ts_meta)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_meta, ts_meta)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_meta, ts_meta, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_meta, ts_meta, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_obsolete_content_type_in_meta(self):
         # After rsync replication we could have a single meta file having
         # content-type older than a replicated data file
-        for policy in self.iter_policies():
-            ts_ctype, ts_data, ts_meta = (self.ts(), self.ts(), self.ts())
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_ctype, ts_data, ts_meta = (self.ts(), self.ts(), self.ts())
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_meta, ts_ctype)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_meta, ts_ctype)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_meta, None, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_meta, None, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_older_content_type_in_newer_meta(self):
         # After rsync replication we could have two meta files: newest
         # content-type is in newer meta file, older than newer meta file
-        for policy in self.iter_policies():
-            ts_data, ts_older_meta, ts_ctype, ts_newer_meta = (
-                self.ts() for _ in range(4))
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_data, ts_older_meta, ts_ctype, ts_newer_meta = (
+                    self.ts() for _ in range(4))
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_older_meta),
-                         self._metafilename(ts_newer_meta, ts_ctype)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_older_meta),
+                             _make_metafilename(ts_newer_meta, ts_ctype)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_newer_meta, ts_ctype, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_newer_meta, ts_ctype, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_same_age_content_type_in_newer_meta(self):
         # After rsync replication we could have two meta files: newest
         # content-type is in newer meta file, at same age as newer meta file
-        for policy in self.iter_policies():
-            ts_data, ts_older_meta, ts_newer_meta = (
-                self.ts() for _ in range(3))
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_data, ts_older_meta, ts_newer_meta = (
+                    self.ts() for _ in range(3))
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_newer_meta, ts_newer_meta)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_newer_meta, ts_newer_meta)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_newer_meta, ts_newer_meta, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_newer_meta, ts_newer_meta, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_older_content_type_in_older_meta(self):
         # After rsync replication we could have two meta files: newest
         # content-type is in older meta file, older than older meta file
-        for policy in self.iter_policies():
-            ts_data, ts_ctype, ts_older_meta, ts_newer_meta = (
-                self.ts() for _ in range(4))
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_data, ts_ctype, ts_older_meta, ts_newer_meta = (
+                    self.ts() for _ in range(4))
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_newer_meta),
-                         self._metafilename(ts_older_meta, ts_ctype)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_newer_meta),
+                             _make_metafilename(ts_older_meta, ts_ctype)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_newer_meta, ts_ctype, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_newer_meta, ts_ctype, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_same_age_content_type_in_older_meta(self):
         # After rsync replication we could have two meta files: newest
         # content-type is in older meta file, at same age as older meta file
-        for policy in self.iter_policies():
-            ts_data, ts_older_meta, ts_newer_meta = (
-                self.ts() for _ in range(3))
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_data, ts_older_meta, ts_newer_meta = (
+                    self.ts() for _ in range(3))
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_newer_meta),
-                         self._metafilename(ts_older_meta, ts_older_meta)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_newer_meta),
+                             _make_metafilename(ts_older_meta, ts_older_meta)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_newer_meta, ts_older_meta, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_newer_meta, ts_older_meta, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_with_obsolete_content_type_in_older_meta(self):
         # After rsync replication we could have two meta files: newest
         # content-type is in older meta file, but older than data file
-        for policy in self.iter_policies():
-            ts_ctype, ts_data, ts_older_meta, ts_newer_meta = (
-                self.ts() for _ in range(4))
+        def do_test(legacy_durable):
+            for policy in self.iter_policies():
+                ts_ctype, ts_data, ts_older_meta, ts_newer_meta = (
+                    self.ts() for _ in range(4))
 
-            filenames = [self._datafilename(ts_data, policy, frag_index=4),
-                         self._metafilename(ts_newer_meta),
-                         self._metafilename(ts_older_meta, ts_ctype)]
-            if policy.policy_type == EC_POLICY:
-                filenames.append(ts_data.internal + '.durable')
+                filenames = [_make_datafilename(ts_data, policy, frag_index=4,
+                                                durable=not legacy_durable),
+                             _make_metafilename(ts_newer_meta),
+                             _make_metafilename(ts_older_meta, ts_ctype)]
+                if policy.policy_type == EC_POLICY and legacy_durable:
+                    filenames.append(ts_data.internal + '.durable')
 
-            self._verify_get_hashes(
-                filenames, ts_data, ts_newer_meta, None, policy)
+                self._verify_get_hashes(
+                    filenames, ts_data, ts_newer_meta, None, policy)
+
+        do_test(False)
+        do_test(True)
 
     def test_hash_suffix_removes_empty_hashdir_and_suffix(self):
         for policy in self.iter_policies():
@@ -5735,10 +7005,8 @@ class TestSuffixHashes(unittest.TestCase):
                 }
                 writer.put(metadata)
                 writer.commit(timestamp)
-            datafile_name = timestamp.internal
-            if policy.policy_type == EC_POLICY:
-                datafile_name += '#%d' % df._frag_index
-            datafile_name += '.data'
+            datafile_name = _make_datafilename(
+                timestamp, policy, frag_index=5)
             durable_hash = md5(timestamp.internal + '.durable').hexdigest()
             datafile_suffix = os.path.basename(os.path.dirname(df._datadir))
             # in the *third* suffix - two datafiles for different hashes
@@ -5758,15 +7026,10 @@ class TestSuffixHashes(unittest.TestCase):
                 writer.put(metadata)
                 writer.commit(timestamp)
             # we'll keep track of file names for hash calculations
-            filename = timestamp.internal
-            if policy.policy_type == EC_POLICY:
-                filename += '#%d' % df._frag_index
-            filename += '.data'
-            filenames = {
-                'data': {
-                    6: filename
-                },
-                'durable': [timestamp.internal + '.durable'],
+            filename = _make_datafilename(
+                timestamp, policy, frag_index=6)
+            data_filenames = {
+                6: filename
             }
             df = df_mgr.get_diskfile(self.existing_device, '0',
                                      *matching_paths[1], policy=policy,
@@ -5784,17 +7047,15 @@ class TestSuffixHashes(unittest.TestCase):
                 }
                 writer.put(metadata)
                 writer.commit(timestamp)
-            filename = timestamp.internal
-            if policy.policy_type == EC_POLICY:
-                filename += '#%d' % df._frag_index
-            filename += '.data'
-            filenames['data'][7] = filename
-            filenames['durable'].append(timestamp.internal + '.durable')
+            filename = _make_datafilename(
+                timestamp, policy, frag_index=7)
+            data_filenames[7] = filename
             # now make up the expected suffixes!
             if policy.policy_type == EC_POLICY:
                 hasher = md5()
-                for filename in filenames['durable']:
-                    hasher.update(filename)
+                for filename in data_filenames.values():
+                    # each data file updates the hasher with durable timestamp
+                    hasher.update(filename.split('#', 1)[0] + '.durable')
                 expected = {
                     tombstone_suffix: {
                         None: tombstone_hash,
@@ -5805,13 +7066,13 @@ class TestSuffixHashes(unittest.TestCase):
                     },
                     matching_suffix: {
                         None: hasher.hexdigest(),
-                        6: self.fname_to_ts_hash(filenames['data'][6]),
-                        7: self.fname_to_ts_hash(filenames['data'][7]),
+                        6: self.fname_to_ts_hash(data_filenames[6]),
+                        7: self.fname_to_ts_hash(data_filenames[7]),
                     },
                 }
             elif policy.policy_type == REPL_POLICY:
                 hasher = md5()
-                for filename in filenames['data'].values():
+                for filename in data_filenames.values():
                     hasher.update(filename)
                 expected = {
                     tombstone_suffix: tombstone_hash,

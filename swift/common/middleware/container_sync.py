@@ -130,6 +130,11 @@ class ContainerSync(object):
                 raise exc
             else:
                 req.environ['swift.authorize_override'] = True
+                # An SLO manifest will already be in the internal manifest
+                # syntax and might be synced before its segments, so stop SLO
+                # middleware from performing the usual manifest validation.
+                req.environ['swift.slo_override'] = True
+
         if req.path == '/info':
             # Ensure /info requests get the freshest results
             self.register_info()

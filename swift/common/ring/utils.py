@@ -624,7 +624,6 @@ def dispersion_report(builder, search_filter=None, verbose=False):
         if tier_dispersion > max_dispersion:
             max_dispersion = tier_dispersion
             worst_tier = tier_name
-        max_dispersion = max(max_dispersion, tier_dispersion)
         if not verbose:
             continue
 

@@ -22,7 +22,8 @@ import unittest
 from getpass import getuser
 import logging
 from test.unit import tmpfile
-from mock import patch
+import mock
+import signal
 
 from swift.common import daemon, utils
 
@@ -83,10 +84,26 @@ class TestRunDaemon(unittest.TestCase):
         d.run(once=True)
         self.assertEqual(d.once_called, True)
 
+    def test_signal(self):
+        d = MyDaemon({})
+        with mock.patch('swift.common.daemon.signal') as mock_signal:
+            mock_signal.SIGTERM = signal.SIGTERM
+            d.run()
+        signal_args, kwargs = mock_signal.signal.call_args
+        sig, func = signal_args
+        self.assertEqual(sig, signal.SIGTERM)
+        with mock.patch('swift.common.daemon.os') as mock_os:
+            func()
+        self.assertEqual(mock_os.method_calls, [
+            mock.call.killpg(0, signal.SIGTERM),
+            # hard exit because bare except handlers can trap SystemExit
+            mock.call._exit(0)
+        ])
+
     def test_run_daemon(self):
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
         with tmpfile(sample_conf) as conf_file:
-            with patch.dict('os.environ', {'TZ': ''}):
+            with mock.patch.dict('os.environ', {'TZ': ''}):
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertEqual(MyDaemon.forever_called, True)
                 self.assertTrue(os.environ['TZ'] is not '')
@@ -94,17 +111,17 @@ class TestRunDaemon(unittest.TestCase):
             self.assertEqual(MyDaemon.once_called, True)
 
             # test raise in daemon code
-            MyDaemon.run_once = MyDaemon.run_raise
-            self.assertRaises(OSError, daemon.run_daemon, MyDaemon,
-                              conf_file, once=True)
+            with mock.patch.object(MyDaemon, 'run_once', MyDaemon.run_raise):
+                self.assertRaises(OSError, daemon.run_daemon, MyDaemon,
+                                  conf_file, once=True)
 
             # test user quit
-            MyDaemon.run_forever = MyDaemon.run_quit
             sio = StringIO()
             logger = logging.getLogger('server')
             logger.addHandler(logging.StreamHandler(sio))
             logger = utils.get_logger(None, 'server', log_route='server')
-            daemon.run_daemon(MyDaemon, conf_file, logger=logger)
+            with mock.patch.object(MyDaemon, 'run_forever', MyDaemon.run_quit):
+                daemon.run_daemon(MyDaemon, conf_file, logger=logger)
             self.assertTrue('user quit' in sio.getvalue().lower())
 
 

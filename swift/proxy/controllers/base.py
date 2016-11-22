@@ -239,7 +239,7 @@ def cors_validation(func):
                 expose_headers = set([
                     'cache-control', 'content-language', 'content-type',
                     'expires', 'last-modified', 'pragma', 'etag',
-                    'x-timestamp', 'x-trans-id'])
+                    'x-timestamp', 'x-trans-id', 'x-openstack-request-id'])
                 for header in resp.headers:
                     if header.startswith('X-Container-Meta') or \
                             header.startswith('X-Object-Meta'):
@@ -349,11 +349,10 @@ def get_container_info(env, app, swift_source=None):
 
     # Old data format in memcache immediately after a Swift upgrade; clean
     # it up so consumers of get_container_info() aren't exposed to it.
-    info.setdefault('storage_policy', '0')
     if 'object_count' not in info and 'container_size' in info:
         info['object_count'] = info.pop('container_size')
 
-    for field in ('bytes', 'object_count'):
+    for field in ('storage_policy', 'bytes', 'object_count'):
         if info.get(field) is None:
             info[field] = 0
         else:
@@ -480,7 +479,7 @@ def set_info_cache(app, env, account, container, resp):
 
     # Next actually set both memcache and the env cache
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
-    if not cache_time:
+    if cache_time is None:
         infocache.pop(cache_key, None)
         if memcache:
             memcache.delete(cache_key)
@@ -729,7 +728,7 @@ def bytes_to_skip(record_size, range_start):
 class ResumingGetter(object):
     def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, concurrency=1, client_chunk_size=None,
-                 newest=None):
+                 newest=None, header_provider=None):
         self.app = app
         self.node_iter = node_iter
         self.server_type = server_type
@@ -738,9 +737,12 @@ class ResumingGetter(object):
         self.backend_headers = backend_headers
         self.client_chunk_size = client_chunk_size
         self.skip_bytes = 0
+        self.bytes_used_from_backend = 0
         self.used_nodes = []
         self.used_source_etag = ''
         self.concurrency = concurrency
+        self.node = None
+        self.header_provider = header_provider
 
         # stuff from request
         self.req_method = req.method
@@ -933,7 +935,6 @@ class ResumingGetter(object):
             def iter_bytes_from_response_part(part_file):
                 nchunks = 0
                 buf = ''
-                bytes_used_from_backend = 0
                 while True:
                     try:
                         with ChunkReadTimeout(node_timeout):
@@ -945,7 +946,7 @@ class ResumingGetter(object):
                         if self.newest or self.server_type != 'Object':
                             six.reraise(exc_type, exc_value, exc_traceback)
                         try:
-                            self.fast_forward(bytes_used_from_backend)
+                            self.fast_forward(self.bytes_used_from_backend)
                         except (HTTPException, ValueError):
                             six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
@@ -982,18 +983,18 @@ class ResumingGetter(object):
                         if buf and self.skip_bytes:
                             if self.skip_bytes < len(buf):
                                 buf = buf[self.skip_bytes:]
-                                bytes_used_from_backend += self.skip_bytes
+                                self.bytes_used_from_backend += self.skip_bytes
                                 self.skip_bytes = 0
                             else:
                                 self.skip_bytes -= len(buf)
-                                bytes_used_from_backend += len(buf)
+                                self.bytes_used_from_backend += len(buf)
                                 buf = ''
 
                         if not chunk:
                             if buf:
                                 with ChunkWriteTimeout(
                                         self.app.client_timeout):
-                                    bytes_used_from_backend += len(buf)
+                                    self.bytes_used_from_backend += len(buf)
                                     yield buf
                                 buf = ''
                             break
@@ -1004,12 +1005,13 @@ class ResumingGetter(object):
                                 buf = buf[client_chunk_size:]
                                 with ChunkWriteTimeout(
                                         self.app.client_timeout):
+                                    self.bytes_used_from_backend += \
+                                        len(client_chunk)
                                     yield client_chunk
-                                bytes_used_from_backend += len(client_chunk)
                         else:
                             with ChunkWriteTimeout(self.app.client_timeout):
+                                self.bytes_used_from_backend += len(buf)
                                 yield buf
-                            bytes_used_from_backend += len(buf)
                             buf = ''
 
                         # This is for fairness; if the network is outpacing
@@ -1038,6 +1040,7 @@ class ResumingGetter(object):
                         get_next_doc_part()
                     self.learn_size_from_content_range(
                         start_byte, end_byte, length)
+                    self.bytes_used_from_backend = 0
                     part_iter = iter_bytes_from_response_part(part)
                     yield {'start_byte': start_byte, 'end_byte': end_byte,
                            'entity_length': length, 'headers': headers,
@@ -1059,8 +1062,20 @@ class ResumingGetter(object):
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
-            if not req.environ.get('swift.non_client_disconnect'):
+            exc_type, exc_value, exc_traceback = exc_info()
+            warn = True
+            try:
+                req_range = Range(self.backend_headers['Range'])
+            except ValueError:
+                req_range = None
+            if req_range and len(req_range.ranges) == 1:
+                begin, end = req_range.ranges[0]
+                if end is not None and begin is not None:
+                    if end - begin + 1 == self.bytes_used_from_backend:
+                        warn = False
+            if not req.environ.get('swift.non_client_disconnect') and warn:
                 self.app.logger.warning(_('Client disconnected on read'))
+            six.reraise(exc_type, exc_value, exc_traceback)
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise
@@ -1079,7 +1094,7 @@ class ResumingGetter(object):
     @property
     def last_headers(self):
         if self.source_headers:
-            return self.source_headers[-1]
+            return HeaderKeyDict(self.source_headers[-1])
         else:
             return None
 
@@ -1087,13 +1102,17 @@ class ResumingGetter(object):
         self.app.logger.thread_locals = logger_thread_locals
         if node in self.used_nodes:
             return False
+        req_headers = dict(self.backend_headers)
+        # a request may be specialised with specific backend headers
+        if self.header_provider:
+            req_headers.update(self.header_provider())
         start_node_timing = time.time()
         try:
             with ConnectionTimeout(self.app.conn_timeout):
                 conn = http_connect(
                     node['ip'], node['port'], node['device'],
                     self.partition, self.req_method, self.path,
-                    headers=self.backend_headers,
+                    headers=req_headers,
                     query_string=self.req_query_string)
             self.app.set_node_timing(node, time.time() - start_node_timing)
 
@@ -1198,6 +1217,7 @@ class ResumingGetter(object):
             self.used_source_etag = src_headers.get(
                 'x-object-sysmeta-ec-etag',
                 src_headers.get('etag', '')).strip('"')
+            self.node = node
             return source, node
         return None, None
 
@@ -1302,6 +1322,7 @@ class NodeIter(object):
         self.primary_nodes = self.app.sort_nodes(
             list(itertools.islice(node_iter, num_primary_nodes)))
         self.handoff_iter = node_iter
+        self._node_provider = None
 
     def __iter__(self):
         self._node_iter = self._node_gen()
@@ -1330,6 +1351,16 @@ class NodeIter(object):
                 # all the primaries were skipped, and handoffs didn't help
                 self.app.logger.increment('handoff_all_count')
 
+    def set_node_provider(self, callback):
+        """
+        Install a callback function that will be used during a call to next()
+        to get an alternate node instead of returning the next node from the
+        iterator.
+        :param callback: A no argument function that should return a node dict
+                         or None.
+        """
+        self._node_provider = callback
+
     def _node_gen(self):
         for node in self.primary_nodes:
             if not self.app.error_limited(node):
@@ -1350,6 +1381,11 @@ class NodeIter(object):
                         return
 
     def next(self):
+        if self._node_provider:
+            # give node provider the opportunity to inject a node
+            node = self._node_provider()
+            if node:
+                return node
         return next(self._node_iter)
 
     def __next__(self):
@@ -1462,10 +1498,7 @@ class Controller(object):
                 or not is_success(info['status'])
                 or not info.get('account_really_exists', True)):
             return None, None, None
-        if info.get('container_count') is None:
-            container_count = 0
-        else:
-            container_count = int(info['container_count'])
+        container_count = info['container_count']
         return partition, nodes, container_count
 
     def container_info(self, account, container, req=None):
@@ -1498,8 +1531,6 @@ class Controller(object):
         else:
             info['partition'] = part
             info['nodes'] = nodes
-        if info.get('storage_policy') is None:
-            info['storage_policy'] = 0
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,
@@ -1737,6 +1768,7 @@ class Controller(object):
         path = '/%s' % account
         headers = {'X-Timestamp': Timestamp(time.time()).internal,
                    'X-Trans-Id': self.trans_id,
+                   'X-Openstack-Request-Id': self.trans_id,
                    'Connection': 'close'}
         # transfer any x-account-sysmeta headers from original request
         # to the autocreate PUT

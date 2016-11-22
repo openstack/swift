@@ -619,7 +619,6 @@ class TestReconcilerUtils(unittest.TestCase):
         self.assertTrue(ret)
         self.assertEqual(ret, str(int(5948918.63946 // 3600 * 3600)))
         self.assertEqual(len(connect_args), 3)
-        connect_args.sort(key=lambda a: (a['ipaddr'], a['port']))
 
         required_headers = ('x-content-type', 'x-etag')
 
@@ -657,7 +656,6 @@ class TestReconcilerUtils(unittest.TestCase):
         self.assertTrue(ret)
         self.assertEqual(ret, str(int(5948918.63946 // 3600 * 3600)))
         self.assertEqual(len(connect_args), 3)
-        connect_args.sort(key=lambda a: (a['ipaddr'], a['port']))
 
         required_headers = ('x-size', 'x-content-type')
 

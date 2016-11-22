@@ -171,13 +171,7 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.account_controller)
         self.assertEqual(resp.status_int, 507)
 
-    def test_REPLICATE_works(self):
-        mkdirs(os.path.join(self.testdir, 'sda1', 'account', 'p', 'a', 'a'))
-        db_file = os.path.join(self.testdir, 'sda1',
-                               storage_directory('account', 'p', 'a'),
-                               'a' + '.db')
-        open(db_file, 'w')
-
+    def test_REPLICATE_rsync_then_merge_works(self):
         def fake_rsync_then_merge(self, drive, db_file, args):
             return HTTPNoContent()
 
@@ -192,12 +186,57 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
 
+    def test_REPLICATE_complete_rsync_works(self):
+        def fake_complete_rsync(self, drive, db_file, args):
+            return HTTPNoContent()
+        # check complete_rsync
+        with mock.patch("swift.common.db_replicator.ReplicatorRpc."
+                        "complete_rsync", fake_complete_rsync):
+            req = Request.blank('/sda1/p/a/',
+                                environ={'REQUEST_METHOD': 'REPLICATE'},
+                                headers={})
+            json_string = '["complete_rsync", "a.db"]'
+            inbuf = WsgiBytesIO(json_string)
+            req.environ['wsgi.input'] = inbuf
+            resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+
+    def test_REPLICATE_value_error_works(self):
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+
         # check valuerror
         wsgi_input_valuerror = '["sync" : sync, "-1"]'
         inbuf1 = WsgiBytesIO(wsgi_input_valuerror)
         req.environ['wsgi.input'] = inbuf1
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
+
+    def test_REPLICATE_unknown_sync(self):
+        # First without existing DB file
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+        json_string = '["unknown_sync", "a.db"]'
+        inbuf = WsgiBytesIO(json_string)
+        req.environ['wsgi.input'] = inbuf
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+
+        mkdirs(os.path.join(self.testdir, 'sda1', 'accounts', 'p', 'a', 'a'))
+        db_file = os.path.join(self.testdir, 'sda1',
+                               storage_directory('accounts', 'p', 'a'),
+                               'a' + '.db')
+        open(db_file, 'w')
+        req = Request.blank('/sda1/p/a/',
+                            environ={'REQUEST_METHOD': 'REPLICATE'},
+                            headers={})
+        json_string = '["unknown_sync", "a.db"]'
+        inbuf = WsgiBytesIO(json_string)
+        req.environ['wsgi.input'] = inbuf
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 500)
 
     def test_HEAD_not_found(self):
         # Test the case in which account does not exist (can be recreated)

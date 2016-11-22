@@ -89,10 +89,16 @@ class TestObjectExpirer(TestCase):
         }
         # from config
         x = expirer.ObjectExpirer(vals)
-        self.assertRaises(ValueError, x.get_process_values, {})
+        expected_msg = 'process must be an integer greater' \
+                       ' than or equal to 0'
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values({})
+        self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({})
-        self.assertRaises(ValueError, x.get_process_values, vals)
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values(vals)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_get_process_values_negative_processes(self):
         vals = {
@@ -101,10 +107,16 @@ class TestObjectExpirer(TestCase):
         }
         # from config
         x = expirer.ObjectExpirer(vals)
-        self.assertRaises(ValueError, x.get_process_values, {})
+        expected_msg = 'processes must be an integer greater' \
+                       ' than or equal to 0'
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values({})
+        self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({})
-        self.assertRaises(ValueError, x.get_process_values, vals)
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values(vals)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_get_process_values_process_greater_than_processes(self):
         vals = {
@@ -113,10 +125,15 @@ class TestObjectExpirer(TestCase):
         }
         # from config
         x = expirer.ObjectExpirer(vals)
-        self.assertRaises(ValueError, x.get_process_values, {})
+        expected_msg = 'process must be less than processes'
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values({})
+        self.assertEqual(str(ctx.exception), expected_msg)
         # from kwargs
         x = expirer.ObjectExpirer({})
-        self.assertRaises(ValueError, x.get_process_values, vals)
+        with self.assertRaises(ValueError) as ctx:
+            x.get_process_values(vals)
+        self.assertEqual(str(ctx.exception), expected_msg)
 
     def test_get_process_values_process_equal_to_processes(self):
         vals = {

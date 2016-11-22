@@ -179,7 +179,7 @@ class Receiver(object):
                 yield ':ERROR: %d %r\n' % (0, str(err))
             except exceptions.MessageTimeout as err:
                 self.app.logger.error(
-                    '%s/%s/%s TIMEOUT in replication.Receiver: %s' % (
+                    '%s/%s/%s TIMEOUT in ssync.Receiver: %s' % (
                         self.request.remote_addr, self.device, self.partition,
                         err))
                 yield ':ERROR: %d %r\n' % (408, str(err))
@@ -188,11 +188,11 @@ class Receiver(object):
                 yield ':ERROR: %d %r\n' % (err.status_int, body)
             except Exception as err:
                 self.app.logger.exception(
-                    '%s/%s/%s EXCEPTION in replication.Receiver' %
+                    '%s/%s/%s EXCEPTION in ssync.Receiver' %
                     (self.request.remote_addr, self.device, self.partition))
                 yield ':ERROR: %d %r\n' % (0, str(err))
         except Exception:
-            self.app.logger.exception('EXCEPTION in replication.Receiver')
+            self.app.logger.exception('EXCEPTION in ssync.Receiver')
         if self.disconnect:
             # This makes the socket close early so the remote side doesn't have
             # to send its whole request while the lower Eventlet-level just
@@ -277,8 +277,8 @@ class Receiver(object):
             self.frag_index in df.fragments[remote['ts_data']] and
             (df.durable_timestamp is None or
              df.durable_timestamp < remote['ts_data'])):
-            # We have the frag, just missing a .durable, so try to create the
-            # .durable now. Try this just once to avoid looping if it fails.
+            # We have the frag, just missing durable state, so make the frag
+            # durable now. Try this just once to avoid looping if it fails.
             try:
                 with df.create() as writer:
                     writer.commit(remote['ts_data'])
@@ -287,7 +287,7 @@ class Receiver(object):
                 # if commit fails then log exception and fall back to wanting
                 # a full update
                 self.app.logger.exception(
-                    '%s/%s/%s EXCEPTION in replication.Receiver while '
+                    '%s/%s/%s EXCEPTION in ssync.Receiver while '
                     'attempting commit of %s'
                     % (self.request.remote_addr, self.device, self.partition,
                        df._datadir))
@@ -466,7 +466,7 @@ class Receiver(object):
                             chunk = self.fp.read(
                                 min(left, self.app.network_chunk_size))
                         if not chunk:
-                            raise Exception(
+                            raise exceptions.ChunkReadError(
                                 'Early termination for %s %s' % (method, path))
                         left -= len(chunk)
                         yield chunk
@@ -488,6 +488,9 @@ class Receiver(object):
                     resp.status_int == http.HTTP_NOT_FOUND:
                 successes += 1
             else:
+                self.app.logger.warning(
+                    'ssync subrequest failed with %s: %s %s' %
+                    (resp.status_int, method, subreq.path))
                 failures += 1
             if failures >= self.app.replication_failure_threshold and (
                     not successes or

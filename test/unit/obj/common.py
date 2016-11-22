@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import hashlib
+import os
 import shutil
 import tempfile
 import unittest
@@ -42,6 +43,35 @@ class FakeReplicator(object):
         self._diskfile_mgr = self._diskfile_router[policy]
 
 
+def write_diskfile(df, timestamp, data='test data', frag_index=None,
+                   commit=True, legacy_durable=False, extra_metadata=None):
+    # Helper method to write some data and metadata to a diskfile.
+    # Optionally do not commit the diskfile, or commit but using a legacy
+    # durable file
+    with df.create() as writer:
+        writer.write(data)
+        metadata = {
+            'ETag': hashlib.md5(data).hexdigest(),
+            'X-Timestamp': timestamp.internal,
+            'Content-Length': str(len(data)),
+        }
+        if extra_metadata:
+            metadata.update(extra_metadata)
+        if frag_index is not None:
+            metadata['X-Object-Sysmeta-Ec-Frag-Index'] = str(frag_index)
+        writer.put(metadata)
+        if commit and legacy_durable:
+            # simulate legacy .durable file creation
+            durable_file = os.path.join(df._datadir,
+                                        timestamp.internal + '.durable')
+            with open(durable_file, 'wb'):
+                pass
+        elif commit:
+            writer.commit(timestamp)
+        # else: don't make it durable
+    return metadata
+
+
 class BaseTest(unittest.TestCase):
     def setUp(self):
         # daemon will be set in subclass setUp
@@ -64,20 +94,18 @@ class BaseTest(unittest.TestCase):
         df = df_mgr.get_diskfile(
             device, partition, *object_parts, policy=policy,
             frag_index=frag_index)
-        content_length = len(body)
-        etag = hashlib.md5(body).hexdigest()
-        with df.create() as writer:
-            writer.write(body)
-            metadata = {
-                'X-Timestamp': timestamp.internal,
-                'Content-Length': str(content_length),
-                'ETag': etag,
-            }
-            if extra_metadata:
-                metadata.update(extra_metadata)
-            writer.put(metadata)
-            if commit:
-                writer.commit(timestamp)
+        write_diskfile(df, timestamp, data=body, extra_metadata=extra_metadata,
+                       commit=commit)
+        if commit:
+            # when we write and commit stub data, sanity check it's readable
+            # and not quarantined because of any validation check
+            with df.open():
+                self.assertEqual(''.join(df.reader()), body)
+            # sanity checks
+            listing = os.listdir(df._datadir)
+            self.assertTrue(listing)
+            for filename in listing:
+                self.assertTrue(filename.startswith(timestamp.internal))
         return df
 
     def _make_open_diskfile(self, device='dev', partition='9',
