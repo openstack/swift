@@ -78,7 +78,7 @@ class RingData(object):
         """
 
         json_len, = struct.unpack('!I', gz_file.read(4))
-        ring_dict = json.loads(gz_file.read(json_len))
+        ring_dict = json.loads(gz_file.read(json_len).decode('ascii'))
         ring_dict['replica2part2dev_id'] = []
 
         if metadata_only:
@@ -111,7 +111,7 @@ class RingData(object):
 
         # See if the file is in the new format
         magic = gz_file.read(4)
-        if magic == 'R1NG':
+        if magic == b'R1NG':
             format_version, = struct.unpack('!H', gz_file.read(2))
             if format_version == 1:
                 ring_data = cls.deserialize_v1(
@@ -132,7 +132,7 @@ class RingData(object):
 
     def serialize_v1(self, file_obj):
         # Write out new-style serialization magic and version:
-        file_obj.write(struct.pack('!4sH', 'R1NG', 1))
+        file_obj.write(struct.pack('!4sH', b'R1NG', 1))
         ring = self.to_dict()
 
         # Only include next_part_power if it is set in the
@@ -145,8 +145,8 @@ class RingData(object):
         if next_part_power is not None:
             _text['next_part_power'] = next_part_power
 
-        json_encoder = json.JSONEncoder(sort_keys=True)
-        json_text = json_encoder.encode(_text)
+        json_text = json.dumps(_text, sort_keys=True,
+                               ensure_ascii=True).encode('ascii')
         json_len = len(json_text)
         file_obj.write(struct.pack('!I', json_len))
         file_obj.write(json_text)
@@ -418,8 +418,8 @@ class Ring(object):
             (d['region'], d['zone'], d['ip']) for d in primary_nodes)
 
         parts = len(self._replica2part2dev_id[0])
-        start = struct.unpack_from(
-            '>I', md5(str(part)).digest())[0] >> self._part_shift
+        part_hash = md5(str(part).encode('ascii')).digest()
+        start = struct.unpack_from('>I', part_hash)[0] >> self._part_shift
         inc = int(parts / 65536) or 1
         # Multiple loops for execution speed; the checks and bookkeeping get
         # simpler as you go along

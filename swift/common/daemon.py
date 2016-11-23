@@ -173,7 +173,7 @@ class DaemonStrategy(object):
             yield per_worker_options
 
     def spawned_pids(self):
-        return self.options_by_pid.keys()
+        return list(self.options_by_pid.keys())
 
     def register_worker_start(self, pid, per_worker_options):
         self.logger.debug('Spawned worker %s with %r', pid, per_worker_options)

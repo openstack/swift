@@ -843,11 +843,13 @@ class Request(object):
                            'https': 443}.get(parsed_path.scheme, 80)
         if parsed_path.scheme and parsed_path.scheme not in ['http', 'https']:
             raise TypeError('Invalid scheme: %s' % parsed_path.scheme)
+        path_info = urllib.parse.unquote(
+            parsed_path.path.decode('utf8') if six.PY3 else parsed_path.path)
         env = {
             'REQUEST_METHOD': 'GET',
             'SCRIPT_NAME': '',
             'QUERY_STRING': parsed_path.query,
-            'PATH_INFO': urllib.parse.unquote(parsed_path.path),
+            'PATH_INFO': path_info,
             'SERVER_NAME': server_name,
             'SERVER_PORT': str(server_port),
             'HTTP_HOST': '%s:%d' % (server_name, server_port),

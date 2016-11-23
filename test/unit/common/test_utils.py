@@ -921,8 +921,8 @@ class TestUtils(unittest.TestCase):
     """Tests for swift.common.utils """
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        utils.HASH_PATH_SUFFIX = b'endcap'
+        utils.HASH_PATH_PREFIX = b'startcap'
 
     def test_get_zero_indexed_base_string(self):
         self.assertEqual(utils.get_zero_indexed_base_string('something', 0),
@@ -1938,7 +1938,7 @@ class TestUtils(unittest.TestCase):
     def test_hash_path(self):
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someones changes the results hash_path produces, they know it
-        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''):
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''):
             self.assertEqual(utils.hash_path('a'),
                              '1c84525acb02107ea475dcd3d09c2c58')
             self.assertEqual(utils.hash_path('a', 'c'),
@@ -1948,10 +1948,10 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(utils.hash_path('a', 'c', 'o', raw_digest=False),
                              '06fbf0b514e5199dfc4e00f42eb5ea83')
             self.assertEqual(utils.hash_path('a', 'c', 'o', raw_digest=True),
-                             '\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN'
-                             '\x00\xf4.\xb5\xea\x83')
+                             b'\x06\xfb\xf0\xb5\x14\xe5\x19\x9d\xfcN'
+                             b'\x00\xf4.\xb5\xea\x83')
             self.assertRaises(ValueError, utils.hash_path, 'a', object='o')
-            utils.HASH_PATH_PREFIX = 'abcdef'
+            utils.HASH_PATH_PREFIX = b'abcdef'
             self.assertEqual(utils.hash_path('a', 'c', 'o', raw_digest=False),
                              '363f9b535bfb7d17a43a46a358afca0e')
 
@@ -1985,8 +1985,8 @@ class TestUtils(unittest.TestCase):
     def _test_validate_hash_conf(self, sections, options, should_raise_error):
 
         class FakeConfigParser(object):
-            def read(self, conf_path):
-                return True
+            def read(self, conf_path, encoding=None):
+                return [conf_path]
 
             def get(self, section, option):
                 if section not in sections:
@@ -1996,8 +1996,8 @@ class TestUtils(unittest.TestCase):
                 else:
                     return 'some_option_value'
 
-        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
-                mock.patch('swift.common.utils.HASH_PATH_SUFFIX', ''), \
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
+                mock.patch('swift.common.utils.HASH_PATH_SUFFIX', b''), \
                 mock.patch('swift.common.utils.ConfigParser',
                            FakeConfigParser):
             try:
@@ -2026,7 +2026,7 @@ foo = bar
 log_name = yarr'''
         # setup a real file
         fd, temppath = tempfile.mkstemp()
-        with os.fdopen(fd, 'wb') as f:
+        with os.fdopen(fd, 'w') as f:
             f.write(conf)
         make_filename = lambda: temppath
         # setup a file stream
@@ -2075,7 +2075,7 @@ foo = bar
 log_name = %(yarr)s'''
         # setup a real file
         fd, temppath = tempfile.mkstemp()
-        with os.fdopen(fd, 'wb') as f:
+        with os.fdopen(fd, 'w') as f:
             f.write(conf)
         make_filename = lambda: temppath
         # setup a file stream
@@ -2661,18 +2661,26 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_config_positive_int_value(self):
         expectations = {
             # value : expected,
-            '1': 1,
+            u'1': 1,
+            b'1': 1,
             1: 1,
-            '2': 2,
-            '1024': 1024,
-            '0': ValueError,
-            '-1': ValueError,
-            '0x01': ValueError,
-            'asdf': ValueError,
+            u'2': 2,
+            b'2': 2,
+            u'1024': 1024,
+            b'1024': 1024,
+            u'0': ValueError,
+            b'0': ValueError,
+            u'-1': ValueError,
+            b'-1': ValueError,
+            u'0x01': ValueError,
+            b'0x01': ValueError,
+            u'asdf': ValueError,
+            b'asdf': ValueError,
             None: ValueError,
             0: ValueError,
             -1: ValueError,
-            '1.2': ValueError,  # string expresses float should be value error
+            u'1.2': ValueError,  # string expresses float should be value error
+            b'1.2': ValueError,  # string expresses float should be value error
         }
         for value, expected in expectations.items():
             try:
@@ -2683,7 +2691,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 else:
                     self.assertEqual(
                         'Config option must be an positive int number, '
-                        'not "%s".' % value, e.message)
+                        'not "%s".' % value, e.args[0])
             else:
                 self.assertEqual(expected, rv)
 
@@ -2940,7 +2948,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(0))
             self.assertEqual(
                 str(catcher.exception),
-                '[Errno %d] FALLOCATE_RESERVE fail 100.0 <= 100.0'
+                '[Errno %d] FALLOCATE_RESERVE fail 100 <= 100'
                 % errno.ENOSPC)
             self.assertEqual(catcher.exception.errno, errno.ENOSPC)
 
@@ -2955,7 +2963,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(101))
             self.assertEqual(
                 str(catcher.exception),
-                '[Errno %d] FALLOCATE_RESERVE fail 0.99 <= 1.0'
+                '[Errno %d] FALLOCATE_RESERVE fail 0.99 <= 1'
                 % errno.ENOSPC)
             self.assertEqual(catcher.exception.errno, errno.ENOSPC)
 
@@ -2969,7 +2977,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(100))
             self.assertEqual(
                 str(catcher.exception),
-                '[Errno %d] FALLOCATE_RESERVE fail 98.0 <= 98.0'
+                '[Errno %d] FALLOCATE_RESERVE fail 98 <= 98'
                 % errno.ENOSPC)
             self.assertEqual(catcher.exception.errno, errno.ENOSPC)
 
@@ -2993,7 +3001,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 fallocate(0, 1, 0, ctypes.c_uint64(1000))
             self.assertEqual(
                 str(catcher.exception),
-                '[Errno %d] FALLOCATE_RESERVE fail 2.0 <= 2.0'
+                '[Errno %d] FALLOCATE_RESERVE fail 2 <= 2'
                 % errno.ENOSPC)
             self.assertEqual(catcher.exception.errno, errno.ENOSPC)
 
@@ -3126,11 +3134,11 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_lock_file(self):
         flags = os.O_CREAT | os.O_RDWR
         with NamedTemporaryFile(delete=False) as nt:
-            nt.write("test string")
+            nt.write(b"test string")
             nt.flush()
             nt.close()
             with utils.lock_file(nt.name, unlink=False) as f:
-                self.assertEqual(f.read(), "test string")
+                self.assertEqual(f.read(), b"test string")
                 # we have a lock, now let's try to get a newer one
                 fd = os.open(nt.name, flags)
                 self.assertRaises(IOError, fcntl.flock, fd,
@@ -3138,12 +3146,12 @@ cluster_dfw1 = http://dfw1.host/v1/
 
             with utils.lock_file(nt.name, unlink=False, append=True) as f:
                 f.seek(0)
-                self.assertEqual(f.read(), "test string")
+                self.assertEqual(f.read(), b"test string")
                 f.seek(0)
-                f.write("\nanother string")
+                f.write(b"\nanother string")
                 f.flush()
                 f.seek(0)
-                self.assertEqual(f.read(), "test string\nanother string")
+                self.assertEqual(f.read(), b"test string\nanother string")
 
                 # we have a lock, now let's try to get a newer one
                 fd = os.open(nt.name, flags)
@@ -3160,7 +3168,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                     pass
 
             with utils.lock_file(nt.name, unlink=True) as f:
-                self.assertEqual(f.read(), "test string\nanother string")
+                self.assertEqual(f.read(), b"test string\nanother string")
                 # we have a lock, now let's try to get a newer one
                 fd = os.open(nt.name, flags)
                 self.assertRaises(
@@ -3482,22 +3490,28 @@ cluster_dfw1 = http://dfw1.host/v1/
         do_test(b'\xf0\x9f\x82\xa1', b'\xf0\x9f\x82\xa1'),
         do_test(b'\xed\xa0\xbc\xed\xb2\xa1', b'\xf0\x9f\x82\xa1'),
 
-    def test_quote(self):
-        res = utils.quote('/v1/a/c3/subdirx/')
-        assert res == '/v1/a/c3/subdirx/'
-        res = utils.quote('/v1/a&b/c3/subdirx/')
-        assert res == '/v1/a%26b/c3/subdirx/'
-        res = utils.quote('/v1/a&b/c3/subdirx/', safe='&')
-        assert res == '%2Fv1%2Fa&b%2Fc3%2Fsubdirx%2F'
-        unicode_sample = u'\uc77c\uc601'
-        account = 'abc_' + unicode_sample
-        valid_utf8_str = utils.get_valid_utf8_str(account)
-        account = 'abc_' + unicode_sample.encode('utf-8')[::-1]
-        invalid_utf8_str = utils.get_valid_utf8_str(account)
-        self.assertEqual('abc_%EC%9D%BC%EC%98%81',
-                         utils.quote(valid_utf8_str))
-        self.assertEqual('abc_%EF%BF%BD%EF%BF%BD%EC%BC%9D%EF%BF%BD',
-                         utils.quote(invalid_utf8_str))
+    def test_quote_bytes(self):
+        self.assertEqual(b'/v1/a/c3/subdirx/',
+                         utils.quote(b'/v1/a/c3/subdirx/'))
+        self.assertEqual(b'/v1/a%26b/c3/subdirx/',
+                         utils.quote(b'/v1/a&b/c3/subdirx/'))
+        self.assertEqual(b'%2Fv1%2Fa&b%2Fc3%2Fsubdirx%2F',
+                         utils.quote(b'/v1/a&b/c3/subdirx/', safe='&'))
+        self.assertEqual(b'abc_%EC%9D%BC%EC%98%81',
+                         utils.quote(u'abc_\uc77c\uc601'.encode('utf8')))
+        # Invalid utf8 is parsed as latin1, then re-encoded as utf8??
+        self.assertEqual(b'%EF%BF%BD%EF%BF%BD%EC%BC%9D%EF%BF%BD',
+                         utils.quote(u'\uc77c\uc601'.encode('utf8')[::-1]))
+
+    def test_quote_unicode(self):
+        self.assertEqual(u'/v1/a/c3/subdirx/',
+                         utils.quote(u'/v1/a/c3/subdirx/'))
+        self.assertEqual(u'/v1/a%26b/c3/subdirx/',
+                         utils.quote(u'/v1/a&b/c3/subdirx/'))
+        self.assertEqual(u'%2Fv1%2Fa&b%2Fc3%2Fsubdirx%2F',
+                         utils.quote(u'/v1/a&b/c3/subdirx/', safe='&'))
+        self.assertEqual(u'abc_%EC%9D%BC%EC%98%81',
+                         utils.quote(u'abc_\uc77c\uc601'))
 
     def test_get_hmac(self):
         self.assertEqual(
@@ -3797,7 +3811,7 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_link_fd_to_path_linkat_success(self):
         tempdir = mkdtemp()
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
-        data = "I'm whatever Gotham needs me to be"
+        data = b"I'm whatever Gotham needs me to be"
         _m_fsync_dir = mock.Mock()
         try:
             os.write(fd, data)
@@ -3805,8 +3819,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertRaises(OSError, os.read, fd, 1)
             file_path = os.path.join(tempdir, uuid4().hex)
             with mock.patch('swift.common.utils.fsync_dir', _m_fsync_dir):
-                    utils.link_fd_to_path(fd, file_path, 1)
-            with open(file_path, 'r') as f:
+                utils.link_fd_to_path(fd, file_path, 1)
+            with open(file_path, 'rb') as f:
                 self.assertEqual(f.read(), data)
             self.assertEqual(_m_fsync_dir.call_count, 2)
         finally:
@@ -3818,19 +3832,19 @@ cluster_dfw1 = http://dfw1.host/v1/
         tempdir = mkdtemp()
         # Create and write to a file
         fd, path = tempfile.mkstemp(dir=tempdir)
-        os.write(fd, "hello world")
+        os.write(fd, b"hello world")
         os.fsync(fd)
         os.close(fd)
         self.assertTrue(os.path.exists(path))
 
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
         try:
-            os.write(fd, "bye world")
+            os.write(fd, b"bye world")
             os.fsync(fd)
             utils.link_fd_to_path(fd, path, 0, fsync=False)
             # Original file now should have been over-written
-            with open(path, 'r') as f:
-                self.assertEqual(f.read(), "bye world")
+            with open(path, 'rb') as f:
+                self.assertEqual(f.read(), b"bye world")
         finally:
             os.close(fd)
             shutil.rmtree(tempdir)
@@ -5904,7 +5918,7 @@ class TestParseContentDisposition(unittest.TestCase):
 class TestIterMultipartMimeDocuments(unittest.TestCase):
 
     def test_bad_start(self):
-        it = utils.iter_multipart_mime_documents(StringIO('blah'), 'unique')
+        it = utils.iter_multipart_mime_documents(BytesIO(b'blah'), b'unique')
         exc = None
         try:
             next(it)
@@ -5914,144 +5928,104 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         self.assertTrue('--unique' in str(exc))
 
     def test_empty(self):
-        it = utils.iter_multipart_mime_documents(StringIO('--unique'),
-                                                 'unique')
+        it = utils.iter_multipart_mime_documents(BytesIO(b'--unique'),
+                                                 b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(), '')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.read(), b'')
+        self.assertRaises(StopIteration, next, it)
 
     def test_basic(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nabcdefg\r\n--unique--'), 'unique')
+            BytesIO(b'--unique\r\nabcdefg\r\n--unique--'), b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(), 'abcdefg')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.read(), b'abcdefg')
+        self.assertRaises(StopIteration, next, it)
 
     def test_basic2(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
-            'unique')
+            BytesIO(b'--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
+            b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(), 'abcdefg')
+        self.assertEqual(fp.read(), b'abcdefg')
         fp = next(it)
-        self.assertEqual(fp.read(), 'hijkl')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.read(), b'hijkl')
+        self.assertRaises(StopIteration, next, it)
 
     def test_tiny_reads(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
-            'unique')
+            BytesIO(b'--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
+            b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(2), 'ab')
-        self.assertEqual(fp.read(2), 'cd')
-        self.assertEqual(fp.read(2), 'ef')
-        self.assertEqual(fp.read(2), 'g')
-        self.assertEqual(fp.read(2), '')
+        self.assertEqual(fp.read(2), b'ab')
+        self.assertEqual(fp.read(2), b'cd')
+        self.assertEqual(fp.read(2), b'ef')
+        self.assertEqual(fp.read(2), b'g')
+        self.assertEqual(fp.read(2), b'')
         fp = next(it)
-        self.assertEqual(fp.read(), 'hijkl')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.read(), b'hijkl')
+        self.assertRaises(StopIteration, next, it)
 
     def test_big_reads(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
-            'unique')
+            BytesIO(b'--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
+            b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(65536), 'abcdefg')
-        self.assertEqual(fp.read(), '')
+        self.assertEqual(fp.read(65536), b'abcdefg')
+        self.assertEqual(fp.read(), b'')
         fp = next(it)
-        self.assertEqual(fp.read(), 'hijkl')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.read(), b'hijkl')
+        self.assertRaises(StopIteration, next, it)
 
     def test_leading_crlfs(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('\r\n\r\n\r\n--unique\r\nabcdefg\r\n'
-                     '--unique\r\nhijkl\r\n--unique--'),
-            'unique')
+            BytesIO(b'\r\n\r\n\r\n--unique\r\nabcdefg\r\n'
+                    b'--unique\r\nhijkl\r\n--unique--'),
+            b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(65536), 'abcdefg')
-        self.assertEqual(fp.read(), '')
+        self.assertEqual(fp.read(65536), b'abcdefg')
+        self.assertEqual(fp.read(), b'')
         fp = next(it)
-        self.assertEqual(fp.read(), 'hijkl')
-        self.assertRaises(StopIteration, it.next)
+        self.assertEqual(fp.read(), b'hijkl')
+        self.assertRaises(StopIteration, next, it)
 
     def test_broken_mid_stream(self):
         # We go ahead and accept whatever is sent instead of rejecting the
         # whole request, in case the partial form is still useful.
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nabc'), 'unique')
+            BytesIO(b'--unique\r\nabc'), b'unique')
         fp = next(it)
-        self.assertEqual(fp.read(), 'abc')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.read(), b'abc')
+        self.assertRaises(StopIteration, next, it)
 
     def test_readline(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n\r\n'
-                     'jkl\r\n\r\n--unique--'), 'unique')
+            BytesIO(b'--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n\r\n'
+                    b'jkl\r\n\r\n--unique--'), b'unique')
         fp = next(it)
-        self.assertEqual(fp.readline(), 'ab\r\n')
-        self.assertEqual(fp.readline(), 'cd\ref\ng')
-        self.assertEqual(fp.readline(), '')
+        self.assertEqual(fp.readline(), b'ab\r\n')
+        self.assertEqual(fp.readline(), b'cd\ref\ng')
+        self.assertEqual(fp.readline(), b'')
         fp = next(it)
-        self.assertEqual(fp.readline(), 'hi\r\n')
-        self.assertEqual(fp.readline(), '\r\n')
-        self.assertEqual(fp.readline(), 'jkl\r\n')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.readline(), b'hi\r\n')
+        self.assertEqual(fp.readline(), b'\r\n')
+        self.assertEqual(fp.readline(), b'jkl\r\n')
+        self.assertRaises(StopIteration, next, it)
 
     def test_readline_with_tiny_chunks(self):
         it = utils.iter_multipart_mime_documents(
-            StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n'
-                     '\r\njkl\r\n\r\n--unique--'),
-            'unique',
+            BytesIO(b'--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n'
+                    b'\r\njkl\r\n\r\n--unique--'),
+            b'unique',
             read_chunk_size=2)
         fp = next(it)
-        self.assertEqual(fp.readline(), 'ab\r\n')
-        self.assertEqual(fp.readline(), 'cd\ref\ng')
-        self.assertEqual(fp.readline(), '')
+        self.assertEqual(fp.readline(), b'ab\r\n')
+        self.assertEqual(fp.readline(), b'cd\ref\ng')
+        self.assertEqual(fp.readline(), b'')
         fp = next(it)
-        self.assertEqual(fp.readline(), 'hi\r\n')
-        self.assertEqual(fp.readline(), '\r\n')
-        self.assertEqual(fp.readline(), 'jkl\r\n')
-        exc = None
-        try:
-            next(it)
-        except StopIteration as err:
-            exc = err
-        self.assertTrue(exc is not None)
+        self.assertEqual(fp.readline(), b'hi\r\n')
+        self.assertEqual(fp.readline(), b'\r\n')
+        self.assertEqual(fp.readline(), b'jkl\r\n')
+        self.assertRaises(StopIteration, next, it)
 
 
 class TestParseMimeHeaders(unittest.TestCase):
@@ -6230,7 +6204,7 @@ class TestHashForFileFunction(unittest.TestCase):
             pass
 
     def test_hash_for_file_smallish(self):
-        stub_data = 'some data'
+        stub_data = b'some data'
         with open(self.tempfilename, 'wb') as fd:
             fd.write(stub_data)
         with mock.patch('swift.common.utils.md5') as mock_md5:
@@ -6246,9 +6220,9 @@ class TestHashForFileFunction(unittest.TestCase):
         block_size = utils.MD5_BLOCK_READ_BYTES
         truncate = 523
         start_char = ord('a')
-        expected_blocks = [chr(i) * block_size
+        expected_blocks = [chr(i).encode('utf8') * block_size
                            for i in range(start_char, start_char + num_blocks)]
-        full_data = ''.join(expected_blocks)
+        full_data = b''.join(expected_blocks)
         trimmed_data = full_data[:-truncate]
         # sanity
         self.assertEqual(len(trimmed_data), block_size * num_blocks - truncate)
@@ -6272,7 +6246,7 @@ class TestHashForFileFunction(unittest.TestCase):
             else:
                 self.assertEqual(block, expected_block[:-truncate])
             found_blocks.append(block)
-        self.assertEqual(''.join(found_blocks), trimmed_data)
+        self.assertEqual(b''.join(found_blocks), trimmed_data)
 
     def test_hash_for_file_empty(self):
         with open(self.tempfilename, 'wb'):
@@ -6281,14 +6255,14 @@ class TestHashForFileFunction(unittest.TestCase):
             mock_hasher = mock_md5.return_value
             rv = utils.md5_hash_for_file(self.tempfilename)
         self.assertTrue(mock_hasher.hexdigest.called)
-        self.assertEqual(rv, mock_hasher.hexdigest.return_value)
+        self.assertIs(rv, mock_hasher.hexdigest.return_value)
         self.assertEqual([], mock_hasher.update.call_args_list)
 
     def test_hash_for_file_brittle(self):
         data_to_expected_hash = {
-            '': 'd41d8cd98f00b204e9800998ecf8427e',
-            'some data': '1e50210a0202497fb79bc38b6ade6c34',
-            ('a' * 4096 * 10)[:-523]: '06a41551609656c85f14f659055dc6d3',
+            b'': 'd41d8cd98f00b204e9800998ecf8427e',
+            b'some data': '1e50210a0202497fb79bc38b6ade6c34',
+            (b'a' * 4096 * 10)[:-523]: '06a41551609656c85f14f659055dc6d3',
         }
         # unlike some other places where the concrete implementation really
         # matters for backwards compatibility these brittle tests are probably
@@ -6316,8 +6290,8 @@ class TestSetSwiftDir(unittest.TestCase):
     def setUp(self):
         self.swift_dir = tempfile.mkdtemp()
         self.swift_conf = os.path.join(self.swift_dir, 'swift.conf')
-        self.policy_name = ''.join(random.sample(string.letters, 20))
-        with open(self.swift_conf, "wb") as sc:
+        self.policy_name = ''.join(random.sample(string.ascii_letters, 20))
+        with open(self.swift_conf, "wt") as sc:
             sc.write('''
 [swift-hash]
 swift_hash_path_suffix = changeme

@@ -71,7 +71,7 @@ EMPTY_ETAG = md5().hexdigest()
 # try not to import this module from swift
 if not os.path.basename(sys.argv[0]).startswith('swift'):
     # never patch HASH_PATH_SUFFIX AGAIN!
-    utils.HASH_PATH_SUFFIX = 'endcap'
+    utils.HASH_PATH_SUFFIX = b'endcap'
 
 
 EC_TYPE_PREFERENCE = [
