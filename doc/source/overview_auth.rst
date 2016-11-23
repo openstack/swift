@@ -3,12 +3,11 @@ The Auth System
 ===============
 
 --------
-TempAuth
+Overview
 --------
 
-The auth system for Swift is loosely based on the auth system from the existing
-Rackspace architecture -- actually from a few existing auth systems -- and is
-therefore a bit disjointed. The distilled points about it are:
+Swift supports a number of auth systems that share the following common
+characteristics:
 
 * The authentication/authorization part can be an external system or a
   subsystem run within Swift as WSGI middleware
@@ -26,91 +25,69 @@ validation.
 
 Swift will make calls to the auth system, giving the auth token to be
 validated. For a valid token, the auth system responds with an overall
-expiration in seconds from now. Swift will cache the token up to the expiration
+expiration time in seconds from now. To avoid the overhead in validating the same
+token over and over again, Swift will cache the
+token for a configurable time, but no longer than the expiration
 time.
 
-The included TempAuth also has the concept of admin and non-admin users
+The Swift project includes two auth systems:
+
+- :ref:`temp_auth`
+- :ref:`keystone_auth`
+
+It is also possible to write your own auth system as described in
+:ref:`extending_auth`.
+
+.. _temp_auth:
+
+--------
+TempAuth
+--------
+
+The included TempAuth has the concept of admin and non-admin users
 within an account.  Admin users can do anything within the account.
-Non-admin users can only perform operations per container based on the
-container's X-Container-Read and X-Container-Write ACLs.  Container ACLs
-use the "V1" ACL syntax, which looks like this:
-``name1, name2, .r:referrer1.com, .r:-bad.referrer1.com, .rlistings``
-For more information on ACLs, see :mod:`swift.common.middleware.acl`.
-
-Additionally, if the auth system sets the request environ's swift_owner key to
-True, the proxy will return additional header information in some requests,
-such as the X-Container-Sync-Key for a container GET or HEAD.
-
-In addition to container ACLs, TempAuth allows account-level ACLs.  Any auth
-system may use the special header ``X-Account-Access-Control`` to specify
-account-level ACLs in a format specific to that auth system.  (Following the
-TempAuth format is strongly recommended.)  These headers are visible and
-settable only by account owners (those for whom ``swift_owner`` is true).
-Behavior of account ACLs is auth-system-dependent.  In the case of TempAuth,
-if an authenticated user has membership in a group which is listed in the
-ACL, then the user is allowed the access level of that ACL.
-
-Account ACLs use the "V2" ACL syntax, which is a JSON dictionary with keys
-named "admin", "read-write", and "read-only".  (Note the case sensitivity.)
-An example value for the ``X-Account-Access-Control`` header looks like this:
-``{"admin":["a","b"],"read-only":["c"]}``  Keys may be absent (as shown).
-The recommended way to generate ACL strings is as follows::
-
-  from swift.common.middleware.acl import format_acl
-  acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
-  acl_string = format_acl(version=2, acl_dict=acl_data)
-
-Using the :func:`format_acl` method will ensure
-that JSON is encoded as ASCII (using e.g. '\u1234' for Unicode).  While
-it's permissible to manually send ``curl`` commands containing
-``X-Account-Access-Control`` headers, you should exercise caution when
-doing so, due to the potential for human error.
-
-Within the JSON dictionary stored in ``X-Account-Access-Control``, the keys
-have the following meanings:
-
-============   ==============================================================
-Access Level   Description
-============   ==============================================================
-read-only      These identities can read *everything* (except privileged
-               headers) in the account.  Specifically, a user with read-only
-               account access can get a list of containers in the account,
-               list the contents of any container, retrieve any object, and
-               see the (non-privileged) headers of the account, any
-               container, or any object.
-read-write     These identities can read or write (or create) any container.
-               A user with read-write account access can create new
-               containers, set any unprivileged container headers, overwrite
-               objects, delete containers, etc.  A read-write user can NOT
-               set account headers (or perform any PUT/POST/DELETE requests
-               on the account).
-admin          These identities have "swift_owner" privileges.  A user with
-               admin account access can do anything the account owner can,
-               including setting account headers and any privileged headers
-               -- and thus granting read-only, read-write, or admin access
-               to other users.
-============   ==============================================================
-
-
-For more details, see :mod:`swift.common.middleware.tempauth`.  For details
-on the ACL format, see :mod:`swift.common.middleware.acl`.
+Non-admin users can only perform read operations. However, some
+privileged metadata such as X-Container-Sync-Key is not accessible to
+non-admin users.
 
 Users with the special group ``.reseller_admin`` can operate on any account.
 For an example usage please see :mod:`swift.common.middleware.tempauth`.
 If a request is coming from a reseller the auth system sets the request environ
 reseller_request to True. This can be used by other middlewares.
 
+Other users may be granted the ability to perform operations on
+an account or container via ACLs. TempAuth supports two types of ACL:
+
+- Per container ACLs based on the
+  container's ``X-Container-Read`` and ``X-Container-Write`` metadata. See
+  :ref:`container_acls` for more information.
+
+- Per account ACLs based on the account's ``X-Account-Access-Control``
+  metadata. For more information see :ref:`account_acls`.
+
 TempAuth will now allow OPTIONS requests to go through without a token.
 
-The user starts a session by sending a REST request to the auth system to
-receive the auth token and a URL to the Swift system.
+The TempAuth middleware is responsible for creating its own tokens. A user
+makes a request containing their username and password and TempAuth
+responds with a token. This token is then used to perform subsequent
+requests on the user's account, containers and objects.
+
+.. _keystone_auth:
 
 -------------
 Keystone Auth
 -------------
 
-Swift is able to authenticate against OpenStack Keystone_ via the
-:ref:`keystoneauth` middleware.
+Swift is able to authenticate against OpenStack Keystone_. In this
+environment, Keystone is responsible for creating and validating
+tokens. The :ref:`keystoneauth` middleware is responsible for
+implementing the auth system within Swift as described here.
+
+The :ref:`keystoneauth` middleware supports per container based ACLs on the
+container's ``X-Container-Read`` and ``X-Container-Write`` metadata.
+For more information see :ref:`container_acls`.
+
+The account-level ACL is not supported by Keystone auth.
 
 In order to use the ``keystoneauth`` middleware the ``auth_token``
 middleware from KeystoneMiddleware_ will need to be configured.
@@ -383,13 +360,18 @@ keystone with Swift:
   If this ``openstack`` command fails then it is likely that there is a problem
   with the ``authtoken`` configuration.
 
+.. _extending_auth:
+
 --------------
 Extending Auth
 --------------
 
 TempAuth is written as wsgi middleware, so implementing your own auth is as
 easy as writing new wsgi middleware, and plugging it in to the proxy server.
-The Keystone project and the Swauth project are examples of additional auth
-services.
+The `Swauth <https://github.com/openstack/swauth>`_ project is an example of
+an additional auth service.
 
-Also, see :doc:`development_auth`.
+See :doc:`development_auth` for detailed information on extending the
+auth system.
+
+

@@ -259,6 +259,31 @@ Transfer-Encoding:
   in: header
   required: false
   type: string
+X-Account-Access-Control_req:
+  description: |
+    **Note**: `X-Account-Access-Control` is not supported by Keystone auth.
+
+    Sets an account access control list (ACL) that grants access to
+    containers and objects in the account.
+    See `Account ACLs
+    <http://docs.openstack.org/developer/swift/overview_acl.html#account-acls>`_
+    for more information.
+  in: header
+  required: false
+  type: string
+X-Account-Access-Control_resp:
+  description: |
+    **Note**: `X-Account-Access-Control` is not supported by Keystone auth.
+
+    The account access control list (ACL) that grants access to
+    containers and objects in the account.
+    If there is no ACL, this header is not returned by this operation.
+    See `Account ACLs
+    <http://docs.openstack.org/developer/swift/overview_acl.html#account-acls>`_
+    for more information.
+  in: header
+  required: false
+  type: string
 X-Account-Bytes-Used:
   description: |
     The total number of bytes that are stored in
@@ -528,7 +553,9 @@ X-Container-Read:
     or to perform a GET or HEAD operation on the container itself.
 
     The format and scope of the ACL is dependent on the authorization system
-    used by the Object Storage service.
+    used by the Object Storage service. See `Container ACLs
+    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    for more information.
   in: header
   required: false
   type: string
@@ -536,6 +563,9 @@ X-Container-Read_resp:
   description: |
     The ACL that grants read access. If there is no ACL, this
     header is not returned by this operation.
+    See `Container ACLs
+    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    for more information.
   in: header
   required: false
   type: string
@@ -583,7 +613,9 @@ X-Container-Write:
     metadata.
 
     The format of the ACL is dependent on the authorization system
-    used by the Object Storage service.
+    used by the Object Storage service.  See `Container ACLs
+    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    for more information.
 
   in: header
   required: false
@@ -592,6 +624,9 @@ X-Container-Write_resp:
   description:
     The ACL that grants write access. If there is no ACL,
     this header is not returned by this operation.
+    See `Container ACLs
+    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    for more information.
   in: header
   required: false
   type: string
