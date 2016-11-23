@@ -44,7 +44,12 @@ It is also possible to write your own auth system as described in
 TempAuth
 --------
 
-The included TempAuth has the concept of admin and non-admin users
+TempAuth is used primarily in Swift's functional test environment and can be
+used in other test environments (such as :doc:`development_saio`). It is not
+recommended to use TempAuth in a production system. However, TempAuth is fully
+functional and can be used as a model to develop your own auth system.
+
+TempAuth has the concept of admin and non-admin users
 within an account.  Admin users can do anything within the account.
 Non-admin users can only perform read operations. However, some
 privileged metadata such as X-Container-Sync-Key is not accessible to
