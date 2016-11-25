@@ -276,7 +276,8 @@ def consolidate_hashes(partition_dir):
             with open(invalidations_file, 'rb') as inv_fh:
                 for line in inv_fh:
                     suffix = line.strip()
-                    if hashes is not None and hashes.get(suffix) is not None:
+                    if hashes is not None and \
+                            hashes.get(suffix, '') is not None:
                         hashes[suffix] = None
                         modified = True
         except (IOError, OSError) as e:
