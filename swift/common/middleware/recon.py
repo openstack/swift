@@ -29,6 +29,16 @@ from resource import getpagesize
 from hashlib import md5
 
 
+MD5_BLOCK_READ_BYTES = 4096
+
+
+def _hash_for_ringfile(f):
+    md5sum = md5()
+    for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), ''):
+        md5sum.update(block)
+    return md5sum.hexdigest()
+
+
 class ReconMiddleware(object):
     """
     Recon middleware used for monitoring.
@@ -250,15 +260,10 @@ class ReconMiddleware(object):
         """get all ring md5sum's"""
         sums = {}
         for ringfile in self.rings:
-            md5sum = md5()
             if os.path.exists(ringfile):
                 try:
                     with openr(ringfile, 'rb') as f:
-                        block = f.read(4096)
-                        while block:
-                            md5sum.update(block)
-                            block = f.read(4096)
-                    sums[ringfile] = md5sum.hexdigest()
+                        sums[ringfile] = _hash_for_ringfile(f)
                 except IOError as err:
                     sums[ringfile] = None
                     if err.errno != errno.ENOENT:
