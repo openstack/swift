@@ -331,6 +331,8 @@ class DatabaseBroker(object):
         """
         if 'database disk image is malformed' in str(exc_value):
             exc_hint = 'malformed'
+        elif 'malformed database schema' in str(exc_value):
+            exc_hint = 'malformed'
         elif 'file is encrypted or is not a database' in str(exc_value):
             exc_hint = 'corrupted'
         elif 'disk I/O error' in str(exc_value):
