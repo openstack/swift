@@ -26,6 +26,7 @@ from io import BufferedReader
 from hashlib import md5
 from itertools import chain
 from tempfile import NamedTemporaryFile
+import sys
 
 from six.moves import range
 
@@ -70,10 +71,15 @@ class RingData(object):
         if metadata_only:
             return ring_dict
 
+        byteswap = (ring_dict.get('byteorder', sys.byteorder) != sys.byteorder)
+
         partition_count = 1 << (32 - ring_dict['part_shift'])
         for x in range(ring_dict['replica_count']):
-            ring_dict['replica2part2dev_id'].append(
-                array.array('H', gz_file.read(2 * partition_count)))
+            part2dev = array.array('H', gz_file.read(2 * partition_count))
+            if byteswap:
+                part2dev.byteswap()
+            ring_dict['replica2part2dev_id'].append(part2dev)
+
         return ring_dict
 
     @classmethod
@@ -117,7 +123,8 @@ class RingData(object):
         json_encoder = json.JSONEncoder(sort_keys=True)
         json_text = json_encoder.encode(
             {'devs': ring['devs'], 'part_shift': ring['part_shift'],
-             'replica_count': len(ring['replica2part2dev_id'])})
+             'replica_count': len(ring['replica2part2dev_id']),
+             'byteorder': sys.byteorder})
         json_len = len(json_text)
         file_obj.write(struct.pack('!I', json_len))
         file_obj.write(json_text)

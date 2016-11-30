@@ -24,6 +24,9 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from time import sleep, time
 import random
+import sys
+import copy
+import mock
 
 from six.moves import range
 
@@ -106,6 +109,30 @@ class TestRingData(unittest.TestCase):
         self.assertEqual([], meta_only._replica2part2dev_id)
         rd2 = ring.RingData.load(ring_fname)
         self.assert_ring_data_equal(rd, rd2)
+
+    def test_byteswapped_serialization(self):
+        # Manually byte swap a ring and write it out, claiming it was written
+        # on a different endian machine. Then read it back in and see if it's
+        # the same as the non-byte swapped original.
+
+        ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
+        data = [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])]
+        swapped_data = copy.deepcopy(data)
+        for x in swapped_data:
+            x.byteswap()
+
+        with mock.patch.object(sys, 'byteorder',
+                               'big' if sys.byteorder == 'little'
+                               else 'little'):
+            rds = ring.RingData(swapped_data,
+                                [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}],
+                                30)
+            rds.save(ring_fname)
+
+        rd1 = ring.RingData(data, [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}],
+                            30)
+        rd2 = ring.RingData.load(ring_fname)
+        self.assert_ring_data_equal(rd1, rd2)
 
     def test_deterministic_serialization(self):
         """
