@@ -38,6 +38,7 @@ from swift.common.swob import HTTPException
 
 from test import unit
 from test.unit.common.test_db import ExampleBroker
+from test.unit import with_tempdir
 
 
 TEST_ACCOUNT_NAME = 'a c t'
@@ -1049,6 +1050,150 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual(204, resp.status_int)
         finally:
             rmtree(drive)
+
+    @with_tempdir
+    def test_empty_suffix_and_hash_dirs_get_cleanedup(self, tempdir):
+        # tests empty suffix and hash dirs of a quarantined db are cleaned up
+        listdir_calls = []
+        isdir_calls = []
+        exists_calls = []
+        shuffle_calls = []
+        rmdir_calls = []
+
+        existing_file = os.path.join(tempdir, 'a_file_exists')
+        open(existing_file, 'a').close()
+        dir_with_no_obj_file = '/srv/node/sdb/containers/9876/xyz/' \
+                               '11111111111111111111111111111xyz'
+
+        def _listdir(path):
+            listdir_calls.append(path)
+            if not path.startswith('/srv/node/sda/containers') and \
+                    not path.startswith('/srv/node/sdb/containers'):
+                return []
+            path = path[len('/srv/node/sdx/containers'):]
+            if path == '':
+                return ['6789', '9876']
+            elif path == '/9876':
+                return ['xyz']
+            elif path == '/9876/xyz':
+                return ['11111111111111111111111111111xyz']
+            elif path == '/9876/xyz/11111111111111111111111111111xyz':
+                return []
+            elif path == '/6789':
+                return ['jkl']
+            elif path == '/6789/jkl':
+                return []
+            return []
+
+        def _isdir(path):
+            isdir_calls.append(path)
+            if not path.startswith('/srv/node/sda/containers') and \
+                    not path.startswith('/srv/node/sdb/containers'):
+                return False
+            path = path[len('/srv/node/sdx/containers'):]
+            if path in ('/9876', '/9876/xyz',
+                        '/9876/xyz/11111111111111111111111111111xyz',
+                        '/6789', '/6789/jkl'):
+                return True
+            return False
+
+        def _exists(arg):
+            exists_calls.append(arg)
+            if arg in ('/srv/node/sda/containers/9876/xyz/'
+                       '11111111111111111111111111111xyz/'
+                       '11111111111111111111111111111xyz.db',
+                       '/srv/node/sdb/containers/9876/xyz/'
+                       '11111111111111111111111111111xyz/'
+                       '11111111111111111111111111111xyz.db'):
+                return False
+            return True
+
+        def _shuffle(arg):
+            shuffle_calls.append(arg)
+
+        def _rmdir(arg):
+            rmdir_calls.append(arg)
+            if arg == dir_with_no_obj_file:
+                # use db_replicator.os.rmdir to delete a directory with an
+                # existing file; fail if it doesn't handle OSError
+                orig_rmdir(tempdir)
+                self.fail('The rmdir did not handle the exception as expected')
+
+        orig_listdir = db_replicator.os.listdir
+        orig_isdir = db_replicator.os.path.isdir
+        orig_exists = db_replicator.os.path.exists
+        orig_shuffle = db_replicator.random.shuffle
+        orig_rmdir = db_replicator.os.rmdir
+
+        try:
+            db_replicator.os.listdir = _listdir
+            db_replicator.os.path.isdir = _isdir
+            db_replicator.os.path.exists = _exists
+            db_replicator.random.shuffle = _shuffle
+            db_replicator.os.rmdir = _rmdir
+
+            datadirs = [('/srv/node/sda/containers', 1),
+                        ('/srv/node/sdb/containers', 2)]
+            results = list(db_replicator.roundrobin_datadirs(datadirs))
+            # The results show that there are no .db files to be returned
+            # in this case
+            self.assertEqual(results, [])
+            # The listdir calls show that we only listdir the dirs
+            self.assertEqual(listdir_calls, [
+                '/srv/node/sda/containers',
+                '/srv/node/sda/containers/6789',
+                '/srv/node/sda/containers/6789/jkl',
+                '/srv/node/sda/containers/9876',
+                '/srv/node/sda/containers/9876/xyz',
+                '/srv/node/sdb/containers',
+                '/srv/node/sdb/containers/6789',
+                '/srv/node/sdb/containers/6789/jkl',
+                '/srv/node/sdb/containers/9876',
+                '/srv/node/sdb/containers/9876/xyz'])
+            # The isdir calls show that we did ask about the things pretending
+            # to be files at various levels.
+            self.assertEqual(isdir_calls, [
+                '/srv/node/sda/containers/6789',
+                '/srv/node/sda/containers/6789/jkl',
+                '/srv/node/sda/containers/9876',
+                '/srv/node/sda/containers/9876/xyz',
+                ('/srv/node/sda/containers/9876/xyz/'
+                 '11111111111111111111111111111xyz'),
+                '/srv/node/sdb/containers/6789',
+                '/srv/node/sdb/containers/6789/jkl',
+                '/srv/node/sdb/containers/9876',
+                '/srv/node/sdb/containers/9876/xyz',
+                ('/srv/node/sdb/containers/9876/xyz/'
+                 '11111111111111111111111111111xyz')])
+            # The exists calls are the .db files we looked for as we walked the
+            # structure.
+            self.assertEqual(exists_calls, [
+                ('/srv/node/sda/containers/9876/xyz/'
+                 '11111111111111111111111111111xyz/'
+                 '11111111111111111111111111111xyz.db'),
+                ('/srv/node/sdb/containers/9876/xyz/'
+                 '11111111111111111111111111111xyz/'
+                 '11111111111111111111111111111xyz.db')])
+            # Shows that we called shuffle twice, once for each device.
+            self.assertEqual(
+                shuffle_calls, [['6789', '9876'],
+                                ['6789', '9876']])
+
+            # Shows that we called rmdir and removed directories with no db
+            # files and directories with no hashes
+            self.assertEqual(
+                rmdir_calls, ['/srv/node/sda/containers/6789/jkl',
+                              '/srv/node/sda/containers/9876/xyz/'
+                              '11111111111111111111111111111xyz',
+                              '/srv/node/sdb/containers/6789/jkl',
+                              '/srv/node/sdb/containers/9876/xyz/'
+                              '11111111111111111111111111111xyz'])
+        finally:
+            db_replicator.os.listdir = orig_listdir
+            db_replicator.os.path.isdir = orig_isdir
+            db_replicator.os.path.exists = orig_exists
+            db_replicator.random.shuffle = orig_shuffle
+            db_replicator.os.rmdir = orig_rmdir
 
     def test_roundrobin_datadirs(self):
         listdir_calls = []
