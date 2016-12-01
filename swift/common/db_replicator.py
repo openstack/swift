@@ -111,9 +111,6 @@ def roundrobin_datadirs(datadirs):
                         except OSError as e:
                             if e.errno is not errno.ENOTEMPTY:
                                 raise
-            # remove empty partitions after the above directory walk
-            if not suffixes:
-                os.rmdir(part_dir)
 
     its = [walk_datadir(datadir, node_id) for datadir, node_id in datadirs]
     while its:
