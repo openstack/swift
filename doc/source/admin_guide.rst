@@ -707,7 +707,9 @@ Request URI                 Description
 /recon/mounted              returns *ALL* currently mounted filesystems
 /recon/unmounted            returns all unmounted drives if mount_check = True
 /recon/diskusage            returns disk utilization for storage devices
+/recon/driveaudit           returns # of drive audit errors
 /recon/ringmd5              returns object/container/account ring md5sums
+/recon/swiftconfmd5         returns swift.conf md5sum
 /recon/quarantined          returns # of quarantined objects/accounts/containers
 /recon/sockstat             returns consumable info from /proc/net/sockstat|6
 /recon/devices              returns list of devices and devices dir i.e. /srv/node
@@ -716,6 +718,8 @@ Request URI                 Description
 /recon/replication/<type>   returns replication info for given type (account, container, object)
 /recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
 /recon/updater/<type>       returns last updater sweep times for given type (container, object)
+/recon/version              returns Swift version
+/recon/time                 returns node time
 =========================   ========================================================================================
 
 Note that 'object_replication_last' and 'object_replication_time' in object
