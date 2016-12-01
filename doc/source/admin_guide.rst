@@ -707,6 +707,7 @@ Request URI                 Description
 /recon/replication/<type>   returns replication info for given type (account, container, object)
 /recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
 /recon/updater/<type>       returns last updater sweep times for given type (container, object)
+/recon/expirer/object       returns time elapsed and number of objects deleted during last object expirer sweep
 /recon/version              returns Swift version
 /recon/time                 returns node time
 =========================   ========================================================================================
