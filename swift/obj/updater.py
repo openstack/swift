@@ -270,7 +270,7 @@ class ObjectUpdater(Daemon):
                 resp.read()
                 success = is_success(resp.status)
                 if not success:
-                    self.logger.error(
+                    self.logger.debug(
                         _('Error code %(status)d is returned from remote '
                           'server %(ip)s: %(port)s / %(device)s'),
                         {'status': resp.status, 'ip': node['ip'],
