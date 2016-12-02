@@ -4200,3 +4200,20 @@ def safe_json_loads(value):
         except (TypeError, ValueError):
             pass
     return None
+
+
+MD5_BLOCK_READ_BYTES = 4096
+
+
+def md5_hash_for_file(fname):
+    """
+    Get the MD5 checksum of a file.
+
+    :param fname: path to file
+    :returns: MD5 checksum, hex encoded
+    """
+    with open(fname, 'rb') as f:
+        md5sum = md5()
+        for block in iter(lambda: f.read(MD5_BLOCK_READ_BYTES), ''):
+            md5sum.update(block)
+    return md5sum.hexdigest()
