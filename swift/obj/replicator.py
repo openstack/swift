@@ -46,6 +46,10 @@ DEFAULT_RSYNC_TIMEOUT = 900
 hubs.use_hub(get_hub())
 
 
+def _do_listdir(partition, replication_cycle):
+    return (((partition + replication_cycle) % 10) == 0)
+
+
 class ObjectReplicator(Daemon):
     """
     Replicate objects.
@@ -74,6 +78,7 @@ class ObjectReplicator(Daemon):
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
+        self.replication_cycle = random.randint(0, 9)
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
@@ -404,7 +409,9 @@ class ObjectReplicator(Daemon):
         try:
             hashed, local_hash = tpool_reraise(
                 self._diskfile_mgr._get_hashes, job['path'],
-                do_listdir=(self.replication_count % 10) == 0,
+                do_listdir=_do_listdir(
+                    int(job['partition']),
+                    self.replication_cycle),
                 reclaim_age=self.reclaim_age)
             self.suffix_hash += hashed
             self.logger.update_stats('suffix.hashes', hashed)
@@ -692,6 +699,7 @@ class ObjectReplicator(Daemon):
         self.suffix_hash = 0
         self.replication_count = 0
         self.last_replication_count = -1
+        self.replication_cycle = (self.replication_cycle + 1) % 10
         self.partition_times = []
         self.my_replication_ips = self._get_my_replication_ips()
         self.all_devs_info = set()
