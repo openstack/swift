@@ -758,6 +758,22 @@ class TestDatabaseBroker(unittest.TestCase):
                 str(exc),
                 'Quarantined %s to %s due to malformed database' %
                 (dbpath, qpath))
+            # Test malformed schema database
+            copy(os.path.join(os.path.dirname(__file__),
+                              'malformed_schema_example.db'),
+                 os.path.join(dbpath, '1.db'))
+            broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+            broker.db_type = 'test'
+            exc = None
+            try:
+                with broker.get() as conn:
+                    conn.execute('SELECT * FROM test')
+            except Exception as err:
+                exc = err
+            self.assertEqual(
+                str(exc),
+                'Quarantined %s to %s due to malformed database' %
+                (dbpath, qpath))
             # Test corrupted database
             copy(os.path.join(os.path.dirname(__file__),
                               'corrupted_example.db'),
@@ -1214,29 +1230,36 @@ class TestDatabaseBroker(unittest.TestCase):
             message = str(e)
         self.assertEqual(message, '400 Bad Request')
 
-    def test_possibly_quarantine_disk_error(self):
+    def test_possibly_quarantine_db_errors(self):
         dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
-        mkdirs(dbpath)
         qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'tests', 'db')
-        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
-        broker.db_type = 'test'
+        # Data is a list of Excpetions to be raised and expected values in the
+        # log
+        data = [
+            (sqlite3.DatabaseError('database disk image is malformed'),
+             'malformed'),
+            (sqlite3.DatabaseError('malformed database schema'), 'malformed'),
+            (sqlite3.DatabaseError('file is encrypted or is not a database'),
+             'corrupted'),
+            (sqlite3.OperationalError('disk I/O error'),
+             'disk error while accessing')]
 
-        def stub():
-            raise sqlite3.OperationalError('disk I/O error')
-
-        try:
-            stub()
-        except Exception:
+        for i, (ex, hint) in enumerate(data):
+            mkdirs(dbpath)
+            broker = DatabaseBroker(os.path.join(dbpath, '%d.db' % (i)))
+            broker.db_type = 'test'
             try:
-                broker.possibly_quarantine(*sys.exc_info())
-            except Exception as exc:
-                self.assertEqual(
-                    str(exc),
-                    'Quarantined %s to %s due to disk error '
-                    'while accessing database' %
-                    (dbpath, qpath))
-            else:
-                self.fail('Expected an exception to be raised')
+                raise ex
+            except (sqlite3.DatabaseError, DatabaseConnectionError):
+                try:
+                    broker.possibly_quarantine(*sys.exc_info())
+                except Exception as exc:
+                    self.assertEqual(
+                        str(exc),
+                        'Quarantined %s to %s due to %s database' %
+                        (dbpath, qpath, hint))
+                else:
+                    self.fail('Expected an exception to be raised')
 
 if __name__ == '__main__':
     unittest.main()
