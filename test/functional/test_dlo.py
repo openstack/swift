@@ -135,6 +135,7 @@ class TestDlo(Base):
 
         self.assertRaises(ResponseError, file_item.read, size=7, offset=50)
         self.assert_status(416)
+        self.assert_header('content-range', 'bytes */50')
 
     def test_copy(self):
         # Adding a new segment, copying the manifest, and then deleting the

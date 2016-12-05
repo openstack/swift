@@ -2310,6 +2310,9 @@ class ECObjectController(BaseObjectController):
             resp.headers['Content-Length'] = resp.headers.get(
                 'X-Object-Sysmeta-Ec-Content-Length')
             resp.fix_conditional_response()
+        if resp.status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE:
+            resp.headers['Content-Range'] = 'bytes */%s' % resp.headers[
+                'X-Object-Sysmeta-Ec-Content-Length']
 
     def _make_putter(self, node, part, req, headers):
         return MIMEPutter.connect(

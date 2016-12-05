@@ -411,6 +411,12 @@ class TestDloGetManifest(DloTestCase):
                                  headers={'Range': 'bytes=25-30'})
         status, headers, body = self.call_dlo(req)
         self.assertEqual(status, "416 Requested Range Not Satisfiable")
+        expected_headers = (
+            ('Accept-Ranges', 'bytes'),
+            ('Content-Range', 'bytes */25'),
+        )
+        for header_value_pair in expected_headers:
+            self.assertIn(header_value_pair, headers)
 
     def test_get_range_many_segments_satisfiable(self):
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-many-segments',

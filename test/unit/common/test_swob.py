@@ -1304,6 +1304,7 @@ class TestResponse(unittest.TestCase):
         self.assertIn('The Range requested is not available', body)
         self.assertEqual(resp.content_length, len(body))
         self.assertEqual(resp.status, '416 Requested Range Not Satisfiable')
+        self.assertEqual(resp.content_range, 'bytes */10')
 
         resp = swift.common.swob.Response(
             body='1234567890', request=req,
@@ -1321,6 +1322,7 @@ class TestResponse(unittest.TestCase):
         body = ''.join(resp([], start_response))
         self.assertEqual(body, '1234567890')
         self.assertEqual(resp.status, '200 OK')
+        self.assertNotIn('Content-Range', resp.headers)
 
         resp = swift.common.swob.Response(
             body='1234567890', request=req,

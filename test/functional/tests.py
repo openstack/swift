@@ -1888,8 +1888,11 @@ class TestFile(Base):
                 # Otherwise, the byte-range-set is unsatisfiable.
                 self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
                 self.assert_status(416)
+                self.assert_header('content-range', 'bytes */%d' % file_length)
             else:
                 self.assertEqual(file_item.read(hdrs=hdrs), data[-i:])
+                self.assert_header('content-range', 'bytes %d-%d/%d' % (
+                    file_length - i, file_length - 1, file_length))
             self.assert_header('etag', file_item.md5)
             self.assert_header('accept-ranges', 'bytes')
 
@@ -1903,6 +1906,7 @@ class TestFile(Base):
         hdrs = {'Range': range_string}
         self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
         self.assert_status(416)
+        self.assert_header('content-range', 'bytes */%d' % file_length)
         self.assert_header('etag', file_item.md5)
         self.assert_header('accept-ranges', 'bytes')
 
@@ -2067,6 +2071,7 @@ class TestFile(Base):
 
         self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
         self.assert_status(416)
+        self.assert_header('content-range', 'bytes */%d' % file_length)
 
     def testRangedGetsWithLWSinHeader(self):
         file_length = 10000

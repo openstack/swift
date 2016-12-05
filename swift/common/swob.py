@@ -1250,6 +1250,8 @@ class Response(object):
             if ranges == []:
                 self.status = 416
                 close_if_possible(app_iter)
+                self.headers['Content-Range'] = \
+                    'bytes */%d' % self.content_length
                 # Setting body + app_iter to None makes us emit the default
                 # body text from RESPONSE_REASONS.
                 body = None

@@ -263,7 +263,12 @@ class GetContext(WSGIContext):
                 byteranges = req.range.ranges_for_length(
                     content_length_for_swob_range)
                 if not byteranges:
-                    return HTTPRequestedRangeNotSatisfiable(request=req)
+                    headers = {'Accept-Ranges': 'bytes'}
+                    if have_complete_listing:
+                        headers['Content-Range'] = 'bytes */%d' % (
+                            content_length_for_swob_range, )
+                    return HTTPRequestedRangeNotSatisfiable(
+                        request=req, headers=headers)
                 first_byte, last_byte = byteranges[0]
                 # For some reason, swob.Range.ranges_for_length adds 1 to the
                 # last byte's position.
