@@ -1050,6 +1050,7 @@ class BaseDiskFileManager(object):
                 if len(suff) == 3:
                     hashes.setdefault(suff, None)
             modified = True
+            self.logger.debug('Run listdir on %s', partition_path)
         hashes.update((suffix, None) for suffix in recalculate)
         for suffix, hash_ in hashes.items():
             if not hash_:
