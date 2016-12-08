@@ -130,7 +130,7 @@ class TestStoragePolicies(unittest.TestCase):
             self.assertEqual(policy_string, get_policy_string(*expected))
 
     def test_defaults(self):
-        self.assertTrue(len(POLICIES) > 0)
+        self.assertGreater(len(POLICIES), 0)
 
         # test class functions
         default_policy = POLICIES.default

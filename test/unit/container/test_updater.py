@@ -105,7 +105,7 @@ class TestContainerUpdater(unittest.TestCase):
         cu.logger = FakeLogger()
         cu.run_once()
         log_lines = cu.logger.get_lines_for_level('warning')
-        self.assertTrue(len(log_lines) > 0)
+        self.assertGreater(len(log_lines), 0)
         msg = 'sda1 is not mounted'
         self.assertEqual(log_lines[0], msg)
         # Ensure that the container_sweep did not run

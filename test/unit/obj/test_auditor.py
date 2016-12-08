@@ -604,7 +604,7 @@ class TestAuditor(unittest.TestCase):
                                                self.rcache, self.devices)
         auditor_worker.audit_all_objects(device_dirs=['sda'])
         log_lines = logger.get_lines_for_level('info')
-        self.assertTrue(len(log_lines) > 0)
+        self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ALL - parallel, sda'))
 
         logger = FakeLogger()
@@ -613,7 +613,7 @@ class TestAuditor(unittest.TestCase):
                                                zero_byte_only_at_fps=50)
         auditor_worker.audit_all_objects(device_dirs=['sda'])
         log_lines = logger.get_lines_for_level('info')
-        self.assertTrue(len(log_lines) > 0)
+        self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ZBF - sda'))
 
     def test_object_run_once_no_sda(self):

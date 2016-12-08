@@ -924,7 +924,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             mgr = diskfile.DiskFileManager(self.conf, logger)
 
         warnings = logger.get_lines_for_level('warning')
-        self.assertTrue(len(warnings) > 0)
+        self.assertGreater(len(warnings), 0)
         self.assertTrue('splice()' in warnings[-1])
         self.assertFalse(mgr.use_splice)
 
@@ -4671,7 +4671,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # Despite fs not supporting O_TMPFILE, use_linkat should not change
             self.assertTrue(df._use_linkat)
             log = df._logger.get_lines_for_level('warning')
-            self.assertTrue(len(log) > 0)
+            self.assertGreater(len(log), 0)
             self.assertTrue('O_TMPFILE' in log[-1])
 
     @requires_o_tmpfile_support
