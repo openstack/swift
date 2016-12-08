@@ -22,7 +22,8 @@ from swift.common.utils import hash_path, storage_directory, \
     Timestamp, is_valid_ipv6
 from swift.common.ring import Ring
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
-    strip_sys_meta_prefix, strip_user_meta_prefix
+    strip_sys_meta_prefix, strip_user_meta_prefix, \
+    is_object_transient_sysmeta
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
@@ -274,6 +275,7 @@ def print_obj_metadata(metadata):
     """
     user_metadata = {}
     sys_metadata = {}
+    transient_sys_metadata = {}
     other_metadata = {}
 
     if not metadata:
@@ -310,6 +312,8 @@ def print_obj_metadata(metadata):
             user_metadata[key] = value
         elif is_sys_meta('Object', key):
             sys_metadata[key] = value
+        elif is_object_transient_sysmeta(key):
+            transient_sys_metadata[key] = value
         else:
             other_metadata[key] = value
 
@@ -322,6 +326,7 @@ def print_obj_metadata(metadata):
             print('  No metadata found')
 
     print_metadata('System Metadata:', sys_metadata)
+    print_metadata('Transient System Metadata:', transient_sys_metadata)
     print_metadata('User Metadata:', user_metadata)
     print_metadata('Other Metadata:', other_metadata)
 
