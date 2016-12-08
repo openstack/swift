@@ -78,7 +78,7 @@ class TestProfilers(unittest.TestCase):
             p.runctx('import os;os.getcwd();', globals(), locals())
             p.snapshot_stats()
             self.assertTrue(p.stats is not None)
-            self.assertTrue(len(p.stats.keys()) > 0)
+            self.assertGreater(len(p.stats.keys()), 0)
 
 
 class TestProfileMiddleware(unittest.TestCase):
