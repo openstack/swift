@@ -1,0 +1,57 @@
+---
+features:
+  - >
+    Ring files now include byteorder information about the endian of
+    the machine used to generate the file, and the values are
+    appropriately byteswapped if deserialized on a machine with a
+    different endianness.
+
+    Newly created ring files will be byteorder agnostic, but
+    previously generated ring files will still fail on different
+    endian architectures. Regenerating older ring files will cause
+    them to become byteorder agnostic. The regeneration of the ring
+    files will not cause any new data movement. Newer ring files
+    will still be usable by older versions of Swift (on machines
+    with the same endianness--this maintains existing behavior).
+  - >
+    All 416 responses will now include a Content-Range header with
+    an unsatisfied-range value. This allows the caller to know the
+    valid range request value for an object.
+  - >
+    TempURLs now support a validation against a common prefix. A
+    prefix-based signature grants access to all objects which share the
+    same prefix. This avoids the creation of a large amount of signatures,
+    when a whole container or pseudofolder is shared.
+  - >
+    In SLO manifests, the `etag` and `size_bytes` keys are now fully
+    optional and not required. Previously, the keys needed to exist
+    but the values were optional. The only required key is `path`.
+  - Respect server type for --md5 check in swift-recon.
+fixes:
+  - Correctly handle deleted files with if-none-match requests.
+  - >
+    Correctly send 412 Precondition Failed if a user sends an
+    invalid copy destination. Previously Swift would send a 500
+    Internal Server Error.
+  - Fixed a rare infinite loop in `swift-ring-builder` while placing parts.
+  - >
+    Ensure update of the container by object-updater, removing a rare
+    possibility that objects would never be added to a container listing.
+  - >
+    Fixed non-deterministic suffix updates in hashes.pkl where a partition
+    may be updated much less often than expected.
+  - >
+    Fixed regression in consolidate_hashes that occurred when a new
+    file was stored to new suffix to a non-empty partition. This bug
+    was introduced in 2.7.0 and could cause an increase in rsync
+    replication stats during and after upgrade, due to inconsistent
+    hashing of partition suffixes.
+  - >
+    Account and container databases will now be quarantined if the
+    database schema has been corrupted.
+  - Remove empty db hash and suffix directories if a db gets quarantined.
+other:
+  - >
+    Removed "in-process-" from func env tox name to work with
+    upstream CI.
+  - Various other minor bug fixes and improvements.
