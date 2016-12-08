@@ -1135,10 +1135,9 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_if_none_match_star(self):
         # First PUT should succeed
-        timestamp = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp,
+            headers={'X-Timestamp': next(self.ts).normal,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
@@ -1146,16 +1145,31 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         # File should already exist so it should fail
-        timestamp = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp,
+            headers={'X-Timestamp': next(self.ts).normal,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': next(self.ts).normal})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 204)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': next(self.ts).normal,
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': '*'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_if_none_match(self):
         # PUT with if-none-match set and nothing there should succeed
@@ -1180,6 +1194,53 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
+
+    def test_PUT_if_none_match_but_expired(self):
+        inital_put = next(self.ts)
+        put_before_expire = next(self.ts)
+        delete_at_timestamp = int(next(self.ts))
+        time_after_expire = next(self.ts)
+        put_after_expire = next(self.ts)
+        delete_at_container = str(
+            delete_at_timestamp /
+            self.object_controller.expiring_objects_container_divisor *
+            self.object_controller.expiring_objects_container_divisor)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': inital_put.normal,
+                     'X-Delete-At': str(delete_at_timestamp),
+                     'X-Delete-At-Container': delete_at_container,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # PUT again before object has expired should fail
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': put_before_expire.normal,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': '*'})
+        req.body = 'TEST'
+        with mock.patch("swift.obj.server.time.time",
+                        lambda: float(put_before_expire.normal)):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 412)
+
+        # PUT again after object has expired should succeed
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': put_after_expire.normal,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': '*'})
+        req.body = 'TEST'
+        with mock.patch("swift.obj.server.time.time",
+                        lambda: float(time_after_expire.normal)):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_common(self):
         timestamp = normalize_timestamp(time())
