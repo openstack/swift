@@ -109,6 +109,9 @@ class TestObjectAsyncUpdate(ReplProbeTest):
             self.assertFalse(direct_client.direct_get_container(
                 cnode, cpart, self.account, container)[1])
 
+        # since the container is empty - we can delete it!
+        client.delete_container(self.url, self.token, container)
+
         # Re-run the object-updaters and now container replicas in primary
         # container servers should get updated
         Manager(['object-updater']).once()
