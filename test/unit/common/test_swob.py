@@ -270,7 +270,7 @@ class TestMatch(unittest.TestCase):
         self.assertEqual(match.tags, set(('a', 'b')))
         self.assertTrue('a' in match)
         self.assertTrue('b' in match)
-        self.assertTrue('c' not in match)
+        self.assertNotIn('c', match)
 
     def test_match_star(self):
         match = swift.common.swob.Match('"a", "*"')
@@ -283,7 +283,7 @@ class TestMatch(unittest.TestCase):
         self.assertEqual(match.tags, set(('a', 'b')))
         self.assertTrue('a' in match)
         self.assertTrue('b' in match)
-        self.assertTrue('c' not in match)
+        self.assertNotIn('c', match)
 
 
 class TestTransferEncoding(unittest.TestCase):
@@ -724,7 +724,7 @@ class TestRequest(unittest.TestCase):
 
         req = swift.common.swob.Request.blank('/')
         resp = req.get_response(test_app)
-        self.assertTrue('Www-Authenticate' not in resp.headers)
+        self.assertNotIn('Www-Authenticate', resp.headers)
 
     def test_properties(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')
@@ -744,7 +744,7 @@ class TestRequest(unittest.TestCase):
 
         self.assertTrue('Range' in req.headers)
         req.range = None
-        self.assertTrue('Range' not in req.headers)
+        self.assertNotIn('Range', req.headers)
 
     def test_datetime_properties(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')
@@ -761,7 +761,7 @@ class TestRequest(unittest.TestCase):
 
         self.assertTrue('If-Unmodified-Since' in req.headers)
         req.if_unmodified_since = None
-        self.assertTrue('If-Unmodified-Since' not in req.headers)
+        self.assertNotIn('If-Unmodified-Since', req.headers)
 
         too_big_date_list = list(datetime.datetime.max.timetuple())
         too_big_date_list[0] += 1  # bump up the year
@@ -1032,12 +1032,12 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(resp.location, 'something')
         self.assertTrue('Location' in resp.headers)
         resp.location = None
-        self.assertTrue('Location' not in resp.headers)
+        self.assertNotIn('Location', resp.headers)
 
         resp.content_type = 'text/plain'
         self.assertTrue('Content-Type' in resp.headers)
         resp.content_type = None
-        self.assertTrue('Content-Type' not in resp.headers)
+        self.assertNotIn('Content-Type', resp.headers)
 
     def test_empty_body(self):
         resp = self._get_response()
@@ -1359,7 +1359,7 @@ class TestResponse(unittest.TestCase):
 
         self.assertTrue('etag' in resp.headers)
         resp.etag = None
-        self.assertTrue('etag' not in resp.headers)
+        self.assertNotIn('etag', resp.headers)
 
     def test_host_url_default(self):
         resp = self._get_response()

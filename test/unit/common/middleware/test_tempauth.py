@@ -204,14 +204,14 @@ class TestAuth(unittest.TestCase):
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('swift.authorize' not in req.environ)
+        self.assertNotIn('swift.authorize', req.environ)
 
     def test_override_default_allowed(self):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('swift.authorize' not in req.environ)
+        self.assertNotIn('swift.authorize', req.environ)
 
     def test_auth_deny_non_reseller_prefix(self):
         req = self._make_request('/v1/BLAH_account',

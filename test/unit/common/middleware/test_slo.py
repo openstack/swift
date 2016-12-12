@@ -468,7 +468,7 @@ class TestSloPutManifest(SloTestCase):
             '/v1/AUTH_test/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
             body=test_json_data)
-        self.assertTrue('X-Static-Large-Object' not in req.headers)
+        self.assertNotIn('X-Static-Large-Object', req.headers)
         self.slo(req.environ, fake_start_response)
         self.assertTrue('X-Static-Large-Object' in req.headers)
         self.assertTrue(req.environ['PATH_INFO'], '/cont/object\xe2\x99\xa1')
@@ -1728,7 +1728,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '15')
-        self.assertTrue('Etag' not in headers)
+        self.assertNotIn('Etag', headers)
         self.assertEqual(body, 'aabbbbbbbbbbccc')
 
         self.assertEqual(
@@ -1973,7 +1973,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '25')
-        self.assertTrue('Etag' not in headers)
+        self.assertNotIn('Etag', headers)
         self.assertEqual(body, 'bbbbbbbbbbccccccccccccccc')
 
         self.assertEqual(

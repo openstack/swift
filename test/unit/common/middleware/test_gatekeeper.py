@@ -92,8 +92,8 @@ class TestGatekeeper(unittest.TestCase):
 
     def _assertHeadersAbsent(self, unexpected, actual):
         for key in unexpected:
-            self.assertTrue(key.lower() not in actual,
-                            '%s is in %s' % (key, actual))
+            self.assertNotIn(key.lower(), actual,
+                             '%s is in %s' % (key, actual))
 
     def get_app(self, app, global_conf, **local_conf):
         factory = gatekeeper.filter_factory(global_conf, **local_conf)

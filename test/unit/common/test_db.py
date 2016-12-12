@@ -1131,7 +1131,7 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertTrue('First' in broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
-        self.assertTrue('Second' not in broker.metadata)
+        self.assertNotIn('Second', broker.metadata)
 
     @patch.object(DatabaseBroker, 'validate_metadata')
     def test_validate_metadata_is_called_from_update_metadata(self, mock):
