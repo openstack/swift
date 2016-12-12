@@ -554,8 +554,8 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank(
             '/v1/a/c3/subdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c3/subdir/' in resp.body)
-        self.assertTrue('</style>' in resp.body)
+        self.assertIn('Listing of /v1/a/c3/subdir/', resp.body)
+        self.assertIn('</style>', resp.body)
         self.assertNotIn('<link', resp.body)
         self.assertNotIn('listing.css', resp.body)
 
@@ -588,8 +588,8 @@ class TestStaticWeb(unittest.TestCase):
     def test_container4indexhtml(self):
         resp = Request.blank('/v1/a/c4/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c4/' in resp.body)
-        self.assertTrue('href="listing.css"' in resp.body)
+        self.assertIn('Listing of /v1/a/c4/', resp.body)
+        self.assertIn('href="listing.css"', resp.body)
 
     def test_container4indexhtmlauthed(self):
         resp = Request.blank('/v1/a/c4').get_response(self.test_staticweb)
@@ -609,16 +609,16 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank(
             '/v1/a/c4/unknown').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue("Chrome's 404 fancy-page sucks." in resp.body)
+        self.assertIn("Chrome's 404 fancy-page sucks.", resp.body)
 
     def test_container4subdir(self):
         resp = Request.blank(
             '/v1/a/c4/subdir/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('Listing of /v1/a/c4/subdir/' in resp.body)
+        self.assertIn('Listing of /v1/a/c4/subdir/', resp.body)
         self.assertNotIn('</style>', resp.body)
-        self.assertTrue('<link' in resp.body)
-        self.assertTrue('href="../listing.css"' in resp.body)
+        self.assertIn('<link', resp.body)
+        self.assertIn('href="../listing.css"', resp.body)
         self.assertEqual(resp.headers['content-type'],
                          'text/html; charset=UTF-8')
 
@@ -768,7 +768,7 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c11a/subdir/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('Index File Not Found' in resp.body)
+        self.assertIn('Index File Not Found', resp.body)
 
     def test_container11subdirmarkeraltdirtype(self):
         resp = Request.blank('/v1/a/c11a/subdir2/').get_response(
@@ -784,20 +784,20 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c12/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
-        self.assertTrue('index file' in resp.body)
+        self.assertIn('index file', resp.body)
 
     def test_container_404_has_css(self):
         resp = Request.blank('/v1/a/c13/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('listing.css' in resp.body)
+        self.assertIn('listing.css', resp.body)
 
     def test_container_404_has_no_css(self):
         resp = Request.blank('/v1/a/c7/').get_response(
             self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
         self.assertNotIn('listing.css', resp.body)
-        self.assertTrue('<style' in resp.body)
+        self.assertIn('<style', resp.body)
 
     def test_subrequest_once_if_possible(self):
         resp = Request.blank(

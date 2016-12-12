@@ -1550,7 +1550,7 @@ class TestUtils(unittest.TestCase):
                 log_exception(OSError(en, 'my %s error message' % en))
                 log_msg = strip_value(sio)
                 self.assertNotIn('Traceback', log_msg)
-                self.assertTrue('my %s error message' % en in log_msg)
+                self.assertIn('my %s error message' % en, log_msg)
             # unfiltered
             log_exception(OSError())
             self.assertTrue('Traceback' in strip_value(sio))
@@ -1561,23 +1561,23 @@ class TestUtils(unittest.TestCase):
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
             self.assertNotIn('errno.ECONNREFUSED message test', log_msg)
-            self.assertTrue('Connection refused' in log_msg)
+            self.assertIn('Connection refused', log_msg)
             log_exception(socket.error(errno.EHOSTUNREACH,
                                        'my error message'))
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
             self.assertNotIn('my error message', log_msg)
-            self.assertTrue('Host unreachable' in log_msg)
+            self.assertIn('Host unreachable', log_msg)
             log_exception(socket.error(errno.ETIMEDOUT, 'my error message'))
             log_msg = strip_value(sio)
             self.assertNotIn('Traceback', log_msg)
             self.assertNotIn('my error message', log_msg)
-            self.assertTrue('Connection timeout' in log_msg)
+            self.assertIn('Connection timeout', log_msg)
             # unfiltered
             log_exception(socket.error(0, 'my error message'))
             log_msg = strip_value(sio)
-            self.assertTrue('Traceback' in log_msg)
-            self.assertTrue('my error message' in log_msg)
+            self.assertIn('Traceback', log_msg)
+            self.assertIn('my error message', log_msg)
 
             # test eventlet.Timeout
             connection_timeout = ConnectionTimeout(42, 'my error message')
@@ -1682,19 +1682,19 @@ class TestUtils(unittest.TestCase):
             self.assertFalse(logger.txn_id)
             logger.error('my error message')
             log_msg = strip_value(sio)
-            self.assertTrue('my error message' in log_msg)
+            self.assertIn('my error message', log_msg)
             self.assertNotIn('txn', log_msg)
             logger.txn_id = '12345'
             logger.error('test')
             log_msg = strip_value(sio)
-            self.assertTrue('txn' in log_msg)
-            self.assertTrue('12345' in log_msg)
+            self.assertIn('txn', log_msg)
+            self.assertIn('12345', log_msg)
             # test txn in info message
             self.assertEqual(logger.txn_id, '12345')
             logger.info('test')
             log_msg = strip_value(sio)
-            self.assertTrue('txn' in log_msg)
-            self.assertTrue('12345' in log_msg)
+            self.assertIn('txn', log_msg)
+            self.assertIn('12345', log_msg)
             # test txn already in message
             self.assertEqual(logger.txn_id, '12345')
             logger.warning('test 12345 test')
@@ -1702,19 +1702,19 @@ class TestUtils(unittest.TestCase):
             # Test multi line collapsing
             logger.error('my\nerror\nmessage')
             log_msg = strip_value(sio)
-            self.assertTrue('my#012error#012message' in log_msg)
+            self.assertIn('my#012error#012message', log_msg)
 
             # test client_ip
             self.assertFalse(logger.client_ip)
             logger.error('my error message')
             log_msg = strip_value(sio)
-            self.assertTrue('my error message' in log_msg)
+            self.assertIn('my error message', log_msg)
             self.assertNotIn('client_ip', log_msg)
             logger.client_ip = '1.2.3.4'
             logger.error('test')
             log_msg = strip_value(sio)
-            self.assertTrue('client_ip' in log_msg)
-            self.assertTrue('1.2.3.4' in log_msg)
+            self.assertIn('client_ip', log_msg)
+            self.assertIn('1.2.3.4', log_msg)
             # test no client_ip on info message
             self.assertEqual(logger.client_ip, '1.2.3.4')
             logger.info('test')
@@ -4024,12 +4024,12 @@ class TestSwiftInfo(unittest.TestCase):
 
         self.assertNotIn('admin', info)
 
-        self.assertTrue('swift' in info)
-        self.assertTrue('foo' in info['swift'])
+        self.assertIn('swift', info)
+        self.assertIn('foo', info['swift'])
         self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
 
-        self.assertTrue('cap1' in info)
-        self.assertTrue('cap1_foo' in info['cap1'])
+        self.assertIn('cap1', info)
+        self.assertIn('cap1_foo', info['cap1'])
         self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
 
     def test_get_swift_info_with_disallowed_sections(self):
@@ -4043,14 +4043,14 @@ class TestSwiftInfo(unittest.TestCase):
 
         self.assertNotIn('admin', info)
 
-        self.assertTrue('swift' in info)
-        self.assertTrue('foo' in info['swift'])
+        self.assertIn('swift', info)
+        self.assertIn('foo', info['swift'])
         self.assertEqual(info['swift']['foo'], 'bar')
 
         self.assertNotIn('cap1', info)
 
-        self.assertTrue('cap2' in info)
-        self.assertTrue('cap2_foo' in info['cap2'])
+        self.assertIn('cap2', info)
+        self.assertIn('cap2_foo', info['cap2'])
         self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
 
         self.assertNotIn('cap3', info)
@@ -4061,19 +4061,19 @@ class TestSwiftInfo(unittest.TestCase):
         utils.register_swift_info('cap1', admin=True, ac1_foo='ac1_bar')
         utils.register_swift_info('cap1', admin=True, ac1_lorem='ac1_ipsum')
 
-        self.assertTrue('swift' in utils._swift_admin_info)
-        self.assertTrue('admin_foo' in utils._swift_admin_info['swift'])
+        self.assertIn('swift', utils._swift_admin_info)
+        self.assertIn('admin_foo', utils._swift_admin_info['swift'])
         self.assertEqual(
             utils._swift_admin_info['swift']['admin_foo'], 'admin_bar')
-        self.assertTrue('admin_lorem' in utils._swift_admin_info['swift'])
+        self.assertIn('admin_lorem', utils._swift_admin_info['swift'])
         self.assertEqual(
             utils._swift_admin_info['swift']['admin_lorem'], 'admin_ipsum')
 
-        self.assertTrue('cap1' in utils._swift_admin_info)
-        self.assertTrue('ac1_foo' in utils._swift_admin_info['cap1'])
+        self.assertIn('cap1', utils._swift_admin_info)
+        self.assertIn('ac1_foo', utils._swift_admin_info['cap1'])
         self.assertEqual(
             utils._swift_admin_info['cap1']['ac1_foo'], 'ac1_bar')
-        self.assertTrue('ac1_lorem' in utils._swift_admin_info['cap1'])
+        self.assertIn('ac1_lorem', utils._swift_admin_info['cap1'])
         self.assertEqual(
             utils._swift_admin_info['cap1']['ac1_lorem'], 'ac1_ipsum')
 
@@ -4087,17 +4087,17 @@ class TestSwiftInfo(unittest.TestCase):
 
         info = utils.get_swift_info(admin=True)
 
-        self.assertTrue('admin' in info)
-        self.assertTrue('admin_cap1' in info['admin'])
-        self.assertTrue('ac1_foo' in info['admin']['admin_cap1'])
+        self.assertIn('admin', info)
+        self.assertIn('admin_cap1', info['admin'])
+        self.assertIn('ac1_foo', info['admin']['admin_cap1'])
         self.assertEqual(info['admin']['admin_cap1']['ac1_foo'], 'ac1_bar')
 
-        self.assertTrue('swift' in info)
-        self.assertTrue('foo' in info['swift'])
+        self.assertIn('swift', info)
+        self.assertIn('foo', info['swift'])
         self.assertEqual(utils._swift_info['swift']['foo'], 'bar')
 
-        self.assertTrue('cap1' in info)
-        self.assertTrue('cap1_foo' in info['cap1'])
+        self.assertIn('cap1', info)
+        self.assertIn('cap1_foo', info['cap1'])
         self.assertEqual(utils._swift_info['cap1']['cap1_foo'], 'cap1_bar')
 
     def test_get_swift_admin_info_with_disallowed_sections(self):
@@ -4110,23 +4110,23 @@ class TestSwiftInfo(unittest.TestCase):
         info = utils.get_swift_info(
             admin=True, disallowed_sections=['cap1', 'cap3'])
 
-        self.assertTrue('admin' in info)
-        self.assertTrue('admin_cap1' in info['admin'])
-        self.assertTrue('ac1_foo' in info['admin']['admin_cap1'])
+        self.assertIn('admin', info)
+        self.assertIn('admin_cap1', info['admin'])
+        self.assertIn('ac1_foo', info['admin']['admin_cap1'])
         self.assertEqual(info['admin']['admin_cap1']['ac1_foo'], 'ac1_bar')
-        self.assertTrue('disallowed_sections' in info['admin'])
-        self.assertTrue('cap1' in info['admin']['disallowed_sections'])
+        self.assertIn('disallowed_sections', info['admin'])
+        self.assertIn('cap1', info['admin']['disallowed_sections'])
         self.assertNotIn('cap2', info['admin']['disallowed_sections'])
-        self.assertTrue('cap3' in info['admin']['disallowed_sections'])
+        self.assertIn('cap3', info['admin']['disallowed_sections'])
 
-        self.assertTrue('swift' in info)
-        self.assertTrue('foo' in info['swift'])
+        self.assertIn('swift', info)
+        self.assertIn('foo', info['swift'])
         self.assertEqual(info['swift']['foo'], 'bar')
 
         self.assertNotIn('cap1', info)
 
-        self.assertTrue('cap2' in info)
-        self.assertTrue('cap2_foo' in info['cap2'])
+        self.assertIn('cap2', info)
+        self.assertIn('cap2_foo', info['cap2'])
         self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
 
         self.assertNotIn('cap3', info)

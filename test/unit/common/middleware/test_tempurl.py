@@ -407,8 +407,8 @@ class TestTempURL(unittest.TestCase):
                          sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_put_valid(self):
         method = 'PUT'
@@ -440,8 +440,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_missing_sig(self):
         method = 'GET'
@@ -455,8 +455,8 @@ class TestTempURL(unittest.TestCase):
             environ={'QUERY_STRING': 'temp_url_expires=%s' % expires})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_missing_expires(self):
         method = 'GET'
@@ -470,8 +470,8 @@ class TestTempURL(unittest.TestCase):
             environ={'QUERY_STRING': 'temp_url_sig=%s' % sig})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_bad_path(self):
         method = 'GET'
@@ -486,8 +486,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_no_key(self):
         method = 'GET'
@@ -502,8 +502,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_head_allowed_by_get(self):
         method = 'GET'
@@ -573,7 +573,7 @@ class TestTempURL(unittest.TestCase):
                          sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_post_when_forbidden_by_config(self):
         self.tempurl.conf['methods'].remove('POST')
@@ -590,8 +590,8 @@ class TestTempURL(unittest.TestCase):
                          sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_delete_when_forbidden_by_config(self):
         self.tempurl.conf['methods'].remove('DELETE')
@@ -608,8 +608,8 @@ class TestTempURL(unittest.TestCase):
                          sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_delete_allowed(self):
         method = 'DELETE'
@@ -640,8 +640,8 @@ class TestTempURL(unittest.TestCase):
                          sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_authorize_limits_scope(self):
         req_other_object = Request.blank("/v1/a/c/o2")
@@ -731,8 +731,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_changed_sig_invalid(self):
         method = 'GET'
@@ -751,8 +751,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_changed_expires_invalid(self):
         method = 'GET'
@@ -767,8 +767,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires + 1)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_different_key_invalid(self):
         method = 'GET'
@@ -783,8 +783,8 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_disallowed_header_object_manifest(self):
         self.tempurl = tempurl.filter_factory({})(self.auth)
@@ -1075,7 +1075,7 @@ class TestTempURL(unittest.TestCase):
             self.tempurl)
         self.assertEqual(resp.status_int, 401)
         self.assertNotIn('Temp URL invalid', resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Www-Authenticate', resp.headers)
         self.assertNotIn('swift.auth_scheme', environ)
 
         # Rejected by TempURL
@@ -1086,8 +1086,8 @@ class TestTempURL(unittest.TestCase):
                                  environ=environ)
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' in resp.body)
-        self.assertTrue('Www-Authenticate' in resp.headers)
+        self.assertIn('Temp URL invalid', resp.body)
+        self.assertIn('Www-Authenticate', resp.headers)
 
     def test_clean_incoming_headers(self):
         irh = []
@@ -1097,7 +1097,7 @@ class TestTempURL(unittest.TestCase):
             None, {'incoming_remove_headers': irh,
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
-        self.assertTrue('HTTP_TEST_HEADER' in env)
+        self.assertIn('HTTP_TEST_HEADER', env)
 
         irh = ['test-header']
         iah = []
@@ -1128,7 +1128,7 @@ class TestTempURL(unittest.TestCase):
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
         self.assertNotIn('HTTP_TEST_HEADER_ONE', env)
-        self.assertTrue('HTTP_TEST_HEADER_TWO' in env)
+        self.assertIn('HTTP_TEST_HEADER_TWO', env)
 
         irh = ['test-header-*', 'test-other-header']
         iah = ['test-header-two', 'test-header-yes-*']
@@ -1142,10 +1142,10 @@ class TestTempURL(unittest.TestCase):
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
         self.assertNotIn('HTTP_TEST_HEADER_ONE', env)
-        self.assertTrue('HTTP_TEST_HEADER_TWO' in env)
+        self.assertIn('HTTP_TEST_HEADER_TWO', env)
         self.assertNotIn('HTTP_TEST_OTHER_HEADER', env)
         self.assertNotIn('HTTP_TEST_HEADER_YES', env)
-        self.assertTrue('HTTP_TEST_HEADER_YES_THIS' in env)
+        self.assertIn('HTTP_TEST_HEADER_YES_THIS', env)
 
     def test_clean_outgoing_headers(self):
         orh = []
@@ -1155,7 +1155,7 @@ class TestTempURL(unittest.TestCase):
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
-        self.assertTrue('test-header' in hdrs)
+        self.assertIn('test-header', hdrs)
 
         orh = ['test-header']
         oah = []
@@ -1186,7 +1186,7 @@ class TestTempURL(unittest.TestCase):
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
         self.assertNotIn('test-header-one', hdrs)
-        self.assertTrue('test-header-two' in hdrs)
+        self.assertIn('test-header-two', hdrs)
 
         orh = ['test-header-*', 'test-other-header']
         oah = ['test-header-two', 'test-header-yes-*']
@@ -1200,16 +1200,16 @@ class TestTempURL(unittest.TestCase):
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
         self.assertNotIn('test-header-one', hdrs)
-        self.assertTrue('test-header-two' in hdrs)
+        self.assertIn('test-header-two', hdrs)
         self.assertNotIn('test-other-header', hdrs)
         self.assertNotIn('test-header-yes', hdrs)
-        self.assertTrue('test-header-yes-this' in hdrs)
+        self.assertIn('test-header-yes-this', hdrs)
 
     def test_unicode_metadata_value(self):
         meta = {"temp-url-key": "test", "temp-url-key-2": u"test2"}
         results = tempurl.get_tempurl_keys_from_metadata(meta)
         for str_value in results:
-            self.assertTrue(isinstance(str_value, str))
+            self.assertIsInstance(str_value, str)
 
 
 class TestSwiftInfo(unittest.TestCase):
@@ -1220,7 +1220,7 @@ class TestSwiftInfo(unittest.TestCase):
     def test_registered_defaults(self):
         tempurl.filter_factory({})
         swift_info = utils.get_swift_info()
-        self.assertTrue('tempurl' in swift_info)
+        self.assertIn('tempurl', swift_info)
         info = swift_info['tempurl']
         self.assertEqual(set(info['methods']),
                          set(('GET', 'HEAD', 'PUT', 'POST', 'DELETE')))
@@ -1241,7 +1241,7 @@ class TestSwiftInfo(unittest.TestCase):
             'outgoing_allow_headers': 'x-object-meta-* content-type',
         })
         swift_info = utils.get_swift_info()
-        self.assertTrue('tempurl' in swift_info)
+        self.assertIn('tempurl', swift_info)
         info = swift_info['tempurl']
         self.assertEqual(set(info['methods']),
                          set(('GET', 'HEAD', 'PUT', 'DELETE', 'BREW')))
