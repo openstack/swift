@@ -455,8 +455,8 @@ class TestProxyLogging(unittest.TestCase):
         headers = unquote(log_parts[14]).split('\n')
         self.assertTrue('First: 1' in headers)
         self.assertTrue('Second: 2' in headers)
-        self.assertTrue('Third: 3' not in headers)
-        self.assertTrue('Host: localhost:80' not in headers)
+        self.assertNotIn('Third: 3', headers)
+        self.assertNotIn('Host: localhost:80', headers)
 
     def test_upload_size(self):
         # Using default policy

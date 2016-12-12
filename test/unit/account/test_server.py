@@ -77,7 +77,7 @@ class TestAccountController(unittest.TestCase):
                                                   'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('X-Account-Status' not in resp.headers)
+        self.assertNotIn('X-Account-Status', resp.headers)
 
     def test_DELETE_empty(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -243,7 +243,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('X-Account-Status' not in resp.headers)
+        self.assertNotIn('X-Account-Status', resp.headers)
 
         # Test the case in which account was deleted but not yet reaped
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -356,7 +356,7 @@ class TestAccountController(unittest.TestCase):
                      'X-Timestamp': normalize_timestamp(0)})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('X-Account-Status' not in resp.headers)
+        self.assertNotIn('X-Account-Status', resp.headers)
 
     def test_PUT(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -501,7 +501,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertTrue('x-account-meta-test' not in resp.headers)
+        self.assertNotIn('x-account-meta-test', resp.headers)
 
     def test_PUT_GET_sys_metadata(self):
         prefix = get_sys_meta_prefix('account')
@@ -562,7 +562,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertTrue(hdr not in resp.headers)
+        self.assertNotIn(hdr, resp.headers)
 
     def test_PUT_invalid_partition(self):
         req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'PUT',
@@ -626,7 +626,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertTrue('x-account-meta-test' not in resp.headers)
+        self.assertNotIn('x-account-meta-test', resp.headers)
 
     def test_POST_HEAD_sys_metadata(self):
         prefix = get_sys_meta_prefix('account')
@@ -679,7 +679,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertTrue(hdr not in resp.headers)
+        self.assertNotIn(hdr, resp.headers)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'POST',
@@ -721,7 +721,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('X-Account-Status' not in resp.headers)
+        self.assertNotIn('X-Account-Status', resp.headers)
 
         # Test the case in which account was deleted but not yet reaped
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1963,7 +1963,7 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2)
             for key in resp.headers:
-                self.assertTrue('storage-policy' not in key.lower())
+                self.assertNotIn('storage-policy', key.lower())
 
     def test_empty_except_for_used_policies(self):
         ts = itertools.count()
@@ -1979,7 +1979,7 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2)
             for key in resp.headers:
-                self.assertTrue('storage-policy' not in key.lower())
+                self.assertNotIn('storage-policy', key.lower())
 
         # add a container
         policy = random.choice(POLICIES)

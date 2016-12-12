@@ -116,7 +116,7 @@ class TestTempURL(unittest.TestCase):
     def test_passthrough(self):
         resp = self._make_request('/v1/a/c/o').get_response(self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' not in resp.body)
+        self.assertNotIn('Temp URL invalid', resp.body)
 
     def test_allow_options(self):
         self.app.status_headers_body_iter = iter([('200 Ok', {}, '')])
@@ -821,7 +821,7 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('x-remove-this' not in self.app.request.headers)
+        self.assertNotIn('x-remove-this', self.app.request.headers)
 
     def test_removed_incoming_headers_match(self):
         self.tempurl = tempurl.filter_factory({
@@ -841,7 +841,7 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('x-remove-this-one' not in self.app.request.headers)
+        self.assertNotIn('x-remove-this-one', self.app.request.headers)
         self.assertEqual(
             self.app.request.headers['x-remove-this-except-this'], 'value2')
 
@@ -898,7 +898,7 @@ class TestTempURL(unittest.TestCase):
                 sig, expires)})
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('x-test-header-one-a' not in resp.headers)
+        self.assertNotIn('x-test-header-one-a', resp.headers)
         self.assertEqual(resp.headers['x-test-header-two-a'], 'value2')
 
     def test_removed_outgoing_headers_match(self):
@@ -918,7 +918,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(resp.headers['x-test-header-one-a'], 'value1')
-        self.assertTrue('x-test-header-two-a' not in resp.headers)
+        self.assertNotIn('x-test-header-two-a', resp.headers)
         self.assertEqual(resp.headers['x-test-header-two-b'], 'value3')
 
     def test_allow_trumps_outgoing_header_conflict(self):
@@ -1074,9 +1074,9 @@ class TestTempURL(unittest.TestCase):
         resp = self._make_request('/v1/a/c/o', environ=environ).get_response(
             self.tempurl)
         self.assertEqual(resp.status_int, 401)
-        self.assertTrue('Temp URL invalid' not in resp.body)
+        self.assertNotIn('Temp URL invalid', resp.body)
         self.assertTrue('Www-Authenticate' in resp.headers)
-        self.assertTrue('swift.auth_scheme' not in environ)
+        self.assertNotIn('swift.auth_scheme', environ)
 
         # Rejected by TempURL
         environ = {'REQUEST_METHOD': 'PUT',
@@ -1106,7 +1106,7 @@ class TestTempURL(unittest.TestCase):
             None, {'incoming_remove_headers': irh,
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
-        self.assertTrue('HTTP_TEST_HEADER' not in env)
+        self.assertNotIn('HTTP_TEST_HEADER', env)
 
         irh = ['test-header-*']
         iah = []
@@ -1116,8 +1116,8 @@ class TestTempURL(unittest.TestCase):
             None, {'incoming_remove_headers': irh,
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
-        self.assertTrue('HTTP_TEST_HEADER_ONE' not in env)
-        self.assertTrue('HTTP_TEST_HEADER_TWO' not in env)
+        self.assertNotIn('HTTP_TEST_HEADER_ONE', env)
+        self.assertNotIn('HTTP_TEST_HEADER_TWO', env)
 
         irh = ['test-header-*']
         iah = ['test-header-two']
@@ -1127,7 +1127,7 @@ class TestTempURL(unittest.TestCase):
             None, {'incoming_remove_headers': irh,
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
-        self.assertTrue('HTTP_TEST_HEADER_ONE' not in env)
+        self.assertNotIn('HTTP_TEST_HEADER_ONE', env)
         self.assertTrue('HTTP_TEST_HEADER_TWO' in env)
 
         irh = ['test-header-*', 'test-other-header']
@@ -1141,10 +1141,10 @@ class TestTempURL(unittest.TestCase):
             None, {'incoming_remove_headers': irh,
                    'incoming_allow_headers': iah}
         )._clean_incoming_headers(env)
-        self.assertTrue('HTTP_TEST_HEADER_ONE' not in env)
+        self.assertNotIn('HTTP_TEST_HEADER_ONE', env)
         self.assertTrue('HTTP_TEST_HEADER_TWO' in env)
-        self.assertTrue('HTTP_TEST_OTHER_HEADER' not in env)
-        self.assertTrue('HTTP_TEST_HEADER_YES' not in env)
+        self.assertNotIn('HTTP_TEST_OTHER_HEADER', env)
+        self.assertNotIn('HTTP_TEST_HEADER_YES', env)
         self.assertTrue('HTTP_TEST_HEADER_YES_THIS' in env)
 
     def test_clean_outgoing_headers(self):
@@ -1164,7 +1164,7 @@ class TestTempURL(unittest.TestCase):
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
-        self.assertTrue('test-header' not in hdrs)
+        self.assertNotIn('test-header', hdrs)
 
         orh = ['test-header-*']
         oah = []
@@ -1174,8 +1174,8 @@ class TestTempURL(unittest.TestCase):
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
-        self.assertTrue('test-header-one' not in hdrs)
-        self.assertTrue('test-header-two' not in hdrs)
+        self.assertNotIn('test-header-one', hdrs)
+        self.assertNotIn('test-header-two', hdrs)
 
         orh = ['test-header-*']
         oah = ['test-header-two']
@@ -1185,7 +1185,7 @@ class TestTempURL(unittest.TestCase):
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
-        self.assertTrue('test-header-one' not in hdrs)
+        self.assertNotIn('test-header-one', hdrs)
         self.assertTrue('test-header-two' in hdrs)
 
         orh = ['test-header-*', 'test-other-header']
@@ -1199,10 +1199,10 @@ class TestTempURL(unittest.TestCase):
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
         )._clean_outgoing_headers(hdrs.items()))
-        self.assertTrue('test-header-one' not in hdrs)
+        self.assertNotIn('test-header-one', hdrs)
         self.assertTrue('test-header-two' in hdrs)
-        self.assertTrue('test-other-header' not in hdrs)
-        self.assertTrue('test-header-yes' not in hdrs)
+        self.assertNotIn('test-other-header', hdrs)
+        self.assertNotIn('test-header-yes', hdrs)
         self.assertTrue('test-header-yes-this' in hdrs)
 
     def test_unicode_metadata_value(self):

@@ -242,7 +242,7 @@ class TestFormPost(unittest.TestCase):
                 '/v1/a/c/o',
                 environ={'REQUEST_METHOD': method}).get_response(self.formpost)
             self.assertEqual(resp.status_int, 401)
-            self.assertTrue('FormPost' not in resp.body)
+            self.assertNotIn('FormPost', resp.body)
 
     def test_auth_scheme(self):
         # FormPost rejects

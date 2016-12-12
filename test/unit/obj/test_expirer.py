@@ -373,7 +373,7 @@ class TestObjectExpirer(TestCase):
             'Pass beginning; 1 possible containers; 2 possible objects',
             'Pass completed in 0s; 0 objects expired',
         ])
-        self.assertTrue('error' not in logs)
+        self.assertNotIn('error', logs)
 
         # Reverse test to be sure it still would blow up the way expected.
         fake_swift = InternalClient([{'name': str(int(time() - 86400))}])
@@ -414,7 +414,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer(self.conf, logger=self.logger,
                                   swift=fake_swift)
         x.run_once()
-        self.assertTrue('error' not in x.logger.all_log_lines())
+        self.assertNotIn('error', x.logger.all_log_lines())
         self.assertEqual(x.logger.get_lines_for_level('info'), [
             'Pass beginning; 1 possible containers; 2 possible objects',
             'Pass completed in 0s; 0 objects expired',
