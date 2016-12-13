@@ -80,7 +80,7 @@ class TestTempURL(unittest.TestCase):
         if environ is None:
             environ = {}
 
-        _junk, account, _junk, _junk = utils.split_path(path, 2, 4)
+        _junk, account, _junk, _junk = utils.split_path(path, 2, 4, True)
         self._fake_cache_environ(environ, account, keys,
                                  container_keys=container_keys)
         req = Request.blank(path, environ=environ, **kwargs)
@@ -125,11 +125,14 @@ class TestTempURL(unittest.TestCase):
             environ={'REQUEST_METHOD': 'OPTIONS'}).get_response(self.tempurl)
         self.assertEqual(resp.status_int, 200)
 
-    def assert_valid_sig(self, expires, path, keys, sig, environ=None):
+    def assert_valid_sig(self, expires, path, keys, sig, environ=None,
+                         prefix=None):
         if not environ:
             environ = {}
         environ['QUERY_STRING'] = 'temp_url_sig=%s&temp_url_expires=%s' % (
             sig, expires)
+        if prefix is not None:
+            environ['QUERY_STRING'] += '&temp_url_prefix=%s' % prefix
         req = self._make_request(path, keys=keys, environ=environ)
         self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
         resp = req.get_response(self.tempurl)
@@ -293,6 +296,33 @@ class TestTempURL(unittest.TestCase):
         self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_get_valid_with_prefix(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        prefix = 'p1/p2/'
+        sig_path = 'prefix:/v1/a/c/' + prefix
+        query_path = '/v1/a/c/' + prefix + 'o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, sig_path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        self.assert_valid_sig(expires, query_path, [key], sig, prefix=prefix)
+
+        query_path = query_path[:-1] + 'p3/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, sig_path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        self.assert_valid_sig(expires, query_path, [key], sig, prefix=prefix)
+
+    def test_get_valid_with_prefix_empty(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        sig_path = 'prefix:/v1/a/c/'
+        query_path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, sig_path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        self.assert_valid_sig(expires, query_path, [key], sig, prefix='')
 
     def test_obj_odd_chars(self):
         method = 'GET'
@@ -786,6 +816,41 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Temp URL invalid' in resp.body)
         self.assertTrue('Www-Authenticate' in resp.headers)
 
+    def test_no_prefix_match_invalid(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        sig_path = 'prefix:/v1/a/c/p1/p2/'
+        query_path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, sig_path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            query_path, keys=[key],
+            environ={'QUERY_STRING':
+                     'temp_url_sig=%s&temp_url_expires=%s&temp_url_prefix=%s' %
+                     (sig, expires, 'p1/p2/')})
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 401)
+        self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
+
+    def test_object_url_with_prefix_invalid(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            environ={'QUERY_STRING':
+                     'temp_url_sig=%s&temp_url_expires=%s&temp_url_prefix=o' %
+                     (sig, expires)})
+        resp = req.get_response(self.tempurl)
+        self.assertEqual(resp.status_int, 401)
+        self.assertTrue('Temp URL invalid' in resp.body)
+        self.assertTrue('Www-Authenticate' in resp.headers)
+
     def test_disallowed_header_object_manifest(self):
         self.tempurl = tempurl.filter_factory({})(self.auth)
         expires = int(time() + 86400)
@@ -965,38 +1030,49 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('x-conflict-header-test' in resp.headers)
         self.assertEqual(resp.headers['x-conflict-header-test'], 'value')
 
-    def test_get_account_and_container(self):
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'POST', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'DELETE', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
-        self.assertEqual(self.tempurl._get_account_and_container({
+    def test_get_path_parts(self):
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'}),
+            ('a', 'c', 'o'))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'}),
+            ('a', 'c', 'o'))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/v1/a/c/o'}),
+            ('a', 'c', 'o'))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'POST', 'PATH_INFO': '/v1/a/c/o'}),
+            ('a', 'c', 'o'))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'DELETE', 'PATH_INFO': '/v1/a/c/o'}),
+            ('a', 'c', 'o'))
+        self.assertEqual(self.tempurl._get_path_parts({
             'REQUEST_METHOD': 'UNKNOWN', 'PATH_INFO': '/v1/a/c/o'}),
-            (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/'}), (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/'}),
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
             'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c//////'}),
-            (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
             'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c///o///'}),
-            ('a', 'c'))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c'}), (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a//o'}), (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1//c/o'}), (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '//a/c/o'}), (None, None))
-        self.assertEqual(self.tempurl._get_account_and_container({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v2/a/c/o'}), (None, None))
+            ('a', 'c', '//o///'))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c'}),
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a//o'}),
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1//c/o'}),
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '//a/c/o'}),
+            (None, None, None))
+        self.assertEqual(self.tempurl._get_path_parts({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v2/a/c/o'}),
+            (None, None, None))
 
     def test_get_temp_url_info(self):
         s = 'f5d5051bddf5df7e27c628818738334f'
@@ -1005,55 +1081,61 @@ class TestTempURL(unittest.TestCase):
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                     s, e)}),
-            (s, e, None, None))
+            (s, e, None, None, None))
+        self.assertEqual(
+            self.tempurl._get_temp_url_info(
+                {'QUERY_STRING':
+                 'temp_url_sig=%s&temp_url_expires=%s&temp_url_prefix=%s' % (
+                     s, e, 'prefix')}),
+            (s, e, 'prefix', None, None))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                  'filename=bobisyouruncle' % (s, e)}),
-            (s, e, 'bobisyouruncle', None))
+            (s, e, None, 'bobisyouruncle', None))
         self.assertEqual(
             self.tempurl._get_temp_url_info({}),
-            (None, None, None, None))
+            (None, None, None, None, None))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_expires=%s' % e}),
-            (None, e, None, None))
+            (None, e, None, None, None))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s' % s}),
-            (s, None, None, None))
+            (s, None, None, None, None))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=bad' % (
                     s)}),
-            (s, 0, None, None))
+            (s, 0, None, None, None))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                  'inline=' % (s, e)}),
-            (s, e, None, True))
+            (s, e, None, None, True))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
                  'filename=bobisyouruncle&inline=' % (s, e)}),
-            (s, e, 'bobisyouruncle', True))
+            (s, e, None, 'bobisyouruncle', True))
         e = int(time() - 1)
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
                     s, e)}),
-            (s, 0, None, None))
+            (s, 0, None, None, None))
 
     def test_get_hmacs(self):
         self.assertEqual(
             self.tempurl._get_hmacs(
-                {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'},
-                1, [('abc', 'account')]),
+                {'REQUEST_METHOD': 'GET'}, 1, '/v1/a/c/o',
+                [('abc', 'account')]),
             [('026d7f7cc25256450423c7ad03fc9f5ffc1dab6d', 'account')])
         self.assertEqual(
             self.tempurl._get_hmacs(
-                {'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'},
-                1, [('abc', 'account')], request_method='GET'),
+                {'REQUEST_METHOD': 'HEAD'}, 1, '/v1/a/c/o',
+                [('abc', 'account')], request_method='GET'),
             [('026d7f7cc25256450423c7ad03fc9f5ffc1dab6d', 'account')])
 
     def test_invalid(self):

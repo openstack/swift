@@ -87,17 +87,16 @@ class TestTempurl(Base):
                 (self.env.tempurl_enabled,))
 
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        self.obj_tempurl_parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
-        self.obj_tempurl_parms = {'temp_url_sig': sig,
-                                  'temp_url_expires': str(expires)}
 
-    def tempurl_sig(self, method, expires, path, key):
-        return hmac.new(
+    def tempurl_parms(self, method, expires, path, key):
+        sig = hmac.new(
             key,
             '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
             hashlib.sha1).hexdigest()
+        return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
     def test_GET(self):
         contents = self.env.obj.read(
@@ -111,11 +110,9 @@ class TestTempurl(Base):
 
     def test_GET_with_key_2(self):
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key2)
-        parms = {'temp_url_sig': sig,
-                 'temp_url_expires': str(expires)}
 
         contents = self.env.obj.read(parms=parms, cfg={'no_auth_token': True})
         self.assertEqual(contents, "obj contents")
@@ -135,11 +132,9 @@ class TestTempurl(Base):
                   (self.env.container.name,)})
 
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(manifest.path),
             self.env.tempurl_key)
-        parms = {'temp_url_sig': sig,
-                 'temp_url_expires': str(expires)}
 
         contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
         self.assertEqual(contents, "one fish two fish red fish blue fish")
@@ -162,11 +157,9 @@ class TestTempurl(Base):
                   (self.env.container.name,)})
 
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(manifest.path),
             self.env.tempurl_key)
-        parms = {'temp_url_sig': sig,
-                 'temp_url_expires': str(expires)}
 
         # cross container tempurl works fine for account tempurl key
         contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
@@ -177,11 +170,9 @@ class TestTempurl(Base):
         new_obj = self.env.container.file(Utils.create_name())
 
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        put_parms = self.tempurl_parms(
             'PUT', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
-        put_parms = {'temp_url_sig': sig,
-                     'temp_url_expires': str(expires)}
 
         new_obj.write('new obj contents',
                       parms=put_parms, cfg={'no_auth_token': True})
@@ -196,11 +187,9 @@ class TestTempurl(Base):
 
         # give out a signature which allows a PUT to new_obj
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        put_parms = self.tempurl_parms(
             'PUT', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
-        put_parms = {'temp_url_sig': sig,
-                     'temp_url_expires': str(expires)}
 
         # try to create manifest pointing to some random container
         try:
@@ -230,11 +219,9 @@ class TestTempurl(Base):
         # try again using a tempurl POST to an already created object
         new_obj.write('', {}, parms=put_parms, cfg={'no_auth_token': True})
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        post_parms = self.tempurl_parms(
             'POST', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
-        post_parms = {'temp_url_sig': sig,
-                      'temp_url_expires': str(expires)}
         try:
             new_obj.post({'x-object-manifest': '%s/foo' % other_container},
                          parms=post_parms, cfg={'no_auth_token': True})
@@ -245,11 +232,9 @@ class TestTempurl(Base):
 
     def test_HEAD(self):
         expires = int(time.time()) + 86400
-        sig = self.tempurl_sig(
+        head_parms = self.tempurl_parms(
             'HEAD', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
-        head_parms = {'temp_url_sig': sig,
-                      'temp_url_expires': str(expires)}
 
         self.assertTrue(self.env.obj.info(parms=head_parms,
                                           cfg={'no_auth_token': True}))
@@ -309,6 +294,84 @@ class TestTempurl(Base):
         self.assertRaises(ResponseError, self.env.obj.read,
                           cfg={'no_auth_token': True},
                           parms=parms)
+        self.assert_status([401])
+
+
+class TestTempURLPrefix(TestTempurl):
+    def setUp(self):
+        super(TestTempurl, self).setUp()
+        if self.env.tempurl_enabled is False:
+            raise SkipTest("TempURL not enabled")
+        elif self.env.tempurl_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected tempurl_enabled to be True/False, got %r" %
+                (self.env.tempurl_enabled,))
+
+        self.expires = int(time.time()) + 86400
+        self.obj_tempurl_parms = self.tempurl_parms(
+            'GET', self.expires,
+            self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key)
+
+    def tempurl_parms(self, method, expires, path, key,
+                      prefix=None):
+        path_parts = urllib.parse.unquote(path).split('/')
+
+        if prefix is None:
+            # Choose the first 4 chars of object name as prefix.
+            prefix = path_parts[4][0:4]
+        sig = hmac.new(
+            key,
+            '%s\n%s\nprefix:%s' % (method, expires,
+                                   '/'.join(path_parts[0:4]) + '/' + prefix),
+            hashlib.sha1).hexdigest()
+        return {
+            'temp_url_sig': sig, 'temp_url_expires': str(expires),
+            'temp_url_prefix': prefix}
+
+    def test_empty_prefix(self):
+        parms = self.tempurl_parms(
+            'GET', self.expires,
+            self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key, '')
+
+        contents = self.env.obj.read(
+            parms=parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(contents, "obj contents")
+
+    def test_no_prefix_match(self):
+        prefix = 'b' if self.env.obj.name[0] == 'a' else 'a'
+
+        parms = self.tempurl_parms(
+            'GET', self.expires,
+            self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key, prefix)
+
+        self.assertRaises(ResponseError, self.env.obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=parms)
+        self.assert_status([401])
+
+    def test_object_url_with_prefix(self):
+        parms = super(TestTempURLPrefix, self).tempurl_parms(
+            'GET', self.expires,
+            self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key)
+        parms['temp_url_prefix'] = self.env.obj.name
+
+        self.assertRaises(ResponseError, self.env.obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=parms)
+        self.assert_status([401])
+
+    def test_missing_query_parm(self):
+        del self.obj_tempurl_parms['temp_url_prefix']
+
+        self.assertRaises(ResponseError, self.env.obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=self.obj_tempurl_parms)
         self.assert_status([401])
 
 
