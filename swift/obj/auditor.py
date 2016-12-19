@@ -50,9 +50,10 @@ class AuditorWorker(object):
             # configure for their replicator
             replicator_config = readconf(self.conf['__file__'],
                                          'object-replicator')
-        except (KeyError, SystemExit):
+        except (KeyError, ValueError, IOError):
             # if we can't parse the real config (generally a KeyError on
-            # __file__, or SystemExit on no object-replicator section) we use
+            # __file__, or ValueError on no object-replicator section, or
+            # IOError if reading the file failed) we use
             # a very conservative default for rsync_timeout
             default_rsync_timeout = 86400
         else:

@@ -61,14 +61,13 @@ def get_config(section_name=None, defaults=None):
                                  '/etc/swift/test.conf')
     try:
         config = readconf(config_file, section_name)
-    except SystemExit:
+    except IOError:
         if not os.path.exists(config_file):
             print('Unable to read test config %s - file not found'
                   % config_file, file=sys.stderr)
         elif not os.access(config_file, os.R_OK):
             print('Unable to read test config %s - permission denied'
                   % config_file, file=sys.stderr)
-        else:
-            print('Unable to read test config %s - section %s not found'
-                  % (config_file, section_name), file=sys.stderr)
+    except ValueError as e:
+        print(e)
     return config
