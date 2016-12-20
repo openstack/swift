@@ -38,6 +38,54 @@ def tearDownModule():
 
 
 class TestAccount(unittest2.TestCase):
+    existing_metadata = None
+
+    @classmethod
+    def get_meta(cls):
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head)
+        resp.read()
+        return dict((k, v) for k, v in resp.getheaders() if
+                    k.lower().startswith('x-account-meta'))
+
+    @classmethod
+    def clear_meta(cls, remove_metadata_keys):
+        def post(url, token, parsed, conn, hdr_keys):
+            headers = {'X-Auth-Token': token}
+            headers.update((k, '') for k in hdr_keys)
+            conn.request('POST', parsed.path, '', headers)
+            return check_response(conn)
+
+        for i in range(0, len(remove_metadata_keys), 90):
+            batch = remove_metadata_keys[i:i + 90]
+            resp = retry(post, batch)
+            resp.read()
+
+    @classmethod
+    def set_meta(cls, metadata):
+        def post(url, token, parsed, conn, meta_hdrs):
+            headers = {'X-Auth-Token': token}
+            headers.update(meta_hdrs)
+            conn.request('POST', parsed.path, '', headers)
+            return check_response(conn)
+
+        if not metadata:
+            return
+        resp = retry(post, metadata)
+        resp.read()
+
+    @classmethod
+    def setUpClass(cls):
+        # remove and stash any existing account user metadata before tests
+        cls.existing_metadata = cls.get_meta()
+        cls.clear_meta(cls.existing_metadata.keys())
+
+    @classmethod
+    def tearDownClass(cls):
+        # replace any stashed account user metadata
+        cls.set_meta(cls.existing_metadata)
 
     def setUp(self):
         self.max_meta_count = load_constraint('max_meta_count')
@@ -45,35 +93,10 @@ class TestAccount(unittest2.TestCase):
         self.max_meta_overall_size = load_constraint('max_meta_overall_size')
         self.max_meta_value_length = load_constraint('max_meta_value_length')
 
-        def head(url, token, parsed, conn):
-            conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
-            return check_response(conn)
-        resp = retry(head)
-        self.existing_metadata = set([
-            k for k, v in resp.getheaders() if
-            k.lower().startswith('x-account-meta')])
-
     def tearDown(self):
-        def head(url, token, parsed, conn):
-            conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
-            return check_response(conn)
-        resp = retry(head)
-        resp.read()
-        new_metadata = set(
-            [k for k, v in resp.getheaders() if
-             k.lower().startswith('x-account-meta')])
-
-        def clear_meta(url, token, parsed, conn, remove_metadata_keys):
-            headers = {'X-Auth-Token': token}
-            headers.update((k, '') for k in remove_metadata_keys)
-            conn.request('POST', parsed.path, '', headers)
-            return check_response(conn)
-        extra_metadata = list(self.existing_metadata ^ new_metadata)
-        for i in range(0, len(extra_metadata), 90):
-            batch = extra_metadata[i:i + 90]
-            resp = retry(clear_meta, batch)
-            resp.read()
-            self.assertEqual(resp.status // 100, 2)
+        # clean up any account user metadata created by test
+        new_metadata = self.get_meta().keys()
+        self.clear_meta(new_metadata)
 
     def test_metadata(self):
         if tf.skip:
@@ -793,11 +816,6 @@ class TestAccount(unittest2.TestCase):
             headers.update(extra_headers)
             conn.request('POST', parsed.path, '', headers)
             return check_response(conn)
-
-        # TODO: Find the test that adds these and remove them.
-        headers = {'x-remove-account-meta-temp-url-key': 'remove',
-                   'x-remove-account-meta-temp-url-key-2': 'remove'}
-        resp = retry(post, headers)
 
         headers = {}
         for x in range(self.max_meta_count):

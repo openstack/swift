@@ -482,8 +482,11 @@ class Account(Base):
         fields = [['object_count', 'x-account-object-count'],
                   ['container_count', 'x-account-container-count'],
                   ['bytes_used', 'x-account-bytes-used']]
+        optional_fields = [
+            ['temp-url-key', 'x-account-meta-temp-url-key'],
+            ['temp-url-key-2', 'x-account-meta-temp-url-key-2']]
 
-        return self.header_fields(fields)
+        return self.header_fields(fields, optional_fields=optional_fields)
 
     @property
     def path(self):
