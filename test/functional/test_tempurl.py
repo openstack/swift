@@ -98,9 +98,9 @@ class TestTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
-        expires = int(time.time()) + 86400
+        self.expires = int(time.time()) + 86400
         self.obj_tempurl_parms = self.tempurl_parms(
-            'GET', expires, self.env.conn.make_path(self.env.obj.path),
+            'GET', self.expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
 
     def tempurl_parms(self, method, expires, path, key):
@@ -310,22 +310,6 @@ class TestTempurl(Base):
 
 
 class TestTempURLPrefix(TestTempurl):
-    def setUp(self):
-        super(TestTempurl, self).setUp()
-        if self.env.tempurl_enabled is False:
-            raise SkipTest("TempURL not enabled")
-        elif self.env.tempurl_enabled is not True:
-            # just some sanity checking
-            raise Exception(
-                "Expected tempurl_enabled to be True/False, got %r" %
-                (self.env.tempurl_enabled,))
-
-        self.expires = int(time.time()) + 86400
-        self.obj_tempurl_parms = self.tempurl_parms(
-            'GET', self.expires,
-            self.env.conn.make_path(self.env.obj.path),
-            self.env.tempurl_key)
-
     def tempurl_parms(self, method, expires, path, key,
                       prefix=None):
         path_parts = urllib.parse.unquote(path).split('/')
