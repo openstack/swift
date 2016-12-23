@@ -800,12 +800,13 @@ class ObjectReconstructor(Daemon):
         override_devices = override_devices or []
         override_partitions = override_partitions or []
         ips = whataremyips(self.bind_ip)
-        for policy in POLICIES:
-            if policy.policy_type != EC_POLICY:
-                continue
-            self._diskfile_mgr = self._df_router[policy]
+        ec_policies = (policy for policy in POLICIES
+                       if policy.policy_type == EC_POLICY)
+
+        policy2devices = {}
+
+        for policy in ec_policies:
             self.load_object_ring(policy)
-            data_dir = get_data_dir(policy)
             local_devices = list(six.moves.filter(
                 lambda dev: dev and is_local_device(
                     ips, self.port,
@@ -813,21 +814,23 @@ class ObjectReconstructor(Daemon):
                 policy.object_ring.devs))
 
             if override_devices:
-                self.device_count = len(override_devices)
-            else:
-                self.device_count = len(local_devices)
+                local_devices = list(six.moves.filter(
+                    lambda dev_info: dev_info['device'] in override_devices,
+                    local_devices))
 
+            policy2devices[policy] = local_devices
+            self.device_count += len(local_devices)
+
+        for policy, local_devices in policy2devices.items():
+            df_mgr = self._df_router[policy]
             for local_dev in local_devices:
-                if override_devices and (local_dev['device'] not in
-                                         override_devices):
-                    continue
                 self.reconstruction_device_count += 1
-                dev_path = self._df_router[policy].get_dev_path(
-                    local_dev['device'])
+                dev_path = df_mgr.get_dev_path(local_dev['device'])
                 if not dev_path:
                     self.logger.warning(_('%s is not mounted'),
                                         local_dev['device'])
                     continue
+                data_dir = get_data_dir(policy)
                 obj_path = join(dev_path, data_dir)
                 tmp_path = join(dev_path, get_tmp_dir(int(policy)))
                 unlink_older_than(tmp_path, time.time() -

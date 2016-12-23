@@ -31,9 +31,10 @@ from swift.common.utils import Timestamp
 from swift.obj import ssync_sender, server
 from swift.obj.reconstructor import RebuildingECDiskFileStream, \
     ObjectReconstructor
+from swift.obj.replicator import ObjectReplicator
 
 from test.unit import patch_policies, debug_logger, encode_frag_archive_bodies
-from test.unit.obj.common import BaseTest, FakeReplicator
+from test.unit.obj.common import BaseTest
 
 
 class TestBaseSsync(BaseTest):
@@ -46,13 +47,6 @@ class TestBaseSsync(BaseTest):
     """
     def setUp(self):
         super(TestBaseSsync, self).setUp()
-        self.device = 'dev'
-        self.partition = '9'
-        # sender side setup
-        self.tx_testdir = os.path.join(self.tmpdir, 'tmp_test_ssync_sender')
-        utils.mkdirs(os.path.join(self.tx_testdir, self.device))
-        self.daemon = FakeReplicator(self.tx_testdir)
-
         # rx side setup
         self.rx_testdir = os.path.join(self.tmpdir, 'tmp_test_ssync_receiver')
         utils.mkdirs(os.path.join(self.rx_testdir, self.device))
@@ -142,7 +136,7 @@ class TestBaseSsync(BaseTest):
         return diskfiles
 
     def _open_tx_diskfile(self, obj_name, policy, frag_index=None):
-        df_mgr = self.daemon._diskfile_router[policy]
+        df_mgr = self.daemon._df_router[policy]
         df = df_mgr.get_diskfile(
             self.device, self.partition, account='a', container='c',
             obj=obj_name, policy=policy, frag_index=frag_index)
@@ -310,6 +304,8 @@ class TestBaseSsyncEC(TestBaseSsync):
     def setUp(self):
         super(TestBaseSsyncEC, self).setUp()
         self.policy = POLICIES.default
+        self.daemon = ObjectReconstructor(self.daemon_conf,
+                                          debug_logger('test-ssync-sender'))
 
     def _get_object_data(self, path, frag_index=None, **kwargs):
         # return a frag archive for given object name and frag index.
@@ -337,7 +333,7 @@ class TestSsyncEC(TestBaseSsyncEC):
         tx_objs = {}
         rx_objs = {}
         tx_tombstones = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # o1 has primary and handoff fragment archives
         t1 = next(self.ts_iter)
@@ -421,7 +417,7 @@ class TestSsyncEC(TestBaseSsyncEC):
         # create sender side diskfiles...
         tx_objs = {}
         rx_objs = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
 
         expected_subreqs = defaultdict(list)
@@ -531,7 +527,7 @@ class TestSsyncEC(TestBaseSsyncEC):
         tx_objs = {}
         tx_tombstones = {}
         rx_objs = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # o1 only has primary
         t1 = next(self.ts_iter)
@@ -631,7 +627,7 @@ class TestSsyncEC(TestBaseSsyncEC):
 
     def test_send_with_frag_index_none(self):
         policy = POLICIES.default
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # create an ec fragment on the remote node
         ts1 = next(self.ts_iter)
@@ -692,7 +688,7 @@ class TestSsyncEC(TestBaseSsyncEC):
         # create non durable tx obj by not committing, then create a legacy
         # .durable file
         tx_objs = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         t1 = next(self.ts_iter)
         tx_objs['o1'] = self._create_ondisk_files(
@@ -791,7 +787,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
 
         # create sender side diskfiles...
         self.tx_objs = {}
-        tx_df_mgr = self.daemon._diskfile_router[self.policy]
+        tx_df_mgr = self.daemon._df_router[self.policy]
         t1 = next(self.ts_iter)
         self.tx_objs['o1'] = self._create_ondisk_files(
             tx_df_mgr, 'o1', self.policy, t1, (self.tx_node_index,))
@@ -1073,6 +1069,11 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
 
 @patch_policies
 class TestSsyncReplication(TestBaseSsync):
+    def setUp(self):
+        super(TestSsyncReplication, self).setUp()
+        self.daemon = ObjectReplicator(self.daemon_conf,
+                                       debug_logger('test-ssync-sender'))
+
     def test_sync(self):
         policy = POLICIES.default
         rx_node_index = 0
@@ -1082,7 +1083,7 @@ class TestSsyncReplication(TestBaseSsync):
         rx_objs = {}
         tx_tombstones = {}
         rx_tombstones = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # o1 and o2 are on tx only
         t1 = next(self.ts_iter)
@@ -1204,7 +1205,7 @@ class TestSsyncReplication(TestBaseSsync):
         rx_objs = {}
         tx_tombstones = {}
         rx_tombstones = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
 
         expected_subreqs = defaultdict(list)
@@ -1349,7 +1350,7 @@ class TestSsyncReplication(TestBaseSsync):
         rx_node_index = 0
 
         # create diskfiles...
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
 
         # rx has data at t1 but no meta
@@ -1434,7 +1435,7 @@ class TestSsyncReplication(TestBaseSsync):
         # create diskfiles...
         tx_objs = {}
         rx_objs = {}
-        tx_df_mgr = self.daemon._diskfile_router[policy]
+        tx_df_mgr = self.daemon._df_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
 
         expected_subreqs = defaultdict(list)

@@ -80,7 +80,7 @@ class Sender(object):
 
     def __init__(self, daemon, node, job, suffixes, remote_check_objs=None):
         self.daemon = daemon
-        self.df_mgr = self.daemon._diskfile_mgr
+        self.df_mgr = self.daemon._df_router[job['policy']]
         self.node = node
         self.job = job
         self.suffixes = suffixes
