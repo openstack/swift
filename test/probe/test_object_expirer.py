@@ -286,6 +286,9 @@ class TestObjectExpirer(ReplProbeTest):
         # run expirer again, delete should now succeed
         self.expirer.once()
 
+        # this is mainly to paper over lp bug #1652323
+        self.get_to_final_state()
+
         # verify the deletion by checking the container listing
         self.assertFalse(self._check_obj_in_container_listing(),
                          msg='Found listing for %s' % self.object_name)
