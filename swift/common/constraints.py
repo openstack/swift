@@ -385,9 +385,11 @@ check_container_format = functools.partial(check_name_format,
 
 
 def valid_api_version(version):
-    """ Checks if the requested version is valid.
+    """
+    Checks if the requested version is valid.
 
-    Currently Swift only supports "v1" and "v1.0". """
+    Currently Swift only supports "v1" and "v1.0".
+    """
     global VALID_API_VERSIONS
     if not isinstance(VALID_API_VERSIONS, list):
         VALID_API_VERSIONS = [str(VALID_API_VERSIONS)]

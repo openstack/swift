@@ -1693,13 +1693,13 @@ class RingBuilder(object):
         return matched_devs
 
     def increase_partition_power(self):
-        """ Increases ring partition power by one.
+        """
+        Increases ring partition power by one.
 
         Devices will be assigned to partitions like this:
 
         OLD: 0, 3, 7, 5, 2, 1, ...
         NEW: 0, 0, 3, 3, 7, 7, 5, 5, 2, 2, 1, 1, ...
-
         """
 
         new_replica2part2dev = []

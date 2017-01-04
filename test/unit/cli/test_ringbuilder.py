@@ -132,7 +132,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 self.fail(msg)
 
     def create_sample_ring(self, part_power=6):
-        """ Create a sample ring with four devices
+        """
+        Create a sample ring with four devices
 
         At least four devices are needed to test removing
         a device, since having less devices than replicas
