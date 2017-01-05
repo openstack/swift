@@ -407,7 +407,10 @@ class ObjectController(BaseStorageServer):
     def _make_timeout_reader(self, file_like):
         def timeout_reader():
             with ChunkReadTimeout(self.client_timeout):
-                return file_like.read(self.network_chunk_size)
+                try:
+                    return file_like.read(self.network_chunk_size)
+                except (IOError, ValueError):
+                    raise ChunkReadError
         return timeout_reader
 
     def _read_put_commit_message(self, mime_documents_iter):
