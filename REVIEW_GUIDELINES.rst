@@ -10,6 +10,9 @@ associated with competent reviews of changes purposed to the Swift
 code base. No one is expected to "follow these steps". Guidelines
 are not *rules*, not all behaviors will be relevant in all situations.
 
+    Code review is collaboration, not judgement.
+
+    -- Alistair Coles
 
 Checkout the Change
 -------------------
