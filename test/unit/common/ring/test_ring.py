@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import array
+import collections
 import six.moves.cPickle as pickle
 import os
 import unittest
@@ -23,7 +24,6 @@ from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
 from time import sleep, time
-import random
 import sys
 import copy
 import mock
@@ -35,6 +35,7 @@ from swift.common.ring import utils as ring_utils
 
 
 class TestRingBase(unittest.TestCase):
+    longMessage = True
 
     def setUp(self):
         self._orig_hash_suffix = utils.HASH_PATH_SUFFIX
@@ -874,7 +875,7 @@ class TestRing(TestRingBase):
             else:
                 dev['weight'] = 1.0
             rb.add_dev(dev)
-        rb.rebalance(seed=1)
+        rb.rebalance()
         rb.get_ring().save(self.testgz)
         r = ring.Ring(self.testdir, ring_name='whatever')
 
@@ -898,16 +899,43 @@ class TestRing(TestRingBase):
             def __getitem__(self, key):
                 return self.table[key]
 
-        counting_table = CountingRingTable(r._replica2part2dev_id)
-        r._replica2part2dev_id = counting_table
+        histogram = collections.defaultdict(int)
+        for part in range(r.partition_count):
+            counting_table = CountingRingTable(r._replica2part2dev_id)
+            with mock.patch.object(r, '_replica2part2dev_id', counting_table):
+                node_iter = r.get_more_nodes(part)
+                next(node_iter)
+            histogram[counting_table.count] += 1
+        # Don't let our summing muddy our histogram
+        histogram = dict(histogram)
 
-        part = random.randint(0, r.partition_count)
-        node_iter = r.get_more_nodes(part)
-        next(node_iter)
-        self.assertLess(counting_table.count, 14)
         # sanity
         self.assertEqual(1, r._num_regions)
         self.assertEqual(2, r._num_zones)
+        self.assertEqual(256, r.partition_count)
+
+        # We always do one loop (including the StopIteration) while getting
+        # primaries, so every part should hit next() at least 5 times
+        self.assertEqual(sum(histogram.get(x, 0) for x in range(5)), 0,
+                         histogram)
+
+        # Most of the parts should find a handoff device in the next partition,
+        # but because some of the primary devices may *also* be used for that
+        # partition, that means 5, 6, or 7 calls to next().
+        self.assertGreater(sum(histogram.get(x, 0) for x in range(8)), 160,
+                           histogram)
+
+        # Want 90% confidence that it'll happen within two partitions
+        self.assertGreater(sum(histogram.get(x, 0) for x in range(12)), 230,
+                           histogram)
+
+        # Tail should fall off fairly quickly
+        self.assertLess(sum(histogram.get(x, 0) for x in range(20, 100)), 5,
+                        histogram)
+
+        # Hard limit at 50 (we've seen as bad as 41, 45)
+        self.assertEqual(sum(histogram.get(x, 0) for x in range(50, 100)), 0,
+                         histogram)
 
 
 if __name__ == '__main__':
