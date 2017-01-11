@@ -27,6 +27,7 @@ import tempfile
 import uuid
 import xattr
 import re
+import six
 from collections import defaultdict
 from random import shuffle, randint
 from shutil import rmtree
@@ -6056,6 +6057,47 @@ class TestSuffixHashes(unittest.TestCase):
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             self.assertIn(suffix, hashes)  # sanity
 
+    def test_invalidate_hash_file_not_truncated_when_empty(self):
+        orig_open = open
+
+        def watch_open(*args, **kargs):
+            name = os.path.basename(args[0])
+            open_log[name].append(args[1])
+            return orig_open(*args, **kargs)
+
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+            inv_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
+            hash_file = os.path.join(
+                part_path, diskfile.HASH_FILE)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual(hashes, {})
+            self.assertTrue(os.path.exists(hash_file))
+            # create something to hash
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            df.delete(self.ts())
+            self.assertTrue(os.path.exists(inv_file))
+            # invalidation file created, lets consolidate it
+            df_mgr.get_hashes('sda1', '0', [], policy)
+
+            open_log = defaultdict(list)
+            open_loc = '__builtin__.open' if six.PY2 else 'builtins.open'
+            with mock.patch(open_loc, watch_open):
+                self.assertTrue(os.path.exists(inv_file))
+                # no new suffixes get invalided... so no write iop
+                df_mgr.get_hashes('sda1', '0', [], policy)
+            # each file is opened once to read
+            expected = {
+                'hashes.pkl': ['rb'],
+                'hashes.invalid': ['rb'],
+            }
+            self.assertEqual(open_log, expected)
+
     def test_invalidate_hash_consolidation(self):
         def assert_consolidation(suffixes):
             # verify that suffixes are invalidated after consolidation
@@ -6141,6 +6183,7 @@ class TestSuffixHashes(unittest.TestCase):
         # verify that if consolidate_hashes raises an exception then suffixes
         # are rehashed and a hashes.pkl is written
         for policy in self.iter_policies():
+            self.logger.clear()
             df_mgr = self.df_router[policy]
             # create something to hash
             df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
@@ -6163,6 +6206,10 @@ class TestSuffixHashes(unittest.TestCase):
 
             with open(hashes_file, 'rb') as f:
                 self.assertEqual(hashes, pickle.load(f))
+
+            # sanity check log warning
+            warnings = self.logger.get_lines_for_level('warning')
+            self.assertEqual(warnings, ["Unable to read %r" % hashes_file])
 
             # repeat with pre-existing hashes.pkl
             with mock.patch.object(df_mgr, '_hash_suffix',
