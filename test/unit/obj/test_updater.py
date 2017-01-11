@@ -23,7 +23,7 @@ from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
-from test.unit import FakeLogger
+from test.unit import FakeLogger, make_timestamp_iter
 from time import time
 from distutils.dir_util import mkpath
 
@@ -433,9 +433,10 @@ class TestObjectUpdater(unittest.TestCase):
                               'async_pendings': 1})
 
     def test_obj_put_async_updates(self):
-        ts = (normalize_timestamp(t) for t in
-              itertools.count(int(time())))
-        policy = random.choice(list(POLICIES))
+        ts_iter = make_timestamp_iter()
+        policies = list(POLICIES)
+        random.shuffle(policies)
+
         # setup updater
         conf = {
             'devices': self.devices_dir,
@@ -443,46 +444,78 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
-        async_dir = os.path.join(self.sda1, get_async_dir(policy))
+        async_dir = os.path.join(self.sda1, get_async_dir(policies[0]))
         os.mkdir(async_dir)
 
-        # write an async
-        dfmanager = DiskFileManager(conf, daemon.logger)
-        account, container, obj = 'a', 'c', 'o'
-        op = 'PUT'
-        headers_out = HeaderKeyDict({
+        def do_test(headers_out, expected):
+            # write an async
+            dfmanager = DiskFileManager(conf, daemon.logger)
+            account, container, obj = 'a', 'c', 'o'
+            op = 'PUT'
+            data = {'op': op, 'account': account, 'container': container,
+                    'obj': obj, 'headers': headers_out}
+            dfmanager.pickle_async_update(self.sda1, account, container, obj,
+                                          data, next(ts_iter), policies[0])
+
+            request_log = []
+
+            def capture(*args, **kwargs):
+                request_log.append((args, kwargs))
+
+            # run once
+            fake_status_codes = [
+                200,  # object update success
+                200,  # object update success
+                200,  # object update conflict
+            ]
+            with mocked_http_conn(*fake_status_codes, give_connect=capture):
+                daemon.run_once()
+            self.assertEqual(len(fake_status_codes), len(request_log))
+            for request_args, request_kwargs in request_log:
+                ip, part, method, path, headers, qs, ssl = request_args
+                self.assertEqual(method, 'PUT')
+                self.assertDictEqual(expected, headers)
+            self.assertEqual(
+                daemon.logger.get_increment_counts(),
+                {'successes': 1, 'unlinks': 1, 'async_pendings': 1})
+            self.assertFalse(os.listdir(async_dir))
+            daemon.logger.clear()
+
+        ts = next(ts_iter)
+        # use a dict rather than HeaderKeyDict so we can vary the case of the
+        # pickled headers
+        headers_out = {
             'x-size': 0,
             'x-content-type': 'text/plain',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-            'x-timestamp': next(ts),
-            'X-Backend-Storage-Policy-Index': int(policy),
-        })
-        data = {'op': op, 'account': account, 'container': container,
-                'obj': obj, 'headers': headers_out}
-        dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                      data, next(ts), policy)
+            'x-timestamp': ts.normal,
+            'X-Backend-Storage-Policy-Index': int(policies[0]),
+            'User-Agent': 'object-server %s' % os.getpid()
+        }
+        expected = {
+            'X-Size': '0',
+            'X-Content-Type': 'text/plain',
+            'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+            'X-Timestamp': ts.normal,
+            'X-Backend-Storage-Policy-Index': str(int(policies[0])),
+            'User-Agent': 'object-updater %s' % os.getpid()
+        }
+        do_test(headers_out, expected)
 
-        request_log = []
+        # updater should add policy header if missing
+        headers_out['X-Backend-Storage-Policy-Index'] = None
+        do_test(headers_out, expected)
 
-        def capture(*args, **kwargs):
-            request_log.append((args, kwargs))
+        # updater should not overwrite a mismatched policy header
+        headers_out['X-Backend-Storage-Policy-Index'] = int(policies[1])
+        expected['X-Backend-Storage-Policy-Index'] = str(int(policies[1]))
+        do_test(headers_out, expected)
 
-        # run once
-        fake_status_codes = [
-            200,  # object update success
-            200,  # object update success
-            200,  # object update conflict
-        ]
-        with mocked_http_conn(*fake_status_codes, give_connect=capture):
-            daemon.run_once()
-        self.assertEqual(len(fake_status_codes), len(request_log))
-        for request_args, request_kwargs in request_log:
-            ip, part, method, path, headers, qs, ssl = request_args
-            self.assertEqual(method, 'PUT')
-            self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
-                             str(int(policy)))
-        self.assertEqual(daemon.logger.get_increment_counts(),
-                         {'successes': 1, 'unlinks': 1, 'async_pendings': 1})
+        # check for case insensitivity
+        headers_out['user-agent'] = headers_out.pop('User-Agent')
+        headers_out['x-backend-storage-policy-index'] = headers_out.pop(
+            'X-Backend-Storage-Policy-Index')
+        do_test(headers_out, expected)
 
 
 if __name__ == '__main__':
