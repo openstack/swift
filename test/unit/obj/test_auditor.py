@@ -830,7 +830,9 @@ class TestAuditor(unittest.TestCase):
         # create tombstone and hashes.pkl file, ensuring the tombstone is not
         # reclaimed by mocking time to be the tombstone time
         with mock.patch('time.time', return_value=float(ts_tomb)):
+            # this delete will create a invalid hashes entry
             self.disk_file.delete(ts_tomb)
+            # this get_hashes call will truncate the invalid hashes entry
             self.disk_file.manager.get_hashes(
                 self.devices + '/sda', '0', [], self.disk_file.policy)
         suffix = basename(dirname(self.disk_file._datadir))
@@ -839,8 +841,10 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(['%s.ts' % ts_tomb.internal],
                          os.listdir(self.disk_file._datadir))
         self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
-        self.assertFalse(os.path.exists(
-            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        self.assertTrue(os.path.exists(hash_invalid))
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual('', fp.read().strip('\n'))
         # Run auditor
         self.auditor.run_audit(mode='once', zero_byte_fps=zero_byte_fps)
         # sanity check - auditor should not remove tombstone file
@@ -853,8 +857,10 @@ class TestAuditor(unittest.TestCase):
         ts_tomb = Timestamp(time.time() - 55)
         part_dir, suffix = self._audit_tombstone(self.conf, ts_tomb)
         self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
-        self.assertFalse(os.path.exists(
-            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        self.assertTrue(os.path.exists(hash_invalid))
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual('', fp.read().strip('\n'))
 
     def test_reclaimable_tombstone(self):
         # audit with a reclaimable tombstone
@@ -874,8 +880,10 @@ class TestAuditor(unittest.TestCase):
         conf['reclaim_age'] = 2 * 604800
         part_dir, suffix = self._audit_tombstone(conf, ts_tomb)
         self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
-        self.assertFalse(os.path.exists(
-            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        self.assertTrue(os.path.exists(hash_invalid))
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual('', fp.read().strip('\n'))
 
     def test_reclaimable_tombstone_with_custom_reclaim_age(self):
         # audit with a tombstone older than custom reclaim age
@@ -897,8 +905,10 @@ class TestAuditor(unittest.TestCase):
         part_dir, suffix = self._audit_tombstone(
             self.conf, ts_tomb, zero_byte_fps=50)
         self.assertTrue(os.path.exists(os.path.join(part_dir, HASH_FILE)))
-        self.assertFalse(os.path.exists(
-            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        self.assertTrue(os.path.exists(hash_invalid))
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual('', fp.read().strip('\n'))
 
     def _test_expired_object_is_ignored(self, zero_byte_fps):
         # verify that an expired object does not get mistaken for a tombstone
@@ -910,15 +920,41 @@ class TestAuditor(unittest.TestCase):
                        extra_metadata={'X-Delete-At': now - 10})
         files = os.listdir(self.disk_file._datadir)
         self.assertTrue([f for f in files if f.endswith('.data')])  # sanity
+        # diskfile write appends to invalid hashes file
+        part_dir = dirname(dirname(self.disk_file._datadir))
+        hash_invalid = os.path.join(part_dir, HASH_INVALIDATIONS_FILE)
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual(basename(dirname(self.disk_file._datadir)),
+                             fp.read().strip('\n'))  # sanity check
+
+        # run the auditor...
         with mock.patch.object(auditor, 'dump_recon_cache'):
             audit.run_audit(mode='once', zero_byte_fps=zero_byte_fps)
+
+        # the auditor doesn't touch anything on the invalidation file
+        # (i.e. not truncate and add no entry)
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual(basename(dirname(self.disk_file._datadir)),
+                             fp.read().strip('\n'))  # sanity check
+
+        # this get_hashes call will truncate the invalid hashes entry
+        self.disk_file.manager.get_hashes(
+            self.devices + '/sda', '0', [], self.disk_file.policy)
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual('', fp.read().strip('\n'))  # sanity check
+
+        # run the auditor, again...
+        with mock.patch.object(auditor, 'dump_recon_cache'):
+            audit.run_audit(mode='once', zero_byte_fps=zero_byte_fps)
+
+        # verify nothing changed
         self.assertTrue(os.path.exists(self.disk_file._datadir))
-        part_dir = dirname(dirname(self.disk_file._datadir))
-        self.assertFalse(os.path.exists(
-            os.path.join(part_dir, HASH_INVALIDATIONS_FILE)))
         self.assertEqual(files, os.listdir(self.disk_file._datadir))
         self.assertFalse(audit.logger.get_lines_for_level('error'))
         self.assertFalse(audit.logger.get_lines_for_level('warning'))
+        # and there was no hash invalidation
+        with open(hash_invalid, 'rb') as fp:
+            self.assertEqual('', fp.read().strip('\n'))
 
     def test_expired_object_is_ignored(self):
         self._test_expired_object_is_ignored(0)

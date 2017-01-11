@@ -39,7 +39,8 @@ from gzip import GzipFile
 import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
-from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
+from swift.obj.diskfile import (MD5_OF_EMPTY_STRING, update_auditor_status,
+                                write_pickle)
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
@@ -6057,18 +6058,37 @@ class TestSuffixHashes(unittest.TestCase):
             df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
                                      policy=policy)
             suffix_dir = os.path.dirname(df._datadir)
+            suffix = os.path.basename(suffix_dir)
             part_path = os.path.join(self.devices, 'sda1',
                                      diskfile.get_data_dir(policy), '0')
             hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
             inv_file = os.path.join(
                 part_path, diskfile.HASH_INVALIDATIONS_FILE)
-            self.assertFalse(os.path.exists(hashes_file))  # sanity
-            with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
-                df_mgr.invalidate_hash(suffix_dir)
-            self.assertFalse(mock_lock.called)
-            # does not create files
+            # sanity, new partition has no suffix hashing artifacts
             self.assertFalse(os.path.exists(hashes_file))
             self.assertFalse(os.path.exists(inv_file))
+            # invalidating a hash does not create the hashes_file
+            with mock.patch(
+                    'swift.obj.diskfile.BaseDiskFileManager.invalidate_hash',
+                    side_effect=diskfile.invalidate_hash) \
+                    as mock_invalidate_hash:
+                df.delete(self.ts())
+            self.assertFalse(os.path.exists(hashes_file))
+            # ... but does invalidate the suffix
+            self.assertEqual([mock.call(suffix_dir)],
+                             mock_invalidate_hash.call_args_list)
+            with open(inv_file) as f:
+                self.assertEqual(suffix, f.read().strip('\n'))
+            # ... and hashing suffixes finds (and hashes) the new suffix
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertIn(suffix, hashes)
+            self.assertTrue(os.path.exists(hashes_file))
+            self.assertIn(os.path.basename(suffix_dir), hashes)
+            with open(hashes_file) as f:
+                self.assertEqual(hashes, pickle.load(f))
+            # ... and truncates the invalidations file
+            with open(inv_file) as f:
+                self.assertEqual('', f.read().strip('\n'))
 
     def test_invalidate_hash_empty_file_exists(self):
         for policy in self.iter_policies():
@@ -6125,6 +6145,105 @@ class TestSuffixHashes(unittest.TestCase):
             }
             self.assertEqual(open_log, expected)
 
+    def test_invalidates_hashes_of_new_partition(self):
+        # a suffix can be changed or created by second process when new pkl
+        # is calculated - that suffix must be correct on next get_hashes call
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            orig_listdir = os.listdir
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            df2 = self.get_different_suffix_df(df)
+            suffix2 = os.path.basename(os.path.dirname(df2._datadir))
+            non_local = {'df2touched': False}
+            df.delete(self.ts())
+
+            def mock_listdir(*args, **kwargs):
+                # simulating an invalidation occuring in another process while
+                # get_hashes is executing
+                result = orig_listdir(*args, **kwargs)
+                if not non_local['df2touched']:
+                    non_local['df2touched'] = True
+                    # other process creates new suffix
+                    df2.delete(self.ts())
+                return result
+
+            with mock.patch('swift.obj.diskfile.os.listdir',
+                            mock_listdir):
+                # creates pkl file
+                hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+            # second suffix added after directory listing, it's added later
+            self.assertIn(suffix, hashes)
+            self.assertNotIn(suffix2, hashes)
+            # updates pkl file
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertIn(suffix, hashes)
+            self.assertIn(suffix2, hashes)
+
+    @mock.patch('swift.obj.diskfile.getmtime')
+    @mock.patch('swift.obj.diskfile.write_pickle')
+    def test_contains_hashes_of_existing_partition(self, mock_write_pickle,
+                                                   mock_getmtime):
+        # get_hashes must repeat path listing and return all hashes when
+        # another concurrent process created new pkl before hashes are stored
+        # by the first process
+        non_local = {}
+
+        def mock_write_pickle_def(*args, **kwargs):
+            if 'mtime' not in non_local:
+                non_local['mtime'] = time()
+            non_local['mtime'] += 1
+            write_pickle(*args, **kwargs)
+
+        def mock_getmtime_def(filename):
+            if 'mtime' not in non_local:
+                raise OSError(errno.ENOENT, os.strerror(errno.ENOENT))
+            return non_local['mtime']
+
+        mock_write_pickle.side_effect = mock_write_pickle_def
+        mock_getmtime.side_effect = mock_getmtime_def
+
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # force hashes.pkl to exist; when it does not exist that's fine,
+            # it's just a different race; in that case the invalidation file
+            # gets appended, but we don't restart hashing suffixes (the
+            # invalidation get's squashed in and the suffix gets rehashed on
+            # the next REPLICATE call)
+            df_mgr.get_hashes('sda1', '0', [], policy)
+            orig_listdir = os.listdir
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            df2 = self.get_different_suffix_df(df)
+            suffix2 = os.path.basename(os.path.dirname(df2._datadir))
+            non_local['df2touched'] = False
+
+            df.delete(self.ts())
+
+            def mock_listdir(*args, **kwargs):
+                # simulating hashes.pkl modification by another process while
+                # get_hashes is executing
+                # df2 is created to check path hashes recalculation
+                result = orig_listdir(*args, **kwargs)
+                if not non_local['df2touched']:
+                    non_local['df2touched'] = True
+                    df2.delete(self.ts())
+                    # simulate pkl update by other process - mtime is updated
+                    self.assertIn('mtime', non_local, "hashes.pkl must exist")
+                    non_local['mtime'] += 1
+                return result
+
+            with mock.patch('swift.obj.diskfile.os.listdir',
+                            mock_listdir):
+                # creates pkl file and repeats listing when pkl modified
+                hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+            self.assertIn(suffix, hashes)
+            self.assertIn(suffix2, hashes)
+
     def test_invalidate_hash_consolidation(self):
         def assert_consolidation(suffixes):
             # verify that suffixes are invalidated after consolidation
@@ -6160,7 +6279,6 @@ class TestSuffixHashes(unittest.TestCase):
                 part_path, diskfile.HASH_INVALIDATIONS_FILE)
             with open(hashes_file, 'rb') as f:
                 self.assertEqual(original_hashes, pickle.load(f))
-            self.assertFalse(os.path.exists(invalidations_file))
 
             # invalidate the hash
             with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
