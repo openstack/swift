@@ -1064,8 +1064,6 @@ class RingBuilder(object):
             overweight_dev_replica.sort(
                 key=lambda dr: dr[0]['parts_wanted'])
             for dev, replica in overweight_dev_replica:
-                if (not self._can_part_move(part)):
-                    break
                 if any(replica_plan[tier]['min'] <=
                        replicas_at_tier[tier] <
                        replica_plan[tier]['max']
@@ -1084,6 +1082,7 @@ class RingBuilder(object):
                 for tier in dev['tiers']:
                     replicas_at_tier[tier] -= 1
                 self._set_part_moved(part)
+                break
 
     def _gather_parts_for_balance(self, assign_parts, replica_plan):
         """
@@ -1140,8 +1139,6 @@ class RingBuilder(object):
             overweight_dev_replica.sort(
                 key=lambda dr: dr[0]['parts_wanted'])
             for dev, replica in overweight_dev_replica:
-                if (not self._can_part_move(part)):
-                    break
                 # this is the most overweight_device holding a replica of this
                 # part we don't know where it's going to end up - but we'll
                 # pick it up and hope for the best.
@@ -1153,6 +1150,7 @@ class RingBuilder(object):
                     part, replica, dev['id'])
                 self._replica2part2dev[replica][part] = NONE_DEV
                 self._set_part_moved(part)
+                break
 
     def _reassign_parts(self, reassign_parts, replica_plan):
         """

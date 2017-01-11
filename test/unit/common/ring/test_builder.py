@@ -728,21 +728,23 @@ class TestRingBuilder(unittest.TestCase):
         expected = defaultdict(int, {0: 256, 1: 256, 2: 86, 3: 85, 4: 85})
         self.assertEqual(expected, self._partition_counts(rb, key='zone'))
 
-        parts_with_moved_count = defaultdict(int)
+        zone_histogram = defaultdict(int)
         for part in range(rb.parts):
-            zones = set()
-            for replica in range(rb.replicas):
-                zones.add(rb.devs[rb._replica2part2dev[replica][part]]['zone'])
-            moved_replicas = len(zones - {0, 1})
-            parts_with_moved_count[moved_replicas] += 1
+            zones = [
+                rb.devs[rb._replica2part2dev[replica][part]]['zone']
+                for replica in range(rb.replicas)]
+            zone_histogram[tuple(sorted(zones))] += 1
 
         # We expect that every partition moved exactly one replica
-        expected = {1: 256}
-        self.assertEqual(parts_with_moved_count, expected)
+        expected = {
+            (0, 1, 2): 86,
+            (0, 1, 3): 85,
+            (0, 1, 4): 85,
+        }
+        self.assertEqual(zone_histogram, expected)
 
         # After rebalancing two more times, we expect that everything is in a
         # good state
-        rb.rebalance(seed=3)
         rb.rebalance(seed=3)
 
         self.assertEqual(0, rb.dispersion)
