@@ -3017,6 +3017,16 @@ class TestSloConditionalGetOldManifest(SloTestCase):
         self.assertNotIn('X-Backend-Etag-Is-At', self.app.headers[0])
         self.assertNotIn('X-Backend-Etag-Is-At', self.app.headers[1])
 
+    def test_range_resume_download(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=20-'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(body, 'ccccccccccdddddddddddddddddddd')
+
 
 class TestSloConditionalGetNewManifest(TestSloConditionalGetOldManifest):
     def setUp(self):

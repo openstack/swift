@@ -703,7 +703,9 @@ class SloGetContext(WSGIContext):
             if lheader == SYSMETA_SLO_ETAG:
                 slo_etag = value
             elif lheader == SYSMETA_SLO_SIZE:
-                content_length = value
+                # it's from sysmeta, so we don't worry about non-integer
+                # values here
+                content_length = int(value)
             elif lheader not in ('etag', 'content-length'):
                 response_headers.append((header, value))
 
