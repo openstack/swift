@@ -35,6 +35,7 @@ from hashlib import md5
 import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
+from textwrap import dedent
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool, greenthread
 from eventlet.green import httplib
@@ -62,6 +63,7 @@ from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
 from swift.common.exceptions import DiskFileDeviceUnavailable, \
     DiskFileNoSpace, DiskFileQuarantined
+from swift.common.wsgi import init_request_processor
 
 
 def mock_time(*args, **kwargs):
@@ -133,6 +135,11 @@ class TestObjectController(unittest.TestCase):
     def _stage_tmp_dir(self, policy):
         mkdirs(os.path.join(self.testdir, 'sda1',
                             diskfile.get_tmp_dir(policy)))
+
+    def iter_policies(self):
+        for policy in POLICIES:
+            self.policy = policy
+            yield policy
 
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name
@@ -6164,6 +6171,70 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 507)
 
+    def test_REPLICATE_reclaims_tombstones(self):
+        conf = {'devices': self.testdir, 'mount_check': False,
+                'reclaim_age': 100}
+        self.object_controller = object_server.ObjectController(
+            conf, logger=self.logger)
+        for policy in self.iter_policies():
+            # create a tombstone
+            ts = next(self.ts)
+            delete_request = Request.blank(
+                '/sda1/0/a/c/o', method='DELETE',
+                headers={
+                    'x-backend-storage-policy-index': int(policy),
+                    'x-timestamp': ts.internal,
+                })
+            resp = delete_request.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 404)
+            objfile = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                               policy=policy)
+            tombstone_file = os.path.join(objfile._datadir,
+                                          '%s.ts' % ts.internal)
+            self.assertTrue(os.path.exists(tombstone_file))
+
+            # REPLICATE will hash it
+            req = Request.blank(
+                '/sda1/0', method='REPLICATE',
+                headers={
+                    'x-backend-storage-policy-index': int(policy),
+                })
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            suffix = pickle.loads(resp.body).keys()[0]
+            self.assertEqual(suffix, os.path.basename(
+                os.path.dirname(objfile._datadir)))
+            # tombsone still exists
+            self.assertTrue(os.path.exists(tombstone_file))
+
+            # after reclaim REPLICATE will rehash
+            replicate_request = Request.blank(
+                '/sda1/0/%s' % suffix, method='REPLICATE',
+                headers={
+                    'x-backend-storage-policy-index': int(policy),
+                })
+            the_future = time() + 200
+            with mock.patch('swift.obj.diskfile.time.time') as mock_time:
+                mock_time.return_value = the_future
+                resp = replicate_request.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual({}, pickle.loads(resp.body))
+            # and tombsone is reaped!
+            self.assertFalse(os.path.exists(tombstone_file))
+
+            # N.B. with a small reclaim age like this - if proxy clocks get far
+            # enough out of whack ...
+            with mock.patch('swift.obj.diskfile.time.time') as mock_time:
+                mock_time.return_value = the_future
+                resp = delete_request.get_response(self.object_controller)
+                # we'll still create the tombstone
+                self.assertTrue(os.path.exists(tombstone_file))
+                # but it will get reaped by REPLICATE
+                resp = replicate_request.get_response(self.object_controller)
+                self.assertEqual(resp.status_int, 200)
+                self.assertEqual({}, pickle.loads(resp.body))
+                self.assertFalse(os.path.exists(tombstone_file))
+
     def test_SSYNC_can_be_called(self):
         req = Request.blank('/sda1/0',
                             environ={'REQUEST_METHOD': 'SSYNC'},
@@ -7537,6 +7608,105 @@ class TestZeroCopy(unittest.TestCase):
         self.assertEqual(response.status, 200)  # still there
         contents = response.read()
         self.assertEqual(contents, '')
+
+
+class TestConfigOptionHandling(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = mkdtemp()
+
+    def tearDown(self):
+        rmtree(self.tmpdir)
+
+    def _app_config(self, config):
+        contents = dedent(config)
+        conf_file = os.path.join(self.tmpdir, 'object-server.conf')
+        with open(conf_file, 'w') as f:
+            f.write(contents)
+        with mock.patch('swift.common.wsgi.monkey_patch_mimetools'):
+            app = init_request_processor(conf_file, 'object-server')[:2]
+        return app
+
+    def test_default(self):
+        config = """
+        [DEFAULT]
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+        """
+        app, config = self._app_config(config)
+        self.assertNotIn('reclaim_age', config)
+        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
+                         604800)
+
+    def test_option_in_app(self):
+        config = """
+        [DEFAULT]
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+        reclaim_age = 100
+        """
+        app, config = self._app_config(config)
+        self.assertEqual(config['reclaim_age'], '100')
+        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
+                         100)
+
+    def test_option_in_default(self):
+        config = """
+        [DEFAULT]
+        reclaim_age = 200
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+        """
+        app, config = self._app_config(config)
+        self.assertEqual(config['reclaim_age'], '200')
+        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
+                         200)
+
+    def test_option_in_both(self):
+        config = """
+        [DEFAULT]
+        reclaim_age = 300
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+        reclaim_age = 400
+        """
+        app, config = self._app_config(config)
+        self.assertEqual(config['reclaim_age'], '300')
+        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
+                         300)
+
+        # use paste "set" syntax to override global config value
+        config = """
+        [DEFAULT]
+        reclaim_age = 500
+
+        [pipeline:main]
+        pipeline = object-server
+
+        [app:object-server]
+        use = egg:swift#object
+        set reclaim_age = 600
+        """
+        app, config = self._app_config(config)
+        self.assertEqual(config['reclaim_age'], '600')
+        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
+                         600)
 
 
 if __name__ == '__main__':

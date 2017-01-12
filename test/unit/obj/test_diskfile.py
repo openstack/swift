@@ -659,6 +659,42 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                                    policy=policy, frag_index=frag_index,
                                    **kwargs)
 
+    def test_cleanup_uses_configured_reclaim_age(self):
+        # verify that the reclaim_age used when cleaning up tombstones is
+        # either the default or the configured value
+        def do_test(ts, expect_reclaim):
+            for policy in POLICIES:
+                self.df_router = diskfile.DiskFileRouter(
+                    self.conf, self.logger)
+                df = self._get_diskfile(policy)
+                df.delete(ts.internal)
+                suffix_dir = os.path.dirname(df._datadir)
+                part_dir = os.path.dirname(suffix_dir)
+                tombstone_file = os.path.join(df._datadir, ts.internal + '.ts')
+                # direct callers of this this method are expect to plumb
+                # reclaim_age as a kwarg
+                df._manager.cleanup_ondisk_files(
+                    os.path.dirname(tombstone_file))
+                # the default is ONE_WEEK
+                if time() - float(ts) > diskfile.ONE_WEEK:
+                    self.assertFalse(os.path.exists(tombstone_file))
+                else:
+                    self.assertTrue(os.path.exists(tombstone_file))
+                # the configured value is plumbed through on REPLICATE calls
+                df._manager._get_hashes(part_dir)
+                self.assertNotEqual(
+                    expect_reclaim, os.path.exists(tombstone_file))
+
+        # reclaim_age not configured so default should be used
+        do_test(Timestamp(time() - diskfile.ONE_WEEK - 1), True)
+        do_test(Timestamp(time() - diskfile.ONE_WEEK + 100), False)
+
+        # reclaim_age configured value should be used
+        self.conf['reclaim_age'] = 1000
+        do_test(Timestamp(time() - diskfile.ONE_WEEK + 100), True)
+        do_test(Timestamp(time() - 1001), True)
+        do_test(Timestamp(time() + 100), False)
+
     def _test_get_ondisk_files(self, scenarios, policy,
                                frag_index=None, **kwargs):
         class_under_test = self._get_diskfile(
