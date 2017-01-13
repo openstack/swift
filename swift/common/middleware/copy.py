@@ -498,7 +498,9 @@ class ServerSideCopyMiddleware(object):
                         source_resp.headers['X-Object-Manifest']
             sink_req.params = params
 
-        # Set data source, content length and etag for the PUT request
+        # Set swift.source, data source, content length and etag
+        # for the PUT request
+        sink_req.environ['swift.source'] = 'SSC'
         sink_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         sink_req.content_length = source_resp.content_length
         if (source_resp.status_int == HTTP_OK and

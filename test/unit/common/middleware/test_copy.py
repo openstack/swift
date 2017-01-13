@@ -256,6 +256,8 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual('/v1/a/c/o', self.authorized[0].path)
         self.assertEqual('PUT', self.authorized[1].method)
         self.assertEqual('/v1/a/c/o2', self.authorized[1].path)
+        self.assertEqual(self.app.swift_sources[0], 'SSC')
+        self.assertEqual(self.app.swift_sources[1], 'SSC')
 
     def test_static_large_object_manifest(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
