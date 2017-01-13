@@ -31,6 +31,7 @@ are also not considered part of the backend API.
 """
 
 import six.moves.cPickle as pickle
+import copy
 import errno
 import fcntl
 import json
@@ -41,7 +42,7 @@ import hashlib
 import logging
 import traceback
 import xattr
-from os.path import basename, dirname, exists, getmtime, join, splitext
+from os.path import basename, dirname, exists, join, splitext
 from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
@@ -228,6 +229,48 @@ def quarantine_renamer(device_path, corrupted_file_path):
     return to_dir
 
 
+def read_hashes(partition_dir):
+    """
+    Read the existing hashes.pkl
+
+    :returns: a dict, the suffix hashes (if any), the key 'valid' will be False
+              if hashes.pkl is corrupt, cannot be read or does not exist
+    """
+    hashes_file = join(partition_dir, HASH_FILE)
+    hashes = {'valid': False}
+    try:
+        with open(hashes_file, 'rb') as hashes_fp:
+            pickled_hashes = hashes_fp.read()
+    except (IOError, OSError):
+        pass
+    else:
+        try:
+            hashes = pickle.loads(pickled_hashes)
+        except Exception:
+            # pickle.loads() can raise a wide variety of exceptions when
+            # given invalid input depending on the way in which the
+            # input is invalid.
+            pass
+    # hashes.pkl w/o valid updated key is "valid" but "forever old"
+    hashes.setdefault('valid', True)
+    hashes.setdefault('updated', -1)
+    return hashes
+
+
+def write_hashes(partition_dir, hashes):
+    """
+    Write hashes to hashes.pkl
+
+    The updated key is added to hashes before it is written.
+    """
+    hashes_file = join(partition_dir, HASH_FILE)
+    # 'valid' key should always be set by the caller; however, if there's a bug
+    # setting invalid is most safe
+    hashes.setdefault('valid', False)
+    hashes['updated'] = time.time()
+    write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
+
+
 def consolidate_hashes(partition_dir):
     """
     Take what's in hashes.pkl and hashes.invalid, combine them, write the
@@ -254,41 +297,23 @@ def consolidate_hashes(partition_dir):
         return None
 
     with lock_path(partition_dir):
-        try:
-            with open(hashes_file, 'rb') as hashes_fp:
-                pickled_hashes = hashes_fp.read()
-        except (IOError, OSError):
-            hashes = {}
-        else:
-            try:
-                hashes = pickle.loads(pickled_hashes)
-            except Exception:
-                # pickle.loads() can raise a wide variety of exceptions when
-                # given invalid input depending on the way in which the
-                # input is invalid.
-                hashes = None
+        hashes = read_hashes(partition_dir)
 
-        modified = False
         found_invalidation_entry = False
         try:
             with open(invalidations_file, 'rb') as inv_fh:
                 for line in inv_fh:
                     found_invalidation_entry = True
                     suffix = line.strip()
-                    if hashes is not None and \
-                            hashes.get(suffix, '') is not None:
-                        hashes[suffix] = None
-                        modified = True
+                    hashes[suffix] = None
         except (IOError, OSError) as e:
             if e.errno != errno.ENOENT:
                 raise
 
-        if modified:
-            write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
-
-        # Now that all the invalidations are reflected in hashes.pkl, it's
-        # safe to clear out the invalidations file.
         if found_invalidation_entry:
+            write_hashes(partition_dir, hashes)
+            # Now that all the invalidations are reflected in hashes.pkl, it's
+            # safe to clear out the invalidations file.
             with open(invalidations_file, 'wb') as inv_fh:
                 pass
 
@@ -997,8 +1022,14 @@ class BaseDiskFileManager(object):
         """
         raise NotImplementedError
 
-    def _get_hashes(self, partition_path, recalculate=None, do_listdir=False,
-                    reclaim_age=None):
+    def _get_hashes(self, *args, **kwargs):
+        hashed, hashes = self.__get_hashes(*args, **kwargs)
+        hashes.pop('updated', None)
+        hashes.pop('valid', None)
+        return hashed, hashes
+
+    def __get_hashes(self, partition_path, recalculate=None, do_listdir=False,
+                     reclaim_age=None):
         """
         Get a list of hashes for the suffix dir.  do_listdir causes it to
         mistrust the hash cache for suffix existence at the (unexpectedly high)
@@ -1017,31 +1048,39 @@ class BaseDiskFileManager(object):
         hashed = 0
         hashes_file = join(partition_path, HASH_FILE)
         modified = False
-        force_rewrite = False
-        hashes = {}
-        mtime = -1
+        orig_hashes = {'valid': False}
 
         if recalculate is None:
             recalculate = []
 
         try:
-            mtime = getmtime(hashes_file)
-        except OSError as e:
-            if e.errno != errno.ENOENT:
-                raise
-
-        try:
-            hashes = self.consolidate_hashes(partition_path)
+            orig_hashes = self.consolidate_hashes(partition_path)
         except Exception:
             self.logger.warning('Unable to read %r', hashes_file,
                                 exc_info=True)
+
+        if orig_hashes is None:
+            # consolidate_hashes returns None if hashes.pkl does not exist
+            orig_hashes = {'valid': False}
+        if not orig_hashes['valid']:
+            # This is the only path to a valid hashes from invalid read (e.g.
+            # does not exist, corrupt, etc.).  Moreover, in order to write this
+            # valid hashes we must read *the exact same* invalid state or we'll
+            # trigger race detection.
             do_listdir = True
-            force_rewrite = True
+            hashes = {'valid': True}
+            # If the exception handling around consolidate_hashes fired we're
+            # going to do a full rehash regardless; but we need to avoid
+            # needless recursion if the on-disk hashes.pkl is actually readable
+            # (worst case is consolidate_hashes keeps raising exceptions and we
+            # eventually run out of stack).
+            # N.B. orig_hashes invalid only effects new parts and error/edge
+            # conditions - so try not to get overly caught up trying to
+            # optimize it out unless you manage to convince yourself there's a
+            # bad behavior.
+            orig_hashes = read_hashes(partition_path)
         else:
-            if hashes is None:  # no hashes.pkl file; let's build it
-                do_listdir = True
-                force_rewrite = True
-                hashes = {}
+            hashes = copy.deepcopy(orig_hashes)
 
         if do_listdir:
             for suff in os.listdir(partition_path):
@@ -1063,13 +1102,11 @@ class BaseDiskFileManager(object):
                 modified = True
         if modified:
             with lock_path(partition_path):
-                if force_rewrite or not exists(hashes_file) or \
-                        getmtime(hashes_file) == mtime:
-                    write_pickle(
-                        hashes, hashes_file, partition_path, PICKLE_PROTOCOL)
+                if read_hashes(partition_path) == orig_hashes:
+                    write_hashes(partition_path, hashes)
                     return hashed, hashes
-            return self._get_hashes(partition_path, recalculate, do_listdir,
-                                    reclaim_age)
+            return self.__get_hashes(partition_path, recalculate, do_listdir,
+                                     reclaim_age)
         else:
             return hashed, hashes
 
