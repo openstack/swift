@@ -28,6 +28,7 @@ from copy import deepcopy
 import eventlet
 from unittest2 import SkipTest
 from swift.common.http import is_success, is_client_error
+from email.utils import parsedate
 
 from test.functional import normalized_urls, load_constraint, cluster_info
 from test.functional import check_response, retry
@@ -298,6 +299,33 @@ class TestAccount(Base):
         expected.reverse()
         results = [r for r in results if r in expected]
         self.assertEqual(expected, results)
+
+    def testContainerListingLastModified(self):
+        expected = {}
+        for container in self.env.containers:
+            res = container.info()
+            expected[container.name] = time.mktime(
+                parsedate(res['last_modified']))
+
+        for format_type in ['json', 'xml']:
+            actual = {}
+            containers = self.env.account.containers(
+                parms={'format': format_type})
+            if isinstance(containers[0], dict):
+                for container in containers:
+                    self.assertIn('name', container)  # sanity
+                    self.assertIn('last_modified', container)  # sanity
+                    # ceil by hand (wants easier way!)
+                    datetime_str, micro_sec_str = \
+                        container['last_modified'].split('.')
+                    timestamp = time.mktime(
+                        time.strptime(datetime_str,
+                                      "%Y-%m-%dT%H:%M:%S"))
+                    if int(micro_sec_str):
+                        timestamp += 1
+                    actual[container['name']] = timestamp
+
+            self.assertEqual(expected, actual)
 
     def testInvalidAuthToken(self):
         hdrs = {'X-Auth-Token': 'bogus_auth_token'}

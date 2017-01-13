@@ -34,7 +34,7 @@ from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent)
 from swift.common import constraints
 from swift.account.server import AccountController
 from swift.common.utils import (normalize_timestamp, replication, public,
-                                mkdirs, storage_directory)
+                                mkdirs, storage_directory, Timestamp)
 from swift.common.request_helpers import get_sys_meta_prefix
 from test.unit import patch_policies, debug_logger
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -847,18 +847,21 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_with_containers_json(self):
+        put_timestamps = {}
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
+        put_timestamps['c1'] = normalize_timestamp(1)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Put-Timestamp': '1',
+                            headers={'X-Put-Timestamp': put_timestamps['c1'],
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         req.get_response(self.controller)
+        put_timestamps['c2'] = normalize_timestamp(2)
         req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Put-Timestamp': '2',
+                            headers={'X-Put-Timestamp': put_timestamps['c2'],
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
                                      'X-Bytes-Used': '0',
@@ -868,18 +871,23 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(json.loads(resp.body),
-                         [{'count': 0, 'bytes': 0, 'name': 'c1'},
-                          {'count': 0, 'bytes': 0, 'name': 'c2'}])
+        self.assertEqual(
+            json.loads(resp.body),
+            [{'count': 0, 'bytes': 0, 'name': 'c1',
+              'last_modified': Timestamp(put_timestamps['c1']).isoformat},
+             {'count': 0, 'bytes': 0, 'name': 'c2',
+              'last_modified': Timestamp(put_timestamps['c2']).isoformat}])
+        put_timestamps['c1'] = normalize_timestamp(3)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Put-Timestamp': '1',
+                            headers={'X-Put-Timestamp': put_timestamps['c1'],
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '1',
                                      'X-Bytes-Used': '2',
                                      'X-Timestamp': normalize_timestamp(0)})
         req.get_response(self.controller)
+        put_timestamps['c2'] = normalize_timestamp(4)
         req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Put-Timestamp': '2',
+                            headers={'X-Put-Timestamp': put_timestamps['c2'],
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '3',
                                      'X-Bytes-Used': '4',
@@ -889,25 +897,31 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(json.loads(resp.body),
-                         [{'count': 1, 'bytes': 2, 'name': 'c1'},
-                          {'count': 3, 'bytes': 4, 'name': 'c2'}])
+        self.assertEqual(
+            json.loads(resp.body),
+            [{'count': 1, 'bytes': 2, 'name': 'c1',
+              'last_modified': Timestamp(put_timestamps['c1']).isoformat},
+             {'count': 3, 'bytes': 4, 'name': 'c2',
+              'last_modified': Timestamp(put_timestamps['c2']).isoformat}])
         self.assertEqual(resp.content_type, 'application/json')
         self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_with_containers_xml(self):
+        put_timestamps = {}
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
+        put_timestamps['c1'] = normalize_timestamp(1)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Put-Timestamp': '1',
+                            headers={'X-Put-Timestamp': put_timestamps['c1'],
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         req.get_response(self.controller)
+        put_timestamps['c2'] = normalize_timestamp(2)
         req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Put-Timestamp': '2',
+                            headers={'X-Put-Timestamp': put_timestamps['c2'],
                                      'X-Delete-Timestamp': '0',
                                      'X-Object-Count': '0',
                                      'X-Bytes-Used': '0',
@@ -926,24 +940,30 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c1')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '0')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '0')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp(put_timestamps['c1']).isoformat)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = \
             [n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '0')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '0')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp(put_timestamps['c2']).isoformat)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -970,24 +990,30 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c1')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '1')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '2')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp(put_timestamps['c1']).isoformat)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = [
             n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '3')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '4')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp(put_timestamps['c2']).isoformat)
         self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_xml_escapes_account_name(self):
@@ -1054,15 +1080,16 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
+        put_timestamp = normalize_timestamp(0)
         for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Put-Timestamp': str(c + 1),
+                headers={'X-Put-Timestamp': put_timestamp,
                          'X-Delete-Timestamp': '0',
                          'X-Object-Count': '2',
                          'X-Bytes-Used': '3',
-                         'X-Timestamp': normalize_timestamp(0)})
+                         'X-Timestamp': put_timestamp})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1079,31 +1106,38 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
+        put_timestamp = normalize_timestamp(0)
         for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Put-Timestamp': str(c + 1),
+                headers={'X-Put-Timestamp': put_timestamp,
                          'X-Delete-Timestamp': '0',
                          'X-Object-Count': '2',
                          'X-Bytes-Used': '3',
-                         'X-Timestamp': normalize_timestamp(0)})
+                         'X-Timestamp': put_timestamp})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(json.loads(resp.body),
-                         [{'count': 2, 'bytes': 3, 'name': 'c0'},
-                          {'count': 2, 'bytes': 3, 'name': 'c1'},
-                          {'count': 2, 'bytes': 3, 'name': 'c2'}])
+        timestamp_str = Timestamp(put_timestamp).isoformat
+        expected = [{'count': 2, 'bytes': 3, 'name': 'c0',
+                     'last_modified': timestamp_str},
+                    {'count': 2, 'bytes': 3, 'name': 'c1',
+                     'last_modified': timestamp_str},
+                    {'count': 2, 'bytes': 3, 'name': 'c2',
+                     'last_modified': timestamp_str}]
+        self.assertEqual(json.loads(resp.body), expected)
         req = Request.blank('/sda1/p/a?limit=3&marker=c2&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(json.loads(resp.body),
-                         [{'count': 2, 'bytes': 3, 'name': 'c3'},
-                          {'count': 2, 'bytes': 3, 'name': 'c4'}])
+        expected = [{'count': 2, 'bytes': 3, 'name': 'c3',
+                     'last_modified': timestamp_str},
+                    {'count': 2, 'bytes': 3, 'name': 'c4',
+                     'last_modified': timestamp_str}]
+        self.assertEqual(json.loads(resp.body), expected)
 
     def test_GET_limit_marker_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1131,24 +1165,31 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c0')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '2')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '3')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp('1').isoformat)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = [
             n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
+        node = [n for n in container if n.nodeName == 'name'][0]
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '2')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '3')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp('3').isoformat)
         req = Request.blank('/sda1/p/a?limit=3&marker=c2&format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
@@ -1161,18 +1202,21 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(listing[0].nodeName, 'container')
         container = [n for n in listing[0].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c3')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '2')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '3')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp('4').isoformat)
         self.assertEqual(listing[-1].nodeName, 'container')
         container = [
             n for n in listing[-1].childNodes if n.nodeName != '#text']
         self.assertEqual(sorted([n.nodeName for n in container]),
-                         ['bytes', 'count', 'name'])
+                         ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c4')
         node = [n for n in container if n.nodeName == 'count'][0]

@@ -2,11 +2,13 @@
     {
         "count": 0,
         "bytes": 0,
-        "name": "janeausten"
+        "name": "janeausten",
+        "last_modified": "2013-11-19T20:08:13.283452"
     },
     {
         "count": 1,
         "bytes": 14,
-        "name": "marktwain"
+        "name": "marktwain",
+        "last_modified": "2016-04-29T16:23:50.460230"
     }
 ]

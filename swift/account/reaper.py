@@ -268,7 +268,7 @@ class AccountReaper(Daemon):
                 if not containers:
                     break
                 try:
-                    for (container, _junk, _junk, _junk) in containers:
+                    for (container, _junk, _junk, _junk, _junk) in containers:
                         this_shard = int(md5(container).hexdigest(), 16) % \
                             len(nodes)
                         if container_shard not in (this_shard, None):
