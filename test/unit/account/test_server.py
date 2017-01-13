@@ -1106,8 +1106,8 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        put_timestamp = normalize_timestamp(0)
         for c in range(5):
+            put_timestamp = normalize_timestamp(c + 1)
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -1121,22 +1121,21 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        timestamp_str = Timestamp(put_timestamp).isoformat
         expected = [{'count': 2, 'bytes': 3, 'name': 'c0',
-                     'last_modified': timestamp_str},
+                     'last_modified': Timestamp('1').isoformat},
                     {'count': 2, 'bytes': 3, 'name': 'c1',
-                     'last_modified': timestamp_str},
+                     'last_modified': Timestamp('2').isoformat},
                     {'count': 2, 'bytes': 3, 'name': 'c2',
-                     'last_modified': timestamp_str}]
+                     'last_modified': Timestamp('3').isoformat}]
         self.assertEqual(json.loads(resp.body), expected)
         req = Request.blank('/sda1/p/a?limit=3&marker=c2&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         expected = [{'count': 2, 'bytes': 3, 'name': 'c3',
-                     'last_modified': timestamp_str},
+                     'last_modified': Timestamp('4').isoformat},
                     {'count': 2, 'bytes': 3, 'name': 'c4',
-                     'last_modified': timestamp_str}]
+                     'last_modified': Timestamp('5').isoformat}]
         self.assertEqual(json.loads(resp.body), expected)
 
     def test_GET_limit_marker_xml(self):
@@ -1181,7 +1180,6 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(sorted([n.nodeName for n in container]),
                          ['bytes', 'count', 'last_modified', 'name'])
         node = [n for n in container if n.nodeName == 'name'][0]
-        node = [n for n in container if n.nodeName == 'name'][0]
         self.assertEqual(node.firstChild.nodeValue, 'c2')
         node = [n for n in container if n.nodeName == 'count'][0]
         self.assertEqual(node.firstChild.nodeValue, '2')
@@ -1223,6 +1221,9 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(node.firstChild.nodeValue, '2')
         node = [n for n in container if n.nodeName == 'bytes'][0]
         self.assertEqual(node.firstChild.nodeValue, '3')
+        node = [n for n in container if n.nodeName == 'last_modified'][0]
+        self.assertEqual(node.firstChild.nodeValue,
+                         Timestamp('5').isoformat)
 
     def test_GET_accept_wildcard(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
