@@ -1143,14 +1143,15 @@ class TestAccountController(unittest.TestCase):
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
         for c in range(5):
+            put_timestamp = normalize_timestamp(c + 1)
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Put-Timestamp': str(c + 1),
+                headers={'X-Put-Timestamp': put_timestamp,
                          'X-Delete-Timestamp': '0',
                          'X-Object-Count': '2',
                          'X-Bytes-Used': '3',
-                         'X-Timestamp': normalize_timestamp(c)})
+                         'X-Timestamp': put_timestamp})
             req.get_response(self.controller)
         req = Request.blank('/sda1/p/a?limit=3&format=xml',
                             environ={'REQUEST_METHOD': 'GET'})
