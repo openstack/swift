@@ -6204,7 +6204,7 @@ class TestObjectController(unittest.TestCase):
             suffix = pickle.loads(resp.body).keys()[0]
             self.assertEqual(suffix, os.path.basename(
                 os.path.dirname(objfile._datadir)))
-            # tombsone still exists
+            # tombstone still exists
             self.assertTrue(os.path.exists(tombstone_file))
 
             # after reclaim REPLICATE will rehash
@@ -6219,7 +6219,7 @@ class TestObjectController(unittest.TestCase):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual({}, pickle.loads(resp.body))
-            # and tombsone is reaped!
+            # and tombstone is reaped!
             self.assertFalse(os.path.exists(tombstone_file))
 
             # N.B. with a small reclaim age like this - if proxy clocks get far
@@ -6859,6 +6859,7 @@ class TestObjectServer(unittest.TestCase):
         headers = {
             'Expect': '100-continue',
             'Content-Length': len(test_body),
+            'Content-Type': 'application/test',
             'X-Timestamp': utils.Timestamp(time()).internal,
         }
         conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
@@ -6876,6 +6877,7 @@ class TestObjectServer(unittest.TestCase):
         headers = {
             'Expect': '100-continue',
             'Content-Length': len(test_body),
+            'Content-Type': 'application/test',
             'X-Timestamp': utils.Timestamp(time()).internal,
             'X-Backend-Obj-Metadata-Footer': 'yes',
             'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
@@ -6894,6 +6896,7 @@ class TestObjectServer(unittest.TestCase):
         headers = {
             'Expect': '100-continue',
             'Content-Length': len(test_body),
+            'Content-Type': 'application/test',
             'X-Timestamp': put_timestamp.internal,
         }
         conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
@@ -7526,7 +7529,8 @@ class TestZeroCopy(unittest.TestCase):
         url_path = '/sda1/2100/a/c/o'
 
         self.http_conn.request('PUT', url_path, 'obj contents',
-                               {'X-Timestamp': '127082564.24709'})
+                               {'X-Timestamp': '127082564.24709',
+                                'Content-Type': 'application/test'})
         response = self.http_conn.getresponse()
         self.assertEqual(response.status, 201)
         response.read()
@@ -7544,7 +7548,8 @@ class TestZeroCopy(unittest.TestCase):
         url_path = '/sda1/2100/a/c/o'
 
         self.http_conn.request('PUT', url_path, obj_contents,
-                               {'X-Timestamp': '1402600322.52126'})
+                               {'X-Timestamp': '1402600322.52126',
+                                'Content-Type': 'application/test'})
         response = self.http_conn.getresponse()
         self.assertEqual(response.status, 201)
         response.read()
@@ -7561,7 +7566,8 @@ class TestZeroCopy(unittest.TestCase):
         ts = '1402601849.47475'
 
         self.http_conn.request('PUT', url_path, 'obj contents',
-                               {'X-Timestamp': ts})
+                               {'X-Timestamp': ts,
+                                'Content-Type': 'application/test'})
         response = self.http_conn.getresponse()
         self.assertEqual(response.status, 201)
         response.read()
@@ -7592,7 +7598,8 @@ class TestZeroCopy(unittest.TestCase):
 
         self.http_conn.request(
             'PUT', url_path, '',
-            {'X-Timestamp': ts, 'Content-Length': '0'})
+            {'X-Timestamp': ts, 'Content-Length': '0',
+             'Content-Type': 'application/test'})
         response = self.http_conn.getresponse()
         self.assertEqual(response.status, 201)
         response.read()
@@ -7623,9 +7630,7 @@ class TestConfigOptionHandling(unittest.TestCase):
         conf_file = os.path.join(self.tmpdir, 'object-server.conf')
         with open(conf_file, 'w') as f:
             f.write(contents)
-        with mock.patch('swift.common.wsgi.monkey_patch_mimetools'):
-            app = init_request_processor(conf_file, 'object-server')[:2]
-        return app
+        return init_request_processor(conf_file, 'object-server')[:2]
 
     def test_default(self):
         config = """
@@ -7639,8 +7644,8 @@ class TestConfigOptionHandling(unittest.TestCase):
         """
         app, config = self._app_config(config)
         self.assertNotIn('reclaim_age', config)
-        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
-                         604800)
+        for policy in POLICIES:
+            self.assertEqual(app._diskfile_router[policy].reclaim_age, 604800)
 
     def test_option_in_app(self):
         config = """
@@ -7655,8 +7660,8 @@ class TestConfigOptionHandling(unittest.TestCase):
         """
         app, config = self._app_config(config)
         self.assertEqual(config['reclaim_age'], '100')
-        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
-                         100)
+        for policy in POLICIES:
+            self.assertEqual(app._diskfile_router[policy].reclaim_age, 100)
 
     def test_option_in_default(self):
         config = """
@@ -7671,8 +7676,8 @@ class TestConfigOptionHandling(unittest.TestCase):
         """
         app, config = self._app_config(config)
         self.assertEqual(config['reclaim_age'], '200')
-        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
-                         200)
+        for policy in POLICIES:
+            self.assertEqual(app._diskfile_router[policy].reclaim_age, 200)
 
     def test_option_in_both(self):
         config = """
@@ -7688,8 +7693,8 @@ class TestConfigOptionHandling(unittest.TestCase):
         """
         app, config = self._app_config(config)
         self.assertEqual(config['reclaim_age'], '300')
-        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
-                         300)
+        for policy in POLICIES:
+            self.assertEqual(app._diskfile_router[policy].reclaim_age, 300)
 
         # use paste "set" syntax to override global config value
         config = """
@@ -7705,8 +7710,8 @@ class TestConfigOptionHandling(unittest.TestCase):
         """
         app, config = self._app_config(config)
         self.assertEqual(config['reclaim_age'], '600')
-        self.assertEqual(app._diskfile_router[POLICIES.legacy].reclaim_age,
-                         600)
+        for policy in POLICIES:
+            self.assertEqual(app._diskfile_router[policy].reclaim_age, 600)
 
 
 if __name__ == '__main__':
