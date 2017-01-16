@@ -281,7 +281,7 @@ The solution is to delete the account database files and
 re-create the account as follows:
 
 #. You must know the tenant/project ID. The account name is AUTH_<project-id>.
-   In this example, the tenant/project is is ``4ebe3039674d4864a11fe0864ae4d905``
+   In this example, the tenant/project is ``4ebe3039674d4864a11fe0864ae4d905``
    so the Swift account name is ``AUTH_4ebe3039674d4864a11fe0864ae4d905``.
 
 #. Use ``swift-get-nodes`` to locate the account's database files (on three

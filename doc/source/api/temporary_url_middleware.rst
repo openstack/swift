@@ -15,7 +15,7 @@ downloads the object directly from Object Storage, eliminating the need
 for the website to act as a proxy for the request.
 
 Furthermore, a temporary URL can be prefix-based. These URLs
-contain a signature which is is valid for all objects which share
+contain a signature which is valid for all objects which share
 a common prefix. They are useful for sharing a set of objects.
 
 Ask your cloud administrator to enable the temporary URL feature. For
