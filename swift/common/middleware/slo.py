@@ -88,6 +88,49 @@ segments of a SLO manifest can even be other SLO manifests. Treat them as any
 other object i.e., use the Etag and Content-Length given on the PUT of the
 sub-SLO in the manifest to the parent SLO.
 
+While uploading a manifest, a user can send Etag for verification. It needs to
+be md5 of the segments' etags, if there is no range specified. For example, if
+the manifest to be uploaded looks like this:
+
+  .. code::
+
+    [{"path": "/cont/object1",
+      "etag": "etagoftheobjectsegment1",
+      "size_bytes": 10485760},
+     {"path": "/cont/object2",
+      "etag": "etagoftheobjectsegment2",
+      "size_bytes": 10485760}]
+
+The Etag of the above manifest would be md5 of etagoftheobjectsegment1 and
+etagoftheobjectsegment2. This could be computed in the following way:
+
+  .. code::
+
+    echo -n 'etagoftheobjectsegment1etagoftheobjectsegment2' | md5sum
+
+If a manifest to be uploaded with a segment range looks like this:
+
+  .. code::
+
+    [{"path": "/cont/object1",
+      "etag": "etagoftheobjectsegmentone",
+      "size_bytes": 10485760,
+      "range": "1-2"},
+     {"path": "/cont/object2",
+      "etag": "etagoftheobjectsegmenttwo",
+      "size_bytes": 10485760,
+      "range": "3-4"}]
+
+While computing the Etag of the above manifest, internally each segment's etag
+will be taken in the form of 'etagvalue:rangevalue;'. Hence the Etag of the
+above manifest would be:
+
+  .. code::
+
+    echo -n 'etagoftheobjectsegmentone:1-2;etagoftheobjectsegmenttwo:3-4;' \
+    | md5sum
+
+
 -------------------
 Range Specification
 -------------------
@@ -209,7 +252,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
-    HTTPUnauthorized, HTTPConflict, Response, Range
+    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, Response, Range
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
@@ -982,16 +1025,20 @@ class StaticLargeObject(object):
                 slo_etag.update(seg_data['hash'])
 
         slo_etag = slo_etag.hexdigest()
-        req.headers.update({
-            SYSMETA_SLO_ETAG: slo_etag,
-            SYSMETA_SLO_SIZE: total_size,
-            'X-Static-Large-Object': 'True',
-        })
+        client_etag = req.headers.get('Etag')
+        if client_etag and client_etag.strip('"') != slo_etag:
+            raise HTTPUnprocessableEntity(request=req)
 
         json_data = json.dumps(data_for_storage)
         if six.PY3:
             json_data = json_data.encode('utf-8')
         req.body = json_data
+        req.headers.update({
+            SYSMETA_SLO_ETAG: slo_etag,
+            SYSMETA_SLO_SIZE: total_size,
+            'X-Static-Large-Object': 'True',
+            'Etag': md5(json_data).hexdigest(),
+        })
 
         env = req.environ
         if not env.get('CONTENT_TYPE'):

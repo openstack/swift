@@ -472,6 +472,35 @@ class TestSlo(Base):
         else:
             self.fail("Expected ResponseError but didn't get it")
 
+    def test_slo_client_etag_mismatch(self):
+        file_item = self.env.container.file("manifest-a-mismatch-etag")
+        try:
+            file_item.write(
+                json.dumps([{
+                    'size_bytes': 1024 * 1024,
+                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'},
+                hdrs={'Etag': 'NOTetagofthesegments'})
+        except ResponseError as err:
+            self.assertEqual(422, err.status)
+
+    def test_slo_client_etag(self):
+        file_item = self.env.container.file("manifest-a-b-etag")
+        etag_a = hashlib.md5('a' * 1024 * 1024).hexdigest()
+        etag_b = hashlib.md5('b' * 1024 * 1024).hexdigest()
+        file_item.write(
+            json.dumps([{
+                'size_bytes': 1024 * 1024,
+                'etag': etag_a,
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}, {
+                'size_bytes': 1024 * 1024,
+                'etag': etag_b,
+                'path': '/%s/%s' % (self.env.container.name, 'seg_b')}]),
+            parms={'multipart-manifest': 'put'},
+            hdrs={'Etag': hashlib.md5(etag_a + etag_b).hexdigest()})
+        self.assert_status(201)
+
     def test_slo_unspecified_etag(self):
         file_item = self.env.container.file("manifest-a-unspecified-etag")
         file_item.write(

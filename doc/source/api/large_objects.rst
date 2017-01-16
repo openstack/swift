@@ -107,12 +107,10 @@ contrast to dynamic large objects.
 The ``Content-Length`` request header must contain the length of the
 json content—not the length of the segment objects. However, after the
 **PUT** operation completes, the ``Content-Length`` metadata is set to
-the total length of all the object segments. A similar situation applies
-to the ``ETag``. If used in the **PUT** operation, it must contain the
-MD5 checksum of the JSON content. The ``ETag`` metadata value is then
-set to be the MD5 checksum of the concatenated ``ETag`` values of the
-object segments. You can also set the ``Content-Type`` request header
-and custom object metadata.
+the total length of all the object segments. When using the ``ETag``
+request header in a **PUT** operation, it  must contain the MD5 checksum
+of the concatenated ``ETag`` values of the object segments. You can also
+set the ``Content-Type`` request header and custom object metadata.
 
 When the **PUT** operation sees the ``multipart-manifest=put`` query
 string, it reads the request body and verifies that each segment
