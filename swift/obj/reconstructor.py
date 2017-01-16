@@ -132,7 +132,6 @@ class ObjectReconstructor(Daemon):
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
-        self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
@@ -431,7 +430,7 @@ class ObjectReconstructor(Daemon):
         df_mgr = self._df_router[policy]
         hashed, suffix_hashes = tpool_reraise(
             df_mgr._get_hashes, path, recalculate=recalculate,
-            do_listdir=do_listdir, reclaim_age=self.reclaim_age)
+            do_listdir=do_listdir)
         self.logger.update_stats('suffix.hashes', hashed)
         return suffix_hashes
 
@@ -834,7 +833,7 @@ class ObjectReconstructor(Daemon):
                 obj_path = join(dev_path, data_dir)
                 tmp_path = join(dev_path, get_tmp_dir(int(policy)))
                 unlink_older_than(tmp_path, time.time() -
-                                  self.reclaim_age)
+                                  df_mgr.reclaim_age)
                 if not os.path.exists(obj_path):
                     try:
                         mkdirs(obj_path)

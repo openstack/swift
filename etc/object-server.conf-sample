@@ -69,6 +69,12 @@ bind_port = 6200
 # network_chunk_size = 65536
 # disk_chunk_size = 65536
 #
+# Reclamation of tombstone files is performed primarily by the replicator and
+# the reconstructor but the object-server and object-auditor also reference
+# this value - it should be the same for all object services in the cluster,
+# and not greater than the container services reclaim_age
+# reclaim_age = 604800
+#
 # You can set scheduling priority of processes. Niceness values range from -20
 # (most favorable to the process) to 19 (least favorable to the process).
 # nice_priority =
@@ -229,9 +235,6 @@ use = egg:swift#recon
 # attempts to kill all workers if nothing replicates for lockup_timeout seconds
 # lockup_timeout = 1800
 #
-# The replicator also performs reclamation
-# reclaim_age = 604800
-#
 # ring_check_interval = 15
 # recon_cache_path = /var/cache/swift
 #
@@ -293,7 +296,6 @@ use = egg:swift#recon
 # node_timeout = 10
 # http_timeout = 60
 # lockup_timeout = 1800
-# reclaim_age = 604800
 # ring_check_interval = 15
 # recon_cache_path = /var/cache/swift
 # handoffs_first = False
