@@ -1138,19 +1138,19 @@ class RingBuilder(object):
 
             overweight_dev_replica.sort(
                 key=lambda dr: dr[0]['parts_wanted'])
-            for dev, replica in overweight_dev_replica:
-                # this is the most overweight_device holding a replica of this
-                # part we don't know where it's going to end up - but we'll
-                # pick it up and hope for the best.
-                dev['parts_wanted'] += 1
-                dev['parts'] -= 1
-                assign_parts[part].append(replica)
-                self.logger.debug(
-                    "Gathered %d/%d from dev %d [weight forced]",
-                    part, replica, dev['id'])
-                self._replica2part2dev[replica][part] = NONE_DEV
-                self._set_part_moved(part)
-                break
+
+            dev, replica = overweight_dev_replica[0]
+            # this is the most overweight_device holding a replica of this
+            # part we don't know where it's going to end up - but we'll
+            # pick it up and hope for the best.
+            dev['parts_wanted'] += 1
+            dev['parts'] -= 1
+            assign_parts[part].append(replica)
+            self.logger.debug(
+                "Gathered %d/%d from dev %d [weight forced]",
+                part, replica, dev['id'])
+            self._replica2part2dev[replica][part] = NONE_DEV
+            self._set_part_moved(part)
 
     def _reassign_parts(self, reassign_parts, replica_plan):
         """
