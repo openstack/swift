@@ -773,7 +773,7 @@ class TestRingBuilder(unittest.TestCase):
         }
         self.assertEqual(zone_histogram, expected)
 
-        # After rebalancing two more times, we expect that everything is in a
+        # After rebalancing one more times, we expect that everything is in a
         # good state
         rb.rebalance(seed=3)
 
