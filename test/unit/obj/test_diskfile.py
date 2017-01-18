@@ -6089,7 +6089,7 @@ class TestSuffixHashes(unittest.TestCase):
             open_loc = '__builtin__.open' if six.PY2 else 'builtins.open'
             with mock.patch(open_loc, watch_open):
                 self.assertTrue(os.path.exists(inv_file))
-                # no new suffixes get invalided... so no write iop
+                # no new suffixes get invalidated... so no write iop
                 df_mgr.get_hashes('sda1', '0', [], policy)
             # each file is opened once to read
             expected = {
@@ -6212,6 +6212,7 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertEqual(warnings, ["Unable to read %r" % hashes_file])
 
             # repeat with pre-existing hashes.pkl
+            self.logger.clear()
             with mock.patch.object(df_mgr, '_hash_suffix',
                                    return_value='new fake hash'):
                 with mock.patch.object(df_mgr, 'consolidate_hashes',
@@ -6225,6 +6226,10 @@ class TestSuffixHashes(unittest.TestCase):
             hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
             with open(hashes_file, 'rb') as f:
                 self.assertEqual(hashes, pickle.load(f))
+
+            # sanity check log warning
+            warnings = self.logger.get_lines_for_level('warning')
+            self.assertEqual(warnings, ["Unable to read %r" % hashes_file])
 
     # invalidate_hash tests - error handling
 
