@@ -51,8 +51,9 @@ The example shows these elements:
 the allowed HTTP method, expiration date, full path to the object, and the
 secret key for the temporary URL.
 
-**temp\_url\_expires**: Required. An expiration date as a UNIX Epoch timestamp,
-which is an integer value. For example, ``1390852007`` represents
+**temp\_url\_expires**: Required. An expiration date as a UNIX Epoch timestamp
+or ISO 8601 UTC timestamp. For example, ``1390852007`` or
+``2014-01-27T19:46:47Z`` can be used to represent
 ``Mon, 27 Jan 2014 19:46:47 GMT``.
 
 For more information, see `Epoch & Unix Timestamp Conversion
@@ -72,7 +73,7 @@ by all object names for which the URL is valid.
 
     https://swift-cluster.example.com/v1/my_account/container/my_prefix/object
     ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709
-    &temp_url_expires=1323479485
+    &temp_url_expires=2011-12-10T01:11:25Z
     &temp_url_prefix=my_prefix
 
 .. _secret_keys:
@@ -126,7 +127,9 @@ signature includes these elements:
 
 -  Expiry time. In the example for the HMAC-SHA1 signature for temporary
    URLs below, the expiry time is set to ``86400`` seconds (or 1 day)
-   into the future.
+   into the future. Please be aware that you have to use a UNIX timestamp
+   for generating the signature (in the API request it is also allowed to
+   use an ISO 8601 UTC timestamp).
 
 -  The path. Starting with ``/v1/`` onwards and including a container
    name and object. The path for prefix-based signatures must start with
@@ -168,7 +171,6 @@ temporary URLs:
     hmac_body = '%s\n%s\n%s' % (method, expires, path)
     signature = hmac.new(key, hmac_body, sha1).hexdigest()
 
-
 Do not URL-encode the path when you generate the HMAC-SHA1 signature.
 However, when you make the actual HTTP request, you should properly
 URL-encode the URL.
@@ -178,6 +180,14 @@ in :ref:`secret_keys`.
 
 For more information, see `RFC 2104: HMAC: Keyed-Hashing for Message
 Authentication <http://www.ietf.org/rfc/rfc2104.txt>`__.
+
+If you want to transform a UNIX timestamp into an ISO 8601 UTC timestamp,
+you can use following code snippet:
+
+.. code::
+
+    import time
+    time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(timestamp))
 
 Using the ``swift`` tool to generate a Temporary URL 
 ~~~~~~~~~~~~~~~~~~~~~

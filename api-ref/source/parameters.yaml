@@ -1091,8 +1091,10 @@ swiftinfo_sig:
 temp_url_expires:
   description: |
     The date and time in `UNIX Epoch time stamp
-    format <https://en.wikipedia.org/wiki/Unix_time>`_ when the
-    signature for temporary URLs expires.  For example, ``1440619048``
+    format <https://en.wikipedia.org/wiki/Unix_time>`_ or
+    `ISO 8601 UTC timestamp <https://en.wikipedia.org/wiki/ISO_8601>`_
+    when the signature for temporary URLs expires.
+    For example, ``1440619048`` or ``2015-08-26T19:57:28Z``
     is equivalent to ``Mon, Wed, 26 Aug 2015 19:57:28 GMT``.  For more
     information about temporary URLs, see `Temporary URL middleware
     <http://docs.openstack.org/developer/swift/api/temporary

@@ -17,12 +17,13 @@
 import hmac
 import hashlib
 import json
-import time
 from copy import deepcopy
 from six.moves import urllib
 from unittest2 import SkipTest
+from time import time, strftime, gmtime
 
 import test.functional as tf
+from swift.common.middleware import tempurl
 from test.functional import cluster_info
 from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional import requires_acls
@@ -98,7 +99,9 @@ class TestTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
-        self.expires = int(time.time()) + 86400
+        self.expires = int(time()) + 86400
+        self.expires_8601 = strftime(
+            tempurl.EXPIRES_ISO8601_FORMAT, gmtime(self.expires))
         self.obj_tempurl_parms = self.tempurl_parms(
             'GET', self.expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
@@ -111,17 +114,20 @@ class TestTempurl(Base):
         return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
     def test_GET(self):
-        contents = self.env.obj.read(
-            parms=self.obj_tempurl_parms,
-            cfg={'no_auth_token': True})
-        self.assertEqual(contents, "obj contents")
+        for e in (str(self.expires), self.expires_8601):
+            self.obj_tempurl_parms['temp_url_expires'] = e
 
-        # GET tempurls also allow HEAD requests
-        self.assertTrue(self.env.obj.info(parms=self.obj_tempurl_parms,
-                                          cfg={'no_auth_token': True}))
+            contents = self.env.obj.read(
+                parms=self.obj_tempurl_parms,
+                cfg={'no_auth_token': True})
+            self.assertEqual(contents, "obj contents")
+
+            # GET tempurls also allow HEAD requests
+            self.assertTrue(self.env.obj.info(parms=self.obj_tempurl_parms,
+                                              cfg={'no_auth_token': True}))
 
     def test_GET_with_key_2(self):
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key2)
@@ -143,7 +149,7 @@ class TestTempurl(Base):
             hdrs={"X-Object-Manifest": "%s/get-dlo-inside-seg" %
                   (self.env.container.name,)})
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(manifest.path),
             self.env.tempurl_key)
@@ -168,7 +174,7 @@ class TestTempurl(Base):
             hdrs={"X-Object-Manifest": "%s/get-dlo-outside-seg" %
                   (self.env.container.name,)})
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         parms = self.tempurl_parms(
             'GET', expires, self.env.conn.make_path(manifest.path),
             self.env.tempurl_key)
@@ -181,24 +187,29 @@ class TestTempurl(Base):
     def test_PUT(self):
         new_obj = self.env.container.file(Utils.create_name())
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
+        expires_8601 = strftime(
+            tempurl.EXPIRES_ISO8601_FORMAT, gmtime(expires))
+
         put_parms = self.tempurl_parms(
             'PUT', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
+        for e in (str(expires), expires_8601):
+            put_parms['temp_url_expires'] = e
 
-        new_obj.write('new obj contents',
-                      parms=put_parms, cfg={'no_auth_token': True})
-        self.assertEqual(new_obj.read(), "new obj contents")
+            new_obj.write('new obj contents',
+                          parms=put_parms, cfg={'no_auth_token': True})
+            self.assertEqual(new_obj.read(), "new obj contents")
 
-        # PUT tempurls also allow HEAD requests
-        self.assertTrue(new_obj.info(parms=put_parms,
-                                     cfg={'no_auth_token': True}))
+            # PUT tempurls also allow HEAD requests
+            self.assertTrue(new_obj.info(parms=put_parms,
+                                         cfg={'no_auth_token': True}))
 
     def test_PUT_manifest_access(self):
         new_obj = self.env.container.file(Utils.create_name())
 
         # give out a signature which allows a PUT to new_obj
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         put_parms = self.tempurl_parms(
             'PUT', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
@@ -230,7 +241,7 @@ class TestTempurl(Base):
 
         # try again using a tempurl POST to an already created object
         new_obj.write('', {}, parms=put_parms, cfg={'no_auth_token': True})
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         post_parms = self.tempurl_parms(
             'POST', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
@@ -243,24 +254,25 @@ class TestTempurl(Base):
             self.fail('request did not error')
 
     def test_HEAD(self):
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         head_parms = self.tempurl_parms(
             'HEAD', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
 
         self.assertTrue(self.env.obj.info(parms=head_parms,
                                           cfg={'no_auth_token': True}))
+
         # HEAD tempurls don't allow PUT or GET requests, despite the fact that
         # PUT and GET tempurls both allow HEAD requests
         self.assertRaises(ResponseError, self.env.other_obj.read,
                           cfg={'no_auth_token': True},
-                          parms=self.obj_tempurl_parms)
+                          parms=head_parms)
         self.assert_status([401])
 
         self.assertRaises(ResponseError, self.env.other_obj.write,
                           'new contents',
                           cfg={'no_auth_token': True},
-                          parms=self.obj_tempurl_parms)
+                          parms=head_parms)
         self.assert_status([401])
 
     def test_different_object(self):
@@ -428,7 +440,7 @@ class TestContainerTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
@@ -452,7 +464,7 @@ class TestContainerTempurl(Base):
                                           cfg={'no_auth_token': True}))
 
     def test_GET_with_key_2(self):
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key2)
@@ -465,7 +477,7 @@ class TestContainerTempurl(Base):
     def test_PUT(self):
         new_obj = self.env.container.file(Utils.create_name())
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'PUT', expires, self.env.conn.make_path(new_obj.path),
             self.env.tempurl_key)
@@ -481,7 +493,7 @@ class TestContainerTempurl(Base):
                                      cfg={'no_auth_token': True}))
 
     def test_HEAD(self):
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'HEAD', expires, self.env.conn.make_path(self.env.obj.path),
             self.env.tempurl_key)
@@ -588,7 +600,7 @@ class TestContainerTempurl(Base):
             hdrs={"X-Object-Manifest": "%s/get-dlo-inside-seg" %
                   (self.env.container.name,)})
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(manifest.path),
             self.env.tempurl_key)
@@ -614,7 +626,7 @@ class TestContainerTempurl(Base):
             hdrs={"X-Object-Manifest": "%s/get-dlo-outside-seg" %
                   (container2.name,)})
 
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(manifest.path),
             self.env.tempurl_key)
@@ -701,7 +713,7 @@ class TestSloTempurl(Base):
             hashlib.sha1).hexdigest()
 
     def test_GET(self):
-        expires = int(time.time()) + 86400
+        expires = int(time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(self.env.manifest.path),
             self.env.tempurl_key)

@@ -82,6 +82,15 @@ Let's say ``sig`` ends up equaling
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
     temp_url_expires=1323479485
 
+You may also use ISO 8601 UTC timestamps with the format
+``"%Y-%m-%dT%H:%M:%SZ"`` instead of UNIX timestamps in the URL
+(but NOT in the code above for generating the signature!).
+So, the latter URL could also be formulated as:
+
+    https://swift-cluster.example.com/v1/AUTH_account/container/object?
+    temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
+    temp_url_expires=2011-12-10T01:11:25Z
+
 If a prefix-based signature with the prefix ``pre`` is desired, set path to::
 
     path = 'prefix:/v1/AUTH_account/container/pre'
@@ -198,9 +207,9 @@ __all__ = ['TempURL', 'filter_factory',
            'DEFAULT_OUTGOING_REMOVE_HEADERS',
            'DEFAULT_OUTGOING_ALLOW_HEADERS']
 
-
+from calendar import timegm
 from os.path import basename
-from time import time, strftime, gmtime
+from time import time, strftime, strptime, gmtime
 
 from six.moves.urllib.parse import parse_qs
 from six.moves.urllib.parse import urlencode
@@ -240,6 +249,8 @@ DEFAULT_OUTGOING_ALLOW_HEADERS = 'x-object-meta-public-*'
 
 CONTAINER_SCOPE = 'container'
 ACCOUNT_SCOPE = 'account'
+
+EXPIRES_ISO8601_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
 
 
 def get_tempurl_keys_from_metadata(meta):
@@ -533,7 +544,12 @@ class TempURL(object):
             try:
                 temp_url_expires = int(qs['temp_url_expires'][0])
             except ValueError:
-                temp_url_expires = 0
+                try:
+                    temp_url_expires = timegm(strptime(
+                        qs['temp_url_expires'][0],
+                        EXPIRES_ISO8601_FORMAT))
+                except ValueError:
+                    temp_url_expires = 0
             if temp_url_expires < time():
                 temp_url_expires = 0
         if 'temp_url_prefix' in qs:
