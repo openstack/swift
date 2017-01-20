@@ -5699,15 +5699,17 @@ class TestSuffixHashes(unittest.TestCase):
         with self.policy_in_message():
             unittest.TestCase.assertEqual(self, *args)
 
-    def get_different_suffix_df(self, df, df_mgr, device, partition,
-                                account, container, **kwargs):
+    def get_different_suffix_df(self, df):
         # returns diskfile in the same partition with different suffix
         suffix_dir = os.path.dirname(df._datadir)
-        i = 0
-        while True:
-            df2 = df_mgr.get_diskfile(device, partition, account, container,
-                                      'o%d' % i, **kwargs)
-            i += 1
+        for i in itertools.count():
+            df2 = df._manager.get_diskfile(
+                df._device_path,
+                df._datadir.split('/')[-3],
+                df._account,
+                df._container,
+                'o%d' % i,
+                policy=df.policy)
             suffix_dir2 = os.path.dirname(df2._datadir)
             if suffix_dir != suffix_dir2:
                 return df2
@@ -6109,9 +6111,7 @@ class TestSuffixHashes(unittest.TestCase):
 
             # invalidate a different suffix hash in same partition but not in
             # existing hashes.pkl
-            df2 = self.get_different_suffix_df(df, df_mgr,
-                                               'sda1', '0', 'a', 'c',
-                                               policy=policy)
+            df2 = self.get_different_suffix_df(df)
             df2.delete(self.ts())
             suffix_dir2 = os.path.dirname(df2._datadir)
             suffix2 = os.path.basename(suffix_dir2)
