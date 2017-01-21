@@ -273,9 +273,11 @@ def consolidate_hashes(partition_dir):
                 hashes = None
 
         modified = False
+        found_invalidation_entry = False
         try:
             with open(invalidations_file, 'rb') as inv_fh:
                 for line in inv_fh:
+                    found_invalidation_entry = True
                     suffix = line.strip()
                     if hashes is not None and \
                             hashes.get(suffix, '') is not None:
@@ -290,12 +292,9 @@ def consolidate_hashes(partition_dir):
 
         # Now that all the invalidations are reflected in hashes.pkl, it's
         # safe to clear out the invalidations file.
-        try:
+        if found_invalidation_entry:
             with open(invalidations_file, 'wb') as inv_fh:
                 pass
-        except OSError as e:
-            if e.errno != errno.ENOENT:
-                raise
 
         return hashes
 
@@ -1048,6 +1047,8 @@ class BaseDiskFileManager(object):
         try:
             hashes = self.consolidate_hashes(partition_path)
         except Exception:
+            self.logger.warning('Unable to read %r', hashes_file,
+                                exc_info=True)
             do_listdir = True
             force_rewrite = True
         else:
