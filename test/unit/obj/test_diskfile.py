@@ -5724,6 +5724,19 @@ class TestSuffixHashes(unittest.TestCase):
         with self.policy_in_message():
             unittest.TestCase.assertEqual(self, *args)
 
+    def get_different_suffix_df(self, df, df_mgr, device, partition,
+                                account, container, **kwargs):
+        # returns diskfile in the same partition with different suffix
+        suffix_dir = os.path.dirname(df._datadir)
+        i = 0
+        while True:
+            df2 = df_mgr.get_diskfile(device, partition, account, container,
+                                      'o%d' % i, **kwargs)
+            i += 1
+            suffix_dir2 = os.path.dirname(df2._datadir)
+            if suffix_dir != suffix_dir2:
+                return df2
+
     def check_cleanup_ondisk_files(self, policy, input_files, output_files):
         orig_unlink = os.unlink
         file_list = list(input_files)
@@ -6121,16 +6134,11 @@ class TestSuffixHashes(unittest.TestCase):
 
             # invalidate a different suffix hash in same partition but not in
             # existing hashes.pkl
-            i = 0
-            while True:
-                df2 = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o%d' % i,
-                                          policy=policy)
-                i += 1
-                suffix_dir2 = os.path.dirname(df2._datadir)
-                if suffix_dir != suffix_dir2:
-                    break
-
+            df2 = self.get_different_suffix_df(df, df_mgr,
+                                               'sda1', '0', 'a', 'c',
+                                               policy=policy)
             df2.delete(self.ts())
+            suffix_dir2 = os.path.dirname(df2._datadir)
             suffix2 = os.path.basename(suffix_dir2)
             # suffix2 should be in invalidations file
             with open(invalidations_file, 'rb') as f:
@@ -6153,6 +6161,48 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual(hashes, pickle.load(f))
             # consolidate hashes
             assert_consolidation([suffix, suffix2])
+
+    def test_consolidate_hashes_raises_exception(self):
+        # verify that if consolidate_hashes raises an exception then suffixes
+        # are rehashed and a hashes.pkl is written
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # create something to hash
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            df.delete(self.ts())
+            suffix_dir = os.path.dirname(df._datadir)
+            suffix = os.path.basename(suffix_dir)
+            # no pre-existing hashes.pkl
+            with mock.patch.object(df_mgr, '_hash_suffix',
+                                   return_value='fake hash'):
+                with mock.patch.object(df_mgr, 'consolidate_hashes',
+                                       side_effect=Exception()):
+                    hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual({suffix: 'fake hash'}, hashes)
+
+            # sanity check hashes file
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+
+            with open(hashes_file, 'rb') as f:
+                self.assertEqual(hashes, pickle.load(f))
+
+            # repeat with pre-existing hashes.pkl
+            with mock.patch.object(df_mgr, '_hash_suffix',
+                                   return_value='new fake hash'):
+                with mock.patch.object(df_mgr, 'consolidate_hashes',
+                                       side_effect=Exception()):
+                    hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual({suffix: 'new fake hash'}, hashes)
+
+            # sanity check hashes file
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            with open(hashes_file, 'rb') as f:
+                self.assertEqual(hashes, pickle.load(f))
 
     # invalidate_hash tests - error handling
 
@@ -6380,8 +6430,8 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertFalse(os.path.exists(df._datadir))
 
     def test_hash_suffix_one_reclaim_and_one_valid_tombstone(self):
+        paths, suffix = find_paths_with_matching_suffixes(2, 1)
         for policy in self.iter_policies():
-            paths, suffix = find_paths_with_matching_suffixes(2, 1)
             df_mgr = self.df_router[policy]
             a, c, o = paths[suffix][0]
             df1 = df_mgr.get_diskfile(
