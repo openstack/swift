@@ -117,9 +117,11 @@ def NR_ioprio_set():
     """Give __NR_ioprio_set value for your system."""
     architecture = os.uname()[4]
     arch_bits = platform.architecture()[0]
-    # check if supported system, now support only x86_64
+    # check if supported system, now support x86_64 and AArch64
     if architecture == 'x86_64' and arch_bits == '64bit':
         return 251
+    elif architecture == 'aarch64' and arch_bits == '64bit':
+        return 30
     raise OSError("Swift doesn't support ionice priority for %s %s" %
                   (architecture, arch_bits))
 

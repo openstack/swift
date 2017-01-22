@@ -25,6 +25,7 @@ import eventlet.event
 import functools
 import grp
 import logging
+import platform
 import os
 import mock
 import random
@@ -3575,7 +3576,14 @@ cluster_dfw1 = http://dfw1.host/v1/
             called = {}
             # just ionice class uses default priority 0
             utils.modify_priority({'ionice_class': 'IOPRIO_CLASS_RT'}, logger)
-            self.assertEqual(called, {'syscall': (251, 1, pid, 1 << 13)})
+            architecture = os.uname()[4]
+            arch_bits = platform.architecture()[0]
+            if architecture == 'x86_64' and arch_bits == '64bit':
+                self.assertEqual(called, {'syscall': (251, 1, pid, 1 << 13)})
+            elif architecture == 'aarch64' and arch_bits == '64bit':
+                self.assertEqual(called, {'syscall': (30, 1, pid, 1 << 13)})
+            else:
+                self.fail("Unexpected call: %r" % called)
             called = {}
             # just ionice priority is ignored
             utils.modify_priority({'ionice_priority': '4'}, logger)
@@ -3590,7 +3598,16 @@ cluster_dfw1 = http://dfw1.host/v1/
                 'ionice_class': 'IOPRIO_CLASS_BE',
                 'ionice_priority': '4',
             }, logger)
-            self.assertEqual(called, {'syscall': (251, 1, pid, 2 << 13 | 4)})
+            if architecture == 'x86_64' and arch_bits == '64bit':
+                self.assertEqual(called, {
+                    'syscall': (251, 1, pid, 2 << 13 | 4)
+                })
+            elif architecture == 'aarch64' and arch_bits == '64bit':
+                self.assertEqual(called, {
+                    'syscall': (30, 1, pid, 2 << 13 | 4)
+                })
+            else:
+                self.fail("Unexpected call: %r" % called)
             called = {}
             # all
             utils.modify_priority({
@@ -3598,10 +3615,18 @@ cluster_dfw1 = http://dfw1.host/v1/
                 'ionice_class': 'IOPRIO_CLASS_IDLE',
                 'ionice_priority': '6',
             }, logger)
-            self.assertEqual(called, {
-                'setpriority': (0, pid, -15),
-                'syscall': (251, 1, pid, 3 << 13 | 6),
-            })
+            if architecture == 'x86_64' and arch_bits == '64bit':
+                self.assertEqual(called, {
+                    'setpriority': (0, pid, -15),
+                    'syscall': (251, 1, pid, 3 << 13 | 6),
+                })
+            elif architecture == 'aarch64' and arch_bits == '64bit':
+                self.assertEqual(called, {
+                    'setpriority': (0, pid, -15),
+                    'syscall': (30, 1, pid, 3 << 13 | 6),
+                })
+            else:
+                self.fail("Unexpected call: %r" % called)
 
     def test__NR_ioprio_set(self):
         with patch('os.uname', return_value=('', '', '', '', 'x86_64')), \
@@ -3609,6 +3634,14 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(251, utils.NR_ioprio_set())
 
         with patch('os.uname', return_value=('', '', '', '', 'x86_64')), \
+                patch('platform.architecture', return_value=('32bit', '')):
+            self.assertRaises(OSError, utils.NR_ioprio_set)
+
+        with patch('os.uname', return_value=('', '', '', '', 'aarch64')), \
+                patch('platform.architecture', return_value=('64bit', '')):
+            self.assertEqual(30, utils.NR_ioprio_set())
+
+        with patch('os.uname', return_value=('', '', '', '', 'aarch64')), \
                 patch('platform.architecture', return_value=('32bit', '')):
             self.assertRaises(OSError, utils.NR_ioprio_set)
 
