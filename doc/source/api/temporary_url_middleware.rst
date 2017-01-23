@@ -179,16 +179,16 @@ in :ref:`secret_keys`.
 For more information, see `RFC 2104: HMAC: Keyed-Hashing for Message
 Authentication <http://www.ietf.org/rfc/rfc2104.txt>`__.
 
-swift-temp-url script
+Using the ``swift`` tool to generate a Temporary URL 
 ~~~~~~~~~~~~~~~~~~~~~
 
-Object Storage provides the **swift-temp-url** script that
+The ``swift`` tool provides the  tempurl_ option that
 auto-generates the *``temp_url_sig``* and *``temp_url_expires``* query
 parameters. For example, you might run this command:
 
 .. code::
 
-    $ bin/swift-temp-url GET 3600 /v1/my_account/container/object MYKEY
+    $ swift tempurl GET 3600 /v1/my_account/container/object MYKEY
 
 This command returns the path:
 
@@ -212,3 +212,4 @@ Note that if the above example is copied exactly, and used in a command
 shell, then the ampersand is interpreted as an operator and the URL
 will be truncated. Enclose the URL in quotation marks to avoid this.
 
+.. _tempurl: http://docs.openstack.org/developer/python-swiftclient/cli.html#tempurl
