@@ -304,3 +304,75 @@ use = egg:swift#xprofile
 #
 # unwind the iterator of applications
 # unwind = false
+
+[container-sharder]
+# You can override the default log routing for this app here (don't use set!):
+# log_name = container-sharder
+# log_facility = LOG_LOCAL0
+# log_level = INFO
+# log_address = /dev/log
+#
+# Container sharder specific settings
+#
+# shard_container_size defines the size at which a container with
+# container-sharding enabled would start to shard. It also indirectly
+# determines how big a slice to take off a container when sharding, the slice
+# size being shard_container_size // 2, as well as determining when it's safe
+# to shrink and merge into neighbours.
+# shard_container_size = 1000000
+#
+# Shrinking, when smaller shards merge, has a few settings, the first is the
+# shard_shrink_point. This is the point at which to start looking to shrink the
+# sharded container. The point is a percentage of shard_container_size. 50
+# means 50% of the shard_container_size. Shard_shrink_merge_point is the second
+# shrink related setting, it is similar to shard_shrink_size, but is the max
+# size the sharded container plus the neighbour needs to be to continue with
+# the merge. Again this is a percentage of shard_container_size.
+#
+# For example, say the shard_container_size is 1 million, shard_shrink_point is
+# 50 and shard_shrink_merge_point is 75. Meaning start looking to merge with
+# neighbours when the current shard container is <= 500k, and only merge if
+# this container and a neighbour's combined object count <= 750k.
+#
+# shard_shrink_point = 50
+# shard_shrink_merge_point = 75
+#
+# When sharding, one primary node becomes the scanner and scans for pivot
+# points. In one shard pass a scanner will search for up to
+# shard_scanner_batch_size pivots before moving to the next container and
+# will find more on the next pass.
+# shard_scanner_batch_size = 10
+#
+# When sharding how many pivots should it shard in one shard pass before moving
+# onto the next.
+# shard_batch_size = 2
+#
+# The sharder uses an internal client to create and make requests to
+# containers. The absolute path to the client config file can be configured.
+# internal_client_conf_path = /etc/swift/internal-client.conf
+#
+# The number of time the internal client will retry requests.
+# request_tries = 3
+#
+# Because the container-sharder is a type of container-replicator, it accepts
+# the same configuration.
+#
+# per_diff = 1000
+# max_diffs = 100
+# concurrency = 8
+#
+# Time in seconds to wait between replication passes
+# interval = 30
+#
+# node_timeout = 10
+# conn_timeout = 0.5
+#
+# The replicator also performs reclamation
+# reclaim_age = 604800
+#
+# Allow rsync to compress data which is transmitted to destination node
+# during sync. However, this is applicable only when destination node is in
+# a different region than the local one.
+# rsync_compress = no
+#
+# recon_cache_path = /var/cache/swift

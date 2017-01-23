@@ -103,8 +103,11 @@ def roundrobin_datadirs(datadirs):
                     if not os.path.isdir(hash_dir):
                         continue
                     object_file = os.path.join(hash_dir, hsh + '.db')
+                    piv_object_file = os.path.join(hash_dir, hsh + '_pivot.db')
                     if os.path.exists(object_file):
                         yield (partition, object_file, node_id)
+                    elif os.path.exists(piv_object_file):
+                        yield (partition, piv_object_file, node_id)
                     else:
                         try:
                             os.rmdir(hash_dir)
@@ -221,9 +224,9 @@ class Replicator(Daemon):
              'replication_last': now},
             self.rcache, self.logger)
         self.logger.info(' '.join(['%s:%s' % item for item in
-                         self.stats.items() if item[0] in
-                         ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl',
-                          'empty', 'diff_capped')]))
+                                   self.stats.items() if item[0] in
+                                   ('no_change', 'hashmatch', 'rsync', 'diff',
+                                    'ts_repl', 'empty', 'diff_capped')]))
 
     def _add_failure_stats(self, failure_devs_info):
         for node, dev in failure_devs_info:
@@ -237,7 +240,7 @@ class Replicator(Daemon):
         """
         Sync a single file using rsync. Used by _rsync_db to handle syncing.
 
-        :param db_file: file to be synced
+        :param db_file: file or list of files to be synced
         :param remote_file: remote location to sync the DB file to
         :param whole-file: if True, uses rsync's --whole-file flag
         :param different_region: if True, the destination node is in a
@@ -256,13 +259,21 @@ class Replicator(Daemon):
             # a different region than the local one.
             popen_args.append('--compress')
 
-        popen_args.extend([db_file, remote_file])
-        proc = subprocess.Popen(popen_args)
-        proc.communicate()
-        if proc.returncode != 0:
-            self.logger.error(_('ERROR rsync failed with %(code)s: %(args)s'),
-                              {'code': proc.returncode, 'args': popen_args})
-        return proc.returncode == 0
+        if not isinstance(db_file, (list, tuple)):
+            db_file = [db_file]
+
+        for db_f in db_file:
+            args = list(popen_args)
+            rfile = remote_file + os.path.basename(db_f)
+            args.extend([db_f, rfile])
+            proc = subprocess.Popen(args)
+            proc.communicate()
+            if proc.returncode != 0:
+                self.logger.error(
+                    _('ERROR rsync failed with %(code)s: %(args)s'),
+                    {'code': proc.returncode, 'args': args})
+                return False
+        return True
 
     def _rsync_db(self, broker, device, http, local_id,
                   replicate_method='complete_rsync', replicate_timeout=None,
@@ -282,8 +293,9 @@ class Replicator(Daemon):
         rsync_module = rsync_module_interpolation(self.rsync_module, device)
         rsync_path = '%s/tmp/%s' % (device['device'], local_id)
         remote_file = '%s/%s' % (rsync_module, rsync_path)
-        mtime = os.path.getmtime(broker.db_file)
-        if not self._rsync_file(broker.db_file, remote_file,
+        db_files = [b.db_file for b in broker.get_brokers()]
+        mtime = max(map(os.path.getmtime, db_files))
+        if not self._rsync_file(db_files, remote_file,
                                 different_region=different_region):
             return False
         # perform block-level sync if the db was modified during the first sync
@@ -291,12 +303,13 @@ class Replicator(Daemon):
                 os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
-                if not self._rsync_file(broker.db_file, remote_file,
+                if not self._rsync_file(db_files, remote_file,
                                         whole_file=False,
                                         different_region=different_region):
                     return False
+        db_filenames = [os.path.basename(d) for d in db_files]
         with Timeout(replicate_timeout or self.node_timeout):
-            response = http.replicate(replicate_method, local_id)
+            response = http.replicate(replicate_method, local_id, db_filenames)
         return response and 200 <= response.status < 300
 
     def _usync_db(self, point, broker, http, remote_id, local_id):
@@ -333,6 +346,7 @@ class Replicator(Daemon):
             # order with no gaps
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
+            self._sync_other_items(broker, local_id, http)
         if objects:
             self.logger.debug(
                 'Synchronization for %s has fallen more than '
@@ -341,6 +355,7 @@ class Replicator(Daemon):
             self.stats['diff_capped'] += 1
             self.logger.increment('diff_caps')
         else:
+            # Now merge_syncs
             with Timeout(self.node_timeout):
                 response = http.replicate('merge_syncs', sync_table)
             if response and 200 <= response.status < 300:
@@ -349,6 +364,34 @@ class Replicator(Daemon):
                                    incoming=False)
                 return True
         return False
+
+    def _sync_other_items(self, broker, local_id, http):
+
+        # Attempt to sync other items
+        # Note the following will have to be cleaned up at some point. The
+        # hook here is to grab other items (non-objects) to replicate,
+        # namely the pivot points stored in a container database. The
+        # number of these should always been _much_ less then normal
+        # objects, however for completeness we should probably have a
+        # limit and pointer here too.
+        other_items = self._other_items_hook(broker)
+        if other_items:
+            with Timeout(self.node_timeout):
+                response = http.replicate('merge_items', other_items,
+                                          local_id)
+            if not response or response.status >= 300 \
+                    or response.status < 200:
+                if response:
+                    self.logger.error(_('ERROR Bad response %(status)s '
+                                        'from %(host)s'),
+                                      {'status': response.status,
+                                       'host': http.host})
+                # TODO: we probably should pass this back so the replication
+                # marked as a failure.
+                return False
+
+    def _other_items_hook(self, broker):
+        return []
 
     def _in_sync(self, rinfo, info, broker, local_sync):
         """
@@ -384,9 +427,9 @@ class Replicator(Daemon):
 
         :returns: ReplConnection object
         """
-        return ReplConnection(node, partition,
-                              os.path.basename(db_file).split('.', 1)[0],
-                              self.logger)
+        hsh = os.path.basename(db_file).split('.', 1)[0]
+        hsh = hsh.split('_', 1)[0]
+        return ReplConnection(node, partition, hsh, self.logger)
 
     def _gather_sync_args(self, info):
         """
@@ -421,6 +464,9 @@ class Replicator(Daemon):
         return self._handle_sync_response(node, response, info, broker, http,
                                           different_region=different_region)
 
+    def _can_push(self, info, rinfo):
+        return True
+
     def _handle_sync_response(self, node, response, info, broker, http,
                               different_region=False):
         if response.status == HTTP_NOT_FOUND:  # completely missing, rsync
@@ -441,7 +487,8 @@ class Replicator(Daemon):
             # NOTE: difference > per_diff stops us from dropping to rsync
             # on smaller containers, who have only a few rows to sync.
             if rinfo['max_row'] / float(info['max_row']) < 0.5 and \
-                    info['max_row'] - rinfo['max_row'] > self.per_diff:
+                    info['max_row'] - rinfo['max_row'] > self.per_diff and \
+                    self._can_push(info, rinfo):
                 self.stats['remote_merge'] += 1
                 self.logger.increment('remote_merges')
                 return self._rsync_db(broker, node, http, info['id'],
@@ -476,6 +523,9 @@ class Replicator(Daemon):
         shouldbehere = True
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
+            if self._is_locked(broker):
+                # TODO should do something about stats here.
+                return
             broker.reclaim(now - self.reclaim_age,
                            now - (self.reclaim_age * 2))
             info = broker.get_replication_info()
@@ -679,6 +729,9 @@ class Replicator(Daemon):
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
 
+    def _is_locked(self, broker):
+        return False
+
 
 class ReplicatorRpc(object):
     """Handle Replication RPC calls.  TODO(redbo): document please :)"""
@@ -698,6 +751,7 @@ class ReplicatorRpc(object):
         drive, partition, hsh = replicate_args
         if self.mount_check and not ismount(os.path.join(self.root, drive)):
             return Response(status='507 %s is not mounted' % drive)
+
         db_file = os.path.join(self.root, drive,
                                storage_directory(self.datadir, partition, hsh),
                                hsh + '.db')
@@ -807,18 +861,39 @@ class ReplicatorRpc(object):
         return HTTPAccepted()
 
     def complete_rsync(self, drive, db_file, args):
-        old_filename = os.path.join(self.root, drive, 'tmp', args[0])
-        if os.path.exists(db_file):
-            return HTTPNotFound()
-        if not os.path.exists(old_filename):
-            return HTTPNotFound()
-        broker = self.broker_class(old_filename)
-        broker.newid(args[0])
-        renamer(old_filename, db_file)
+        local_id = filename = args.pop(0)
+        filenames = []
+        if args:
+            filenames = args.pop(0)
+        num_files = max(len(filenames), 1)
+        completed = 0
+        while completed < num_files:
+            if filenames:
+                filename = "%s%s" % (local_id, filenames[completed])
+
+            old_filename = os.path.join(self.root, drive, 'tmp', filename)
+            if os.path.exists(db_file):
+                return HTTPNotFound()
+            if not os.path.exists(old_filename):
+                return HTTPNotFound()
+            broker = self.broker_class(old_filename)
+            broker.newid(local_id)
+            if filenames:
+                db_filename = os.path.join(os.path.dirname(db_file),
+                                           filenames[completed])
+                renamer(old_filename, db_filename)
+            else:
+                renamer(old_filename, db_file)
+            completed += 1
         return HTTPNoContent()
 
     def rsync_then_merge(self, drive, db_file, args):
-        old_filename = os.path.join(self.root, drive, 'tmp', args[0])
+        local_id = filename = args.pop(0)
+        filenames = []
+        if args:
+            filenames = args.pop(0)
+            filename = '%s%s' % (local_id, filenames[0])
+        old_filename = os.path.join(self.root, drive, 'tmp', filename)
         if not os.path.exists(db_file) or not os.path.exists(old_filename):
             return HTTPNotFound()
         new_broker = self.broker_class(old_filename)
@@ -830,10 +905,27 @@ class ReplicatorRpc(object):
             point = objects[-1]['ROWID']
             objects = existing_broker.get_items_since(point, 1000)
             sleep()
-        new_broker.newid(args[0])
+        # Note the following hook will need to change to using a pointer and
+        # limit in the future.
+        other_items = self._other_items_hook(existing_broker)
+        if other_items:
+            new_broker.merge_items(other_items)
+        new_broker.newid(local_id)
         new_broker.update_metadata(existing_broker.metadata)
-        renamer(old_filename, db_file)
+        if filenames and not db_file.endswith(filenames[0]):
+            # we have a different filename (ie pivoted container to
+            # container) so we need to rename correctly.
+            db_file_dir = os.path.dirname(db_file)
+            db_file_new = os.path.join(db_file_dir, filenames[0])
+            renamer(old_filename, db_file_new)
+            os.unlink(db_file)
+        else:
+            renamer(old_filename, db_file)
+
         return HTTPNoContent()
+
+    def _other_items_hook(self, broker):
+        return []
 
 # Footnote [1]:
 #   This orders the nodes so that, given nodes a b c, a will contact b then c,

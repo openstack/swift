@@ -204,8 +204,8 @@ class DatabaseBroker(object):
                  stale_reads_ok=False):
         """Encapsulates working with a database."""
         self.conn = None
-        self.db_file = db_file
-        self.pending_file = self.db_file + '.pending'
+        self._db_file = db_file
+        self.pending_file = self._db_file + '.pending'
         self.pending_timeout = pending_timeout or 10
         self.stale_reads_ok = stale_reads_ok
         self.db_dir = os.path.dirname(db_file)
@@ -233,9 +233,9 @@ class DatabaseBroker(object):
         :param put_timestamp: internalized timestamp of initial PUT request
         :param storage_policy_index: only required for containers
         """
-        if self.db_file == ':memory:':
+        if self._db_file == ':memory:':
             tmp_db_file = None
-            conn = get_db_connection(self.db_file, self.timeout)
+            conn = get_db_connection(self._db_file, self.timeout)
         else:
             mkdirs(self.db_dir)
             fd, tmp_db_file = mkstemp(suffix='.tmp', dir=self.db_dir)
@@ -297,7 +297,7 @@ class DatabaseBroker(object):
             with open(tmp_db_file, 'r+b') as fp:
                 os.fsync(fp.fileno())
             with lock_parent_directory(self.db_file, self.pending_timeout):
-                if os.path.exists(self.db_file):
+                if self._db_exists():
                     # It's as if there was a "condition" where different parts
                     # of the system were "racing" each other.
                     raise DatabaseAlreadyExists(self.db_file)
@@ -360,15 +360,29 @@ class DatabaseBroker(object):
         self.logger.error(detail)
         raise sqlite3.DatabaseError(detail)
 
+    def _db_exists(self):
+        return self.db_file == ':memory:' or os.path.exists(self.db_file)
+
+    @property
+    def db_file(self):
+        return self._db_file
+
+    def _create_connection(self, db_file=None):
+        if not db_file:
+            db_file = self.db_file
+        if self.db_file == ':memory:':
+            return
+        try:
+            self.conn = get_db_connection(db_file, self.timeout)
+        except (sqlite3.DatabaseError, DatabaseConnectionError):
+            self.possibly_quarantine(*sys.exc_info())
+
     @contextmanager
     def get(self):
         """Use with the "with" statement; returns a database connection."""
         if not self.conn:
-            if self.db_file != ':memory:' and os.path.exists(self.db_file):
-                try:
-                    self.conn = get_db_connection(self.db_file, self.timeout)
-                except (sqlite3.DatabaseError, DatabaseConnectionError):
-                    self.possibly_quarantine(*sys.exc_info())
+            if self.db_file != ':memory:' and self._db_exists():
+                self._create_connection()
             else:
                 raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         conn = self.conn
@@ -391,7 +405,7 @@ class DatabaseBroker(object):
     def lock(self):
         """Use with the "with" statement; locks a database."""
         if not self.conn:
-            if self.db_file != ':memory:' and os.path.exists(self.db_file):
+            if self.db_file != ':memory:' and self._db_exists():
                 self.conn = get_db_connection(self.db_file, self.timeout)
             else:
                 raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
@@ -454,7 +468,7 @@ class DatabaseBroker(object):
 
         :returns: True if the DB is considered to be deleted, False otherwise
         """
-        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+        if self.db_file != ':memory:' and not self._db_exists():
             return True
         self._commit_puts_stale_ok()
         with self.get() as conn:
@@ -531,13 +545,15 @@ class DatabaseBroker(object):
                 result.append({'remote_id': row[0], 'sync_point': row[1]})
             return result
 
-    def get_max_row(self):
+    def get_max_row(self, table=None):
+        if not table:
+            table = self.db_contains_type
         query = '''
             SELECT SQLITE_SEQUENCE.seq
             FROM SQLITE_SEQUENCE
             WHERE SQLITE_SEQUENCE.name == '%s'
             LIMIT 1
-        ''' % (self.db_contains_type)
+        ''' % (table)
         with self.get() as conn:
             row = conn.execute(query).fetchone()
         return row[0] if row else -1
@@ -565,10 +581,10 @@ class DatabaseBroker(object):
             return curs.fetchone()
 
     def put_record(self, record):
-        if self.db_file == ':memory:':
+        if self._db_file == ':memory:':
             self.merge_items([record])
             return
-        if not os.path.exists(self.db_file):
+        if not self._db_exists():
             raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         with lock_parent_directory(self.pending_file, self.pending_timeout):
             pending_size = 0
@@ -597,7 +613,8 @@ class DatabaseBroker(object):
 
         :param item_list: A list of items to commit in addition to .pending
         """
-        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+        if self._db_file == ':memory:' or not \
+                os.path.exists(self.pending_file):
             return
         if item_list is None:
             item_list = []
@@ -628,7 +645,8 @@ class DatabaseBroker(object):
         Catch failures of _commit_puts() if broker is intended for
         reading of stats, and thus does not care for pending updates.
         """
-        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+        if self._db_file == ':memory:' or not \
+                os.path.exists(self.pending_file):
             return
         try:
             with lock_parent_directory(self.pending_file,
@@ -684,7 +702,7 @@ class DatabaseBroker(object):
         within 512k of a boundary, it allocates to the next boundary.
         Boundaries are 2m, 5m, 10m, 25m, 50m, then every 50m after.
         """
-        if not DB_PREALLOCATION or self.db_file == ':memory:':
+        if not DB_PREALLOCATION or self._db_file == ':memory:':
             return
         MB = (1024 * 1024)
 
@@ -815,7 +833,7 @@ class DatabaseBroker(object):
         :param age_timestamp: max created_at timestamp of object rows to delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
-        if self.db_file != ':memory:' and os.path.exists(self.pending_file):
+        if self._db_file != ':memory:' and os.path.exists(self.pending_file):
             with lock_parent_directory(self.pending_file,
                                        self.pending_timeout):
                 self._commit_puts()
@@ -902,3 +920,6 @@ class DatabaseBroker(object):
             'UPDATE %s_stat SET status_changed_at = ?'
             ' WHERE status_changed_at < ?' % self.db_type,
             (timestamp, timestamp))
+
+    def get_brokers(self):
+        return [self]

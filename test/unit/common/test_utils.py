@@ -2644,6 +2644,53 @@ cluster_dfw1 = http://dfw1.host/v1/
             else:
                 self.assertEqual(expected, rv)
 
+    def test_config_float_value(self):
+        for args, expected in (
+                ((99, None, None), 99.0),
+                ((99.01, None, None), 99.01),
+                (('99', None, None), 99.0),
+                (('99.01', None, None), 99.01),
+                ((99, 99, None), 99.0),
+                ((99.01, 99.01, None), 99.01),
+                (('99', 99, None), 99.0),
+                (('99.01', 99.01, None), 99.01),
+                ((99, None, 99), 99.0),
+                ((99.01, None, 99.01), 99.01),
+                (('99', None, 99), 99.0),
+                (('99.01', None, 99.01), 99.01),
+                ((-99, -99, -99), -99.0),
+                ((-99.01, -99.01, -99.01), -99.01),
+                (('-99', -99, -99), -99.0),
+                (('-99.01', -99.01, -99.01), -99.01),):
+            actual = utils.config_float_value(*args)
+            self.assertEqual(expected, actual)
+
+        for val, minimum in ((99, 100),
+                             ('99', 100),
+                             (-99, -98),
+                             ('-98.01', -98)):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, minimum=minimum)
+            self.assertIn('greater than %s' % minimum, cm.exception.message)
+            self.assertNotIn('less than', cm.exception.message)
+
+        for val, maximum in ((99, 98),
+                             ('99', 98),
+                             (-99, -100),
+                             ('-97.9', -98)):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, maximum=maximum)
+            self.assertIn('less than %s' % maximum, cm.exception.message)
+            self.assertNotIn('greater than', cm.exception.message)
+
+        for val, minimum, maximum in ((99, 99, 98),
+                                      ('99', 100, 100),
+                                      (99, 98, 98),):
+            with self.assertRaises(ValueError) as cm:
+                utils.config_float_value(val, minimum=minimum, maximum=maximum)
+            self.assertIn('greater than %s' % minimum, cm.exception.message)
+            self.assertIn('less than %s' % maximum, cm.exception.message)
+
     def test_config_auto_int_value(self):
         expectations = {
             # (value, default) : expected,
@@ -3648,6 +3695,190 @@ cluster_dfw1 = http://dfw1.host/v1/
         finally:
             if tempdir:
                 shutil.rmtree(tempdir)
+
+    def test_pivot_range_initialisation(self):
+        def test_initialisation(params, expected=None, error=False):
+            if error:
+                with self.assertRaises(ValueError):
+                    utils.PivotRange(**params)
+            else:
+                pr = utils.PivotRange(**params)
+                self.assertDictEqual(dict(pr), expected)
+
+        empty_run = dict(name=None, timestamp=None, lower=None,
+                         upper=None, object_count=0, bytes_used=0,
+                         meta_timestamp=None)
+        empty_expect = empty_run.copy()
+        empty_expect['created_at'] = empty_expect['timestamp']
+        empty_expect.pop('timestamp')
+        test_initialisation(empty_run.copy(), empty_expect.copy())
+
+        good_run = dict(name='name', timestamp=utils.Timestamp(1), lower='a',
+                        upper='m', object_count=0, bytes_used=10,
+                        meta_timestamp=utils.Timestamp(2))
+        good_expect = good_run.copy()
+        good_expect['created_at'] = good_expect['timestamp']
+        good_expect.pop('timestamp')
+        test_initialisation(good_run.copy(), good_expect.copy())
+
+        # obj count and bytes used as int strings
+        good_str_run = good_run.copy()
+        good_str_run.update({'object_count': '0', 'bytes_used': '10'})
+        test_initialisation(good_str_run, good_expect.copy())
+
+        good_no_meta = good_run.copy()
+        good_no_meta.pop('meta_timestamp')
+        expected = good_run.copy()
+        expected['meta_timestamp'] = expected['created_at'] = \
+            expected['timestamp']
+        expected.pop('timestamp')
+        test_initialisation(good_no_meta, expected)
+
+        bad_timestamp = good_run.copy()
+        bad_timestamp['timestamp'] = 'water balloon'
+        test_initialisation(bad_timestamp, error=True)
+
+        bad_timestamp = good_run.copy()
+        bad_timestamp['meta_timestamp'] = 'water balloon'
+        test_initialisation(bad_timestamp, error=True)
+
+        bad_lower = good_run.copy()
+        bad_lower['lower'] = 'water balloon'
+        test_initialisation(bad_lower, error=True)
+
+        bad_not_int = good_run.copy()
+        bad_not_int['object_count'] = 'water balloon'
+        test_initialisation(bad_not_int, error=True)
+
+        bad_not_int = good_run.copy()
+        bad_not_int['bytes_used'] = 'water balloon'
+        test_initialisation(bad_not_int, error=True)
+
+        bad_neg = good_run.copy()
+        bad_neg['object_count'] = -1
+        test_initialisation(bad_neg, error=True)
+
+        bad_neg = good_run.copy()
+        bad_neg['bytes_used'] = -1
+        test_initialisation(bad_neg, error=True)
+
+    def test_pivot_range(self):
+        # first test infinite range (no boundries)
+        inf_pr = utils.PivotRange()
+        self.assertIsNone(inf_pr.upper)
+        self.assertIsNone(inf_pr.lower)
+
+        for x in range(100):
+            self.assertTrue(x in inf_pr)
+
+        for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
+            self.assertTrue(x in inf_pr)
+
+        ts = utils.Timestamp(time.time()).internal
+
+        # upper (if provided) *must* be greater than lower
+        with self.assertRaises(ValueError):
+            utils.PivotRange('f-a', ts, 'f', 'a')
+
+        # test basic boundries
+        atof = utils.PivotRange('a-f', ts, 'a', 'f')
+        ftol = utils.PivotRange('f-l', ts, 'f', 'l')
+        ltor = utils.PivotRange('l-r', ts, 'l', 'r')
+        rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
+
+        # overlapping ranges
+        dtof = utils.PivotRange('d-f', ts, 'd', 'f')
+        dtom = utils.PivotRange('d-m', ts, 'd', 'm')
+
+        # nones
+        nonetol = utils.PivotRange('None-l', ts, None, 'l')
+        ltonone = utils.PivotRange('l-None', ts, 'l', None)
+
+        # test range > and <
+        # non-adjacent
+        self.assertFalse(rtoz < atof)
+        self.assertTrue(atof < ltor)
+        self.assertTrue(ltor > atof)
+        self.assertFalse(ftol > rtoz)
+
+        # adjacent
+        self.assertFalse(rtoz < ltor)
+        self.assertTrue(atof < ftol)
+        self.assertTrue(ltor > ftol)
+        self.assertFalse(ltor > rtoz)
+
+        # test range < and > to an item
+        # range is > lower and <= upper to lower boundry is't
+        # actually included
+        self.assertTrue(ftol > 'f')
+        self.assertFalse(atof < 'f')
+        self.assertTrue(ltor < 'y')
+
+        self.assertFalse(ftol < 'f')
+        self.assertFalse(atof > 'f')
+        self.assertFalse(ltor > 'y')
+
+        self.assertTrue('f' < ftol)
+        self.assertFalse('f' > atof)
+        self.assertTrue('y' > ltor)
+
+        self.assertFalse('f' > ftol)
+        self.assertFalse('f' < atof)
+        self.assertFalse('y' < ltor)
+
+        # Now test ranges with only 1 boundry
+        for x in ('l', 'm', 'z', 'zzz1231sd'):
+            if x == 'l':
+                self.assertFalse(x in ltonone)
+                self.assertFalse(nonetol < x)
+            else:
+                self.assertTrue(x in ltonone)
+                self.assertTrue(nonetol < x)
+
+        # Now test some of the range to range checks with missing boundries
+        self.assertFalse(atof < nonetol)
+        self.assertFalse(nonetol < inf_pr)
+
+        # Now test PivotRange.overlaps(other)
+        self.assertFalse(atof.overlaps(ftol))
+        self.assertFalse(ftol.overlaps(atof))
+        self.assertTrue(atof.overlaps(dtof))
+        self.assertTrue(dtof.overlaps(atof))
+        self.assertFalse(dtof.overlaps(ftol))
+        self.assertTrue(dtom.overlaps(ftol))
+        self.assertTrue(ftol.overlaps(dtom))
+        self.assertFalse(nonetol.overlaps(ltonone))
+
+    def test_find_pivot_range(self):
+        ts = utils.Timestamp(time.time()).internal
+        start = utils.PivotRange('-a', ts, None, 'a')
+        atof = utils.PivotRange('a-f', ts, 'a', 'f')
+        ftol = utils.PivotRange('f-l', ts, 'f', 'l')
+        ltor = utils.PivotRange('l-r', ts, 'l', 'r')
+        rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
+        end = utils.PivotRange('z-', ts, 'z', None)
+        ranges = [start, atof, ftol, ltor, rtoz, end]
+
+        found = utils.find_pivot_range(' ', ranges)
+        self.assertEqual(found, start)
+        found = utils.find_pivot_range(' ', ranges[1:])
+        self.assertEqual(found, None)
+        found = utils.find_pivot_range('b', ranges)
+        self.assertEqual(found, atof)
+        found = utils.find_pivot_range('f', ranges)
+        self.assertEqual(found, atof)
+        found = utils.find_pivot_range('x', ranges)
+        self.assertEqual(found, rtoz)
+        found = utils.find_pivot_range('r', ranges)
+        self.assertEqual(found, ltor)
+        found = utils.find_pivot_range('}', ranges)
+        self.assertEqual(found, end)
+        found = utils.find_pivot_range('}', ranges[:-1])
+        self.assertEqual(found, None)
+        # remove ltor from list import and try and find a pivot for an item
+        # in that range.
+        found = utils.find_pivot_range('p', ranges[:-3] + ranges[-2:])
+        self.assertEqual(found, None)
 
     def test_modify_priority(self):
         pid = os.getpid()

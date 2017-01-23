@@ -80,10 +80,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # replicate
         daemon = replicator.AccountReplicator({'per_diff': 1})
 
-        def _rsync_file(db_file, remote_file, **kwargs):
-            remote_server, remote_path = remote_file.split('/', 1)
-            dest_path = os.path.join(self.root, remote_path)
-            shutil.copy(db_file, dest_path)
+        def _rsync_file(db_files, remote_file, **kwargs):
+            if not isinstance(db_files, (list, tuple)):
+                db_files = [db_files]
+            for db_f in db_files:
+                remote_server, remote_path = remote_file.split('/', 1)
+                remote_path = '%s%s' % (remote_path, os.path.basename(db_f))
+                dest_path = os.path.join(self.root, remote_path)
+                shutil.copy(db_f, dest_path)
             return True
         daemon._rsync_file = _rsync_file
         part, node = self._get_broker_part_node(remote_broker)

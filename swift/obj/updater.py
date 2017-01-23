@@ -27,12 +27,13 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache, config_true_value, ismount, ratelimit_sleep
+    dump_recon_cache, config_true_value, ismount, ratelimit_sleep, urlparse
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
 from swift.obj.diskfile import get_tmp_dir, ASYNCDIR_BASE
-from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
+from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR, \
+    HTTP_MOVED_PERMANENTLY
 
 
 class ObjectUpdater(Daemon):
@@ -230,26 +231,56 @@ class ObjectUpdater(Daemon):
             renamer(update_path, target_path, fsync=False)
             return
         successes = update.get('successes', [])
-        part, nodes = self.get_container_ring().get_nodes(
-            update['account'], update['container'])
-        obj = '/%s/%s/%s' % \
-              (update['account'], update['container'], update['obj'])
-        headers_out = HeaderKeyDict(update['headers'])
-        headers_out['user-agent'] = 'object-updater %s' % os.getpid()
-        headers_out.setdefault('X-Backend-Storage-Policy-Index',
-                               str(int(policy)))
-        events = [spawn(self.object_update,
-                        node, part, update['op'], obj, headers_out)
-                  for node in nodes if node['id'] not in successes]
         success = True
         new_successes = False
-        for event in events:
-            event_success, node_id = event.wait()
-            if event_success is True:
-                successes.append(node_id)
-                new_successes = True
+        num_redirects = 2
+        for i in range(num_redirects):
+            redirects = set()
+            headers_out = HeaderKeyDict(update['headers'].copy())
+            if headers_out.get('X-Backend-Pivot-Account') and \
+                    headers_out.get('X-Backend-Pivot-Container'):
+                acct = headers_out['X-Backend-Pivot-Account']
+                cont = headers_out['X-Backend-Pivot-Container']
             else:
-                success = False
+                acct, cont = update['account'], update['container']
+            part, nodes = self.get_container_ring().get_nodes(
+                acct, cont)
+            obj = '/%s/%s/%s' % (acct, cont, update['obj'])
+            headers_out['user-agent'] = 'object-updater %s' % os.getpid()
+            headers_out.setdefault('X-Backend-Storage-Policy-Index',
+                                   str(int(policy)))
+            events = [spawn(self.object_update,
+                            node, part, update['op'], obj, headers_out)
+                      for node in nodes if node['id'] not in successes]
+            for event in events:
+                event_success, node_id, redirect = event.wait()
+                if event_success is True:
+                    successes.append(node_id)
+                    new_successes = True
+                elif redirect:
+                    redirects.add(redirect)
+                else:
+                    success = False
+            if redirects:
+                if len(redirects) > 1:
+                    redirect = map(max(lambda x: x[-1], redirects))
+                else:
+                    redirect = redirects.pop()
+                update['headers']['X-Backend-Pivot-Account'] = redirect[0]
+                update['headers']['X-Backend-Pivot-Container'] = redirect[1]
+                if num_redirects == i + 1:
+                    success = False
+                else:
+                    self.logger.increment("redirects")
+                    self.logger.debug('Update sent for %(obj)s %(path)s '
+                                      'triggered a redirect to '
+                                      '%(redir_acct)s/%(redir_cont)s',
+                                      {'obj': obj, 'path': update_path,
+                                       'redir_acct': redirect[0],
+                                       'redir_cont': redirect[1]})
+            else:
+                break
+
         if success:
             self.successes += 1
             self.logger.increment('successes')
@@ -278,6 +309,7 @@ class ObjectUpdater(Daemon):
         :param headers_out: headers to send with the update
         """
         try:
+            redirect = []
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(node['ip'], node['port'], node['device'],
                                     part, op, obj, headers_out)
@@ -285,14 +317,37 @@ class ObjectUpdater(Daemon):
                 resp = conn.getresponse()
                 resp.read()
                 success = is_success(resp.status)
-                if not success:
-                    self.logger.debug(
-                        _('Error code %(status)d is returned from remote '
-                          'server %(ip)s: %(port)s / %(device)s'),
-                        {'status': resp.status, 'ip': node['ip'],
-                         'port': node['port'], 'device': node['device']})
-                return (success, node['id'])
+
+            if resp.status == HTTP_MOVED_PERMANENTLY:
+                rheaders = HeaderKeyDict(resp.getheaders())
+                location = rheaders.get('Location')
+                if not location:
+                    # treat as a normal failure.
+                    return success, node['id'], redirect
+
+                location = urlparse(location).path
+                if location.startswith('/'):
+                    location = location[1:]
+                piv_acc, piv_cont, obj_ = location.split('/', 2)
+                if not piv_acc or not piv_cont:
+                    # there has been an error so log it and return
+                    self.logger.error(_('ERROR Container update failed: %s '
+                                        'possibly sharded but couldn\'t '
+                                        'find determine shard container '
+                                        'location.') % obj)
+                    return False, node['id'], redirect
+                redirect = (piv_acc, piv_cont,
+                            rheaders.get('X-Redirect-Timestamp'))
+
+            elif not success:
+                resp_dict = {'status': resp.status, 'ip': node['ip'],
+                             'port': node['port'], 'device': node['device']}
+                self.logger.debug(
+                    _('Error code %(status)d is returned from remote '
+                      'server %(ip)s: %(port)s / %(device)s'), resp_dict)
+
+            return success, node['id'], redirect
         except (Exception, Timeout):
             self.logger.exception(_('ERROR with remote server '
                                     '%(ip)s:%(port)s/%(device)s'), node)
-        return HTTP_INTERNAL_SERVER_ERROR, node['id']
+        return HTTP_INTERNAL_SERVER_ERROR, node['id'], None

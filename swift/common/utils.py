@@ -18,6 +18,7 @@
 from __future__ import print_function
 
 import binascii
+import bisect
 import errno
 import fcntl
 import grp
@@ -69,6 +70,7 @@ from six.moves import range
 from six.moves.urllib.parse import ParseResult
 from six.moves.urllib.parse import quote as _quote
 from six.moves.urllib.parse import urlparse as stdlib_urlparse
+from six import string_types
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -386,6 +388,21 @@ def config_positive_int_value(value):
         raise ValueError(
             'Config option must be an positive int number, not "%s".' % value)
     return value
+
+
+def config_float_value(value, minimum=None, maximum=None):
+    try:
+        val = float(value)
+        if minimum and val < minimum:
+            raise ValueError()
+        if maximum and val > maximum:
+            raise ValueError()
+        return val
+    except (TypeError, ValueError):
+        min = ', greater than %s' % minimum if minimum is not None else ''
+        max = ', less than %s' % maximum if maximum is not None else ''
+        raise ValueError('Config option must be a number%s%s, not "%s".' %
+                         (min, max, value))
 
 
 def config_auto_int_value(value, default):
@@ -4178,6 +4195,220 @@ def get_md5_socket():
         raise IOError(ctypes.get_errno(), "Failed to accept MD5 socket")
 
     return md5_sockfd
+
+
+class PivotRange(object):
+    def __init__(self, name=None, timestamp=None, lower=None, upper=None,
+                 object_count=0, bytes_used=0, meta_timestamp=None):
+        self.name = name
+        self.lower = lower
+        if upper and upper < lower:
+            raise ValueError("upper must be bigger the lower ('%s' > '%s')" %
+                             (upper, lower or ''))
+        self.upper = upper
+        self.timestamp = timestamp
+        self.meta_timestamp = meta_timestamp
+        self.object_count = object_count
+        self.bytes_used = bytes_used
+
+    def _to_timestamp(self, timestamp):
+        if timestamp:
+            if not isinstance(timestamp, Timestamp):
+                return Timestamp(timestamp)
+            return timestamp
+        else:
+            return None
+
+    @property
+    def timestamp(self):
+        return self._timestamp
+
+    @timestamp.setter
+    def timestamp(self, ts):
+        self._timestamp = self._to_timestamp(ts)
+
+    @property
+    def meta_timestamp(self):
+        return self._meta_timestamp
+
+    @meta_timestamp.setter
+    def meta_timestamp(self, ts):
+        self._meta_timestamp = self._to_timestamp(ts) or self.timestamp
+
+    @property
+    def object_count(self):
+        return self._count
+
+    @object_count.setter
+    def object_count(self, count):
+        count = int(count)
+        if count < 0:
+            raise ValueError('object_count cannot be < 0')
+        self._count = count
+
+    @property
+    def bytes_used(self):
+        return self._bytes
+
+    @bytes_used.setter
+    def bytes_used(self, bytes_used):
+        bytes_used = int(bytes_used)
+        if bytes_used < 0:
+            raise ValueError('bytes_used cannot be < 0')
+        self._bytes = bytes_used
+
+    def __contains__(self, item):
+        if not self.lower and not self.upper:
+            # No limits so must match
+            return True
+        elif not self.lower:
+            return item <= self.upper
+        elif not self.upper:
+            return self.lower < item
+        else:
+            return self.lower < item <= self.upper
+
+    def __lt__(self, other):
+        if self.upper is None:
+            return False
+        if isinstance(other, PivotRange):
+            if other.lower is None:
+                return False
+            lower = self.lower or ''
+            return self.upper < other.lower or lower < other.lower
+        elif other is None:
+            return True
+        else:
+            return self.upper < other
+
+    def __gt__(self, other):
+        if self.lower is None:
+            return False
+        if isinstance(other, PivotRange):
+            if other.upper is None:
+                return False
+            upper = self.upper or other.upper + 'a'
+            return self.lower >= other.upper or upper > other.upper
+        elif other is None:
+            return False
+        else:
+            return self.lower >= other
+
+    def __eq__(self, other):
+        if not isinstance(other, PivotRange):
+            return False
+        return self.lower == other.lower and self.upper == other.upper
+
+    def __repr__(self):
+        if isinstance(self.timestamp, Timestamp):
+            ts = self.timestamp.internal
+        else:
+            ts = self.timestamp
+        return '(%s to %s as of %s)' % (self.lower, self.upper, ts)
+
+    def entire_namespace(self):
+        return self.lower is None and self.upper is None
+
+    def overlaps(self, other):
+        if not isinstance(other, PivotRange):
+            return False
+        if self.lower is None and other.lower is None:
+            return True
+        elif self.upper is None and other.upper is None:
+            return True
+        elif self.entire_namespace() or other.entire_namespace():
+            return True
+        elif self.upper is None:
+            return other.upper > self.lower
+        elif other.upper is None:
+            return self.upper > other.lower
+        elif self.lower is None:
+            return other.lower < self.upper
+        elif other.lower is None:
+            return self.lower < other.upper
+        return other.upper > self.upper > other.lower or \
+            other.upper > self.lower > other.lower or \
+            self.upper > other.upper > self.lower or \
+            self.upper > other.lower > self.lower or \
+            (self.upper > other.upper and self.lower < other.lower) or \
+            (other.lower < self.lower and other.upper > self.upper)
+
+    def newer(self, other):
+        if self._timestamp:
+            return self._timestamp > other.timestamp
+        else:
+            return False
+
+    def __iter__(self):
+        yield 'name', self.name
+        yield 'created_at', self.timestamp
+        yield 'lower', self.lower
+        yield 'upper', self.upper
+        yield 'object_count', self.object_count
+        yield 'bytes_used', self.bytes_used
+        yield 'meta_timestamp', self.meta_timestamp
+
+
+def find_pivot_range(item, ranges):
+    """
+
+    :param item: The item that needs to be placed
+    :param ranges: Byte order sorted list of ranges.
+    :return:
+    """
+    index = bisect.bisect_left(ranges, item)
+    if index != len(ranges) and item in ranges[index]:
+        return ranges[index]
+    return None
+
+
+def pivot_to_pivot_container(account, container, pivot=None):
+        """
+        Using a specified pivot range or pivot name and generate the required
+        sharded account and container name.
+
+        Given something like ``acc, cont, orange`` it will return:
+
+            .sharded_acc cont_orange
+
+        :param account: The root container's account
+        :param container: The root container
+        :param pivot: The pivot range object
+        :return: A tuple of (account, container) representing the sharded
+                 container.
+        """
+        if not pivot:
+            return account, container
+        acc = account_to_pivot_account(account)
+        return acc, pivot.name
+
+
+def account_to_pivot_account(account):
+    if not account:
+        return account
+    return ".sharded_%s" % account
+
+
+def verify_pivot_usage_header(value):
+    """
+    Takes in the value of a pivot usage header (X-Backend-Pivot-Used-Bytes or
+    X-Backend-Pivot-Object-Count), which takes the form of:
+
+    "[+-]<int>"
+
+    The + or - allows to increment the existing count, without these it's
+    setting to total counts.
+
+    :param value: The header value.
+    :return: True if its a valid header, False otherwise.
+    """
+    if not isinstance(value, string_types):
+        return False
+    try:
+        int(value)
+    except ValueError:
+        return False
+    return True
 
 
 def modify_priority(conf, logger):

@@ -1053,7 +1053,7 @@ class TestObjectController(unittest.TestCase):
             mock_ring = mock.MagicMock()
             mock_ring.get_nodes.return_value = (99, [node])
             object_updater.container_ring = mock_ring
-            mock_update.return_value = ((True, 1))
+            mock_update.return_value = ((True, 1, None))
             object_updater.run_once()
         self.assertEqual(1, mock_update.call_count)
         self.assertEqual((node, 99, 'PUT', '/a/c/o'),
@@ -5257,23 +5257,21 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1'})
-        with mock.patch.object(object_server, 'spawn',
-                               local_fake_spawn):
-            with mock.patch.object(self.object_controller,
-                                   'async_update',
-                                   local_fake_async_update):
-                resp = req.get_response(self.object_controller)
-        # check the response is completed and successful
-        self.assertEqual(resp.status_int, 201)
-        # check that async_update hasn't been called
-        self.assertFalse(len(called_async_update_args))
-        # now do the work in greenthreads
-        for func, a, kw in saved_spawn_calls:
-            gt = spawn(func, *a, **kw)
-            greenthreads.append(gt)
-        # wait for the greenthreads to finish
-        for gt in greenthreads:
-            gt.wait()
+        with mock.patch.object(object_server, 'spawn', local_fake_spawn), \
+                mock.patch.object(self.object_controller, 'async_update',
+                                  local_fake_async_update):
+            resp = req.get_response(self.object_controller)
+            # check the response is completed and successful
+            self.assertEqual(resp.status_int, 201)
+            # check that async_update hasn't been called
+            self.assertFalse(len(called_async_update_args))
+            # now do the work in greenthreads
+            for func, a, kw in saved_spawn_calls:
+                gt = spawn(func, *a, **kw)
+                greenthreads.append(gt)
+            # wait for the greenthreads to finish
+            for gt in greenthreads:
+                gt.wait()
         # check that the calls to async_update have happened
         headers_out = {'X-Size': '0',
                        'X-Content-Type': 'application/burrito',

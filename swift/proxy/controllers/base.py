@@ -24,10 +24,11 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, urlencode
 
 import os
 import time
+import json
 import functools
 import inspect
 import itertools
@@ -44,7 +45,7 @@ from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
-    document_iters_to_http_response_body
+    document_iters_to_http_response_body, PivotRange
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
@@ -61,7 +62,7 @@ from swift.common.request_helpers import strip_sys_meta_prefix, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
     strip_object_transient_sysmeta_prefix
 from swift.common.storage_policy import POLICIES
-
+from swift.container.backend import DB_STATE_UNSHARDED
 
 DEFAULT_RECHECK_ACCOUNT_EXISTENCE = 60  # seconds
 DEFAULT_RECHECK_CONTAINER_EXISTENCE = 60  # seconds
@@ -186,6 +187,8 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         },
         'meta': meta,
         'sysmeta': sysmeta,
+        'sharding_state': int(headers.get('x-backend-sharding-state',
+                                          DB_STATE_UNSHARDED))
     }
 
 
@@ -1945,3 +1948,40 @@ class Controller(object):
         resp.headers = headers
 
         return resp
+
+    def _get_pivot_ranges(self, req, account, container, obj=None):
+        ranges = []
+        part, nodes = self.app.container_ring.get_nodes(account, container)
+
+        path = "/%s/%s" % (account, container)
+        if obj:
+            path = "%s/%s" % (path, obj)
+        params = req.params.copy()
+        params.update({
+            'items': 'pivot',
+            'format': 'json'})
+
+        headers = [self.generate_request_headers(req, transfer=True)
+                   for _junk in range(len(nodes))]
+        piv_resp = self.make_requests(req, self.app.container_ring,
+                                      part, "GET", path, headers,
+                                      urlencode(params))
+        if not is_success(piv_resp.status_int):
+            return ranges
+
+        try:
+            for pivot in json.loads(piv_resp.body):
+                lower = pivot.get('lower') or None
+                upper = pivot.get('upper') or None
+                created_at = pivot.get('created_at') or None
+                object_count = pivot.get('object_count') or 0
+                bytes_used = pivot.get('bytes_used') or 0
+                meta_timestamp = pivot.get('meta_timestamp') or None
+                ranges.append(PivotRange(pivot['name'], created_at, lower,
+                                         upper, object_count, bytes_used,
+                                         meta_timestamp))
+        except ValueError:
+            # Failed to decode the json response
+            pass
+
+        return ranges

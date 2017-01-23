@@ -22,8 +22,11 @@ from swob in here without creating circular imports.
 
 import hashlib
 import itertools
+import json
+import math
 import sys
 import time
+from xml.etree.cElementTree import Element, SubElement, tostring
 
 import six
 from six.moves.urllib.parse import unquote
@@ -35,11 +38,13 @@ from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
-    HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator
+    HTTPServiceUnavailable, Range, is_chunked, Response, HTTPNoContent, \
+    multi_range_iterator
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv, Spliterator
+    parse_content_range, csv_append, list_from_csv, PivotRange, Timestamp, \
+    override_bytes_from_content_type, Spliterator
 
 from swift.common.wsgi import make_subrequest
 
@@ -682,3 +687,80 @@ def resolve_etag_is_at_header(req, metadata):
                 alternate_etag = metadata[name]
                 break
     return alternate_etag
+
+
+def update_container_data_record(record, logger=None, include_deleted=False):
+    """
+    Perform any mutations to container listing records that are common to
+    all serialization formats, and returns it as a dict.
+
+    Converts created time to iso timestamp.
+    Replaces size with 'swift_bytes' content type parameter.
+
+    :param record: object entry record
+    :returns: modified record
+    """
+    if isinstance(record, dict):
+        # Conversion has already happened (e.g. from a sharded node)
+        return record
+    if isinstance(record, PivotRange):
+        created = record.timestamp
+        response = dict(record)
+    else:
+        (name, created, size, content_type, etag) = record[:5]
+        if content_type is None:
+            return {'subdir': name}
+        response = {'bytes': size, 'hash': etag, 'name': name,
+                    'content_type': content_type}
+        if include_deleted and len(record) > 5:
+            response['deleted'] = record[5]
+
+        override_bytes_from_content_type(response, logger=logger)
+    response['last_modified'] = Timestamp(created).isoformat
+    return response
+
+
+def create_container_listing(req, out_content_type, resp_headers,
+                             container_list, container, logger=None,
+                             include_deleted=False):
+        ret = Response(request=req, headers=resp_headers,
+                       content_type=out_content_type, charset='utf-8')
+        if out_content_type == 'application/json':
+            ret.body = json.dumps(
+                [update_container_data_record(record, logger, include_deleted)
+                 for record in container_list])
+        elif out_content_type.endswith('/xml'):
+            doc = Element('container', name=container.decode('utf-8'))
+            fields = ["name", "hash", "bytes", "content_type", "last_modified"]
+            if include_deleted:
+                fields.append('deleted')
+            if container_list and isinstance(container_list[0], PivotRange):
+                fields = ["name", "lower", "upper", "object_count",
+                          "bytes_used", "last_modified", "meta_timestamp"]
+            for obj in container_list:
+                record = update_container_data_record(obj, logger)
+                if 'subdir' in record:
+                    name = record['subdir'].decode('utf-8')
+                    sub = SubElement(doc, 'subdir', name=name)
+                    SubElement(sub, 'name').text = name
+                else:
+                    obj_element = SubElement(doc, 'object')
+                    for field in fields:
+                        SubElement(obj_element, field).text = str(
+                            record.pop(field)).decode('utf-8')
+                    for field in sorted(record):
+                        SubElement(obj_element, field).text = str(
+                            record[field]).decode('utf-8')
+            ret.body = tostring(doc, encoding='UTF-8').replace(
+                "<?xml version='1.0' encoding='UTF-8'?>",
+                '<?xml version="1.0" encoding="UTF-8"?>', 1)
+        else:
+            if not container_list:
+                return HTTPNoContent(request=req, headers=resp_headers)
+            if isinstance(container_list[0], dict):
+                index = 'name'
+            else:
+                index = 0
+            ret.body = '\n'.join(rec[index] for rec in container_list) + '\n'
+        ret.last_modified = math.ceil(float(resp_headers['X-PUT-Timestamp']))
+        return ret

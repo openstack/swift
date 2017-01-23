@@ -194,10 +194,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         node = {'device': 'sdc', 'replication_ip': '127.0.0.1'}
         daemon = replicator.ContainerReplicator({'per_diff': 1})
 
-        def _rsync_file(db_file, remote_file, **kwargs):
-            remote_server, remote_path = remote_file.split('/', 1)
-            dest_path = os.path.join(self.root, remote_path)
-            shutil.copy(db_file, dest_path)
+        def _rsync_file(db_files, remote_file, **kwargs):
+            if not isinstance(db_files, (list, tuple)):
+                db_files = [db_files]
+            for db_f in db_files:
+                remote_server, remote_path = remote_file.split('/', 1)
+                remote_path = '%s%s' % (remote_path, os.path.basename(db_f))
+                dest_path = os.path.join(self.root, remote_path)
+                shutil.copy(db_f, dest_path)
             return True
         daemon._rsync_file = _rsync_file
         part, node = self._get_broker_part_node(remote_broker)
@@ -355,7 +359,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # now that we're synced the new item should be in remote db
         remote_names = set()
         for item in remote_broker.list_objects_iter(500, '', '', '', ''):
-            name, ts, size, content_type, etag = item
+            name, ts, size, content_type, etag, record_type = item
             remote_names.add(name)
             self.assertEqual(content_type, 'content-type-new')
         self.assertTrue('o101' in remote_names)
@@ -894,13 +898,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             10, '', None, None, None, None, storage_policy_index=0)
         self.assertEqual(len(objects), 2)
         expected = ('%s:/a/c/o' % remote_policy.idx, obj_put_timestamp, 0,
-                    'application/x-put', obj_put_timestamp)
+                    'application/x-put', obj_put_timestamp, 0)
         self.assertEqual(objects[0], expected)
         # the second object's listing has ts_meta as its last modified time
         # but its full composite timestamp is in the hash field.
         expected = ('%s:/a/c/o2' % remote_policy.idx, ts_meta.internal, 0,
                     'application/x-put',
-                    encode_timestamps(ts_data, ts_ctype, ts_meta))
+                    encode_timestamps(ts_data, ts_ctype, ts_meta), 0)
         self.assertEqual(objects[1], expected)
 
         # having safely enqueued to the reconciler we can advance

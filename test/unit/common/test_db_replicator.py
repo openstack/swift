@@ -250,6 +250,9 @@ class FakeBroker(object):
         self.put_timestamp = put_timestamp
         self.delete_timestamp = delete_timestamp
 
+    def get_brokers(self):
+        return [self]
+
 
 class FakeAccountBroker(FakeBroker):
     db_type = 'account'
@@ -336,7 +339,7 @@ class TestDBReplicator(unittest.TestCase):
                 'rsync', '--quiet', '--no-motd',
                 '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
                 '--contimeout=%s' % int(math.ceil(replicator.conn_timeout)),
-                '--whole-file', '/some/file', 'remote:/some_file'],)
+                '--whole-file', '/some/file', 'remote:/some_filefile'],)
             self.assertEqual(exp_args, process.args)
 
     def test_rsync_file_popen_args_whole_file_false(self):
@@ -347,7 +350,7 @@ class TestDBReplicator(unittest.TestCase):
                 'rsync', '--quiet', '--no-motd',
                 '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
                 '--contimeout=%s' % int(math.ceil(replicator.conn_timeout)),
-                '/some/file', 'remote:/some_file'],)
+                '/some/file', 'remote:/some_filefile'],)
             self.assertEqual(exp_args, process.args)
 
     def test_rsync_file_popen_args_different_region_and_rsync_compress(self):
@@ -356,7 +359,8 @@ class TestDBReplicator(unittest.TestCase):
             replicator.rsync_compress = rsync_compress
             for different_region in (False, True):
                 with _mock_process(0) as process:
-                    replicator._rsync_file('/some/file', 'remote:/some_file',
+                    replicator._rsync_file('/some/file',
+                                           'remote:/some_filefile',
                                            False, different_region)
                     if rsync_compress and different_region:
                         # --compress arg should be passed to rsync binary
@@ -379,21 +383,22 @@ class TestDBReplicator(unittest.TestCase):
                        'device': 'sda1'}
 
         class MyTestReplicator(TestReplicator):
-            def __init__(self, db_file, remote_file):
+            def __init__(self, db_files, remote_file):
                 super(MyTestReplicator, self).__init__({})
-                self.db_file = db_file
+                self.db_files = db_files
                 self.remote_file = remote_file
 
             def _rsync_file(self_, db_file, remote_file, whole_file=True,
                             different_region=False):
-                self.assertEqual(self_.db_file, db_file)
+                self.assertEqual(self_.db_files, db_file)
                 self.assertEqual(self_.remote_file, remote_file)
                 self_._rsync_file_called = True
                 return False
 
         broker = FakeBroker()
         remote_file = '127.0.0.1::container/sda1/tmp/abcd'
-        replicator = MyTestReplicator(broker.db_file, remote_file)
+        db_files = [b.db_file for b in broker.get_brokers()]
+        replicator = MyTestReplicator(db_files, remote_file)
         replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
         self.assertTrue(replicator._rsync_file_called)
 
@@ -886,10 +891,11 @@ class TestDBReplicator(unittest.TestCase):
         with patch('swift.common.db_replicator.os',
                    new=mock.MagicMock(wraps=os)) as mock_os:
             mock_os.path.exists.return_value = True
+            mock_os.unlink.return_value = True
             response = rpc.dispatch(('drive', 'part', 'hash'),
-                                    ['rsync_then_merge', 'arg1', 'arg2'])
+                                    ['rsync_then_merge', 'arg1', ['arg2']])
             expected_calls = [call('/part/ash/hash/hash.db'),
-                              call('/drive/tmp/arg1')]
+                              call('/drive/tmp/arg1arg2')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
             self.assertEqual('204 No Content', response.status)
@@ -904,9 +910,9 @@ class TestDBReplicator(unittest.TestCase):
                 wraps=os)) as mock_os:
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.dispatch(('drive', 'part', 'hash'),
-                                    ['complete_rsync', 'arg1', 'arg2'])
+                                    ['complete_rsync', 'arg1', ['arg2']])
             expected_calls = [call('/part/ash/hash/hash.db'),
-                              call('/drive/tmp/arg1')]
+                              call('/drive/tmp/arg1arg2')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
             self.assertEqual('204 No Content', response.status)
@@ -919,7 +925,7 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os:
             mock_os.path.exists.return_value = False
             response = rpc.rsync_then_merge('drive', '/data/db.db',
-                                            ('arg1', 'arg2'))
+                                            ['arg1', ['arg2']])
             mock_os.path.exists.assert_called_with('/data/db.db')
             self.assertEqual('404 Not Found', response.status)
             self.assertEqual(404, response.status_int)
@@ -931,8 +937,8 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os:
             mock_os.path.exists.side_effect = [True, False]
             response = rpc.rsync_then_merge('drive', '/data/db.db',
-                                            ('arg1', 'arg2'))
-            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1')]
+                                            ['arg1', ['arg2']])
+            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1arg2')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
             self.assertEqual('404 Not Found', response.status)
@@ -942,16 +948,17 @@ class TestDBReplicator(unittest.TestCase):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
 
         def mock_renamer(old, new):
-            self.assertEqual('/drive/tmp/arg1', old)
-            self.assertEqual('/data/db.db', new)
+            self.assertEqual('/drive/tmp/arg1arg2', old)
+            self.assertEqual('/data/arg2', new)
 
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
         with patch('swift.common.db_replicator.os',
                    new=mock.MagicMock(wraps=os)) as mock_os:
             mock_os.path.exists.return_value = True
+            mock_os.unlink.return_value = True
             response = rpc.rsync_then_merge('drive', '/data/db.db',
-                                            ['arg1', 'arg2'])
+                                            ['arg1', ['arg2']])
             self.assertEqual('204 No Content', response.status)
             self.assertEqual(204, response.status_int)
 
@@ -974,8 +981,8 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os:
             mock_os.path.exists.return_value = False
             response = rpc.complete_rsync('drive', '/data/db.db',
-                                          ['arg1', 'arg2'])
-            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1')]
+                                          ['arg1', ['arg2']])
+            expected_calls = [call('/data/db.db'), call('/drive/tmp/arg1arg2')]
             self.assertEqual(expected_calls,
                              mock_os.path.exists.call_args_list)
             self.assertEqual('404 Not Found', response.status)
@@ -987,12 +994,12 @@ class TestDBReplicator(unittest.TestCase):
         def mock_exists(path):
             if path == '/data/db.db':
                 return False
-            self.assertEqual('/drive/tmp/arg1', path)
+            self.assertEqual('/drive/tmp/arg1arg2', path)
             return True
 
         def mock_renamer(old, new):
-            self.assertEqual('/drive/tmp/arg1', old)
-            self.assertEqual('/data/db.db', new)
+            self.assertEqual('/drive/tmp/arg1arg2', old)
+            self.assertEqual('/data/arg2', new)
 
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
@@ -1000,7 +1007,7 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os:
             mock_os.path.exists.side_effect = [False, True]
             response = rpc.complete_rsync('drive', '/data/db.db',
-                                          ['arg1', 'arg2'])
+                                          ['arg1', ['arg2']])
             self.assertEqual('204 No Content', response.status)
             self.assertEqual(204, response.status_int)
 
@@ -1052,7 +1059,7 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_rsync_then_merge(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
-        rpc.rsync_then_merge('sda1', '/srv/swift/blah', ('a', 'b'))
+        rpc.rsync_then_merge('sda1', '/srv/swift/blah', ['a', ['b']])
 
     def test_merge_items(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
@@ -1071,12 +1078,12 @@ class TestDBReplicator(unittest.TestCase):
     def test_complete_rsync_with_bad_input(self):
         drive = '/some/root'
         db_file = __file__
-        args = ['old_file']
+        args = ['old_file', ['filename']]
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
-        resp = rpc.complete_rsync(drive, db_file, args)
+        resp = rpc.complete_rsync(drive, db_file, list(args))
         self.assertTrue(isinstance(resp, HTTPException))
         self.assertEqual(404, resp.status_int)
-        resp = rpc.complete_rsync(drive, 'new_db_file', args)
+        resp = rpc.complete_rsync(drive, 'new_db_file', list(args))
         self.assertTrue(isinstance(resp, HTTPException))
         self.assertEqual(404, resp.status_int)
 
@@ -1338,10 +1345,10 @@ class TestDBReplicator(unittest.TestCase):
         db_file = __file__
         replicator = TestReplicator({})
         replicator._http_connect(node, partition, db_file)
+        expected_hsh = os.path.basename(db_file).split('.', 1)[0]
+        expected_hsh = expected_hsh.split('_', 1)[0]
         db_replicator.ReplConnection.assert_has_calls([
-            mock.call(node, partition,
-                      os.path.basename(db_file).split('.', 1)[0],
-                      replicator.logger)])
+            mock.call(node, partition, expected_hsh, replicator.logger)])
 
 
 class TestReplToNode(unittest.TestCase):
@@ -1565,10 +1572,14 @@ class TestReplicatorSync(unittest.TestCase):
     def _run_once(self, node, conf_updates=None, daemon=None):
         daemon = daemon or self._get_daemon(node, conf_updates)
 
-        def _rsync_file(db_file, remote_file, **kwargs):
-            remote_server, remote_path = remote_file.split('/', 1)
-            dest_path = os.path.join(self.root, remote_path)
-            copy(db_file, dest_path)
+        def _rsync_file(db_files, remote_file, **kwargs):
+            if not isinstance(db_files, (list, tuple)):
+                db_files = [db_files]
+            for db_f in db_files:
+                remote_server, remote_path = remote_file.split('/', 1)
+                remote_path = '%s%s' % (remote_path, os.path.basename(db_f))
+                dest_path = os.path.join(self.root, remote_path)
+                copy(db_f, dest_path)
             return True
         daemon._rsync_file = _rsync_file
         with mock.patch('swift.common.db_replicator.whataremyips',
@@ -1652,7 +1663,7 @@ class TestReplicatorSync(unittest.TestCase):
         rpc = db_replicator.ReplicatorRpc(
             self.root, self.datadir, self.backend, False)
         response = rpc.dispatch((node['device'], part, obj_hash),
-                                ['rsync_then_merge', obj_hash + '.db', 'arg2'])
+                                ['rsync_then_merge', obj_hash + '.db'])
         # sanity
         self.assertEqual('204 No Content', response.status)
         self.assertEqual(204, response.status_int)

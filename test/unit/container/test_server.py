@@ -370,7 +370,7 @@ class TestContainerController(unittest.TestCase):
                 elif state[0] == 'race':
                     # Save the original db_file attribute value
                     self._saved_db_file = self.db_file
-                    self.db_file += '.doesnotexist'
+                    self._db_file += '.doesnotexist'
 
             def initialize(self, *args, **kwargs):
                 if state[0] == 'initial':
@@ -379,7 +379,7 @@ class TestContainerController(unittest.TestCase):
                 elif state[0] == 'race':
                     # Restore the original db_file attribute to get the race
                     # behavior
-                    self.db_file = self._saved_db_file
+                    self._db_file = self._saved_db_file
                 return super(InterceptedCoBr, self).initialize(*args, **kwargs)
 
         with mock.patch("swift.container.server.ContainerBroker",
@@ -1440,7 +1440,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(True, db.is_deleted())
         # now save a copy of this db (and remove it from the "current node")
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        db_path = db.db_file
+        db_path = db._db_file
         other_path = os.path.join(self.testdir, 'othernode.db')
         os.rename(db_path, other_path)
         # that should make it missing on this node
@@ -1458,7 +1458,8 @@ class TestContainerController(unittest.TestCase):
                 # be as careful as we might hope backend replication can be...
                 with lock_parent_directory(db_path, timeout=1):
                     os.rename(other_path, db_path)
-            mock_called.append((rv, db_path))
+            if not db_path.endswith('_pivot.db'):
+                mock_called.append((rv, db_path))
             return rv
 
         req = Request.blank(path, method='PUT',
@@ -1472,7 +1473,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(False, db.is_deleted())
         # mock proves the race
         self.assertEqual(mock_called[:2],
-                         [(exists, db.db_file) for exists in (False, True)])
+                         [(exists, db._db_file) for exists in (False, True)])
         # info was updated
         info = db.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp('4').internal)

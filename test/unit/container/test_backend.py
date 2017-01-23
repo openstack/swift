@@ -20,7 +20,6 @@ import hashlib
 import unittest
 from time import sleep, time
 from uuid import uuid4
-import itertools
 import random
 from collections import defaultdict
 from contextlib import contextmanager
@@ -29,8 +28,10 @@ import pickle
 import json
 
 from swift.container.backend import ContainerBroker, \
-    update_new_item_from_existing
-from swift.common.utils import Timestamp, encode_timestamps
+    update_new_item_from_existing, DB_STATE_NOTFOUND, DB_STATE_UNSHARDED, \
+    DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE
+from swift.common.db import DatabaseBroker
+from swift.common.utils import Timestamp, encode_timestamps, hash_path
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -46,7 +47,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_creation(self):
         # Test ContainerBroker.__init__
         broker = ContainerBroker(':memory:', account='a', container='c')
-        self.assertEqual(broker.db_file, ':memory:')
+        self.assertEqual(broker._db_file, ':memory:')
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             curs = conn.cursor()
@@ -55,11 +56,11 @@ class TestContainerBroker(unittest.TestCase):
 
     @patch_policies
     def test_storage_policy_property(self):
-        ts = (Timestamp(t).internal for t in itertools.count(int(time())))
+        ts = make_timestamp_iter()
         for policy in POLICIES:
             broker = ContainerBroker(':memory:', account='a',
                                      container='policy_%s' % policy.name)
-            broker.initialize(next(ts), policy.idx)
+            broker.initialize(next(ts).internal, policy.idx)
             with broker.get() as conn:
                 try:
                     conn.execute('''SELECT storage_policy_index
@@ -165,17 +166,17 @@ class TestContainerBroker(unittest.TestCase):
         broker.delete_db(Timestamp.now().internal)
 
     def test_get_info_is_deleted(self):
-        start = int(time())
-        ts = (Timestamp(t).internal for t in itertools.count(start))
+        ts = make_timestamp_iter()
+        start = next(ts)
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
         # create it
-        broker.initialize(next(ts), POLICIES.default.idx)
+        broker.initialize(start.internal, POLICIES.default.idx)
         info, is_deleted = broker.get_info_is_deleted()
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(is_deleted, False)  # sanity
         self.assertEqual(info, broker.get_info())
-        self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
+        self.assertEqual(info['put_timestamp'], start.internal)
         self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
@@ -184,28 +185,28 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
-                             Timestamp(start).internal)
+                             start.internal)
 
         # delete it
         delete_timestamp = next(ts)
-        broker.delete_db(delete_timestamp)
+        broker.delete_db(delete_timestamp.internal)
         info, is_deleted = broker.get_info_is_deleted()
         self.assertEqual(is_deleted, True)  # sanity
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
-        self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
+        self.assertEqual(info['put_timestamp'], start.internal)
         self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
         # bring back to life
-        broker.put_object('obj', next(ts), 0, 'text/plain', 'etag',
+        broker.put_object('obj', next(ts).internal, 0, 'text/plain', 'etag',
                           storage_policy_index=broker.storage_policy_index)
         info, is_deleted = broker.get_info_is_deleted()
         self.assertEqual(is_deleted, False)  # sanity
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
-        self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
+        self.assertEqual(info['put_timestamp'], start.internal)
         self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
@@ -231,6 +232,28 @@ class TestContainerBroker(unittest.TestCase):
                 "WHERE deleted = 0").fetchone()[0], 0)
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
+                "WHERE deleted = 1").fetchone()[0], 1)
+
+    def test_delete_pivot(self):
+        # Test ContainerBroker.delete_object
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_pivot('o', Timestamp(time()).internal)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM pivot_ranges "
+                "WHERE deleted = 0").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM pivot_ranges "
+                "WHERE deleted = 1").fetchone()[0], 0)
+        sleep(.00001)
+        broker.delete_pivot('o', Timestamp(time()).internal)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM pivot_ranges "
+                "WHERE deleted = 0").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT count(*) FROM pivot_ranges "
                 "WHERE deleted = 1").fetchone()[0], 1)
 
     def test_put_object(self):
@@ -432,6 +455,240 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(conn.execute(
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
+    def test_put_pivot(self):
+        # Test ContainerBroker.put_object
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+
+        # Create initial object
+        timestamp = Timestamp(time()).internal
+        meta_timestamp = Timestamp(time()).internal
+        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
+                         lower='low', upper='up')
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'low')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'up')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 0)
+
+        # Reput same event
+        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
+                         lower='low', upper='up')
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'low')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'up')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 0)
+
+        # Put new event
+        sleep(.00001)
+        timestamp = Timestamp(time()).internal
+        meta_timestamp = Timestamp(time()).internal
+        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
+                         lower='lower', upper='upper', object_count=1,
+                         bytes_used=2)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lower')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upper')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 2)
+
+        # Put old event
+        otimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
+        broker.put_pivot('"{<pivot \'&\' name>}"', otimestamp, meta_timestamp,
+                         lower='lower', upper='upper', object_count=1,
+                         bytes_used=2)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lower')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upper')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 2)
+
+        # Put old delete event
+        dtimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
+        broker.put_pivot('"{<pivot \'&\' name>}"', dtimestamp, meta_timestamp,
+                         lower='lower', upper='upper', deleted=1)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lower')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upper')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 2)
+
+        # Put new delete event
+        sleep(.00001)
+        timestamp = Timestamp(time()).internal
+        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
+                         lower='lower', upper='upper', deleted=1)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 1)
+
+        # Put new event
+        sleep(.00001)
+        timestamp = Timestamp(time()).internal
+        meta_timestamp = Timestamp(time()).internal
+        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
+                         lower='lowerer', upper='upperer', object_count=3,
+                         bytes_used=4)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lowerer')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upperer')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 3)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 4)
+
+        # We'll use this later
+        sleep(.0001)
+        in_between_timestamp = Timestamp(time()).internal
+
+        # New post event
+        sleep(.0001)
+        previous_timestamp = timestamp
+        timestamp = Timestamp(time()).internal
+        previous_meta_timestamp = meta_timestamp
+        meta_timestamp = Timestamp(time()).internal
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                previous_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                previous_meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lowerer')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upperer')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 3)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 4)
+
+        # Put event from after last put but before last post
+        timestamp = in_between_timestamp
+        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
+                         lower='lowererer', upper='uppererer', object_count=5,
+                         bytes_used=6)
+        with broker.get() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT name FROM pivot_ranges").fetchone()[0],
+                '"{<pivot \'&\' name>}"')
+            self.assertEqual(conn.execute(
+                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                meta_timestamp)
+            self.assertEqual(conn.execute(
+                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lowererer')
+            self.assertEqual(conn.execute(
+                "SELECT upper FROM pivot_ranges").fetchone()[0], 'uppererer')
+            self.assertEqual(conn.execute(
+                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+            self.assertEqual(conn.execute(
+                "SELECT object_count FROM pivot_ranges").fetchone()[0], 5)
+            self.assertEqual(conn.execute(
+                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 6)
+
     def test_make_tuple_for_pickle(self):
         record = {'name': 'obj',
                   'created_at': '1234567890.12345',
@@ -441,23 +698,24 @@ class TestContainerBroker(unittest.TestCase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
-                  'meta_timestamp': None}
+                  'meta_timestamp': None,
+                  'record_type': 0}
         broker = ContainerBroker(':memory:', account='a', container='c')
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', None, None)
+                  '1', '2', None, None, 0)
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['ctype_timestamp'] = '2233445566.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', None)
+                  '1', '2', '2233445566.00000', None, 0)
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['meta_timestamp'] = '5566778899.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', '5566778899.00000')
+                  '1', '2', '2233445566.00000', '5566778899.00000', 0)
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
@@ -476,7 +734,8 @@ class TestContainerBroker(unittest.TestCase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
-                  'meta_timestamp': None}
+                  'meta_timestamp': None,
+                  'record_type': 0}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -521,7 +780,8 @@ class TestContainerBroker(unittest.TestCase):
                   'deleted': '1',
                   'storage_policy_index': '2',
                   'ctype_timestamp': '1234567890.44444',
-                  'meta_timestamp': '1234567890.99999'}
+                  'meta_timestamp': '1234567890.99999',
+                  'record_type': 0}
 
         # sanity check
         self.assertFalse(os.path.isfile(broker.pending_file))
@@ -559,7 +819,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT deleted FROM object").fetchone()[0], deleted)
 
     def _test_put_object_multiple_encoded_timestamps(self, broker):
-        ts = (Timestamp(t) for t in itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker.initialize(next(ts).internal, 0)
         t = [next(ts) for _ in range(9)]
 
@@ -620,6 +880,150 @@ class TestContainerBroker(unittest.TestCase):
         self._test_put_object_multiple_encoded_timestamps(broker)
 
     @with_tempdir
+    def test_get_db_state(self, tempdir):
+        # test that the get db state code. This checks for existence of the
+        # db_file and/or the pivot_db_file.
+        acct = 'account'
+        cont = 'continer'
+        hsh = hash_path(acct, cont)
+        db_file = "%s.db" % hsh
+        db_pivot_file = "%s_pivot.db" % hsh
+        db_path = os.path.join(tempdir, db_file)
+        db_pivot_path = os.path.join(tempdir, db_pivot_file)
+        ts = Timestamp(time())
+
+        # First test NOTFOUND state
+        broker = ContainerBroker(db_path, account=acct, container=cont)
+        self.assertEqual(broker.get_db_state(), DB_STATE_NOTFOUND)
+        self.assertEqual(DB_STATE[broker.get_db_state()], 'notfound')
+
+        # Test UNSHARDED state, that is when db_file exists and pivot_db_file
+        # doesn't
+        broker.initialize(ts.internal, 0)
+        self.assertEqual(broker.get_db_state(), DB_STATE_UNSHARDED)
+        self.assertEqual(DB_STATE[broker.get_db_state()], 'unsharded')
+
+        # Test the SHARDING state, this is the period when both the db_file and
+        # the pivot_db_file exist
+        piv_broker = ContainerBroker(db_pivot_path, account=acct,
+                                     container=cont)
+        piv_broker.initialize(ts.internal, 0)
+        self.assertEqual(broker.get_db_state(), DB_STATE_SHARDING)
+        self.assertEqual(DB_STATE[broker.get_db_state()], 'sharding')
+
+        # Finally test the SHARDED state, this is when only pivot_db_file
+        # exists.
+        os.unlink(db_path)
+        self.assertEqual(broker.get_db_state(), DB_STATE_SHARDED)
+        self.assertEqual(DB_STATE[broker.get_db_state()], 'sharded')
+
+    @with_tempdir
+    def test_db_file_property(self, tempdir):
+        # test that the get db state code. This checks for existence of the
+        # db_file and/or the pivot_db_file.
+        acct = 'account'
+        cont = 'continer'
+        hsh = hash_path(acct, cont)
+        db_file = "%s.db" % hsh
+        db_pivot_file = "%s_pivot.db" % hsh
+        db_path = os.path.join(tempdir, db_file)
+        db_pivot_path = os.path.join(tempdir, db_pivot_file)
+        ts = Timestamp(time())
+
+        # First test NOTFOUND state, this will return the default db_file
+        broker = ContainerBroker(db_path, account=acct, container=cont)
+        self.assertEqual(broker.db_file, db_path)
+
+        # Test UNSHARDED state, that is when db_file exists and pivot_db_file
+        # doesn't, so it should return the db_path
+        broker.initialize(ts.internal, 0)
+        self.assertEqual(broker.db_file, db_path)
+
+        # Test the SHARDING state, this is the period when both the db_file and
+        # the pivot_db_file exist, in this case it should return the
+        # pivot_db_path
+        piv_broker = ContainerBroker(db_pivot_path, account=acct,
+                                     container=cont)
+        piv_broker.initialize(ts.internal, 0)
+        self.assertEqual(broker.db_file, db_pivot_path)
+
+        # Finally test the SHARDED state, this is when only pivot_db_file
+        # exists, so obviously this should return the pivot_db_path
+        os.unlink(db_path)
+        self.assertEqual(broker.db_file, db_pivot_path)
+
+    @with_tempdir
+    def test_get_items_since_with_pivot_db(self, tempdir):
+        acct = 'account'
+        cont = 'continer'
+        hsh = hash_path(acct, cont)
+        db_file = "%s.db" % hsh
+        db_pivot_file = "%s_pivot.db" % hsh
+        db_path = os.path.join(tempdir, db_file)
+        db_pivot_path = os.path.join(tempdir, db_pivot_file)
+        ts = make_timestamp_iter()
+
+        broker = ContainerBroker(db_path, account=acct, container=cont)
+        # In the UNSHARDED state, add some initial rows
+        broker.initialize(next(ts).internal, 0)
+        broker.delete_object('o1', next(ts).internal)
+        broker.delete_object('o2', next(ts).internal)
+        broker.delete_object('o3', next(ts).internal)
+        broker._commit_puts()
+        old_max_row = broker.get_max_row()
+        self.assertEqual(old_max_row, 3)  # sanity
+
+        # Move to SHARDING state, then populate the holding table
+        broker.set_sharding_state()
+        self.assertEqual(broker.db_file, db_pivot_path)
+        broker.delete_object('o4', next(ts).internal)
+        broker.delete_object('o5', next(ts).internal)
+        broker._commit_puts()
+        new_max_row = broker.get_max_row()
+        self.assertEqual(new_max_row, 5)  # sanity
+
+        expected = range(1, new_max_row + 1)
+        for x in range(new_max_row + 2):
+            self.assertEqual(expected[x:x + 2], [
+                item['ROWID'] for item in broker.get_items_since(x, 2)])
+
+        # final sanity check
+        broker._create_connection(broker._db_file)
+        self.assertEqual(old_max_row, broker.get_max_row())
+
+        # now lets check when we make calls to the different brokers.
+        broker_calls = []
+        orig_get_items_since = DatabaseBroker.get_items_since
+
+        def get_items_since_counter(*args):
+            broker_calls.append(args[0].conn.db_file)
+            return orig_get_items_since(*args)
+
+        with mock.patch('swift.common.db.DatabaseBroker.get_items_since',
+                        get_items_since_counter):
+            # Should only hit the old broker
+            items = broker.get_items_since(1, 2)
+            self.assertEqual(len(broker_calls), 1)
+            self.assertFalse(broker_calls[0].endswith('pivot.db'))
+            self.assertEqual([2, 3], [item['ROWID'] for item in items])
+
+            # Now well wrap around between 2 so we should call get_items_since
+            # twice, 1 old and 1 pivot broker.
+            broker_calls = []
+            items = broker.get_items_since(2, 2)
+            self.assertEqual(len(broker_calls), 2)
+            self.assertFalse(broker_calls[0].endswith('pivot.db'))
+            self.assertTrue(broker_calls[1].endswith('pivot.db'))
+            self.assertEqual([3, 4], [item['ROWID'] for item in items])
+
+            # Now only hit the pivot broker, so only call get_items_since once
+            broker_calls = []
+            items = broker.get_items_since(3, 2)
+            self.assertEqual(len(broker_calls), 1)
+            self.assertTrue(broker_calls[0].endswith('pivot.db'))
+            self.assertEqual([4, 5], [item['ROWID'] for item in items])
+
+    @with_tempdir
     def test_put_object_multiple_encoded_timestamps_using_file(self, tempdir):
         # Test ContainerBroker.put_object with differing data, content-type
         # and metadata timestamps, using file db to ensure that the code paths
@@ -629,7 +1033,7 @@ class TestContainerBroker(unittest.TestCase):
         self._test_put_object_multiple_encoded_timestamps(broker)
 
     def _test_put_object_multiple_explicit_timestamps(self, broker):
-        ts = (Timestamp(t) for t in itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker.initialize(next(ts).internal, 0)
         t = [next(ts) for _ in range(11)]
 
@@ -733,7 +1137,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_last_modified_time(self):
         # Test container listing reports the most recent of data or metadata
         # timestamp as last-modified time
-        ts = (Timestamp(t) for t in itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(next(ts).internal, 0)
 
@@ -786,18 +1190,17 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_put_misplaced_object_does_not_effect_container_stats(self):
         policy = random.choice(list(POLICIES))
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
-        broker.initialize(next(ts), policy.idx)
+        broker.initialize(next(ts).internal, policy.idx)
         # migration tests may not honor policy on initialize
         if isinstance(self, ContainerBrokerMigrationMixin):
             real_storage_policy_index = \
                 broker.get_info()['storage_policy_index']
             policy = [p for p in POLICIES
                       if p.idx == real_storage_policy_index][0]
-        broker.put_object('correct_o', next(ts), 123, 'text/plain',
+        broker.put_object('correct_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=policy.idx)
         info = broker.get_info()
@@ -805,7 +1208,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(123, info['bytes_used'])
         other_policy = random.choice([p for p in POLICIES
                                       if p is not policy])
-        broker.put_object('wrong_o', next(ts), 123, 'text/plain',
+        broker.put_object('wrong_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=other_policy.idx)
         self.assertEqual(1, info['object_count'])
@@ -814,23 +1217,22 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_has_multiple_policies(self):
         policy = random.choice(list(POLICIES))
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
-        broker.initialize(next(ts), policy.idx)
+        broker.initialize(next(ts).internal, policy.idx)
         # migration tests may not honor policy on initialize
         if isinstance(self, ContainerBrokerMigrationMixin):
             real_storage_policy_index = \
                 broker.get_info()['storage_policy_index']
             policy = [p for p in POLICIES
                       if p.idx == real_storage_policy_index][0]
-        broker.put_object('correct_o', next(ts), 123, 'text/plain',
+        broker.put_object('correct_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=policy.idx)
         self.assertFalse(broker.has_multiple_policies())
         other_policy = [p for p in POLICIES if p is not policy][0]
-        broker.put_object('wrong_o', next(ts), 123, 'text/plain',
+        broker.put_object('wrong_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=other_policy.idx)
         self.assertTrue(broker.has_multiple_policies())
@@ -838,11 +1240,10 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_get_policy_info(self):
         policy = random.choice(list(POLICIES))
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
-        broker.initialize(next(ts), policy.idx)
+        broker.initialize(next(ts).internal, policy.idx)
         # migration tests may not honor policy on initialize
         if isinstance(self, ContainerBrokerMigrationMixin):
             real_storage_policy_index = \
@@ -854,7 +1255,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(policy_stats, expected)
 
         # add an object
-        broker.put_object('correct_o', next(ts), 123, 'text/plain',
+        broker.put_object('correct_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=policy.idx)
         policy_stats = broker.get_policy_stats()
@@ -864,7 +1265,7 @@ class TestContainerBroker(unittest.TestCase):
         # add a misplaced object
         other_policy = random.choice([p for p in POLICIES
                                       if p is not policy])
-        broker.put_object('wrong_o', next(ts), 123, 'text/plain',
+        broker.put_object('wrong_o', next(ts).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=other_policy.idx)
         policy_stats = broker.get_policy_stats()
@@ -876,15 +1277,14 @@ class TestContainerBroker(unittest.TestCase):
 
     @patch_policies
     def test_policy_stat_tracking(self):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
         # Note: in subclasses of this TestCase that inherit the
         # ContainerBrokerMigrationMixin, passing POLICIES.default.idx here has
         # no effect and broker.get_policy_stats() returns a dict with a single
         # entry mapping policy index 0 to the container stats
-        broker.initialize(next(ts), POLICIES.default.idx)
+        broker.initialize(next(ts).internal, POLICIES.default.idx)
         stats = defaultdict(dict)
 
         def assert_empty_default_policy_stats(policy_stats):
@@ -904,7 +1304,7 @@ class TestContainerBroker(unittest.TestCase):
             policy_index = random.randint(0, iters * 0.1)
             name = 'object-%s' % random.randint(0, iters * 0.1)
             size = random.randint(0, iters)
-            broker.put_object(name, next(ts), size, 'text/plain',
+            broker.put_object(name, next(ts).internal, size, 'text/plain',
                               '5af83e3196bf99f440f31f2e1a6c9afe',
                               storage_policy_index=policy_index)
             # track the size of the latest timestamp put for each object
@@ -1930,12 +2330,11 @@ class TestContainerBroker(unittest.TestCase):
                 self.assertEqual(rec['content_type'], 'text/plain')
 
     def test_set_storage_policy_index(self):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
         timestamp = next(ts)
-        broker.initialize(timestamp, 0)
+        broker.initialize(timestamp.internal, 0)
 
         info = broker.get_info()
         self.assertEqual(0, info['storage_policy_index'])  # sanity check
@@ -1946,39 +2345,40 @@ class TestContainerBroker(unittest.TestCase):
                               TestContainerBrokerBeforeSPI):
             self.assertEqual(info['status_changed_at'], '0')
         else:
-            self.assertEqual(timestamp, info['status_changed_at'])
+            self.assertEqual(timestamp.internal, info['status_changed_at'])
         expected = {0: {'object_count': 0, 'bytes_used': 0}}
         self.assertEqual(expected, broker.get_policy_stats())
 
         timestamp = next(ts)
-        broker.set_storage_policy_index(111, timestamp)
+        broker.set_storage_policy_index(111, timestamp.internal)
         self.assertEqual(broker.storage_policy_index, 111)
         info = broker.get_info()
         self.assertEqual(111, info['storage_policy_index'])
         self.assertEqual(0, info['object_count'])
         self.assertEqual(0, info['bytes_used'])
-        self.assertEqual(timestamp, info['status_changed_at'])
+        self.assertEqual(timestamp.internal, info['status_changed_at'])
         expected[111] = {'object_count': 0, 'bytes_used': 0}
         self.assertEqual(expected, broker.get_policy_stats())
 
         timestamp = next(ts)
-        broker.set_storage_policy_index(222, timestamp)
+        broker.set_storage_policy_index(222, timestamp.internal)
         self.assertEqual(broker.storage_policy_index, 222)
         info = broker.get_info()
         self.assertEqual(222, info['storage_policy_index'])
         self.assertEqual(0, info['object_count'])
         self.assertEqual(0, info['bytes_used'])
-        self.assertEqual(timestamp, info['status_changed_at'])
+        self.assertEqual(timestamp.internal, info['status_changed_at'])
         expected[222] = {'object_count': 0, 'bytes_used': 0}
         self.assertEqual(expected, broker.get_policy_stats())
 
         old_timestamp, timestamp = timestamp, next(ts)
-        broker.set_storage_policy_index(222, timestamp)  # it's idempotent
+        # setting again is idempotent
+        broker.set_storage_policy_index(222, timestamp.internal)
         info = broker.get_info()
         self.assertEqual(222, info['storage_policy_index'])
         self.assertEqual(0, info['object_count'])
         self.assertEqual(0, info['bytes_used'])
-        self.assertEqual(old_timestamp, info['status_changed_at'])
+        self.assertEqual(old_timestamp.internal, info['status_changed_at'])
         self.assertEqual(expected, broker.get_policy_stats())
 
     def test_set_storage_policy_index_empty(self):
@@ -2004,19 +2404,18 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_legacy_pending_files(self, tempdir):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
 
         # first init an acct DB without the policy_stat table present
         broker = ContainerBroker(db_path, account='a', container='c')
-        broker.initialize(next(ts), 1)
+        broker.initialize(next(ts).internal, 1)
 
         # manually make some pending entries lacking storage_policy_index
         with open(broker.pending_file, 'a+b') as fp:
             for i in range(10):
                 name, timestamp, size, content_type, etag, deleted = (
-                    'o%s' % i, next(ts), 0, 'c', 'e', 0)
+                    'o%s' % i, next(ts).internal, 0, 'c', 'e', 0)
                 fp.write(':')
                 fp.write(pickle.dumps(
                     (name, timestamp, size, content_type, etag, deleted),
@@ -2033,7 +2432,7 @@ class TestContainerBroker(unittest.TestCase):
             else:
                 size = 2
                 storage_policy_index = 1
-            broker.put_object(name, next(ts), size, 'c', 'e', 0,
+            broker.put_object(name, next(ts).internal, size, 'c', 'e', 0,
                               storage_policy_index=storage_policy_index)
 
         broker._commit_puts_stale_ok()
@@ -2049,8 +2448,7 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_get_info_no_stale_reads(self, tempdir):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
 
         def mock_commit_puts():
@@ -2058,13 +2456,13 @@ class TestContainerBroker(unittest.TestCase):
 
         broker = ContainerBroker(db_path, account='a', container='c',
                                  stale_reads_ok=False)
-        broker.initialize(next(ts), 1)
+        broker.initialize(next(ts).internal, 1)
 
         # manually make some pending entries
         with open(broker.pending_file, 'a+b') as fp:
             for i in range(10):
                 name, timestamp, size, content_type, etag, deleted = (
-                    'o%s' % i, next(ts), 0, 'c', 'e', 0)
+                    'o%s' % i, next(ts).internal, 0, 'c', 'e', 0)
                 fp.write(':')
                 fp.write(pickle.dumps(
                     (name, timestamp, size, content_type, etag, deleted),
@@ -2079,8 +2477,7 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_get_info_stale_read_ok(self, tempdir):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time())))
+        ts = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
 
         def mock_commit_puts():
@@ -2088,13 +2485,13 @@ class TestContainerBroker(unittest.TestCase):
 
         broker = ContainerBroker(db_path, account='a', container='c',
                                  stale_reads_ok=True)
-        broker.initialize(next(ts), 1)
+        broker.initialize(next(ts).internal, 1)
 
         # manually make some pending entries
         with open(broker.pending_file, 'a+b') as fp:
             for i in range(10):
                 name, timestamp, size, content_type, etag, deleted = (
-                    'o%s' % i, next(ts), 0, 'c', 'e', 0)
+                    'o%s' % i, next(ts).internal, 0, 'c', 'e', 0)
                 fp.write(':')
                 fp.write(pickle.dumps(
                     (name, timestamp, size, content_type, etag, deleted),
@@ -2457,7 +2854,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         for o in broker.list_objects_iter(1, None, None, None, None):
             self.assertEqual(o, ('test_name', obj_put_timestamp, 123,
                                  'text/plain',
-                                 '8f4c680e75ca4c81dc1917ddab0a0b5c'))
+                                 '8f4c680e75ca4c81dc1917ddab0a0b5c', 0))
 
         # get_info
         info = broker.get_info()

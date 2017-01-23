@@ -272,3 +272,7 @@ class ClientException(Exception):
 
 class InvalidPidFileException(Exception):
     pass
+
+
+class RangeAnalyserException(SwiftException):
+    pass

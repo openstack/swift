@@ -20,7 +20,8 @@ from collections import defaultdict
 from eventlet import Timeout
 
 from swift.container.sync_store import ContainerSyncStore
-from swift.container.backend import ContainerBroker, DATADIR
+from swift.container.backend import ContainerBroker, DATADIR, \
+    DB_STATE_SHARDED, DB_STATE_SHARDING
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, incorrect_policy_index,
     get_reconciler_container_name, get_row_to_q_entry_translator)
@@ -31,6 +32,11 @@ from swift.common.http import is_success
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.utils import (Timestamp, hash_path,
                                 storage_directory, majority_size)
+
+
+def other_items_hook(broker):
+    pivot_ranges = broker.get_pivot_ranges()
+    return broker.pivot_nodes_to_items(pivot_ranges)
 
 
 class ContainerReplicator(db_replicator.Replicator):
@@ -259,6 +265,34 @@ class ContainerReplicator(db_replicator.Replicator):
             self.replicate_reconcilers()
         return rv
 
+    def _in_sync(self, rinfo, info, broker, local_sync):
+        if len(broker.get_pivot_ranges()) > 0:
+            return False
+
+        return super(ContainerReplicator, self)._in_sync(
+            rinfo, info, broker, local_sync)
+
+    def _other_items_hook(self, broker):
+        return other_items_hook(broker)
+
+    def _is_locked(self, broker):
+        return broker.has_sharding_lock()
+
+    def _can_push(self, info, rinfo):
+        def is_sharded(inf):
+            return inf.get('db_state') and \
+                inf.get('db_state') == DB_STATE_SHARDED
+
+        def is_sharding(inf):
+            return inf.get('db_state') and \
+                inf.get('db_state') == DB_STATE_SHARDING
+
+        if is_sharded(rinfo) and not is_sharded(info):
+            return False
+        if is_sharding(info) or is_sharding(rinfo):
+            return False
+        return True
+
 
 class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
 
@@ -289,3 +323,6 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
                 timestamp=status_changed_at)
             info = broker.get_replication_info()
         return info
+
+    def _other_items_hook(self, broker):
+        return other_items_hook(broker)

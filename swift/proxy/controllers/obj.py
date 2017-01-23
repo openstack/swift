@@ -46,7 +46,8 @@ from swift.common.utils import (
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
-    quorum_size, reiterate, close_if_possible, safe_json_loads)
+    quorum_size, reiterate, close_if_possible, safe_json_loads,
+    account_to_pivot_account)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -72,6 +73,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import update_etag_is_at_header, \
     resolve_etag_is_at_header
+from swift.container.backend import DB_STATE_UNSHARDED, DB_STATE_SHARDING, \
+    DB_STATE_SHARDED
 
 
 def check_content_type(req):
@@ -226,6 +229,28 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
+    def _get_container_meta(self, req, container_info):
+        db_state = container_info.get('sharding_state', DB_STATE_UNSHARDED)
+        if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
+            # find the sharded container to send the update too.
+            ranges = self._get_pivot_ranges(
+                req, self.account_name, self.container_name, self.object_name)
+
+            if ranges:
+                piv_acct = account_to_pivot_account(self.account_name)
+                partition, containers = self.app.container_ring.get_nodes(
+                    piv_acct, ranges[0].name)
+                overide_prefix = 'X-Backend-Container-Update-Override'
+                shard = ranges[0].name
+                container_meta = {
+                    '%s-Backend-Pivot-Account' % overide_prefix: piv_acct,
+                    '%s-Backend-Pivot-Container' % overide_prefix: shard
+                }
+
+                return partition, containers, container_meta
+
+        return container_info['partition'], container_info['nodes'], {}
+
     @public
     @cors_validation
     @delay_denial
@@ -233,14 +258,14 @@ class BaseObjectController(Controller):
         """HTTP POST request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        container_partition = container_info['partition']
-        container_nodes = container_info['nodes']
+        container_partition, containers, container_meta = \
+            self._get_container_meta(req, container_info)
         req.acl = container_info['write_acl']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not container_nodes:
+        if not containers:
             return HTTPNotFound(request=req)
         error_response = check_metadata(req, 'object')
         if error_response:
@@ -263,18 +288,21 @@ class BaseObjectController(Controller):
         req.headers['X-Timestamp'] = Timestamp.now().internal
 
         headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
+            req, len(nodes), container_partition, containers,
+            delete_at_container, delete_at_part, delete_at_nodes,
+            container_meta)
         return self._post_object(req, obj_ring, partition, headers)
 
     def _backend_requests(self, req, n_outgoing,
                           container_partition, containers,
                           delete_at_container=None, delete_at_partition=None,
-                          delete_at_nodes=None):
+                          delete_at_nodes=None, container_meta=None):
         policy_index = req.headers['X-Backend-Storage-Policy-Index']
         policy = POLICIES.get_by_index(policy_index)
         headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
+        if container_meta is None:
+            container_meta = {}
 
         def set_container_update(index, container):
             headers[index]['X-Container-Partition'] = container_partition
@@ -284,6 +312,7 @@ class BaseObjectController(Controller):
             headers[index]['X-Container-Device'] = csv_append(
                 headers[index].get('X-Container-Device'),
                 container['device'])
+            headers[index].update(container_meta)
 
         for i, container in enumerate(containers):
             i = i % len(headers)
@@ -686,8 +715,8 @@ class BaseObjectController(Controller):
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
-        container_nodes = container_info['nodes']
-        container_partition = container_info['partition']
+        container_partition, container_nodes, container_meta = \
+            self._get_container_meta(req, container_info)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
@@ -734,7 +763,8 @@ class BaseObjectController(Controller):
         # add special headers to be handled by storage nodes
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
-            delete_at_container, delete_at_part, delete_at_nodes)
+            delete_at_container, delete_at_part, delete_at_nodes,
+            container_meta)
 
         # send object to storage nodes
         resp = self._store_object(
@@ -757,15 +787,15 @@ class BaseObjectController(Controller):
         next_part_power = getattr(obj_ring, 'next_part_power', None)
         if next_part_power:
             req.headers['X-Backend-Next-Part-Power'] = next_part_power
-        container_partition = container_info['partition']
-        container_nodes = container_info['nodes']
+        container_partition, containers, container_meta = \
+            self._get_container_meta(req, container_info)
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not container_nodes:
+        if not containers:
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -795,7 +825,8 @@ class BaseObjectController(Controller):
             node_count += local_handoffs
 
         headers = self._backend_requests(
-            req, node_count, container_partition, container_nodes)
+            req, node_count, container_partition, containers,
+            container_meta=container_meta)
         return self._delete_object(req, obj_ring, partition, headers)
 
 
