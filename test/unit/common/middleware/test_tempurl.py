@@ -1076,54 +1076,65 @@ class TestTempURL(unittest.TestCase):
 
     def test_get_temp_url_info(self):
         s = 'f5d5051bddf5df7e27c628818738334f'
-        e = int(time() + 86400)
+        e_ts = int(time() + 86400)
+        e_8601 = strftime(tempurl.EXPIRES_ISO8601_FORMAT, gmtime(e_ts))
+        for e in (e_ts, e_8601):
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                        s, e)}),
+                (s, e_ts, None, None, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING':
+                     'temp_url_sig=%s&temp_url_expires=%s&temp_url_prefix=%s'
+                     % (s, e, 'prefix')}),
+                (s, e_ts, 'prefix', None, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+                     'filename=bobisyouruncle' % (s, e)}),
+                (s, e_ts, None, 'bobisyouruncle', None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info({}),
+                (None, None, None, None, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_expires=%s' % e}),
+                (None, e_ts, None, None, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s' % s}),
+                (s, None, None, None, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=bad' % (
+                        s)}),
+                (s, 0, None, None, None))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+                     'inline=' % (s, e)}),
+                (s, e_ts, None, None, True))
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
+                     'filename=bobisyouruncle&inline=' % (s, e)}),
+                (s, e_ts, None, 'bobisyouruncle', True))
+        e_ts = int(time() - 1)
+        e_8601 = strftime(tempurl.EXPIRES_ISO8601_FORMAT, gmtime(e_ts))
+        for e in (e_ts, e_8601):
+            self.assertEqual(
+                self.tempurl._get_temp_url_info(
+                    {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                        s, e)}),
+                (s, 0, None, None, None))
+        # Offsets not supported (yet?).
+        e_8601 = strftime('%Y-%m-%dT%H:%M:%S+0000', gmtime(e_ts))
         self.assertEqual(
             self.tempurl._get_temp_url_info(
                 {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
-                    s, e)}),
-            (s, e, None, None, None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING':
-                 'temp_url_sig=%s&temp_url_expires=%s&temp_url_prefix=%s' % (
-                     s, e, 'prefix')}),
-            (s, e, 'prefix', None, None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
-                 'filename=bobisyouruncle' % (s, e)}),
-            (s, e, None, 'bobisyouruncle', None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info({}),
-            (None, None, None, None, None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_expires=%s' % e}),
-            (None, e, None, None, None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_sig=%s' % s}),
-            (s, None, None, None, None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=bad' % (
-                    s)}),
-            (s, 0, None, None, None))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
-                 'inline=' % (s, e)}),
-            (s, e, None, None, True))
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s&'
-                 'filename=bobisyouruncle&inline=' % (s, e)}),
-            (s, e, None, 'bobisyouruncle', True))
-        e = int(time() - 1)
-        self.assertEqual(
-            self.tempurl._get_temp_url_info(
-                {'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
-                    s, e)}),
+                    s, e_8601)}),
             (s, 0, None, None, None))
 
     def test_get_hmacs(self):
