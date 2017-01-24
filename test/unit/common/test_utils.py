@@ -5982,5 +5982,97 @@ class TestSocketStringParser(unittest.TestCase):
                     utils.parse_socket_string(addr, default)
 
 
+class TestHashForFileFunction(unittest.TestCase):
+    def setUp(self):
+        self.tempfilename = tempfile.mktemp()
+
+    def tearDown(self):
+        try:
+            os.unlink(self.tempfilename)
+        except OSError:
+            pass
+
+    def test_hash_for_file_smallish(self):
+        stub_data = 'some data'
+        with open(self.tempfilename, 'wb') as fd:
+            fd.write(stub_data)
+        with mock.patch('swift.common.utils.md5') as mock_md5:
+            mock_hasher = mock_md5.return_value
+            rv = utils.md5_hash_for_file(self.tempfilename)
+        self.assertTrue(mock_hasher.hexdigest.called)
+        self.assertEqual(rv, mock_hasher.hexdigest.return_value)
+        self.assertEqual([mock.call(stub_data)],
+                         mock_hasher.update.call_args_list)
+
+    def test_hash_for_file_big(self):
+        num_blocks = 10
+        block_size = utils.MD5_BLOCK_READ_BYTES
+        truncate = 523
+        start_char = ord('a')
+        expected_blocks = [chr(i) * block_size
+                           for i in range(start_char, start_char + num_blocks)]
+        full_data = ''.join(expected_blocks)
+        trimmed_data = full_data[:-truncate]
+        # sanity
+        self.assertEqual(len(trimmed_data), block_size * num_blocks - truncate)
+        with open(self.tempfilename, 'wb') as fd:
+            fd.write(trimmed_data)
+        with mock.patch('swift.common.utils.md5') as mock_md5:
+            mock_hasher = mock_md5.return_value
+            rv = utils.md5_hash_for_file(self.tempfilename)
+        self.assertTrue(mock_hasher.hexdigest.called)
+        self.assertEqual(rv, mock_hasher.hexdigest.return_value)
+        self.assertEqual(num_blocks, len(mock_hasher.update.call_args_list))
+        found_blocks = []
+        for i, (expected_block, call) in enumerate(zip(
+                expected_blocks, mock_hasher.update.call_args_list)):
+            args, kwargs = call
+            self.assertEqual(kwargs, {})
+            self.assertEqual(1, len(args))
+            block = args[0]
+            if i < num_blocks - 1:
+                self.assertEqual(block, expected_block)
+            else:
+                self.assertEqual(block, expected_block[:-truncate])
+            found_blocks.append(block)
+        self.assertEqual(''.join(found_blocks), trimmed_data)
+
+    def test_hash_for_file_empty(self):
+        with open(self.tempfilename, 'wb'):
+            pass
+        with mock.patch('swift.common.utils.md5') as mock_md5:
+            mock_hasher = mock_md5.return_value
+            rv = utils.md5_hash_for_file(self.tempfilename)
+        self.assertTrue(mock_hasher.hexdigest.called)
+        self.assertEqual(rv, mock_hasher.hexdigest.return_value)
+        self.assertEqual([], mock_hasher.update.call_args_list)
+
+    def test_hash_for_file_brittle(self):
+        data_to_expected_hash = {
+            '': 'd41d8cd98f00b204e9800998ecf8427e',
+            'some data': '1e50210a0202497fb79bc38b6ade6c34',
+            ('a' * 4096 * 10)[:-523]: '06a41551609656c85f14f659055dc6d3',
+        }
+        # unlike some other places where the concrete implementation really
+        # matters for backwards compatibility these brittle tests are probably
+        # not needed or justified, if a future maintainer rips them out later
+        # they're probably doing the right thing
+        failures = []
+        for stub_data, expected_hash in data_to_expected_hash.items():
+            with open(self.tempfilename, 'wb') as fd:
+                fd.write(stub_data)
+            rv = utils.md5_hash_for_file(self.tempfilename)
+            try:
+                self.assertEqual(expected_hash, rv)
+            except AssertionError:
+                trim_cap = 80
+                if len(stub_data) > trim_cap:
+                    stub_data = '%s...<truncated>' % stub_data[:trim_cap]
+                failures.append('hash for %r was %s instead of expected %s' % (
+                    stub_data, rv, expected_hash))
+        if failures:
+            self.fail('Some data did not compute expected hash:\n' +
+                      '\n'.join(failures))
+
 if __name__ == '__main__':
     unittest.main()

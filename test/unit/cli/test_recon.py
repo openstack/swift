@@ -291,7 +291,7 @@ class TestRecon(unittest.TestCase):
                 self.recon_instance.server_type = server_type
                 stdout = StringIO()
                 with mock.patch('sys.stdout', new=stdout), \
-                        mock.patch('swift.cli.recon.md5', new=mock_hash):
+                        mock.patch('swift.common.utils.md5', new=mock_hash):
                     mock_hash.return_value.hexdigest.return_value = \
                         empty_file_hash
                     self.recon_instance.get_ringmd5(hosts, self.swift_dir)
@@ -319,7 +319,7 @@ class TestRecon(unittest.TestCase):
             mock_scout.return_value = scout_instance
             stdout = StringIO()
             with mock.patch('sys.stdout', new=stdout), \
-                    mock.patch('swift.cli.recon.md5', new=mock_hash):
+                    mock.patch('swift.common.utils.md5', new=mock_hash):
                 mock_hash.return_value.hexdigest.return_value = \
                     empty_file_hash
                 self.recon_instance.get_ringmd5(hosts, self.swift_dir)
@@ -339,7 +339,7 @@ class TestRecon(unittest.TestCase):
             self.recon_instance.server_type = 'object'
             stdout = StringIO()
             with mock.patch('sys.stdout', new=stdout), \
-                    mock.patch('swift.cli.recon.md5', new=mock_hash):
+                    mock.patch('swift.common.utils.md5', new=mock_hash):
                 mock_hash.return_value.hexdigest.return_value = \
                     empty_file_hash
                 self.recon_instance.get_ringmd5(hosts, self.swift_dir)
@@ -729,7 +729,8 @@ class TestReconCommands(unittest.TestCase):
 
         printed = []
         with self.mock_responses(responses):
-            with mock.patch.object(self.recon, '_md5_file', lambda _: cksum):
+            with mock.patch('swift.cli.recon.md5_hash_for_file',
+                            lambda _: cksum):
                 self.recon.get_swiftconfmd5(hosts, printfn=printed.append)
 
         output = '\n'.join(printed) + '\n'
@@ -748,7 +749,8 @@ class TestReconCommands(unittest.TestCase):
 
         printed = []
         with self.mock_responses(responses):
-            with mock.patch.object(self.recon, '_md5_file', lambda _: cksum):
+            with mock.patch('swift.cli.recon.md5_hash_for_file',
+                            lambda _: cksum):
                 self.recon.get_swiftconfmd5(hosts, printfn=printed.append)
 
         output = '\n'.join(printed) + '\n'
