@@ -117,18 +117,15 @@ Object Post as Copy
 -------------------
 Historically, this has been a feature (and a configurable option with default
 set to True) in proxy server configuration. This has been moved to server side
-copy middleware.
+copy middleware and the default changed to False.
 
-When ``object_post_as_copy`` is set to ``true`` (default value), an incoming
-POST request is morphed into a COPY request where source and destination
-objects are same.
+When ``object_post_as_copy`` is set to ``true``, an incoming POST request is
+morphed into a COPY request where source and destination objects are same.
 
 This feature was necessary because of a previous behavior where POSTS would
 update the metadata on the object but not on the container. As a result,
 features like container sync would not work correctly. This is no longer the
-case and the plan is to deprecate this option. It is being kept now for
-backwards compatibility. At first chance, set ``object_post_as_copy`` to
-``false``.
+case and this option is now deprecated. It will be removed in a future release.
 """
 
 import os
@@ -277,7 +274,13 @@ class ServerSideCopyMiddleware(object):
         # problems during upgrade.
         self._load_object_post_as_copy_conf(conf)
         self.object_post_as_copy = \
-            config_true_value(conf.get('object_post_as_copy', 'true'))
+            config_true_value(conf.get('object_post_as_copy', 'false'))
+        if self.object_post_as_copy:
+            msg = ('object_post_as_copy=true is deprecated; remove all '
+                   'references to it from %s to disable this warning. This '
+                   'option will be ignored in a future release' % conf.get(
+                       '__file__', 'proxy-server.conf'))
+            self.logger.warning(msg)
 
     def _load_object_post_as_copy_conf(self, conf):
         if ('object_post_as_copy' in conf or '__file__' not in conf):
