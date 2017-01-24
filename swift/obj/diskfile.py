@@ -309,10 +309,6 @@ def invalidate_hash(suffix_dir):
 
     suffix = basename(suffix_dir)
     partition_dir = dirname(suffix_dir)
-    hashes_file = join(partition_dir, HASH_FILE)
-    if not os.path.exists(hashes_file):
-        return
-
     invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
     with lock_path(partition_dir):
         with open(invalidations_file, 'ab') as inv_fh:

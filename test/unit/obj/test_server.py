@@ -6968,9 +6968,12 @@ class TestObjectServer(unittest.TestCase):
             self.assertIn(' 499 ', line)
 
     def find_files(self):
+        ignore_files = {'.lock', 'hashes.invalid'}
         found_files = defaultdict(list)
         for root, dirs, files in os.walk(self.devices):
             for filename in files:
+                if filename in ignore_files:
+                    continue
                 _name, ext = os.path.splitext(filename)
                 file_path = os.path.join(root, filename)
                 found_files[ext].append(file_path)
