@@ -149,8 +149,24 @@ class ObjectReconstructor(Daemon):
         self.headers = {
             'Content-Length': '0',
             'user-agent': 'obj-reconstructor %s' % os.getpid()}
-        self.handoffs_first = config_true_value(conf.get('handoffs_first',
-                                                         False))
+        if 'handoffs_first' in conf:
+            self.logger.warning(
+                'The handoffs_first option is deprecated in favor '
+                'of handoffs_only.  This option may be ignored in a '
+                'future release.')
+            # honor handoffs_first for backwards compatibility
+            default_handoffs_only = config_true_value(conf['handoffs_first'])
+        else:
+            default_handoffs_only = False
+        self.handoffs_only = config_true_value(
+            conf.get('handoffs_only', default_handoffs_only))
+        if self.handoffs_only:
+            self.logger.warning(
+                'Handoff only mode is not intended for normal '
+                'operation, use handoffs_only with care.')
+        elif default_handoffs_only:
+            self.logger.warning('Ignored handoffs_first option in favor '
+                                'of handoffs_only.')
         self._df_router = DiskFileRouter(conf, self.logger)
 
     def load_object_ring(self, policy):
@@ -668,6 +684,8 @@ class ObjectReconstructor(Daemon):
         if syncd_with >= len(job['sync_to']):
             self.delete_reverted_objs(
                 job, reverted_objs, job['frag_index'])
+        else:
+            self.handoffs_remaining += 1
         self.logger.timing_since('partition.delete.timing', begin)
 
     def _get_part_jobs(self, local_dev, part_path, partition, policy):
@@ -696,6 +714,9 @@ class ObjectReconstructor(Daemon):
         :param policy: the policy
 
         :returns: a list of dicts of job info
+
+        N.B. If this function ever returns an empty list of jobs the entire
+        partition will be deleted.
         """
         # find all the fi's in the part, and which suffixes have them
         try:
@@ -888,12 +909,12 @@ class ObjectReconstructor(Daemon):
         """
         Helper function for collect_jobs to build jobs for reconstruction
         using EC style storage policy
+
+        N.B. If this function ever returns an empty list of jobs the entire
+        partition will be deleted.
         """
         jobs = self._get_part_jobs(**part_info)
         random.shuffle(jobs)
-        if self.handoffs_first:
-            # Move the handoff revert jobs to the front of the list
-            jobs.sort(key=lambda job: job['job_type'], reverse=True)
         self.job_count += len(jobs)
         return jobs
 
@@ -909,6 +930,7 @@ class ObjectReconstructor(Daemon):
         self.reconstruction_part_count = 0
         self.reconstruction_device_count = 0
         self.last_reconstruction_count = -1
+        self.handoffs_remaining = 0
 
     def delete_partition(self, path):
         self.logger.info(_("Removing partition: %s"), path)
@@ -944,6 +966,11 @@ class ObjectReconstructor(Daemon):
                     self.run_pool.spawn(self.delete_partition,
                                         part_info['part_path'])
                 for job in jobs:
+                    if (self.handoffs_only and job['job_type'] != REVERT):
+                        self.logger.debug('Skipping %s job for %s '
+                                          'while in handoffs_only mode.',
+                                          job['job_type'], job['path'])
+                        continue
                     self.run_pool.spawn(self.process_job, job)
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
@@ -955,6 +982,16 @@ class ObjectReconstructor(Daemon):
             stats.kill()
             lockup_detector.kill()
             self.stats_line()
+        if self.handoffs_only:
+            if self.handoffs_remaining > 0:
+                self.logger.info(_(
+                    "Handoffs only mode still has handoffs remaining.  "
+                    "Next pass will continue to revert handoffs."))
+            else:
+                self.logger.warning(_(
+                    "Handoffs only mode found no handoffs remaining.  "
+                    "You should disable handoffs_only once all nodes "
+                    "are reporting no handoffs remaining."))
 
     def run_once(self, *args, **kwargs):
         start = time.time()
