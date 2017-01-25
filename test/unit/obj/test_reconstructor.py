@@ -625,7 +625,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             stat_line = line.split('of', 1)[0].strip()
             stats_lines.add(stat_line)
         acceptable = set([
-            '0/3 (0.00%) partitions',
+            '3/8 (37.50%) partitions',
+            '5/8 (62.50%) partitions',
             '8/8 (100.00%) partitions',
         ])
         matched = stats_lines & acceptable
@@ -804,16 +805,14 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             pass
         self.assertTrue(os.path.isfile(pol_1_part_1_path))  # sanity check
 
-        # since our collect_parts job is a generator, that yields directly
-        # into build_jobs and then spawns it's safe to do the remove_files
-        # without making reconstructor startup slow
-        self.reconstructor._reset_stats()
-        for part_info in self.reconstructor.collect_parts():
-            self.assertNotEqual(pol_1_part_1_path, part_info['part_path'])
+        self.reconstructor.process_job = lambda j: None
+        self.reconstructor.reconstruct()
+
         self.assertFalse(os.path.exists(pol_1_part_1_path))
         warnings = self.reconstructor.logger.get_lines_for_level('warning')
         self.assertEqual(1, len(warnings))
-        self.assertIn('Unexpected entity in data dir:', warnings[0])
+        self.assertIn(pol_1_part_1_path, warnings[0])
+        self.assertIn('not a directory', warnings[0].lower())
 
     def test_ignores_status_file(self):
         # Following fd86d5a, the auditor will leave status files on each device
