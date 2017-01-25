@@ -121,24 +121,23 @@ set using environment variables:
 
 - encryption may be added to the proxy pipeline by setting the
   environment variable ``SWIFT_TEST_IN_PROCESS_CONF_LOADER`` to
-  ``encryption``.  Or when using ``tox``, specify the ``tox`` environment
-  ``func-in-process-encryption``
+  ``encryption``.
 
-- the proxy-server ``object_post_as_copy`` option may be set using the
-  environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
+- the deprecated proxy-server ``object_post_as_copy`` option may be set using
+  the environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
 
 - logging to stdout may be enabled by setting ``SWIFT_TEST_DEBUG_LOGS``.
 
 For example, this command would run the in-process mode functional tests with
-the proxy-server using object_post_as_copy=False (the 'fast-POST' mode)::
+encryption enabled in the proxy-server::
 
-    SWIFT_TEST_IN_PROCESS=1 SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY=False \
+    SWIFT_TEST_IN_PROCESS=1 SWIFT_TEST_IN_PROCESS_CONF_LOADER=encryption \
         tox -e func
 
-This particular example may also be run using the ``func-in-process-fast-post``
+This particular example may also be run using the ``func-encryption``
 tox environment::
 
-    tox -e func-in-process-fast-post
+    tox -e func-encryption
 
 To debug the functional tests, use the 'in-process test' mode and pass the
 ``--pdb`` flag to ``tox``::
