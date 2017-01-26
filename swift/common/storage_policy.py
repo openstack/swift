@@ -12,8 +12,10 @@
 # limitations under the License.
 
 
+import logging
 import os
 import string
+import sys
 import textwrap
 import six
 from six.moves.configparser import ConfigParser
@@ -452,6 +454,26 @@ class ECStoragePolicy(BaseStoragePolicy):
         except (TypeError, ValueError):
             raise PolicyError('Invalid ec_object_segment_size %r' %
                               ec_segment_size, index=self.idx)
+
+        if self._ec_type == 'isa_l_rs_vand' and self._ec_nparity >= 5:
+            logger = logging.getLogger("swift.common.storage_policy")
+            if not logger.handlers:
+                # If nothing else, log to stderr
+                logger.addHandler(logging.StreamHandler(sys.__stderr__))
+            logger.warning(
+                'Storage policy %s uses an EC configuration known to harm '
+                'data durability. Any data in this policy should be migrated. '
+                'See https://bugs.launchpad.net/swift/+bug/1639691 for '
+                'more information.' % self.name)
+            if not is_deprecated:
+                # TODO: To fully close bug 1639691, uncomment the raise and
+                # removing the warning below. This will be in the Pike release
+                # at the earliest.
+                logger.warning(
+                    'In a future release, this will prevent services from '
+                    'starting unless the policy is marked as deprecated.')
+                # raise PolicyError('Storage policy %s MUST be deprecated' %
+                #                   self.name)
 
         # Initialize PyECLib EC backend
         try:
