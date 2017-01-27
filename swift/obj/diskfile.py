@@ -279,22 +279,10 @@ def consolidate_hashes(partition_dir):
     :param suffix_dir: absolute path to partition dir containing hashes.pkl
                        and hashes.invalid
 
-    :returns: the hashes, or None if there's no hashes.pkl.
+    :returns: a dict, the suffix hashes (if any), the key 'valid' will be False
+              if hashes.pkl is corrupt, cannot be read or does not exist
     """
-    hashes_file = join(partition_dir, HASH_FILE)
     invalidations_file = join(partition_dir, HASH_INVALIDATIONS_FILE)
-
-    if not os.path.exists(hashes_file):
-        if os.path.exists(invalidations_file):
-            # no hashes at all -> everything's invalid, so empty the file with
-            # the invalid suffixes in it, if it exists
-            try:
-                with open(invalidations_file, 'wb'):
-                    pass
-            except OSError as e:
-                if e.errno != errno.ENOENT:
-                    raise
-        return None
 
     with lock_path(partition_dir):
         hashes = read_hashes(partition_dir)
@@ -1059,9 +1047,6 @@ class BaseDiskFileManager(object):
             self.logger.warning('Unable to read %r', hashes_file,
                                 exc_info=True)
 
-        if orig_hashes is None:
-            # consolidate_hashes returns None if hashes.pkl does not exist
-            orig_hashes = {'valid': False}
         if not orig_hashes['valid']:
             # This is the only path to a valid hashes from invalid read (e.g.
             # does not exist, corrupt, etc.).  Moreover, in order to write this
