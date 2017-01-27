@@ -100,10 +100,19 @@ def _get_upload_info(req, app, upload_id):
     container = req.container_name + MULTIUPLOAD_SUFFIX
     obj = '%s/%s' % (req.object_name, upload_id)
 
+    # XXX: if we leave the copy-source header, somewhere later we might
+    # drop in a ?version-id=... query string that's utterly inappropriate
+    # for the upload marker. Until we get around to fixing that, just pop
+    # it off for now...
+    copy_source = req.headers.pop('X-Amz-Copy-Source', None)
     try:
         return req.get_response(app, 'HEAD', container=container, obj=obj)
     except NoSuchKey:
         raise NoSuchUpload(upload_id=upload_id)
+    finally:
+        # ...making sure to restore any copy-source before returning
+        if copy_source is not None:
+            req.headers['X-Amz-Copy-Source'] = copy_source
 
 
 def _check_upload_info(req, app, upload_id):

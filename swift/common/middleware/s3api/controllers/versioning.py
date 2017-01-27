@@ -13,12 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.utils import public
+from swift.common.utils import public, get_swift_info, config_true_value
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
-from swift.common.middleware.s3api.etree import Element, tostring
-from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented
+from swift.common.middleware.s3api.etree import Element, tostring, \
+    fromstring, XMLSyntaxError, DocumentInvalid, SubElement
+from swift.common.middleware.s3api.s3response import HTTPOk, \
+    S3NotImplemented, MalformedXML
+
+MAX_PUT_VERSIONING_BODY_SIZE = 10240
 
 
 class VersioningController(Controller):
@@ -36,13 +40,16 @@ class VersioningController(Controller):
         """
         Handles GET Bucket versioning.
         """
-        req.get_response(self.app, method='HEAD')
+        sysmeta = req.get_container_info(self.app).get('sysmeta', {})
 
-        # Just report there is no versioning configured here.
         elem = Element('VersioningConfiguration')
+        if sysmeta.get('versions-enabled'):
+            SubElement(elem, 'Status').text = (
+                'Enabled' if config_true_value(sysmeta['versions-enabled'])
+                else 'Suspended')
         body = tostring(elem)
 
-        return HTTPOk(body=body, content_type="text/plain")
+        return HTTPOk(body=body, content_type=None)
 
     @public
     @bucket_operation
@@ -50,4 +57,25 @@ class VersioningController(Controller):
         """
         Handles PUT Bucket versioning.
         """
-        raise S3NotImplemented()
+        if 'object_versioning' not in get_swift_info():
+            raise S3NotImplemented()
+
+        xml = req.xml(MAX_PUT_VERSIONING_BODY_SIZE)
+        try:
+            elem = fromstring(xml, 'VersioningConfiguration')
+            status = elem.find('./Status').text
+        except (XMLSyntaxError, DocumentInvalid):
+            raise MalformedXML()
+        except Exception as e:
+            self.logger.error(e)
+            raise
+
+        if status not in ['Enabled', 'Suspended']:
+            raise MalformedXML()
+
+        # Set up versioning
+        # NB: object_versioning responsible for ensuring its container exists
+        req.headers['X-Versions-Enabled'] = str(status == 'Enabled').lower()
+        req.get_response(self.app, 'POST')
+
+        return HTTPOk()

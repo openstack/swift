@@ -17,15 +17,15 @@ import copy
 import json
 
 from swift.common.constraints import MAX_OBJECT_NAME_LENGTH
-from swift.common.utils import public, StreamingPile
+from swift.common.utils import public, StreamingPile, get_swift_info
 
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
-from swift.common.middleware.s3api.s3response import HTTPOk, S3NotImplemented, \
-    NoSuchKey, ErrorResponse, MalformedXML, UserKeyMustBeSpecified, \
-    AccessDenied, MissingRequestBodyError
+from swift.common.middleware.s3api.s3response import HTTPOk, \
+    S3NotImplemented, NoSuchKey, ErrorResponse, MalformedXML, \
+    UserKeyMustBeSpecified, AccessDenied, MissingRequestBodyError
 
 
 class MultiObjectDeleteController(Controller):
@@ -35,12 +35,10 @@ class MultiObjectDeleteController(Controller):
     """
     def _gen_error_body(self, error, elem, delete_list):
         for key, version in delete_list:
-            if version is not None:
-                # TODO: delete the specific version of the object
-                raise S3NotImplemented()
-
             error_elem = SubElement(elem, 'Error')
             SubElement(error_elem, 'Key').text = key
+            if version is not None:
+                SubElement(error_elem, 'VersionId').text = version
             SubElement(error_elem, 'Code').text = error.__class__.__name__
             SubElement(error_elem, 'Message').text = error._msg
 
@@ -105,21 +103,32 @@ class MultiObjectDeleteController(Controller):
             body = self._gen_error_body(error, elem, delete_list)
             return HTTPOk(body=body)
 
-        if any(version is not None for _key, version in delete_list):
-            # TODO: support deleting specific versions of objects
+        if 'object_versioning' not in get_swift_info() and any(
+                version not in ('null', None)
+                for _key, version in delete_list):
             raise S3NotImplemented()
 
         def do_delete(base_req, key, version):
             req = copy.copy(base_req)
             req.environ = copy.copy(base_req.environ)
             req.object_name = key
+            if version:
+                req.params = {'version-id': version, 'symlink': 'get'}
 
             try:
-                query = req.gen_multipart_manifest_delete_query(self.app)
+                try:
+                    query = req.gen_multipart_manifest_delete_query(
+                        self.app, version=version)
+                except NoSuchKey:
+                    query = {}
+                if version:
+                    query['version-id'] = version
+                    query['symlink'] = 'get'
+
                 resp = req.get_response(self.app, method='DELETE', query=query,
                                         headers={'Accept': 'application/json'})
                 # Have to read the response to actually do the SLO delete
-                if query:
+                if query.get('multipart-manifest'):
                     try:
                         delete_result = json.loads(resp.body)
                         if delete_result['Errors']:
@@ -144,6 +153,12 @@ class MultiObjectDeleteController(Controller):
                 pass
             except ErrorResponse as e:
                 return key, {'code': e.__class__.__name__, 'message': e._msg}
+            except Exception:
+                self.logger.exception(
+                    'Unexpected Error handling DELETE of %r %r' % (
+                        req.container_name, key))
+                return key, {'code': 'Server Error', 'message': 'Server Error'}
+
             return key, None
 
         with StreamingPile(self.conf.multi_delete_concurrency) as pile:

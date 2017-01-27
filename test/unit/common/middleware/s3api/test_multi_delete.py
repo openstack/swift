@@ -23,6 +23,7 @@ import mock
 from swift.common import swob
 from swift.common.swob import Request
 
+from test.unit import make_timestamp_iter
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
@@ -38,6 +39,7 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                             swob.HTTPOk, {}, None)
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key2',
                             swob.HTTPNotFound, {}, None)
+        self.ts = make_timestamp_iter()
 
     @s3acl
     def test_object_multi_DELETE_to_object(self):
@@ -98,10 +100,11 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(len(elem.findall('Deleted')), 3)
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key1'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key1?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key1'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key2'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key3'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key2?symlink=get'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key2'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key3?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key3?multipart-manifest=delete'),
         ])
 
@@ -161,11 +164,12 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         )
         self.assertEqual(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key1'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key1?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key1'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key2'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key3'),
-            ('HEAD', '/v1/AUTH_test/bucket/Key4'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key2?symlink=get'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key2'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key3?symlink=get'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key4?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key4?multipart-manifest=delete'),
         ])
 
@@ -221,18 +225,42 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
         self.assertEqual(self._get_error_code(body), 'UserKeyMustBeSpecified')
 
     @s3acl
-    def test_object_multi_DELETE_versioned(self):
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
-                            swob.HTTPNoContent, {}, None)
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key2',
-                            swob.HTTPNotFound, {}, None)
+    def test_object_multi_DELETE_versioned_enabled(self):
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent, {
+                'X-Container-Sysmeta-Versions-Enabled': 'True',
+            }, None)
+        t1 = next(self.ts)
+        key1 = '/v1/AUTH_test/bucket/Key1' \
+            '?symlink=get&version-id=%s' % t1.normal
+        self.swift.register('HEAD', key1, swob.HTTPOk, {}, None)
+        self.swift.register('DELETE', key1, swob.HTTPNoContent, {}, None)
+        t2 = next(self.ts)
+        key2 = '/v1/AUTH_test/bucket/Key2' \
+            '?symlink=get&version-id=%s' % t2.normal
+        # this 404 could just mean it's a delete marker
+        self.swift.register('HEAD', key2, swob.HTTPNotFound, {}, None)
+        self.swift.register('DELETE', key2, swob.HTTPNoContent, {}, None)
+        key3 = '/v1/AUTH_test/bucket/Key3'
+        self.swift.register('HEAD', key3 + '?symlink=get',
+                            swob.HTTPOk, {}, None)
+        self.swift.register('DELETE', key3, swob.HTTPNoContent, {}, None)
+        key4 = '/v1/AUTH_test/bucket/Key4?symlink=get&version-id=null'
+        self.swift.register('HEAD', key4, swob.HTTPOk, {}, None)
+        self.swift.register('DELETE', key4, swob.HTTPNoContent, {}, None)
 
         elem = Element('Delete')
-        SubElement(elem, 'Quiet').text = 'true'
-        for key in ['Key1', 'Key2']:
+        items = (
+            ('Key1', t1.normal),
+            ('Key2', t2.normal),
+            ('Key3', None),
+            ('Key4', 'null'),
+        )
+        for key, version in items:
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = key
-            SubElement(obj, 'VersionId').text = 'not-supported'
+            if version:
+                SubElement(obj, 'VersionId').text = version
         body = tostring(elem, use_s3ns=False)
         content_md5 = base64.b64encode(md5(body).digest()).strip()
 
@@ -243,7 +271,80 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
                                      'Content-MD5': content_md5},
                             body=body)
         status, headers, body = self.call_s3api(req)
-        self.assertEqual(self._get_error_code(body), 'NotImplemented')
+        self.assertEqual(status.split()[0], '200')
+
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', key1),
+            ('DELETE', key1),
+            ('HEAD', key2),
+            ('DELETE', key2),
+            ('HEAD', key3 + '?symlink=get'),
+            ('DELETE', key3),
+            ('HEAD', key4),
+            ('DELETE', key4),
+        ])
+
+        elem = fromstring(body)
+        self.assertEqual({'Key1', 'Key2', 'Key3', 'Key4'}, set(
+            e.findtext('Key') for e in elem.findall('Deleted')))
+
+    @s3acl
+    def test_object_multi_DELETE_versioned_suspended(self):
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent, {}, None)
+        t1 = next(self.ts)
+        key1 = '/v1/AUTH_test/bucket/Key1' + \
+            '?symlink=get&version-id=%s' % t1.normal
+        self.swift.register('HEAD', key1, swob.HTTPOk, {}, None)
+        self.swift.register('DELETE', key1, swob.HTTPNoContent, {}, None)
+        t2 = next(self.ts)
+        key2 = '/v1/AUTH_test/bucket/Key2' + \
+            '?symlink=get&version-id=%s' % t2.normal
+        self.swift.register('HEAD', key2, swob.HTTPNotFound, {}, None)
+        self.swift.register('DELETE', key2, swob.HTTPNotFound, {}, None)
+        key3 = '/v1/AUTH_test/bucket/Key3'
+        self.swift.register('HEAD', key3, swob.HTTPOk, {}, None)
+        self.swift.register('DELETE', key3, swob.HTTPNoContent, {}, None)
+
+        elem = Element('Delete')
+        items = (
+            ('Key1', t1),
+            ('Key2', t2),
+            ('Key3', None),
+        )
+        for key, ts in items:
+            obj = SubElement(elem, 'Object')
+            SubElement(obj, 'Key').text = key
+            if ts:
+                SubElement(obj, 'VersionId').text = ts.normal
+        body = tostring(elem, use_s3ns=False)
+        content_md5 = base64.b64encode(md5(body).digest()).strip()
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'Content-MD5': content_md5},
+                            body=body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body)
+        self.assertEqual(len(elem.findall('Deleted')), 3)
+
+        self.assertEqual(self.swift.calls, [
+            ('HEAD', '/v1/AUTH_test/bucket'),
+            ('HEAD', '/v1/AUTH_test/bucket/Key1'
+             '?symlink=get&version-id=%s' % t1.normal),
+            ('DELETE', '/v1/AUTH_test/bucket/Key1'
+             '?symlink=get&version-id=%s' % t1.normal),
+            ('HEAD', '/v1/AUTH_test/bucket/Key2'
+             '?symlink=get&version-id=%s' % t2.normal),
+            ('DELETE', '/v1/AUTH_test/bucket/Key2'
+             '?symlink=get&version-id=%s' % t2.normal),
+            ('HEAD', '/v1/AUTH_test/bucket/Key3?symlink=get'),
+            ('DELETE', '/v1/AUTH_test/bucket/Key3'),
+        ])
 
     @s3acl
     def test_object_multi_DELETE_with_invalid_md5(self):
@@ -282,9 +383,12 @@ class TestS3ApiMultiDelete(S3ApiTestCase):
     def test_object_multi_DELETE_lots_of_keys(self):
         elem = Element('Delete')
         for i in range(self.conf.max_multi_delete_objects):
+            status = swob.HTTPOk if i % 2 else swob.HTTPNotFound
             name = 'x' * 1000 + str(i)
             self.swift.register('HEAD', '/v1/AUTH_test/bucket/%s' % name,
-                                swob.HTTPNotFound, {}, None)
+                                status, {}, None)
+            self.swift.register('DELETE', '/v1/AUTH_test/bucket/%s' % name,
+                                swob.HTTPNoContent, {}, None)
             obj = SubElement(elem, 'Object')
             SubElement(obj, 'Key').text = name
         body = tostring(elem, use_s3ns=False)
