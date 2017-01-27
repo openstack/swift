@@ -810,9 +810,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         self.assertFalse(os.path.exists(pol_1_part_1_path))
         warnings = self.reconstructor.logger.get_lines_for_level('warning')
-        self.assertEqual(1, len(warnings))
-        self.assertIn(pol_1_part_1_path, warnings[0])
-        self.assertIn('not a directory', warnings[0].lower())
+        self.assertEqual(2, len(warnings))
+        # first warning is due to get_hashes failing to take lock on non-dir
+        self.assertIn(pol_1_part_1_path + '/hashes.pkl', warnings[0])
+        self.assertIn('unable to read', warnings[0].lower())
+        self.assertIn(pol_1_part_1_path, warnings[1])
+        self.assertIn('not a directory', warnings[1].lower())
 
     def test_ignores_status_file(self):
         # Following fd86d5a, the auditor will leave status files on each device

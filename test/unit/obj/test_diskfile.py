@@ -6232,7 +6232,7 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertIn(suffix, hashes)
             self.assertIn(suffix2, hashes)
 
-    def test_hash_invalidations_survive_racing_get_hashes_same_suffix(self):
+    def _check_hash_invalidations_race_get_hashes_same_suffix(self, existing):
         # verify that when two processes concurrently call get_hashes, then any
         # concurrent hash invalidation will survive and be consolidated on a
         # subsequent call to get_hashes (i.e. ensure first get_hashes process
@@ -6243,8 +6243,9 @@ class TestSuffixHashes(unittest.TestCase):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
             orig_hash_suffix = df_mgr._hash_suffix
-            # create hashes.pkl
-            df_mgr.get_hashes('sda1', '0', [], policy)
+            if existing:
+                # create hashes.pkl
+                df_mgr.get_hashes('sda1', '0', [], policy)
 
             df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
                                      policy=policy)
@@ -6276,7 +6277,10 @@ class TestSuffixHashes(unittest.TestCase):
                     # simulate another process calling get_hashes but failing
                     # after hash invalidation have been consolidated
                     hashes = df_mgr.consolidate_hashes(part_dir)
-                    self.assertTrue(hashes['valid'])
+                    if existing:
+                        self.assertTrue(hashes['valid'])
+                    else:
+                        self.assertFalse(hashes['valid'])
                     # get the updated suffix hash...
                     non_local['hash'] = orig_hash_suffix(suffix_dir)
                 return result
@@ -6294,6 +6298,12 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual('', f.read())
             # so hashes should have the latest suffix hash...
             self.assertEqual(hashes[suffix], non_local['hash'])
+
+    def test_hash_invalidations_race_get_hashes_same_suffix_new(self):
+        self._check_hash_invalidations_race_get_hashes_same_suffix(False)
+
+    def test_hash_invalidations_race_get_hashes_same_suffix_existing(self):
+        self._check_hash_invalidations_race_get_hashes_same_suffix(True)
 
     def _check_unpickle_error_and_get_hashes_failure(self, existing):
         for policy in self.iter_policies():
