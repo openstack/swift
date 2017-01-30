@@ -601,7 +601,7 @@ The Reconstructor
 
 The Reconstructor performs analogous functions to the replicator:
 
-#. Recovery from disk drive failure.
+#. Recovering from disk drive failure.
 #. Moving data around because of a rebalance.
 #. Reverting data back to a primary from a handoff.
 #. Recovering fragment archives from bit rot discovered by the auditor.
@@ -612,14 +612,14 @@ of the key elements in understanding how the reconstructor operates.
 Unlike the replicator, the work that the reconstructor does is not always as
 easy to break down into the 2 basic tasks of synchronize or revert (move data
 from handoff back to primary) because of the fact that one storage node can
-house fragment archives of various indexes and each index really /"belongs/" to
+house fragment archives of various indexes and each index really \"belongs\" to
 a different node.  So, whereas when the replicator is reverting data from a
 handoff it has just one node to send its data to, the reconstructor can have
-several.  Additionally, its not always the case that the processing of a
-particular suffix directory means one or the other for the entire directory (as
-it does for replication). The scenarios that create these mixed situations can
-be pretty complex so we will just focus on what the reconstructor does here and
-not a detailed explanation of why.
+several.  Additionally, it is not always the case that the processing of a
+particular suffix directory means one or the other job type for the entire
+directory (as it does for replication). The scenarios that create these mixed
+situations can be pretty complex so we will just focus on what the
+reconstructor does here and not a detailed explanation of why.
 
 Job Construction and Processing
 ===============================
@@ -627,29 +627,31 @@ Job Construction and Processing
 Because of the nature of the work it has to do as described above, the
 reconstructor builds jobs for a single job processor.  The job itself contains
 all of the information needed for the processor to execute the job which may be
-a synchronization or a data reversion and there may be a mix of jobs that
+a synchronization or a data reversion.  There may be a mix of jobs that
 perform both of these operations on the same suffix directory.
 
-Jobs are constructed on a per partition basis and then per fragment index basis.
+Jobs are constructed on a per-partition basis and then per-fragment-index basis.
 That is, there will be one job for every fragment index in a partition.
 Performing this construction \"up front\" like this helps minimize the
 interaction between nodes collecting hashes.pkl information.
 
 Once a set of jobs for a partition has been constructed, those jobs are sent off
 to threads for execution. The single job processor then performs the necessary
-actions working closely with ssync to carry out its instructions.  For data
+actions, working closely with ssync to carry out its instructions.  For data
 reversion, the actual objects themselves are cleaned up via the ssync module and
 once that partition's set of jobs is complete, the reconstructor will attempt to
 remove the relevant directory structures.
 
-The scenarios that job construction has to take into account include:
+Job construction must account for a variety of scenarios, including:
 
 #. A partition directory with all fragment indexes matching the local node
    index.  This is the case where everything is where it belongs and we just
-   need to compare hashes and sync if needed, here we sync with our partners.
-#. A partition directory with one local fragment index and mix of others.  Here
-   we need to sync with our partners where fragment indexes matches the
-   local_id, all others are sync'd with their home nodes and then deleted.
+   need to compare hashes and sync if needed. Here we simply sync with our
+   partners.
+#. A partition directory with at least one local fragment index and mix of
+   others.  Here we need to sync with our partners where fragment indexes
+   matches the local_id, all others are sync'd with their home nodes and then
+   deleted.
 #. A partition directory with no local fragment index and just one or more of
    others. Here we sync with just the home nodes for the fragment indexes that
    we have and then all the local archives are deleted.  This is the basic
@@ -688,13 +690,13 @@ basic reconstruction which, at a high level, looks like this:
 * Update the etag and fragment index metadata elements of the newly constructed
   fragment archive.
 * Establish a connection to the target nodes and give ssync a DiskFileLike class
-  that it can stream data from.
+  from which it can stream data.
 
 The reader in this class gathers fragments from the nodes and uses PyECLib to
 reconstruct each segment before yielding data back to ssync. Essentially what
 this means is that data is buffered, in memory, on a per segment basis at the
 node performing reconstruction and each segment is dynamically reconstructed and
-delivered to `ssync_sender` where the `send_put()` method will ship them on
+delivered to ``ssync_sender`` where the ``send_put()`` method will ship them on
 over.  The sender is then responsible for deleting the objects as they are sent
 in the case of data reversion.
 
