@@ -672,8 +672,8 @@ swift-ring-builder <builder_file> add
     @staticmethod
     def set_weight():
         """
-swift-ring-builder <builder_file> set_weight <search-value> <weight>
-    [<search-value> <weight] ...
+swift-ring-builder <builder_file> set_weight <search-value> <new_weight>
+    [<search-value> <new_weight>] ...
     [--yes]
 
 or
@@ -681,11 +681,12 @@ or
 swift-ring-builder <builder_file> set_weight
     --region <region> --zone <zone> --ip <ip or hostname> --port <port>
     --replication-ip <r_ip or r_hostname> --replication-port <r_port>
-    --device <device_name> --meta <meta> --weight <weight>
+    --device <device_name> --meta <meta> --weight <weight> <new_weight>
     [--yes]
 
     Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
-    and port.
+    and port. <weight> and <new_weight> are the search weight and new
+    weight values respectively.
     Any of the options are optional in both cases.
 
     Resets the devices' weights. No partitions will be reassigned to or from
