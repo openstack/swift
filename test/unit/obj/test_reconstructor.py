@@ -2287,14 +2287,13 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(call['node'], sync_to[0])
         self.assertEqual(set(call['suffixes']), set(['123', 'abc']))
 
-    def test_process_job_revert_to_handoff(self):
+    def test_process_job_will_not_revert_to_handoff(self):
         replicas = self.policy.object_ring.replicas
         frag_index = random.randint(0, replicas - 1)
         sync_to = [random.choice([n for n in self.policy.object_ring.devs
                                   if n != self.local_dev])]
         sync_to[0]['index'] = frag_index
         partition = 0
-        handoff = next(self.policy.object_ring.get_more_nodes(partition))
 
         stub_hashes = {
             '123': {frag_index: 'hash', None: 'hash'},
@@ -2326,7 +2325,7 @@ class TestObjectReconstructor(unittest.TestCase):
 
         expected_suffix_calls = set([
             (node['replication_ip'], '/%s/0/123-abc' % node['device'])
-            for node in (sync_to[0], handoff)
+            for node in (sync_to[0],)
         ])
 
         ssync_calls = []
@@ -2383,9 +2382,6 @@ class TestObjectReconstructor(unittest.TestCase):
         expected_suffix_calls = set([
             (sync_to[0]['replication_ip'],
              '/%s/0/123-abc' % sync_to[0]['device'])
-        ] + [
-            (node['replication_ip'], '/%s/0/123-abc' % node['device'])
-            for node in handoff_nodes[:-1]
         ])
 
         ssync_calls = []
@@ -2401,9 +2397,8 @@ class TestObjectReconstructor(unittest.TestCase):
                                  for r in request_log.requests)
         self.assertEqual(expected_suffix_calls, found_suffix_calls)
 
-        # this is ssync call to primary (which fails) plus the ssync call to
-        # all of the handoffs (except the last one - which is the local_dev)
-        self.assertEqual(len(ssync_calls), len(handoff_nodes))
+        # this is ssync call to primary (which fails) and nothing else!
+        self.assertEqual(len(ssync_calls), 1)
         call = ssync_calls[0]
         self.assertEqual(call['node'], sync_to[0])
         self.assertEqual(set(call['suffixes']), set(['123', 'abc']))

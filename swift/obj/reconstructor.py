@@ -643,21 +643,9 @@ class ObjectReconstructor(Daemon):
         """
         self.logger.increment(
             'partition.delete.count.%s' % (job['local_dev']['device'],))
-        # we'd desperately like to push this partition back to it's
-        # primary location, but if that node is down, the next best thing
-        # is one of the handoff locations - which *might* be us already!
-        dest_nodes = itertools.chain(
-            job['sync_to'],
-            job['policy'].object_ring.get_more_nodes(job['partition']),
-        )
         syncd_with = 0
         reverted_objs = {}
-        for node in dest_nodes:
-            if syncd_with >= len(job['sync_to']):
-                break
-            if node['id'] == job['local_dev']['id']:
-                # this is as good a place as any for this data for now
-                break
+        for node in job['sync_to']:
             success, in_sync_objs = ssync_sender(
                 self, node, job, job['suffixes'])()
             self.rehash_remote(node, job, job['suffixes'])
