@@ -350,32 +350,22 @@ class ObjectReconstructor(Daemon):
         """
         Logs various stats for the currently running reconstruction pass.
         """
-        if (self.device_count and self.part_count and
-                self.reconstruction_device_count):
+        if (self.device_count and self.part_count):
             elapsed = (time.time() - self.start) or 0.000001
             rate = self.reconstruction_part_count / elapsed
-            total_part_count = (1.0 * self.part_count *
-                                self.device_count /
-                                self.reconstruction_device_count)
             self.logger.info(
                 _("%(reconstructed)d/%(total)d (%(percentage).2f%%)"
-                  " partitions of %(device)d/%(dtotal)d "
-                  "(%(dpercentage).2f%%) devices"
-                  " reconstructed in %(time).2fs "
+                  " partitions reconstructed in %(time).2fs "
                   "(%(rate).2f/sec, %(remaining)s remaining)"),
                 {'reconstructed': self.reconstruction_part_count,
                  'total': self.part_count,
                  'percentage':
                  self.reconstruction_part_count * 100.0 / self.part_count,
-                 'device': self.reconstruction_device_count,
-                 'dtotal': self.device_count,
-                 'dpercentage':
-                 self.reconstruction_device_count * 100.0 / self.device_count,
                  'time': time.time() - self.start, 'rate': rate,
                  'remaining': '%d%s' %
                  compute_eta(self.start,
                              self.reconstruction_part_count,
-                             total_part_count)})
+                             self.part_count)})
 
             if self.suffix_count and self.partition_times:
                 self.logger.info(
@@ -833,7 +823,6 @@ class ObjectReconstructor(Daemon):
         for policy, local_devices in policy2devices.items():
             df_mgr = self._df_router[policy]
             for local_dev in local_devices:
-                self.reconstruction_device_count += 1
                 dev_path = df_mgr.get_dev_path(local_dev['device'])
                 if not dev_path:
                     self.logger.warning(_('%s is not mounted'),
@@ -867,7 +856,7 @@ class ObjectReconstructor(Daemon):
                     if not partition.isdigit():
                         self.logger.warning(
                             'Unexpected entity in data dir: %r' % part_path)
-                        remove_file(part_path)
+                        self.delete_partition(part_path)
                         self.reconstruction_part_count += 1
                         continue
                     partition = int(partition)
@@ -907,13 +896,15 @@ class ObjectReconstructor(Daemon):
         self.suffix_hash = 0
         self.reconstruction_count = 0
         self.reconstruction_part_count = 0
-        self.reconstruction_device_count = 0
         self.last_reconstruction_count = -1
 
     def delete_partition(self, path):
+        def kill_it(path):
+            shutil.rmtree(path, ignore_errors=True)
+            remove_file(path)
+
         self.logger.info(_("Removing partition: %s"), path)
-        tpool.execute(shutil.rmtree, path, ignore_errors=True)
-        remove_file(path)
+        tpool.execute(kill_it, path)
 
     def reconstruct(self, **kwargs):
         """Run a reconstruction pass"""

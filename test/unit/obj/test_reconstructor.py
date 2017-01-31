@@ -620,9 +620,9 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self._run_once(18, extra_devices)
         stats_lines = set()
         for line in self.logger.get_lines_for_level('info'):
-            if 'devices reconstructed in' not in line:
+            if 'reconstructed in' not in line:
                 continue
-            stat_line = line.split('of', 1)[0].strip()
+            stat_line = line.split('reconstructed', 1)[0].strip()
             stats_lines.add(stat_line)
         acceptable = set([
             '3/8 (37.50%) partitions',
@@ -633,7 +633,6 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual(matched, acceptable,
                          'missing some expected acceptable:\n%s' % (
                              '\n'.join(sorted(acceptable - matched))))
-        self.assertEqual(self.reconstructor.reconstruction_device_count, 4)
         self.assertEqual(self.reconstructor.reconstruction_part_count, 8)
         self.assertEqual(self.reconstructor.part_count, 8)
 
@@ -647,9 +646,9 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self._run_once(2, extra_devices, 'sdc1')
         stats_lines = set()
         for line in self.logger.get_lines_for_level('info'):
-            if 'devices reconstructed in' not in line:
+            if 'reconstructed in' not in line:
                 continue
-            stat_line = line.split('of', 1)[0].strip()
+            stat_line = line.split('reconstructed', 1)[0].strip()
             stats_lines.add(stat_line)
         acceptable = set([
             '1/1 (100.00%) partitions',
@@ -658,7 +657,6 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual(matched, acceptable,
                          'missing some expected acceptable:\n%s' % (
                              '\n'.join(sorted(acceptable - matched))))
-        self.assertEqual(self.reconstructor.reconstruction_device_count, 1)
         self.assertEqual(self.reconstructor.reconstruction_part_count, 1)
         self.assertEqual(self.reconstructor.part_count, 1)
 
@@ -1490,25 +1488,34 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertTrue('Unable to list partitions' in line)
         self.assertTrue(datadir_path in line)
 
-    def test_collect_parts_removes_non_partition_files(self):
+    def test_reconstruct_removes_non_partition_files(self):
         # create some junk next to partitions
         datadir_path = os.path.join(self.devices, self.local_dev['device'],
                                     diskfile.get_data_dir(self.policy))
         num_parts = 3
         for part in range(num_parts):
             utils.mkdirs(os.path.join(datadir_path, str(part)))
-        junk_file = os.path.join(datadir_path, 'junk')
-        with open(junk_file, 'w') as f:
-            f.write('junk')
+
+        # Add some clearly non-partition dentries
+        utils.mkdirs(os.path.join(datadir_path, 'not/a/partition'))
+        for junk_name in ('junk', '1234'):
+            junk_file = os.path.join(datadir_path, junk_name)
+            with open(junk_file, 'w') as f:
+                f.write('junk')
+
         with mock.patch('swift.obj.reconstructor.whataremyips',
-                        return_value=[self.ip]):
-            part_infos = list(self.reconstructor.collect_parts())
-        # the file is not included in the part_infos map
-        self.assertEqual(sorted(p['part_path'] for p in part_infos),
-                         sorted([os.path.join(datadir_path, str(i))
-                                 for i in range(num_parts)]))
-        # and gets cleaned up
-        self.assertFalse(os.path.exists(junk_file))
+                        return_value=[self.ip]), \
+                mock.patch('swift.obj.reconstructor.'
+                           'ObjectReconstructor.process_job'):
+            self.reconstructor.reconstruct()
+
+        # all the bad gets cleaned up
+        errors = []
+        for junk_name in ('junk', '1234', 'not'):
+            junk_file = os.path.join(datadir_path, junk_name)
+            if os.path.exists(junk_file):
+                errors.append('%s still exists!' % junk_file)
+        self.assertFalse(errors)
 
     def test_collect_parts_overrides(self):
         # setup multiple devices, with multiple parts
