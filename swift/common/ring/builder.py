@@ -492,8 +492,8 @@ class RingBuilder(object):
                 break
         else:
             finish_status = 'Unable to finish'
-        self.logger.debug('%s rebalance plan after %s attempts' % (
-            finish_status, gather_count + 1))
+        self.logger.debug('%(status)s rebalance plan after %(count)s attempts',
+                          {'status': finish_status, 'count': gather_count + 1})
 
         self.devs_changed = False
         self.version += 1
@@ -743,10 +743,12 @@ class RingBuilder(object):
                     'Device %s has zero weight and '
                     'should not want any replicas' % (tier,))
             required = (wanted[tier] - weighted[tier]) / weighted[tier]
-            self.logger.debug('%s wants %s and is weighted for %s so '
-                              'therefore requires %s overload' % (
-                                  tier, wanted[tier], weighted[tier],
-                                  required))
+            self.logger.debug('%(tier)s wants %(wanted)s and is weighted for '
+                              '%(weight)s so therefore requires %(required)s '
+                              'overload', {'tier': tier,
+                                           'wanted': wanted[tier],
+                                           'weight': weighted[tier],
+                                           'required': required})
             if required > max_overload:
                 max_overload = required
         return max_overload
@@ -1096,9 +1098,10 @@ class RingBuilder(object):
         random_half = random.randint(0, self.parts / 2)
         start = (self._last_part_gather_start + quarter_turn +
                  random_half) % self.parts
-        self.logger.debug('Gather start is %s '
-                          '(Last start was %s)' % (
-                              start, self._last_part_gather_start))
+        self.logger.debug('Gather start is %(start)s '
+                          '(Last start was %(last_start)s)',
+                          {'start': start,
+                           'last_start': self._last_part_gather_start})
         self._last_part_gather_start = start
 
         self._gather_parts_for_balance_can_disperse(
