@@ -1889,9 +1889,9 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
     def test_time_remaining(self):
         self.create_sample_ring()
-        self.run_srb('rebalance')
         now = time.time()
         with mock.patch('swift.common.ring.builder.time', return_value=now):
+            self.run_srb('rebalance')
             out, err = self.run_srb('rebalance')
         self.assertIn('No partitions could be reassigned', out)
         self.assertIn('must be at least min_part_hours', out)
