@@ -314,10 +314,10 @@ class TestObjectReplicator(unittest.TestCase):
                 (0, '', ['rsync', whole_path_from, rsync_mods]))
         start = replicator.replication_cycle
         self.assertGreaterEqual(start, 0)
-        self.assertLess(start, 9)
+        self.assertLessEqual(start, 9)
         with _mock_process(process_arg_checker):
             replicator.run_once()
-        self.assertEqual(start + 1, replicator.replication_cycle)
+        self.assertEqual((start + 1) % 10, replicator.replication_cycle)
         self.assertFalse(process_errors)
         self.assertFalse(self.logger.get_lines_for_level('error'))
         object_replicator.http_connect = was_connector
