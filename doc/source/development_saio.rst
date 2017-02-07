@@ -444,7 +444,7 @@ Setting up scripts for running Swift
         .. literalinclude:: /../saio/bin/resetswift
 
      If you are using a loopback device add an environment var to
-     subsitute ``/dev/sdb1`` with ``/srv/swift-disk``::
+     substitute ``/dev/sdb1`` with ``/srv/swift-disk``::
 
         echo "export SAIO_BLOCK_DEVICE=/srv/swift-disk" >> $HOME/.bashrc
 
