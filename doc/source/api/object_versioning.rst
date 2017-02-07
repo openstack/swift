@@ -41,7 +41,7 @@ remove it from the versioned container.
 
 If object versioning was enabled using ``X-Versions-Location``, then object
 **DELETE** requests will restore the most-recent version from the archive
-container, overwriting the curent version.
+container, overwriting the current version.
 
 Example Using ``X-Versions-Location``
 -------------------------------------
