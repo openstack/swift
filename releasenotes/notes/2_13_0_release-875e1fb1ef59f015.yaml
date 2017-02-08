@@ -1,0 +1,83 @@
+---
+features:
+  - >
+    Improved performance by eliminating an unneeded directory
+    structure hash.
+  - >
+    Optimized the common case for hashing filesystem trees, thus
+    eliminating a lot of extraneous disk I/O.
+  - >
+    Updated the `hashes.pkl` file format to include timestamp information
+    for race detection. Also simplified hashing logic to prevent race
+    conditions and optimize for the common case.
+  - >
+    The erasure code reconstructor will now shuffle work jobs across all
+    disks instead of going disk-by-disk. This eliminates single-disk I/O
+    contention and allows continued scaling as concurrency is increased.
+  - >
+    Erasure code reconstruction handles moving data from handoff nodes
+    better. Instead of moving the data to another handoff, it waits
+    until it can be moved to a primary node.
+  - >
+    Temporary URLs now support one common form of ISO 8601 timestamps in
+    addition to Unix seconds-since-epoch timestamps. The ISO 8601 format
+    accepted is '%Y-%m-%dT%H:%M:%SZ'. This makes TempURLs more
+    user-friendly to produce and consume.
+  - >
+    Listing containers in accounts with json or xml now includes a
+    `last_modified` time. This does not change any on-disk data, but simply
+    exposes the value to offer consistency with the object listings on
+    containers.
+  - I/O priority is now supported on AArch64 architecture.
+upgrade:
+  - If you upgrade and roll back, you must delete all `hashes.pkl` files.
+deprecations:
+  - >
+    If using erasure coding with ISA-L in rs_vand mode and 5 or more parity
+    fragments, Swift will emit a warning. This is a configuration that is
+    known to harm data durability. In a future release, this warning will be
+    upgraded to an error unless the policy is marked as deprecated. All data
+    in an erasure code storage policy using isa_l_rs_vand with 5 or more
+    parity should be migrated as soon as possible. Please see
+    https://bugs.launchpad.net/swift/+bug/1639691 for more information.
+  - >
+    The erasure code reconstructor `handoffs_first` option has been
+    deprecated in favor of `handoffs_only`. `handoffs_only` is far more
+    useful, and just like `handoffs_first` mode in the replicator, it gives
+    the operator the option of forcing the consistency engine to focus
+    solely on revert (handoff) jobs, thus improving the speed of
+    rebalances.  The `handoffs_only` behavior is somewhat consistent with
+    the replicator's `handoffs_first` option (any error on any handoff in
+    the replicator will make it essentially handoff only forever) but the
+    `handoff_only` option does what you want and is named correctly in the
+    reconstructor.
+  - >
+    The default for `object_post_as_copy` has been changed to False. The
+    option is now deprecated and will be removed in a future release. If
+    your cluster is still running with post-as-copy enabled, please update
+    it to use the "fast-post" method. Future versions of Swift will not
+    support post-as-copy, and future features will not be supported under
+    post-as-copy. ("Fast-post" is where `object_post_as_copy` is false).
+fixes:
+  - >
+    Fixed a bug where the ring builder would not allow removal of a device
+    when min_part_seconds_left was greater than zero.
+  - >
+    PUT subrequests generated from a client-side COPY will now properly log
+    the SSC (server-side copy) Swift source field. See
+    https://docs.openstack.org/developer/swift/logs.html#swift-source for
+    more information.
+  - >
+    Fixed a bug where an SLO download with a range request may have resulted
+    in a 5xx series response.
+  - >
+    SLO manifest PUT requests can now be properly validated by sending an
+    ETag header of the md5 sum of the concatenated md5 sums of the
+    referenced segments.
+  - Fixed the stats calculation in the erasure code reconstructor.
+  - >
+    Rings with min_part_hours set to zero will now only move one partition
+    replica per rebalance, thus matching behavior when min_part_hours is
+    greater than zero.
+other:
+  - Various other minor bug fixes and improvements.
