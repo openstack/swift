@@ -149,7 +149,9 @@ class TestReplicatorFunctions(ReplProbeTest):
                         raise
                     time.sleep(1)
 
-            # Check behavior by deleting hashes.pkl file
+            # Delete directories and files in objects storage without
+            # deleting file "hashes.pkl".
+            # Check, that files not replicated.
             for directory in os.listdir(os.path.join(test_node, data_dir)):
                 for input_dir in os.listdir(os.path.join(
                         test_node, data_dir, directory)):
@@ -168,13 +170,15 @@ class TestReplicatorFunctions(ReplProbeTest):
                                 test_node, data_dir, directory)):
                             self.assertFalse(os.path.isdir(
                                 os.path.join(test_node, data_dir,
-                                             directory, '/', input_dir)))
+                                             directory, input_dir)))
                     break
                 except Exception:
                     if time.time() - begin > 60:
                         raise
                     time.sleep(1)
 
+            # Now, delete file "hashes.pkl".
+            # Check, that all files were replicated.
             for directory in os.listdir(os.path.join(test_node, data_dir)):
                 os.remove(os.path.join(
                     test_node, data_dir, directory, 'hashes.pkl'))
