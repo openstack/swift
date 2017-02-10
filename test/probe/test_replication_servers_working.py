@@ -26,6 +26,8 @@ from swift.obj.diskfile import get_data_dir
 from test.probe.common import ReplProbeTest
 from swift.common.utils import readconf
 
+EXCLUDE_FILES = ['hashes.pkl', 'hashes.invalid', '.lock']
+
 
 def collect_info(path_list):
     """
@@ -41,6 +43,7 @@ def collect_info(path_list):
         temp_files_list = []
         temp_dir_list = []
         for root, dirs, files in os.walk(path):
+            files = [f for f in files if f not in EXCLUDE_FILES]
             temp_files_list += files
             temp_dir_list += dirs
         files_list.append(temp_files_list)
