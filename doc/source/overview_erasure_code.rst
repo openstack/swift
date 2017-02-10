@@ -2,9 +2,9 @@
 Erasure Code Support
 ====================
 
--------------------------------
+*******************************
 History and Theory of Operation
--------------------------------
+*******************************
 
 There's a lot of good material out there on Erasure Code (EC) theory, this short
 introduction is just meant to provide some basic context to help the reader
@@ -36,9 +36,8 @@ details about their differences are well beyond the scope of this introduction,
 but we will talk more about a few of them when we get into the implementation of
 EC in Swift.
 
---------------------------------
 Overview of EC Support in Swift
---------------------------------
+================================
 
 First and foremost, from an application perspective EC support is totally
 transparent. There are no EC related external API; a container is simply created
@@ -79,9 +78,8 @@ external library allows for maximum flexibility as there are a significant
 number of options out there, each with its owns pros and cons that can vary
 greatly from one use case to another.
 
----------------------------------------
 PyECLib:  External Erasure Code Library
----------------------------------------
+=======================================
 
 PyECLib is a Python Erasure Coding Library originally designed and written as
 part of the effort to add EC support to the Swift project, however it is an
@@ -107,9 +105,8 @@ requirement.
 
 For complete details see `PyECLib <https://github.com/openstack/pyeclib>`_
 
-------------------------------
 Storing and Retrieving Objects
-------------------------------
+==============================
 
 We will discuss the details of how PUT and GET work in the "Under the Hood"
 section later on. The key point here is that all of the erasure code work goes
@@ -139,9 +136,8 @@ file system.  Although it is true that more files will be stored (because an
 object is broken into pieces), the implementation works to minimize this where
 possible, more details are available in the Under the Hood section.
 
--------------
 Handoff Nodes
--------------
+=============
 
 In EC policies, similarly to replication, handoff nodes are a set of storage
 nodes used to augment the list of primary nodes responsible for storing an
@@ -149,9 +145,8 @@ erasure coded object. These handoff nodes are used in the event that one or more
 of the primaries are unavailable.  Handoff nodes are still selected with an
 attempt to achieve maximum separation of the data being placed.
 
---------------
 Reconstruction
---------------
+==============
 
 For an EC policy, reconstruction is analogous to the process of replication for
 a replication type policy -- essentially "the reconstructor" replaces "the
@@ -178,9 +173,9 @@ similar to that of replication with a few notable exceptions:
     replication, reconstruction can be the result of rebalancing, bit-rot, drive
     failure or reverting data from a hand-off node back to its primary.
 
---------------------------
+**************************
 Performance Considerations
---------------------------
+**************************
 
 In general, EC has different performance characteristics than replicated data.
 EC requires substantially more CPU to read and write data, and is more suited
@@ -189,9 +184,9 @@ for larger objects that are not frequently accessed (eg backups).
 Operators are encouraged to characterize the performance of various EC schemes
 and share their observations with the developer community.
 
-----------------------------
+****************************
 Using an Erasure Code Policy
-----------------------------
+****************************
 
 To use an EC policy, the administrator simply needs to define an EC policy in
 `swift.conf` and create/configure the associated object ring.  An example of how
@@ -204,11 +199,6 @@ an EC policy can be setup is shown below::
         ec_num_data_fragments = 10
         ec_num_parity_fragments = 4
         ec_object_segment_size = 1048576
-
-        # Duplicated EC fragments is proof-of-concept experimental support to enable
-        # Global Erasure Coding policies with multiple regions acting as independent
-        # failure domains.  Do not change the default except in development/testing.
-        ec_duplication_factor = 1
 
 Let's take a closer look at each configuration parameter:
 
@@ -228,11 +218,6 @@ Let's take a closer look at each configuration parameter:
   comprised of parity.
 * ``ec_object_segment_size``: The amount of data that will be buffered up before
   feeding a segment into the encoder/decoder. The default value is 1048576.
-* ``ec_duplication_factor``: The number of duplicate copies for each fragment.
-  This is now experimental support to enable Global Erasure Coding policies with
-  multiple regions. Do not change the default except in development/testing. And
-  please read the "EC Duplication" section below before changing the default
-  value.
 
 When PyECLib encodes an object, it will break it into N fragments. However, what
 is important during configuration, is how many of those are data and how many
@@ -253,8 +238,8 @@ associated with the ring; ``replicas`` must be equal to the sum of
 
   swift-ring-builder object-1.builder create 10 14 1
 
-Note that in this example the ``replicas`` value of 14 is based on the sum of
-10 EC data fragments and 4 EC parity fragments.
+Note that in this example the ``replicas`` value of ``14`` is based on the sum of
+``10`` EC data fragments and ``4`` EC parity fragments.
 
 Once you have configured your EC policy in `swift.conf` and created your object
 ring, your application is ready to start using EC simply by creating a container
@@ -268,7 +253,7 @@ with the specified policy name and interacting as usual.
     and migrate the data to a new container.
 
 Migrating Between Policies
---------------------------
+==========================
 
 A common usage of EC is to migrate less commonly accessed data from a more
 expensive but lower latency policy such as replication.  When an application
@@ -276,110 +261,166 @@ determines that it wants to move data from a replication policy to an EC policy,
 it simply needs to move the data from the replicated container to an EC
 container that was created with the target durability policy.
 
-Region Support
---------------
 
-For at least the initial version of EC, it is not recommended that an EC scheme
-span beyond a single region, neither performance nor functional validation has
-be been done in such a configuration.
+*********
+Global EC
+*********
+
+Since the initial release of EC, it has not been recommended that an EC scheme
+span beyond a single region.  Initial performance and functional validation has
+shown that using sufficiently large parity schemas to ensure availability
+across regions is inefficient, and rebalance is unoptimized across high latency
+bandwidth constrained WANs.
+
+Region support for EC polices is under development! `EC Duplication` provides
+a foundation for this.
 
 EC Duplication
 ==============
 
-ec_duplication_factor is an option to make duplicate copies of fragments
-of erasure encoded Swift objects. The default value is 1 (not duplicate).
-If an erasure code storage policy is configured with a non-default
-ec_duplication_factor of N > 1, then the policy will create N duplicates of
-each unique fragment that is returned from the configured EC engine.
+.. warning::
+
+    EC Duplication is an experimental feature that has some serious known
+    issues which make it currently unsuitable for use in production.
+
+EC Duplication enables Swift to make duplicated copies of fragments of erasure
+coded objects.  If an EC storage policy is configured with a non-default
+``ec_duplication_factor`` of ``N > 1``, then the policy will create ``N``
+duplicates of each unique fragment that is returned from the configured EC
+engine.
+
 Duplication of EC fragments is optimal for EC storage policies which require
-dispersion of fragment data across failure domains. Without duplication, almost
-of common ec parameters like 10-4 cause less assignments than 1/(the number
-of failure domains) of the total unique fragments. And usually, it will be less
-than the number of data fragments which are required to construct the original
-data. To guarantee the number of fragments in a failure domain, the system
-requires more parities. On the situation which needs more parity, empirical
-testing has shown using duplication is more efficient in the PUT path than
-encoding a schema with num_parity > num_data, and Swift EC supports this schema.
-You should evaluate which strategy works best in your environment.
+dispersion of fragment data across failure domains. Without duplication, common
+EC parameters will not distribute enough unique fragments between large failure
+domains to allow for a rebuild using fragments from any one domain.  For
+example a uniformly distributed ``10+4`` EC policy schema would place 7
+fragments in each of two failure domains, which is less in each failure domain
+than the 10 fragments needed to rebuild a missing fragment.
 
-e.g. 10-4 and duplication factor of 2 will store 28 fragments (i.e.
-(``ec_num_data_fragments`` + ``ec_num_parity_fragments``) *
-``ec_duplication_factor``). This \*can\* allow for a failure domain to rebuild
-an object to full durability even when \*more\* than 14 fragments are
-unavailable.
+Without duplication support, an EC policy schema must be adjusted to include
+additional parity fragments in order to guarantee the number of fragments in
+each failure domain is greater than the number required to rebuild. For
+example, a uniformally distributed ``10+18`` EC policy schema would place 14
+fragments in each of two failure domains, which is more than sufficient in each
+failure domain to rebuild a missing fragment. However, empirical testing has
+shown encoding a schema with ``num_parity > num_data`` (such as ``10+18``) is
+less efficient than using duplication of fragments.  EC fragment duplication
+enables Swift's Global EC to maintain more independence between failure domains
+without sacrificing efficiency on read/write or rebuild!
 
-.. note::
+The ``ec_duplication_factor`` option may be configured in `swift.conf` in each
+``storage-policy`` section. The option may be omitted - the default value is
+``1`` (i.e. no duplication)::
 
-    Current EC Duplication is a part work of EC region support so we still
-    have some known issues to get complete region supports:
+        [storage-policy:2]
+        name = ec104
+        policy_type = erasure_coding
+        ec_type = liberasurecode_rs_vand
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 4
+        ec_object_segment_size = 1048576
+        ec_duplication_factor = 2
 
-    Known-Issues:
+.. warning::
 
-    - Unique fragment dispersion
+    The ``ec_duplication_factor`` option should only be set for experimental
+    and development purposes. EC Duplication is an experimental feature that
+    has some serious known issues which make it currently unsuitable for use in
+    production.
 
-     Currently, Swift \*doesn't\* guarantee the dispersion of unique
-     fragments' locations in the global distributed cluster being robust
-     in the disaster recovery case. While the goal is to have duplicates
-     of each unique fragment placed in each region, it is currently
-     possible for duplicates of the same unique fragment to be placed in
-     the same region. Since a set of ``ec_num_data_fragments`` unique
-     fragments is required to reconstruct an object, the suboptimal
-     distribution of duplicates across regions may, in some cases, make it
-     impossible to assemble such a set from a single region.
+In this example, a ``10+4`` schema and a duplication factor of ``2`` will
+result in ``(10+4)x2 = 28`` fragments being stored (we will use the shorthand
+``10+4x2`` to denote that policy configuration) .  The ring for this policy
+should be configured with 28 replicas (i.e.  ``(ec_num_data_fragments +
+ec_num_parity_fragments) * ec_duplication_factor``).  A ``10+4x2`` schema
+**can** allow a multi-region deployment to rebuild an object to full durability
+even when *more* than 14 fragments are unavailable.  This is advantageous with
+respect to a ``10+18`` configuration not only because reads from data fragments
+will be more common and more efficient, but also because a ``10+4x2`` can grow
+into a ``10+4x3`` to expand into another region.
 
-     For example, if we have a Swift cluster with 2 regions, the fragments may
-     be located like as:
+Known Issues
+============
 
-     ::
+Unique Fragment Dispersion
+--------------------------
 
-        r1
-        #0#d.data
-        #0#d.data
-        #2#d.data
-        #2#d.data
-        #4#d.data
-        #4#d.data
-        r2
-        #1#d.data
-        #1#d.data
-        #3#d.data
-        #3#d.data
-        #5#d.data
-        #5#d.data
+Currently, Swift's ring placement does **not** guarantee the dispersion of
+fragments' locations being robust to disaster recovery in the case
+of Global EC.  While the goal is to have one duplicate of each
+fragment placed in each region, it is currently possible for duplicates of
+the same fragment to be placed in the same region (and consequently for
+another region to have no duplicates of that fragment).  Since a set of
+``ec_num_data_fragments`` unique fragments is required to reconstruct an
+object, a suboptimal distribution of duplicates across regions may, in some
+cases, make it impossible to assemble such a set from a single region.
 
-     In this case, r1 has only the fragments with index 0, 2, 4 and r2 has
-     the rest of indexes but we need 4 unique indexes to decode. To resolve
-     the case, the composite ring which enables the operator oriented location
-     mapping [1] is under development.
+For example, if we have a Swift cluster with two regions, ``r1`` and ``r2``,
+the 12 fragments for an object in a ``4+2x2`` EC policy schema could have
+pathologically sub-optimal placement::
 
-     1: https://review.openstack.org/#/c/271920/
+  r1
+    <timestamp>#0#d.data
+    <timestamp>#0#d.data
+    <timestamp>#2#d.data
+    <timestamp>#2#d.data
+    <timestamp>#4#d.data
+    <timestamp>#4#d.data
+  r2
+    <timestamp>#1#d.data
+    <timestamp>#1#d.data
+    <timestamp>#3#d.data
+    <timestamp>#3#d.data
+    <timestamp>#5#d.data
+    <timestamp>#5#d.data
 
-    - Efficient node iteration for read
+In this case, ``r1`` has only the fragments with index ``0, 2, 4`` and ``r2``
+has the other 3 indexes, but we need 4 unique indexes to be able to rebuild an
+object in a single region. To resolve this issue, a composite ring feature is
+being developed which will provide the operator with greater control over
+duplicate fragment placement::
 
-     Since EC fragment duplication requires a set of unique fragment indexes
-     to decode the original object, it needs efficient node iteration rather
-     than current. Current Swift is iterating the nodes ordered by sorting
-     method defined in proxy server config. (i.e. either shuffle, node_timing,
-     or read_affinity) However, the sorted result could include duplicate
-     indexes for the first primaries to try to connect even if \*we\* know
-     it obviously needs more nodes to get unique fragments. Hence, current
-     Swift may call more backend requests than ec_ndata times frequently even
-     if no node failures in the object-servers.
+    https://review.openstack.org/#/c/271920/
 
-     The possible solution could be some refactoring work on NodeIter to
-     provide suitable nodes even if it's fragment duplication but it's still
-     under development yet.
+Efficient Node Selection for Read
+---------------------------------
 
+Since EC policies requires a set of unique fragment indexes to decode the
+original object, it is increasingly likely with EC duplication that some
+responses from backend storage nodes will include fragments which the proxy has
+already received from another node.  Currently Swift iterates over the nodes
+ordered by a sorting method defined in the proxy server config (i.e. either
+shuffle, node_timing, or read_affinity) - but these configurations will
+not offer optimal request patterns for EC policies with duplicated
+fragments.  In this case Swift may frequently issue more than the optimal
+``ec_num_data_fragments`` backend requests in order to gather
+``ec_num_data_fragments`` **unique** fragments, even if there are no failures
+amongst the object-servers.
 
---------------
+In addition to better placement and read affinity support, ideally node
+iteration for EC duplication policies could predict which nodes are likely
+to hold duplicates and prioritize requests to the most suitable nodes.
+
+Efficient Cross Region Rebuild
+------------------------------
+
+Since fragments are duplicated between regions it may in some cases be more
+attractive to restore failed fragments from their duplicates in another region
+instead of rebuilding them from other fragments in the local region.
+Conversely to avoid WAN transfer it may be more attractive to rebuild fragments
+from local parity.  During rebalance it will always be more attractive to
+revert a fragment from it's old-primary to it's new primary rather than
+rebuilding or transferring a duplicate from the remote region.
+
+**************
 Under the Hood
---------------
+**************
 
 Now that we've explained a little about EC support in Swift and how to
-configure/use it, let's explore how EC fits in at the nuts-n-bolts level.
+configure and use it, let's explore how EC fits in at the nuts-n-bolts level.
 
 Terminology
------------
+===========
 
 The term 'fragment' has been used already to describe the output of the EC
 process (a series of fragments) however we need to define some other key terms
@@ -399,7 +440,7 @@ correct terms consistently, it is very easy to get confused in a hurry!
 * **ec_nparity**: Number of EC parity fragments.
 
 Middleware
-----------
+==========
 
 Middleware remains unchanged.  For most middleware (e.g., SLO/DLO) the fact that
 the proxy is fragmenting incoming objects is transparent.  For list endpoints,
@@ -409,7 +450,7 @@ original object with this information, however the node locations may still
 prove to be useful information for some applications.
 
 On Disk Storage
----------------
+===============
 
 EC archives are stored on disk in their respective objects-N directory based on
 their policy index.  See :doc:`overview_policies` for details on per policy
@@ -455,10 +496,10 @@ The transformation function for the replication policy is simply a NOP.
 
 
 Proxy Server
-------------
+============
 
 High Level
-==========
+----------
 
 The Proxy Server handles Erasure Coding in a different manner than replication,
 therefore there are several code paths unique to EC policies either though sub
@@ -480,7 +521,7 @@ This scheme makes it possible to minimize the number of on-disk files given our
 segmenting and fragmenting.
 
 Multi_Phase Conversation
-========================
+------------------------
 
 Multi-part MIME document support is used to allow the proxy to engage in a
 handshake conversation with the storage node for processing PUT requests.  This
@@ -584,7 +625,7 @@ A few key points on the durable state of a fragment archive:
   returning the object to the client.
 
 Partial PUT Failures
-====================
+--------------------
 
 A partial PUT failure has a few different modes.  In one scenario the Proxy
 Server is alive through the entire PUT conversation.  This is a very
@@ -607,7 +648,7 @@ however, for the current release, a proxy failure after the start of a
 conversation but before the commit message will simply result in a PUT failure.
 
 GET
-===
+---
 
 The GET for EC is different enough from replication that subclassing the
 `BaseObjectController` to the `ECObjectController` enables an efficient way to
@@ -648,7 +689,7 @@ ensures that it has sufficient EC archives with the same timestamp
 and distinct fragment indexes before considering a GET to be successful.
 
 Object Server
--------------
+=============
 
 The Object Server, like the Proxy Server, supports MIME conversations as
 described in the proxy section earlier. This includes processing of the commit
@@ -656,7 +697,7 @@ message and decoding various sections of the MIME document to extract the footer
 which includes things like the entire object etag.
 
 DiskFile
-========
+--------
 
 Erasure code policies use subclassed ``ECDiskFile``, ``ECDiskFileWriter``,
 ``ECDiskFileReader`` and ``ECDiskFileManager`` to implement EC specific
@@ -665,7 +706,7 @@ include the fragment index and durable state in the filename, construction of
 EC specific ``hashes.pkl`` file to include fragment index information, etc.
 
 Metadata
---------
+^^^^^^^^
 
 There are few different categories of metadata that are associated with EC:
 
@@ -689,13 +730,13 @@ PyECLib Metadata:  PyECLib stores a small amount of metadata on a per fragment
 basis.  This metadata is not documented here as it is opaque to Swift.
 
 Database Updates
-----------------
+================
 
 As account and container rings are not associated with a Storage Policy, there
 is no change to how these database updates occur when using an EC policy.
 
 The Reconstructor
------------------
+=================
 
 The Reconstructor performs analogous functions to the replicator:
 
@@ -720,7 +761,7 @@ situations can be pretty complex so we will just focus on what the
 reconstructor does here and not a detailed explanation of why.
 
 Job Construction and Processing
-===============================
+-------------------------------
 
 Because of the nature of the work it has to do as described above, the
 reconstructor builds jobs for a single job processor.  The job itself contains
@@ -761,7 +802,7 @@ Job construction must account for a variety of scenarios, including:
     partition list.
 
 Node Communication
-==================
+------------------
 
 The replicators talk to all nodes who have a copy of their object, typically
 just 2 other nodes.  For EC, having each reconstructor node talk to all nodes
@@ -771,7 +812,7 @@ built to talk to its adjacent nodes on the ring only.  These nodes are typically
 referred to as partners.
 
 Reconstruction
-==============
+--------------
 
 Reconstruction can be thought of sort of like replication but with an extra step
 in the middle. The reconstructor is hard-wired to use ssync to determine what is
@@ -799,7 +840,7 @@ over.  The sender is then responsible for deleting the objects as they are sent
 in the case of data reversion.
 
 The Auditor
------------
+===========
 
 Because the auditor already operates on a per storage policy basis, there are no
 specific auditor changes associated with EC.  Each EC archive looks like, and is
