@@ -200,19 +200,23 @@ class TestReconstructorRevert(ECProbeTest):
         # repair the first primary
         self.revive_drive(self.device_dir('object', failed_nodes[0]))
 
-        # run the reconstructor on the *second* handoff node
-        self.reconstructor.once(number=self.config_number(hnodes[1]))
+        # run the reconstructor on the handoffs nodes, if there are no data
+        # frags to hint at the node index - each hnode syncs to all primaries
+        for hnode in hnodes:
+            self.reconstructor.once(number=self.config_number(hnode))
 
-        # make sure it's tombstone was pushed out
-        try:
-            self.direct_get(hnodes[1], opart)
-        except direct_client.DirectClientException as err:
-            self.assertEqual(err.http_status, 404)
-            self.assertNotIn('X-Backend-Timestamp', err.http_headers)
-        else:
-            self.fail('Found obj data on %r' % hnodes[1])
+        # because not all primaries are online, the tombstones remain
+        for hnode in hnodes:
+            try:
+                self.direct_get(hnode, opart)
+            except direct_client.DirectClientException as err:
+                self.assertEqual(err.http_status, 404)
+                self.assertEqual(err.http_headers['X-Backend-Timestamp'],
+                                 delete_timestamp)
+            else:
+                self.fail('Found obj data on %r' % hnode)
 
-        # ... and it's on the first failed (now repaired) primary
+        # ... but it's on the first failed (now repaired) primary
         try:
             self.direct_get(failed_nodes[0], opart)
         except direct_client.DirectClientException as err:
@@ -246,6 +250,28 @@ class TestReconstructorRevert(ECProbeTest):
                              delete_timestamp)
         else:
             self.fail('Found obj data on %r' % failed_nodes[1])
+
+        # ... but still on the second handoff node
+        try:
+            self.direct_get(hnodes[1], opart)
+        except direct_client.DirectClientException as err:
+            self.assertEqual(err.http_status, 404)
+            self.assertEqual(err.http_headers['X-Backend-Timestamp'],
+                             delete_timestamp)
+        else:
+            self.fail('Found obj data on %r' % hnodes[1])
+
+        # ... until it's next sync
+        self.reconstructor.once(number=self.config_number(hnodes[1]))
+
+        # ... then it's tombstone is pushed off too!
+        try:
+            self.direct_get(hnodes[1], opart)
+        except direct_client.DirectClientException as err:
+            self.assertEqual(err.http_status, 404)
+            self.assertNotIn('X-Backend-Timestamp', err.http_headers)
+        else:
+            self.fail('Found obj data on %r' % hnodes[1])
 
         # sanity make sure proxy get can't find it
         try:
