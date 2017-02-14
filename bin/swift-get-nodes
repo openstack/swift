@@ -15,11 +15,12 @@
 # limitations under the License.
 
 import sys
-import os
 from optparse import OptionParser
+from os.path import basename
 
 from swift.common.ring import Ring
-from swift.cli.info import print_item_locations, InfoSystemExit
+from swift.cli.info import (parse_get_node_args, print_item_locations,
+                            InfoSystemExit)
 
 
 if __name__ == '__main__':
@@ -27,8 +28,9 @@ if __name__ == '__main__':
     usage = '''
     Shows the nodes responsible for the item specified.
     Usage: %prog [-a] <ring.gz> <account> [<container> [<object>]]
-    Or: %prog [-a] <ring.gz> -p partition
-    Or: %prog [-a] -P policy_name <account> <container> <object>
+    Or:    %prog [-a] <ring.gz> -p partition
+    Or:    %prog [-a] -P policy_name <account> [<container> [<object>]]
+    Or:    %prog [-a] -P policy_name -p partition
     Note: account, container, object can also be a single arg separated by /
     Example:
         $ %prog -a /etc/swift/account.ring.gz MyAccount
@@ -49,33 +51,16 @@ if __name__ == '__main__':
     parser.add_option('-d', '--swift-dir', default='/etc/swift',
                       dest='swift_dir', help='Path to swift directory')
     options, args = parser.parse_args()
+    try:
+        ring_path, args = parse_get_node_args(options, args)
+    except InfoSystemExit as e:
+        parser.print_help()
+        sys.exit('ERROR: %s' % e)
 
-    # swift-get-nodes -P nada -p 1
-    if len(args) == 0:
-        if not options.policy_name or not options.partition:
-            sys.exit(parser.print_help())
-    elif len(args) > 4 or len(args) < 1:
-        sys.exit(parser.print_help())
-
-    # Parse single path arg, as noted in above help text.
-    # if len(args) == 1 and options.policy_name and '/' in args[0]:
-    if len(args) == 1 and not args[0].endswith('ring.gz'):
-        path = args[0].lstrip('/')
-        args = [p for p in path.split('/', 2) if p]
-    if len(args) == 2 and '/' in args[1]:
-        path = args[1].lstrip('/')
-        args = [args[0]] + [p for p in path.split('/', 2) if p]
-
-    ring = None
-    ring_name = None
-
-    if len(args) >= 1 and args[0].endswith('ring.gz'):
-        if os.path.exists(args[0]):
-            ring_name = args[0].rsplit('/', 1)[-1].split('.', 1)[0]
-            ring = Ring(args[0])
-        else:
-            print('Ring file does not exist')
-        args.pop(0)
+    ring = ring_name = None
+    if ring_path:
+        ring_name = basename(ring_path)[:len('ring.gz')]
+        ring = Ring(ring_path)
 
     try:
         print_item_locations(ring, ring_name, *args, **vars(options))

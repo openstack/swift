@@ -12,6 +12,7 @@
 
 """Tests for swift.cli.info"""
 
+from argparse import Namespace
 import os
 import unittest
 import mock
@@ -24,9 +25,10 @@ from test.unit import patch_policies, write_fake_ring
 from swift.common import ring, utils
 from swift.common.swob import Request
 from swift.common.storage_policy import StoragePolicy, POLICIES
-from swift.cli.info import print_db_info_metadata, print_ring_locations, \
-    print_info, print_obj_metadata, print_obj, InfoSystemExit, \
-    print_item_locations
+from swift.cli.info import (print_db_info_metadata, print_ring_locations,
+                            print_info, print_obj_metadata, print_obj,
+                            InfoSystemExit, print_item_locations,
+                            parse_get_node_args)
 from swift.account.server import AccountController
 from swift.container.server import ContainerController
 from swift.obj.diskfile import write_metadata
@@ -86,12 +88,9 @@ class TestCliInfoBase(unittest.TestCase):
         rmtree(os.path.dirname(self.testdir))
 
     def assertRaisesMessage(self, exc, msg, func, *args, **kwargs):
-        try:
+        with self.assertRaises(exc) as ctx:
             func(*args, **kwargs)
-        except Exception as e:
-            self.assertIn(msg, str(e), "Expected %r in %r" % (msg, str(e)))
-            self.assertIsInstance(e, exc,
-                                  "Expected %s, got %s" % (exc, type(e)))
+        self.assertIn(msg, str(ctx.exception))
 
 
 class TestCliInfo(TestCliInfoBase):
@@ -482,6 +481,379 @@ No user metadata found in db file''' % POLICIES[0].name
             self.assertEqual(out.getvalue().strip(), exp_out)
         else:
             self.fail("Expected an InfoSystemExit exception to be raised")
+
+    def test_parse_get_node_args(self):
+        # Capture error messages
+        # (without any parameters)
+        options = Namespace(policy_name=None, partition=None)
+        args = ''
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+        # a
+        options = Namespace(policy_name=None, partition=None)
+        args = 'a'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+        # a c
+        options = Namespace(policy_name=None, partition=None)
+        args = 'a c'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+        # a c o
+        options = Namespace(policy_name=None, partition=None)
+        args = 'a c o'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+
+        # a/c
+        options = Namespace(policy_name=None, partition=None)
+        args = 'a/c'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+        # a/c/o
+        options = Namespace(policy_name=None, partition=None)
+        args = 'a/c/o'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+
+        # account container junk/test.ring.gz
+        options = Namespace(policy_name=None, partition=None)
+        args = 'account container junk/test.ring.gz'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+
+        # account container object junk/test.ring.gz
+        options = Namespace(policy_name=None, partition=None)
+        args = 'account container object junk/test.ring.gz'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Need to specify policy_name or <ring.gz>',
+                                 parse_get_node_args, options, args.split())
+
+        # object.ring.gz(without any arguments i.e. a c o)
+        options = Namespace(policy_name=None, partition=None)
+        args = 'object.ring.gz'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Ring file does not exist',
+                                 parse_get_node_args, options, args.split())
+
+        # Valid policy
+        # -P zero
+        options = Namespace(policy_name='zero', partition=None)
+        args = ''
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'No target specified',
+                                 parse_get_node_args, options, args.split())
+        # -P one a/c/o
+        options = Namespace(policy_name='one', partition=None)
+        args = 'a/c/o'
+        ring_path, args = parse_get_node_args(options, args.split())
+        self.assertIsNone(ring_path)
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # -P one account container photos/cat.jpg
+        options = Namespace(policy_name='one', partition=None)
+        args = 'account container photos/cat.jpg'
+        ring_path, args = parse_get_node_args(options, args.split())
+        self.assertIsNone(ring_path)
+        self.assertEqual(args, ['account', 'container', 'photos/cat.jpg'])
+        # -P one account/container/photos/cat.jpg
+        options = Namespace(policy_name='one', partition=None)
+        args = 'account/container/photos/cat.jpg'
+        ring_path, args = parse_get_node_args(options, args.split())
+        self.assertIsNone(ring_path)
+        self.assertEqual(args, ['account', 'container', 'photos/cat.jpg'])
+        # -P one account/container/junk/test.ring.gz(object endswith 'ring.gz')
+        options = Namespace(policy_name='one', partition=None)
+        args = 'account/container/junk/test.ring.gz'
+        ring_path, args = parse_get_node_args(options, args.split())
+        self.assertIsNone(ring_path)
+        self.assertEqual(args, ['account', 'container', 'junk/test.ring.gz'])
+        # -P two a c o hooya
+        options = Namespace(policy_name='two', partition=None)
+        args = 'a c o hooya'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Invalid arguments',
+                                 parse_get_node_args, options, args.split())
+        # -P zero -p 1
+        options = Namespace(policy_name='zero', partition='1')
+        args = ''
+        ring_path, args = parse_get_node_args(options, args.split())
+        self.assertIsNone(ring_path)
+        self.assertFalse(args)
+        # -P one -p 1 a/c/o
+        options = Namespace(policy_name='one', partition='1')
+        args = 'a/c/o'
+        ring_path, args = parse_get_node_args(options, args.split())
+        self.assertIsNone(ring_path)
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # -P two -p 1 a c o hooya
+        options = Namespace(policy_name='two', partition='1')
+        args = 'a c o hooya'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 'Invalid arguments',
+                                 parse_get_node_args, options, args.split())
+
+        # Invalid policy
+        # -P undefined
+        options = Namespace(policy_name='undefined')
+        args = ''
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args.split())
+        # -P undefined -p 1
+        options = Namespace(policy_name='undefined', partition='1')
+        args = ''
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args.split())
+        # -P undefined a
+        options = Namespace(policy_name='undefined')
+        args = 'a'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args.split())
+        # -P undefined a c
+        options = Namespace(policy_name='undefined')
+        args = 'a c'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args.split())
+        # -P undefined a c o
+        options = Namespace(policy_name='undefined')
+        args = 'a c o'
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args.split())
+        # -P undefined a/c
+        options = Namespace(policy_name='undefined')
+        args = 'a/c'
+        # ring_path, args = parse_get_node_args(options, args.split())
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args)
+        # -P undefined a/c/o
+        options = Namespace(policy_name='undefined')
+        args = 'a/c/o'
+        # ring_path, args = parse_get_node_args(options, args.split())
+        self.assertRaisesMessage(InfoSystemExit,
+                                 "No policy named 'undefined'",
+                                 parse_get_node_args, options, args)
+
+        # Mock tests
+        # /etc/swift/object.ring.gz(without any arguments i.e. a c o)
+        options = Namespace(policy_name=None, partition=None)
+        args = '/etc/swift/object.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            self.assertRaisesMessage(
+                InfoSystemExit,
+                'No target specified',
+                parse_get_node_args, options, args.split())
+        # Similar ring_path and arguments
+        # /etc/swift/object.ring.gz /etc/swift/object.ring.gz
+        options = Namespace(policy_name=None, partition=None)
+        args = '/etc/swift/object.ring.gz /etc/swift/object.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, '/etc/swift/object.ring.gz')
+        self.assertEqual(args, ['etc', 'swift', 'object.ring.gz'])
+        # /etc/swift/object.ring.gz a/c/etc/swift/object.ring.gz
+        options = Namespace(policy_name=None, partition=None)
+        args = '/etc/swift/object.ring.gz a/c/etc/swift/object.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, '/etc/swift/object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'etc/swift/object.ring.gz'])
+        # Invalid path as mentioned in BUG#1539275
+        # /etc/swift/object.tar.gz account container object
+        options = Namespace(policy_name=None, partition=None)
+        args = '/etc/swift/object.tar.gz account container object'
+        self.assertRaisesMessage(
+            InfoSystemExit,
+            'Need to specify policy_name or <ring.gz>',
+            parse_get_node_args, options, args.split())
+
+        # object.ring.gz a/
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a/'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a'])
+        # object.ring.gz a/c
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a/c'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c'])
+        # object.ring.gz a/c/o
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a/c/o'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # object.ring.gz a/c/o/junk/test.ring.gz
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a/c/o/junk/test.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o/junk/test.ring.gz'])
+        # object.ring.gz a
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a'])
+        # object.ring.gz a c
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a c'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c'])
+        # object.ring.gz a c o
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a c o'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # object.ring.gz a c o blah blah
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a c o blah blah'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            self.assertRaisesMessage(
+                InfoSystemExit,
+                'Invalid arguments',
+                parse_get_node_args, options, args.split())
+        # object.ring.gz a/c/o/blah/blah
+        options = Namespace(policy_name=None)
+        args = 'object.ring.gz a/c/o/blah/blah'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o/blah/blah'])
+
+        # object.ring.gz -p 1
+        options = Namespace(policy_name=None, partition='1')
+        args = 'object.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertFalse(args)
+        # object.ring.gz -p 1 a c o
+        options = Namespace(policy_name=None, partition='1')
+        args = 'object.ring.gz a c o'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # object.ring.gz -p 1 a c o forth_arg
+        options = Namespace(policy_name=None, partition='1')
+        args = 'object.ring.gz a c o forth_arg'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            self.assertRaisesMessage(
+                InfoSystemExit,
+                'Invalid arguments',
+                parse_get_node_args, options, args.split())
+        # object.ring.gz -p 1 a/c/o
+        options = Namespace(policy_name=None, partition='1')
+        args = 'object.ring.gz a/c/o'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # object.ring.gz -p 1 a/c/junk/test.ring.gz
+        options = Namespace(policy_name=None, partition='1')
+        args = 'object.ring.gz a/c/junk/test.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'junk/test.ring.gz'])
+        # object.ring.gz -p 1 a/c/photos/cat.jpg
+        options = Namespace(policy_name=None, partition='1')
+        args = 'object.ring.gz a/c/photos/cat.jpg'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'photos/cat.jpg'])
+
+        # --all object.ring.gz a
+        options = Namespace(all=True, policy_name=None)
+        args = 'object.ring.gz a'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a'])
+        # --all object.ring.gz a c
+        options = Namespace(all=True, policy_name=None)
+        args = 'object.ring.gz a c'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c'])
+        # --all object.ring.gz a c o
+        options = Namespace(all=True, policy_name=None)
+        args = 'object.ring.gz a c o'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['a', 'c', 'o'])
+        # object.ring.gz account container photos/cat.jpg
+        options = Namespace(policy_name=None, partition=None)
+        args = 'object.ring.gz account container photos/cat.jpg'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['account', 'container', 'photos/cat.jpg'])
+        # object.ring.gz /account/container/photos/cat.jpg
+        options = Namespace(policy_name=None, partition=None)
+        args = 'object.ring.gz account/container/photos/cat.jpg'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['account', 'container', 'photos/cat.jpg'])
+        # Object name ends with 'ring.gz'
+        # object.ring.gz /account/container/junk/test.ring.gz
+        options = Namespace(policy_name=None, partition=None)
+        args = 'object.ring.gz account/container/junk/test.ring.gz'
+        with mock.patch('swift.cli.info.os.path.exists') as exists:
+            exists.return_value = True
+            ring_path, args = parse_get_node_args(options, args.split())
+        self.assertEqual(ring_path, 'object.ring.gz')
+        self.assertEqual(args, ['account', 'container', 'junk/test.ring.gz'])
 
 
 class TestPrintObj(TestCliInfoBase):
