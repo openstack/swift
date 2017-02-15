@@ -1184,22 +1184,22 @@ class TestObjectReconstructor(unittest.TestCase):
 
     def test_handoffs_only_default(self):
         # sanity neither option added to default conf
-        self.conf.pop('handoffs_only', None)
         self.conf.pop('handoffs_first', None)
+        self.conf.pop('handoffs_only', None)
         self.reconstructor = object_reconstructor.ObjectReconstructor(
             self.conf, logger=self.logger)
         self.assertFalse(self.reconstructor.handoffs_only)
 
     def test_handoffs_first_enables_handoffs_only(self):
+        self.conf['handoffs_first'] = "True"
         self.conf.pop('handoffs_only', None)  # sanity
-        self.conf['handoffs_first'] = True
         self.reconstructor = object_reconstructor.ObjectReconstructor(
             self.conf, logger=self.logger)
         self.assertTrue(self.reconstructor.handoffs_only)
         warnings = self.logger.get_lines_for_level('warning')
         expected = [
             'The handoffs_first option is deprecated in favor '
-            'of handoffs_only.  This option may be ignored in a '
+            'of handoffs_only. This option may be ignored in a '
             'future release.',
             'Handoff only mode is not intended for normal operation, '
             'use handoffs_only with care.',
@@ -1207,27 +1207,92 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(expected, warnings)
 
     def test_handoffs_only_ignores_handoffs_first(self):
-        self.conf['handoffs_first'] = True
-        self.conf['handoffs_only'] = False
+        self.conf['handoffs_first'] = "True"
+        self.conf['handoffs_only'] = "False"
         self.reconstructor = object_reconstructor.ObjectReconstructor(
             self.conf, logger=self.logger)
         self.assertFalse(self.reconstructor.handoffs_only)
         warnings = self.logger.get_lines_for_level('warning')
         expected = [
             'The handoffs_first option is deprecated in favor of '
-            'handoffs_only.  This option may be ignored in a future release.',
+            'handoffs_only. This option may be ignored in a future release.',
             'Ignored handoffs_first option in favor of handoffs_only.',
         ]
         self.assertEqual(expected, warnings)
 
     def test_handoffs_only_enabled(self):
         self.conf.pop('handoffs_first', None)  # sanity
-        self.conf['handoffs_only'] = True
+        self.conf['handoffs_only'] = "True"
         self.reconstructor = object_reconstructor.ObjectReconstructor(
             self.conf, logger=self.logger)
         self.assertTrue(self.reconstructor.handoffs_only)
         warnings = self.logger.get_lines_for_level('warning')
         expected = [
+            'Handoff only mode is not intended for normal operation, '
+            'use handoffs_only with care.',
+        ]
+        self.assertEqual(expected, warnings)
+
+    def test_handoffs_only_true_and_first_true(self):
+        self.conf['handoffs_first'] = "True"
+        self.conf['handoffs_only'] = "True"
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertTrue(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'The handoffs_first option is deprecated in favor of '
+            'handoffs_only. This option may be ignored in a future release.',
+            'Handoff only mode is not intended for normal operation, '
+            'use handoffs_only with care.',
+        ]
+        self.assertEqual(expected, warnings)
+
+    def test_handoffs_only_false_and_first_false(self):
+        self.conf['handoffs_only'] = "False"
+        self.conf['handoffs_first'] = "False"
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertFalse(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'The handoffs_first option is deprecated in favor of '
+            'handoffs_only. This option may be ignored in a future release.',
+        ]
+        self.assertEqual(expected, warnings)
+
+    def test_handoffs_only_none_and_first_false(self):
+        self.conf['handoffs_first'] = "False"
+        self.conf.pop('handoffs_only', None)  # sanity
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertFalse(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'The handoffs_first option is deprecated in favor of '
+            'handoffs_only. This option may be ignored in a future release.',
+        ]
+        self.assertEqual(expected, warnings)
+
+    def test_handoffs_only_false_and_first_none(self):
+        self.conf.pop('handoffs_first', None)  # sanity
+        self.conf['handoffs_only'] = "False"
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertFalse(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertEqual(len(warnings), 0)
+
+    def test_handoffs_only_true_and_first_false(self):
+        self.conf['handoffs_first'] = "False"
+        self.conf['handoffs_only'] = "True"
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertTrue(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'The handoffs_first option is deprecated in favor of '
+            'handoffs_only. This option may be ignored in a future release.',
             'Handoff only mode is not intended for normal operation, '
             'use handoffs_only with care.',
         ]
