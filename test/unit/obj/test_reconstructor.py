@@ -719,7 +719,6 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         rmtree(testring, ignore_errors=1)
 
     def test_build_reconstruction_jobs(self):
-        self.reconstructor.handoffs_first = False
         self.reconstructor._reset_stats()
         for part_info in self.reconstructor.collect_parts():
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
@@ -728,13 +727,40 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                              object_reconstructor.REVERT))
             self.assert_expected_jobs(part_info['partition'], jobs)
 
-        self.reconstructor.handoffs_first = True
-        self.reconstructor._reset_stats()
-        for part_info in self.reconstructor.collect_parts():
-            jobs = self.reconstructor.build_reconstruction_jobs(part_info)
-            self.assertTrue(jobs[0]['job_type'] ==
-                            object_reconstructor.REVERT)
-            self.assert_expected_jobs(part_info['partition'], jobs)
+    def test_handoffs_only(self):
+        self.reconstructor.handoffs_only = True
+
+        found_job_types = set()
+
+        def fake_process_job(job):
+            # increment failure counter
+            self.reconstructor.handoffs_remaining += 1
+            found_job_types.add(job['job_type'])
+
+        self.reconstructor.process_job = fake_process_job
+
+        # only revert jobs
+        self.reconstructor.reconstruct()
+        self.assertEqual(found_job_types, {object_reconstructor.REVERT})
+        # but failures keep handoffs remaining
+        msgs = self.reconstructor.logger.get_lines_for_level('info')
+        self.assertIn('Next pass will continue to revert handoffs', msgs[-1])
+        self.logger._clear()
+
+        found_job_types = set()
+
+        def fake_process_job(job):
+            # success does not increment failure counter
+            found_job_types.add(job['job_type'])
+
+        self.reconstructor.process_job = fake_process_job
+
+        # only revert jobs ... but all handoffs cleared out successfully
+        self.reconstructor.reconstruct()
+        self.assertEqual(found_job_types, {object_reconstructor.REVERT})
+        # it's time to turn off handoffs_only
+        msgs = self.reconstructor.logger.get_lines_for_level('warning')
+        self.assertIn('You should disable handoffs_only', msgs[-1])
 
     def test_get_partners(self):
         # we're going to perform an exhaustive test of every possible
@@ -1155,6 +1181,57 @@ class TestObjectReconstructor(unittest.TestCase):
 
     def ts(self):
         return next(self.ts_iter)
+
+    def test_handoffs_only_default(self):
+        # sanity neither option added to default conf
+        self.conf.pop('handoffs_only', None)
+        self.conf.pop('handoffs_first', None)
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertFalse(self.reconstructor.handoffs_only)
+
+    def test_handoffs_first_enables_handoffs_only(self):
+        self.conf.pop('handoffs_only', None)  # sanity
+        self.conf['handoffs_first'] = True
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertTrue(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'The handoffs_first option is deprecated in favor '
+            'of handoffs_only.  This option may be ignored in a '
+            'future release.',
+            'Handoff only mode is not intended for normal operation, '
+            'use handoffs_only with care.',
+        ]
+        self.assertEqual(expected, warnings)
+
+    def test_handoffs_only_ignores_handoffs_first(self):
+        self.conf['handoffs_first'] = True
+        self.conf['handoffs_only'] = False
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertFalse(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'The handoffs_first option is deprecated in favor of '
+            'handoffs_only.  This option may be ignored in a future release.',
+            'Ignored handoffs_first option in favor of handoffs_only.',
+        ]
+        self.assertEqual(expected, warnings)
+
+    def test_handoffs_only_enabled(self):
+        self.conf.pop('handoffs_first', None)  # sanity
+        self.conf['handoffs_only'] = True
+        self.reconstructor = object_reconstructor.ObjectReconstructor(
+            self.conf, logger=self.logger)
+        self.assertTrue(self.reconstructor.handoffs_only)
+        warnings = self.logger.get_lines_for_level('warning')
+        expected = [
+            'Handoff only mode is not intended for normal operation, '
+            'use handoffs_only with care.',
+        ]
+        self.assertEqual(expected, warnings)
 
     def test_two_ec_policies(self):
         with patch_policies([
@@ -2345,7 +2422,7 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(call['node'], sync_to[0])
         self.assertEqual(set(call['suffixes']), set(['123', 'abc']))
 
-    def test_process_job_revert_is_handoff(self):
+    def test_process_job_revert_is_handoff_fails(self):
         replicas = self.policy.object_ring.replicas
         frag_index = random.randint(0, replicas - 1)
         sync_to = [random.choice([n for n in self.policy.object_ring.devs
@@ -2375,7 +2452,8 @@ class TestObjectReconstructor(unittest.TestCase):
 
         def ssync_response_callback(*args):
             # in this test ssync always fails, until we encounter ourselves in
-            # the list of possible handoff's to sync to
+            # the list of possible handoff's to sync to, so handoffs_remaining
+            # should increment
             return False, {}
 
         expected_suffix_calls = set([
@@ -2401,6 +2479,7 @@ class TestObjectReconstructor(unittest.TestCase):
         call = ssync_calls[0]
         self.assertEqual(call['node'], sync_to[0])
         self.assertEqual(set(call['suffixes']), set(['123', 'abc']))
+        self.assertEqual(self.reconstructor.handoffs_remaining, 1)
 
     def test_process_job_revert_cleanup(self):
         replicas = self.policy.object_ring.replicas
@@ -2446,6 +2525,7 @@ class TestObjectReconstructor(unittest.TestCase):
         }
 
         def ssync_response_callback(*args):
+            # success should not increment handoffs_remaining
             return True, {ohash: {'ts_data': ts}}
 
         ssync_calls = []
@@ -2469,6 +2549,7 @@ class TestObjectReconstructor(unittest.TestCase):
         df_mgr.get_hashes(self.local_dev['device'], str(partition), [],
                           self.policy)
         self.assertFalse(os.access(df._datadir, os.F_OK))
+        self.assertEqual(self.reconstructor.handoffs_remaining, 0)
 
     def test_process_job_revert_cleanup_tombstone(self):
         sync_to = [random.choice([n for n in self.policy.object_ring.devs
