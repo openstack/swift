@@ -999,6 +999,7 @@ def fake_http_connect(*code_iter, **kwargs):
     body_iter = kwargs.get('body_iter', None)
     if body_iter:
         body_iter = iter(body_iter)
+    unexpected_requests = []
 
     def connect(*args, **ckwargs):
         if kwargs.get('slow_connect', False):
@@ -1008,7 +1009,15 @@ def fake_http_connect(*code_iter, **kwargs):
                 kwargs['give_content_type'](args[6]['Content-Type'])
             else:
                 kwargs['give_content_type']('')
-        i, status = next(conn_id_and_code_iter)
+        try:
+            i, status = next(conn_id_and_code_iter)
+        except StopIteration:
+            # the code under test may swallow the StopIteration, so by logging
+            # unexpected requests here we allow the test framework to check for
+            # them after the connect function has been used.
+            unexpected_requests.append((args, kwargs))
+            raise
+
         if 'give_connect' in kwargs:
             give_conn_fn = kwargs['give_connect']
             argspec = inspect.getargspec(give_conn_fn)
@@ -1031,6 +1040,7 @@ def fake_http_connect(*code_iter, **kwargs):
                         connection_id=i, give_send=kwargs.get('give_send'),
                         give_expect=kwargs.get('give_expect'))
 
+    connect.unexpected_requests = unexpected_requests
     connect.code_iter = code_iter
 
     return connect
