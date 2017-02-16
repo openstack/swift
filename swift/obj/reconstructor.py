@@ -726,8 +726,8 @@ class ObjectReconstructor(Daemon):
         for node in job['sync_to']:
             success, in_sync_objs = ssync_sender(
                 self, node, job, job['suffixes'])()
-            self.rehash_remote(node, job, job['suffixes'])
             if success:
+                self.rehash_remote(node, job, job['suffixes'])
                 syncd_with += 1
                 reverted_objs.update(in_sync_objs)
         if syncd_with >= len(job['sync_to']):
