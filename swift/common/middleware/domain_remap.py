@@ -73,7 +73,7 @@ class DomainRemapMiddleware(object):
                                if not s.startswith('.')]
         self.storage_domain += [s for s in list_from_csv(storage_domain)
                                 if s.startswith('.')]
-        self.path_root = conf.get('path_root', 'v1').strip('/')
+        self.path_root = '/' + conf.get('path_root', 'v1').strip('/')
         prefixes = conf.get('reseller_prefixes', 'AUTH')
         self.reseller_prefixes = list_from_csv(prefixes)
         self.reseller_prefixes_lower = [x.lower()
@@ -124,14 +124,15 @@ class DomainRemapMiddleware(object):
                     # account prefix is not in config list. bail.
                     return self.app(env, start_response)
 
-            path = env['PATH_INFO'].strip('/')
-            new_path_parts = ['', self.path_root, account]
+            path = env['PATH_INFO']
+            new_path_parts = [self.path_root, account]
             if container:
                 new_path_parts.append(container)
             if path.startswith(self.path_root):
-                path = path[len(self.path_root):].lstrip('/')
-            if path:
-                new_path_parts.append(path)
+                path = path[len(self.path_root):]
+            if path.startswith('/'):
+                path = path[1:]
+            new_path_parts.append(path)
             new_path = '/'.join(new_path_parts)
             env['PATH_INFO'] = new_path
         return self.app(env, start_response)
