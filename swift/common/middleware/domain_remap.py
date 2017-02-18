@@ -50,8 +50,13 @@ advised. With container sync, you should use the true storage end points as
 sync destinations.
 """
 
+from swift.common.middleware import RewriteContext
 from swift.common.swob import Request, HTTPBadRequest
 from swift.common.utils import list_from_csv, register_swift_info
+
+
+class _DomainRemapContext(RewriteContext):
+    base_re = r'^(https?://[^/]+)%s(.*)$'
 
 
 class DomainRemapMiddleware(object):
@@ -124,7 +129,7 @@ class DomainRemapMiddleware(object):
                     # account prefix is not in config list. bail.
                     return self.app(env, start_response)
 
-            path = env['PATH_INFO']
+            requested_path = path = env['PATH_INFO']
             new_path_parts = [self.path_root, account]
             if container:
                 new_path_parts.append(container)
@@ -135,6 +140,10 @@ class DomainRemapMiddleware(object):
             new_path_parts.append(path)
             new_path = '/'.join(new_path_parts)
             env['PATH_INFO'] = new_path
+
+            context = _DomainRemapContext(self.app, requested_path, new_path)
+            return context.handle_request(env, start_response)
+
         return self.app(env, start_response)
 
 
