@@ -239,6 +239,35 @@ class TestCNAMELookup(unittest.TestCase):
         resp = do_test('c.badtest.com')
         self.assertEqual(resp, bad_domain)
 
+    def test_host_is_storage_domain(self):
+        conf = {'storage_domain': 'storage.example.com',
+                'lookup_depth': 2}
+        app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+
+        def do_test(host):
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                                headers={'Host': host})
+            return app(req.environ, start_response)
+
+        bad_domain = ['CNAME lookup failed after 2 tries']
+        resp = do_test('c.badtest.com')
+        self.assertEqual(resp, bad_domain)
+
+        resp = do_test('storage.example.com')
+        self.assertEqual(resp, 'FAKE APP')
+
+    def test_resolution_to_storage_domain_exactly(self):
+        conf = {'storage_domain': 'example.com',
+                'lookup_depth': 1}
+        app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'mysite.com'})
+        module = 'swift.common.middleware.cname_lookup.lookup_cname'
+        with mock.patch(module, lambda x: (0, 'example.com')):
+            resp = app(req.environ, start_response)
+            self.assertEqual(resp, 'FAKE APP')
+
 
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):

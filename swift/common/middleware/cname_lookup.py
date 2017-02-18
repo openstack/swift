@@ -103,6 +103,7 @@ class CNAMELookupMiddleware(object):
         self.logger = get_logger(conf, log_route='cname-lookup')
 
     def _domain_endswith_in_storage_domain(self, a_domain):
+        a_domain = '.' + a_domain
         for domain in self.storage_domain:
             if a_domain.endswith(domain):
                 return True
