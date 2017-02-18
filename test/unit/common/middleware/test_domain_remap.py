@@ -115,6 +115,27 @@ class TestDomainRemap(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, '/test')
 
+    def test_storage_domains_conf_format(self):
+        conf = {'storage_domain': 'foo.com'}
+        app = domain_remap.filter_factory(conf)(FakeApp())
+        self.assertEqual(app.storage_domain, ['.foo.com'])
+
+        conf = {'storage_domain': 'foo.com, '}
+        app = domain_remap.filter_factory(conf)(FakeApp())
+        self.assertEqual(app.storage_domain, ['.foo.com'])
+
+        conf = {'storage_domain': 'foo.com, bar.com'}
+        app = domain_remap.filter_factory(conf)(FakeApp())
+        self.assertEqual(app.storage_domain, ['.foo.com', '.bar.com'])
+
+        conf = {'storage_domain': 'foo.com, .bar.com'}
+        app = domain_remap.filter_factory(conf)(FakeApp())
+        self.assertEqual(app.storage_domain, ['.foo.com', '.bar.com'])
+
+        conf = {'storage_domain': '.foo.com, .bar.com'}
+        app = domain_remap.filter_factory(conf)(FakeApp())
+        self.assertEqual(app.storage_domain, ['.foo.com', '.bar.com'])
+
     def test_domain_remap_configured_with_prefixes(self):
         conf = {'reseller_prefixes': 'PREFIX'}
         self.app = domain_remap.DomainRemapMiddleware(FakeApp(), conf)
@@ -154,6 +175,24 @@ class TestDomainRemap(unittest.TestCase):
                             headers={'Host': 'auth-uuid.example.com'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, '/v1/AUTH_uuid/test')
+
+    def test_multiple_storage_domains(self):
+        conf = {'storage_domain': 'storage1.com, storage2.com'}
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(), conf)
+
+        def do_test(host):
+            req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
+                                headers={'Host': host})
+            return self.app(req.environ, start_response)
+
+        resp = do_test('auth-uuid.storage1.com')
+        self.assertEqual(resp, '/v1/AUTH_uuid/test')
+
+        resp = do_test('auth-uuid.storage2.com')
+        self.assertEqual(resp, '/v1/AUTH_uuid/test')
+
+        resp = do_test('auth-uuid.storage3.com')
+        self.assertEqual(resp, '/test')
 
 
 class TestSwiftInfo(unittest.TestCase):

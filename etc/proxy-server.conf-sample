@@ -503,7 +503,10 @@ use = egg:swift#domain_remap
 # set log_headers = false
 # set log_address = /dev/log
 #
+# Specify the storage_domain that match your cloud, multiple domains
+# can be specified separated by a comma
 # storage_domain = example.com
+
 # path_root = v1
 
 # Browsers can convert a host header to lowercase, so check that reseller
