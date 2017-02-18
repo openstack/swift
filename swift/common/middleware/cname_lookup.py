@@ -34,8 +34,7 @@ from swift import gettext_ as _
 
 try:
     import dns.resolver
-    from dns.exception import DNSException
-    from dns.resolver import NXDOMAIN, NoAnswer
+    import dns.exception
 except ImportError:
     # catch this to allow docs to be built without the dependency
     MODULE_DEPENDENCY_MET = False
@@ -60,7 +59,8 @@ def lookup_cname(domain):  # pragma: no cover
         result = answer.items[0].to_text()
         result = result.rstrip('.')
         return ttl, result
-    except (DNSException, NXDOMAIN, NoAnswer):
+    except (dns.exception.DNSException, dns.resolver.NXDOMAIN,
+            dns.resolver.NoAnswer):
         return 0, None
 
 
