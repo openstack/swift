@@ -1356,6 +1356,7 @@ class NodeIter(object):
         Install a callback function that will be used during a call to next()
         to get an alternate node instead of returning the next node from the
         iterator.
+
         :param callback: A no argument function that should return a node dict
                          or None.
         """

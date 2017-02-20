@@ -189,8 +189,8 @@ you can use following code snippet:
     import time
     time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(timestamp))
 
-Using the ``swift`` tool to generate a Temporary URL 
-~~~~~~~~~~~~~~~~~~~~~
+Using the ``swift`` tool to generate a Temporary URL
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The ``swift`` tool provides the  tempurl_ option that
 auto-generates the *``temp_url_sig``* and *``temp_url_expires``* query
