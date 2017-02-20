@@ -793,11 +793,11 @@ class BaseDiskFileManager(object):
                     data_info -> a file info dict for a .data file
                     meta_info -> a file info dict for a .meta file
                     ctype_info -> a file info dict for a .meta file which
-                                  contains the content-type value
+                    contains the content-type value
                     unexpected -> a list of file paths for unexpected
-                                  files
+                    files
                     possible_reclaim -> a list of file info dicts for possible
-                                        reclaimable files
+                    reclaimable files
                     obsolete  -> a list of file info dicts for obsolete files
         """
         # Build the exts data structure:
