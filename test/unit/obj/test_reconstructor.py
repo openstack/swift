@@ -665,17 +665,28 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_get_response(self):
         part = self.part_nums[0]
         node = POLICIES[1].object_ring.get_part_nodes(int(part))[0]
-        for stat_code in (200, 400):
+
+        def do_test(stat_code):
             with mocked_http_conn(stat_code):
                 resp = self.reconstructor._get_response(node, part,
                                                         path='nada',
                                                         headers={},
                                                         policy=POLICIES[1])
-                if resp:
-                    self.assertEqual(resp.status, 200)
-                else:
-                    self.assertEqual(
-                        len(self.reconstructor.logger.log_dict['warning']), 1)
+            return resp
+
+        resp = do_test(200)
+        self.assertEqual(resp.status, 200)
+        resp = do_test(400)
+        for line in self.logger.get_lines_for_level('warning'):
+            self.assertIn('Invalid response 400', line)
+        self.logger._clear()
+        resp = do_test(Exception())
+        for line in self.logger.get_lines_for_level('error'):
+            self.assertIn('Trying to GET', line)
+        self.logger._clear()
+        resp = do_test(Timeout())
+        for line in self.logger.get_lines_for_level('error'):
+            self.assertIn('Timeout (Nones)', line)
 
     def test_reconstructor_does_not_log_on_404(self):
         part = self.part_nums[0]
@@ -717,6 +728,17 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.reconstructor.next_check = orig_check - 30
         self.assertFalse(self.reconstructor.check_ring(obj_ring))
         rmtree(testring, ignore_errors=1)
+
+    def test_reconstruct_check_ring(self):
+        # test reconstruct logs info when check_ring is false and that
+        # there are no jobs built
+        with mock.patch('swift.obj.reconstructor.ObjectReconstructor.'
+                        'check_ring', return_value=False):
+            self.reconstructor.reconstruct()
+        msgs = self.reconstructor.logger.get_lines_for_level('info')
+        self.assertIn('Ring change detected. Aborting'
+                      ' current reconstruction pass.', msgs[0])
+        self.assertEqual(self.reconstructor.reconstruction_count, 0)
 
     def test_build_reconstruction_jobs(self):
         self.reconstructor._reset_stats()
@@ -1064,6 +1086,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                                          self.logger.all_log_lines())
         self.assertEqual(self.reconstructor.suffix_sync, 8)
         self.assertEqual(self.reconstructor.suffix_count, 8)
+        self.assertEqual(self.reconstructor.reconstruction_count, 6)
         self.assertEqual(len(found_jobs), 6)
 
     def test_process_job_all_insufficient_storage(self):
@@ -1086,6 +1109,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                             self.logger, 'update_stats', 'suffix.syncs'))
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
+        self.assertEqual(self.reconstructor.reconstruction_count, 6)
         self.assertEqual(len(found_jobs), 6)
 
     def test_process_job_all_client_error(self):
@@ -1108,6 +1132,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                             self.logger, 'update_stats', 'suffix.syncs'))
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
+        self.assertEqual(self.reconstructor.reconstruction_count, 6)
         self.assertEqual(len(found_jobs), 6)
 
     def test_process_job_all_timeout(self):
@@ -1595,7 +1620,17 @@ class TestObjectReconstructor(unittest.TestCase):
             junk_file = os.path.join(datadir_path, junk_name)
             if os.path.exists(junk_file):
                 errors.append('%s still exists!' % junk_file)
+
         self.assertFalse(errors)
+
+        error_lines = self.logger.get_lines_for_level('warning')
+        self.assertIn('Unexpected entity in data dir: %r'
+                      % os.path.join(datadir_path, 'not'), error_lines)
+        self.assertIn('Unexpected entity in data dir: %r'
+                      % os.path.join(datadir_path, 'junk'), error_lines)
+        self.assertIn('Unexpected entity %r is not a directory'
+                      % os.path.join(datadir_path, '1234'), error_lines)
+        self.assertEqual(self.reconstructor.reconstruction_part_count, 6)
 
     def test_collect_parts_overrides(self):
         # setup multiple devices, with multiple parts
