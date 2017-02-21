@@ -1926,6 +1926,25 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 408)
 
+    def test_PUT_client_closed_connection(self):
+        class fake_input(object):
+            def read(self, *a, **kw):
+                # On client disconnect during a chunked transfer, eventlet
+                # may raise a ValueError (or ChunkReadError, following
+                # https://github.com/eventlet/eventlet/commit/c3ce3ee -- but
+                # that inherits from ValueError)
+                raise ValueError
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Content-Length': '6'})
+        req.environ['wsgi.input'] = fake_input()
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 499)
+
     def test_PUT_system_metadata(self):
         # check that sysmeta is stored in diskfile
         timestamp = normalize_timestamp(time())
