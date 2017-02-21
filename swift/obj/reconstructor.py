@@ -801,7 +801,7 @@ class ObjectReconstructor(Daemon):
     def collect_parts(self, override_devices=None,
                       override_partitions=None):
         """
-        Helper for yielding partitions in the top level reconstructor
+        Helper for getting partitions in the top level reconstructor
         """
         override_devices = override_devices or []
         override_partitions = override_partitions or []
