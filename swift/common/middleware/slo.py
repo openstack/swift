@@ -191,7 +191,19 @@ A GET request with the query parameter::
     ?multipart-manifest=get
 
 will return a transformed version of the original manifest, containing
-additional fields and different key names.
+additional fields and different key names. For example, the first manifest in
+the example above would look like this:
+
+  .. code::
+
+    [{"name": "/cont/object",
+      "hash": "etagoftheobjectsegment",
+      "bytes": 10485760,
+      "range": "1048576-2097151"}, ...]
+
+As you can see, some of the fields are renamed compared to the put request:
+*path* is *name*, *etag* is *hash*, *size_bytes* is *bytes*.  The *range* field
+remains the same (if present).
 
 A GET request with the query parameters::
 
