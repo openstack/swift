@@ -24,6 +24,7 @@ except ImportError:
     skip = True
 else:  # executed if the try has no errors
     skip = False
+from swift.common import utils
 from swift.common.middleware import cname_lookup
 from swift.common.swob import Request
 
@@ -237,3 +238,21 @@ class TestCNAMELookup(unittest.TestCase):
         bad_domain = ['CNAME lookup failed to resolve to a valid domain']
         resp = do_test('c.badtest.com')
         self.assertEqual(resp, bad_domain)
+
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+        cname_lookup.filter_factory({})
+        swift_info = utils.get_swift_info()
+        self.assertIn('cname_lookup', swift_info)
+        self.assertEqual(swift_info['cname_lookup'].get('lookup_depth'), 1)
+
+    def test_registered_nondefaults(self):
+        cname_lookup.filter_factory({'lookup_depth': '2'})
+        swift_info = utils.get_swift_info()
+        self.assertIn('cname_lookup', swift_info)
+        self.assertEqual(swift_info['cname_lookup'].get('lookup_depth'), 2)

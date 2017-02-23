@@ -43,7 +43,8 @@ else:  # executed if the try block finishes with no errors
     MODULE_DEPENDENCY_MET = True
 
 from swift.common.swob import Request, HTTPBadRequest
-from swift.common.utils import cache_from_env, get_logger, list_from_csv
+from swift.common.utils import cache_from_env, get_logger, list_from_csv, \
+    register_swift_info
 
 
 def lookup_cname(domain):  # pragma: no cover
@@ -175,6 +176,9 @@ class CNAMELookupMiddleware(object):
 def filter_factory(global_conf, **local_conf):  # pragma: no cover
     conf = global_conf.copy()
     conf.update(local_conf)
+
+    register_swift_info('cname_lookup',
+                        lookup_depth=int(conf.get('lookup_depth', '1')))
 
     def cname_filter(app):
         return CNAMELookupMiddleware(app, conf)
