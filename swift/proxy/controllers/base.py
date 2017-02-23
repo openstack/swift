@@ -1886,28 +1886,37 @@ class Controller(object):
             resp.status = HTTP_UNAUTHORIZED
             return resp
 
-        # Allow all headers requested in the request. The CORS
-        # specification does leave the door open for this, as mentioned in
-        # http://www.w3.org/TR/cors/#resource-preflight-requests
-        # Note: Since the list of headers can be unbounded
-        # simply returning headers can be enough.
-        allow_headers = set()
-        if req.headers.get('Access-Control-Request-Headers'):
-            allow_headers.update(
-                list_from_csv(req.headers['Access-Control-Request-Headers']))
-
         # Populate the response with the CORS preflight headers
         if cors.get('allow_origin') and \
                 cors.get('allow_origin').strip() == '*':
             headers['access-control-allow-origin'] = '*'
         else:
             headers['access-control-allow-origin'] = req_origin_value
+            if 'vary' in headers:
+                headers['vary'] += ', Origin'
+            else:
+                headers['vary'] = 'Origin'
+
         if cors.get('max_age') is not None:
             headers['access-control-max-age'] = cors.get('max_age')
+
         headers['access-control-allow-methods'] = \
             ', '.join(self.allowed_methods)
+
+        # Allow all headers requested in the request. The CORS
+        # specification does leave the door open for this, as mentioned in
+        # http://www.w3.org/TR/cors/#resource-preflight-requests
+        # Note: Since the list of headers can be unbounded
+        # simply returning headers can be enough.
+        allow_headers = set(
+            list_from_csv(req.headers.get('Access-Control-Request-Headers')))
         if allow_headers:
             headers['access-control-allow-headers'] = ', '.join(allow_headers)
+            if 'vary' in headers:
+                headers['vary'] += ', Access-Control-Request-Headers'
+            else:
+                headers['vary'] = 'Access-Control-Request-Headers'
+
         resp.headers = headers
 
         return resp
