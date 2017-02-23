@@ -67,7 +67,7 @@ head every segment passed in to verify:
  5. if the user provided a range, it is a singular, syntactically correct range
     that is satisfiable given the size of the object.
 
-Note that the etag and size_bytes keys are optional; if ommitted, the
+Note that the etag and size_bytes keys are optional; if omitted, the
 verification is not performed. If any of the objects fail to verify (not
 found, size/etag mismatch, below minimum size, invalid range) then the user
 will receive a 4xx error response. If everything does match, the user will
