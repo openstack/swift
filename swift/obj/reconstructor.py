@@ -564,7 +564,6 @@ class ObjectReconstructor(Daemon):
                 self.logger.exception(
                     'Unable to purge DiskFile (%r %r %r)',
                     object_hash, timestamps['ts_data'], frag_index)
-                continue
 
     def process_job(self, job):
         """
@@ -923,11 +922,11 @@ class ObjectReconstructor(Daemon):
 
         stats = spawn(self.heartbeat)
         lockup_detector = spawn(self.detect_lockups)
-        sleep()  # Give spawns a cycle
 
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             for part_info in self.collect_parts(**kwargs):
+                sleep()  # Give spawns a cycle
                 if not self.check_ring(part_info['policy'].object_ring):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current reconstruction pass."))
