@@ -5319,6 +5319,76 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual('x-trans-id',
                          resp.headers['access-control-expose-headers'])
 
+    def test_CORS_expose_headers(self):
+        default_expected_exposed = set([
+            'cache-control', 'content-language', 'content-type', 'expires',
+            'last-modified', 'pragma', 'etag', 'x-timestamp', 'x-trans-id',
+            'x-openstack-request-id'])
+
+        def objectGET(controller, req):
+                return Response(headers={
+                    'X-Custom-Operator': 'hush',
+                    'X-Custom-User': 'hush',
+                })
+
+        # test default expose_headers
+        self.app.cors_expose_headers = []
+        container_cors = {'allow_origin': 'http://foo.bar'}
+        resp = self._get_CORS_response(container_cors=container_cors,
+                                       strict_mode=False, object_get=objectGET)
+
+        self.assertEqual(200, resp.status_int)
+        self.assertIn('access-control-expose-headers', resp.headers)
+        exposed = set(
+            h.strip() for h in
+            resp.headers['access-control-expose-headers'].split(','))
+        self.assertEqual(default_expected_exposed, exposed)
+
+        # test operator expose_headers
+        self.app.cors_expose_headers = ['x-custom-operator', ]
+        container_cors = {'allow_origin': 'http://foo.bar'}
+        resp = self._get_CORS_response(container_cors=container_cors,
+                                       strict_mode=False, object_get=objectGET)
+
+        self.assertEqual(200, resp.status_int)
+        self.assertIn('access-control-expose-headers', resp.headers)
+        exposed = set(
+            h.strip() for h in
+            resp.headers['access-control-expose-headers'].split(','))
+        self.assertEqual(default_expected_exposed | set(['x-custom-operator']),
+                         exposed)
+
+        # test user expose_headers
+        self.app.cors_expose_headers = []
+        container_cors = {'allow_origin': 'http://foo.bar',
+                          'expose_headers': 'x-custom-user'}
+        resp = self._get_CORS_response(container_cors=container_cors,
+                                       strict_mode=False, object_get=objectGET)
+
+        self.assertEqual(200, resp.status_int)
+        self.assertIn('access-control-expose-headers', resp.headers)
+        exposed = set(
+            h.strip() for h in
+            resp.headers['access-control-expose-headers'].split(','))
+        self.assertEqual(default_expected_exposed | set(['x-custom-user']),
+                         exposed)
+
+        # test user and operator expose_headers
+        self.app.cors_expose_headers = ['x-custom-operator', ]
+        container_cors = {'allow_origin': 'http://foo.bar',
+                          'expose_headers': 'x-custom-user'}
+        resp = self._get_CORS_response(container_cors=container_cors,
+                                       strict_mode=False, object_get=objectGET)
+
+        self.assertEqual(200, resp.status_int)
+        self.assertIn('access-control-expose-headers', resp.headers)
+        exposed = set(
+            h.strip() for h in
+            resp.headers['access-control-expose-headers'].split(','))
+        self.assertEqual(default_expected_exposed | set(['x-custom-user',
+                                                         'x-custom-operator']),
+                         exposed)
+
     def _gather_x_container_headers(self, controller_call, req, *connect_args,
                                     **kwargs):
         header_list = kwargs.pop('header_list', ['X-Container-Device',

@@ -73,6 +73,9 @@ bind_port = 8080
 # cors_allow_origin =
 # strict_cors_mode = True
 #
+# Comma separated list of headers to expose through Access-Control-Expose-Headers
+# cors_expose_headers =
+#
 # client_timeout = 60
 # eventlet_debug = false
 #

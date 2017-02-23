@@ -147,6 +147,10 @@ class Application(object):
             a.strip()
             for a in conf.get('cors_allow_origin', '').split(',')
             if a.strip()]
+        self.cors_expose_headers = [
+            a.strip()
+            for a in conf.get('cors_expose_headers', '').split(',')
+            if a.strip()]
         self.strict_cors_mode = config_true_value(
             conf.get('strict_cors_mode', 't'))
         self.node_timings = {}
