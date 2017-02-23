@@ -2862,6 +2862,9 @@ class TestObjectController(unittest.TestCase):
             headers={'If-Match': '"11111111111111111111111111111111"'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
+        self.assertIn(
+            '"GET /sda1/p/a/c/o" 412 - ',
+            self.object_controller.logger.get_lines_for_level('info')[-1])
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
@@ -6445,7 +6448,7 @@ class TestObjectController(unittest.TestCase):
                         self.assertEqual(
                             self.logger.get_lines_for_level('info'),
                             ['None - - [01/Jan/1970:02:46:41 +0000] "PUT'
-                             ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
+                             ' /sda1/p/a/c/o" 405 91 "-" "-" "-" 1.0000 "-"'
                              ' 1234 -'])
 
     def test_call_incorrect_replication_method(self):

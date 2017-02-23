@@ -1113,6 +1113,7 @@ class ObjectController(BaseStorageServer):
                     ' %(path)s '), {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
+        res.fix_conditional_response()
         if self.log_requests:
             log_line = get_log_line(req, res, trans_time, '')
             if req.method in ('REPLICATE', 'SSYNC') or \
