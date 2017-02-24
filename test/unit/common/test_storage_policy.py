@@ -12,7 +12,9 @@
 # limitations under the License.
 
 """ Tests for swift.common.storage_policies """
+import contextlib
 import six
+import logging
 import unittest
 import os
 import mock
@@ -20,6 +22,7 @@ from functools import partial
 from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
 from test.unit import patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE
+import swift.common.storage_policy
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
     reload_storage_policies, get_policy_string, split_policy_string,
@@ -28,6 +31,26 @@ from swift.common.storage_policy import (
 from swift.common.ring import RingData
 from swift.common.exceptions import RingLoadError
 from pyeclib.ec_iface import ECDriver
+
+
+class CapturingHandler(logging.Handler):
+    def __init__(self):
+        super(CapturingHandler, self).__init__()
+        self._records = []
+
+    def emit(self, record):
+        self._records.append(record)
+
+
+@contextlib.contextmanager
+def capture_logging(log_name):
+    captured = CapturingHandler()
+    logger = logging.getLogger(log_name)
+    logger.addHandler(captured)
+    try:
+        yield captured._records
+    finally:
+        logger.removeHandler(captured)
 
 
 @BaseStoragePolicy.register('fake')
@@ -581,6 +604,91 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertRaisesWithMessage(
             PolicyError, "must specify a storage policy section "
             "for policy index 0", parse_storage_policies, bad_conf)
+
+    @mock.patch.object(swift.common.storage_policy, 'VALID_EC_TYPES',
+                       ['isa_l_rs_vand', 'isa_l_rs_cauchy'])
+    @mock.patch('swift.common.storage_policy.ECDriver')
+    def test_known_bad_ec_config(self, mock_driver):
+        good_conf = self._conf("""
+        [storage-policy:0]
+        name = bad-policy
+        policy_type = erasure_coding
+        ec_type = isa_l_rs_cauchy
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 5
+        """)
+
+        with capture_logging('swift.common.storage_policy') as records:
+            parse_storage_policies(good_conf)
+        mock_driver.assert_called_once()
+        mock_driver.reset_mock()
+        self.assertFalse([(r.levelname, r.message) for r in records])
+
+        good_conf = self._conf("""
+        [storage-policy:0]
+        name = bad-policy
+        policy_type = erasure_coding
+        ec_type = isa_l_rs_vand
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 4
+        """)
+
+        with capture_logging('swift.common.storage_policy') as records:
+            parse_storage_policies(good_conf)
+        mock_driver.assert_called_once()
+        mock_driver.reset_mock()
+        self.assertFalse([(r.levelname, r.message) for r in records])
+
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = bad-policy
+        policy_type = erasure_coding
+        ec_type = isa_l_rs_vand
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 5
+        """)
+
+        with capture_logging('swift.common.storage_policy') as records:
+            parse_storage_policies(bad_conf)
+        mock_driver.assert_called_once()
+        mock_driver.reset_mock()
+        self.assertEqual([r.levelname for r in records],
+                         ['WARNING', 'WARNING'])
+        for msg in ('known to harm data durability',
+                    'Any data in this policy should be migrated',
+                    'https://bugs.launchpad.net/swift/+bug/1639691'):
+            self.assertIn(msg, records[0].message)
+        self.assertIn('In a future release, this will prevent services from '
+                      'starting', records[1].message)
+
+        slightly_less_bad_conf = self._conf("""
+        [storage-policy:0]
+        name = bad-policy
+        policy_type = erasure_coding
+        ec_type = isa_l_rs_vand
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 5
+        deprecated = true
+
+        [storage-policy:1]
+        name = good-policy
+        policy_type = erasure_coding
+        ec_type = isa_l_rs_cauchy
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 5
+        default = true
+        """)
+
+        with capture_logging('swift.common.storage_policy') as records:
+            parse_storage_policies(slightly_less_bad_conf)
+        self.assertEqual(2, mock_driver.call_count)
+        mock_driver.reset_mock()
+        self.assertEqual([r.levelname for r in records],
+                         ['WARNING'])
+        for msg in ('known to harm data durability',
+                    'Any data in this policy should be migrated',
+                    'https://bugs.launchpad.net/swift/+bug/1639691'):
+            self.assertIn(msg, records[0].message)
 
     def test_no_default(self):
         orig_conf = self._conf("""
