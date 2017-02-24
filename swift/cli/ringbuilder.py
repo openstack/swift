@@ -851,15 +851,8 @@ swift-ring-builder <builder_file> rebalance [options]
             handler.setFormatter(formatter)
             logger.addHandler(handler)
 
-        if builder.min_part_seconds_left > 0 and not options.force:
-            print('No partitions could be reassigned.')
-            print('The time between rebalances must be at least '
-                  'min_part_hours: %s hours (%s remaining)' % (
-                      builder.min_part_hours,
-                      timedelta(seconds=builder.min_part_seconds_left)))
-            exit(EXIT_WARNING)
-
         devs_changed = builder.devs_changed
+        min_part_seconds_left = builder.min_part_seconds_left
         try:
             last_balance = builder.get_balance()
             parts, balance, removed_devs = builder.rebalance(seed=get_seed(3))
@@ -874,7 +867,13 @@ swift-ring-builder <builder_file> rebalance [options]
             exit(EXIT_ERROR)
         if not (parts or options.force or removed_devs):
             print('No partitions could be reassigned.')
-            print('There is no need to do so at this time')
+            if min_part_seconds_left > 0:
+                print('The time between rebalances must be at least '
+                      'min_part_hours: %s hours (%s remaining)' % (
+                          builder.min_part_hours,
+                          timedelta(seconds=builder.min_part_seconds_left)))
+            else:
+                print('There is no need to do so at this time')
             exit(EXIT_WARNING)
         # If we set device's weight to zero, currently balance will be set
         # special value(MAX_BALANCE) until zero weighted device return all
