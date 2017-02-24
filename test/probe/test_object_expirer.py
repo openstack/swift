@@ -172,7 +172,7 @@ class TestObjectExpirer(ReplProbeTest):
         now = time.time()
         delete_at = int(now + 2.0)
         recreate_at = delete_at + 1.0
-        put_object(headers={'X-Delete-At': delete_at,
+        put_object(headers={'X-Delete-At': str(delete_at),
                             'X-Timestamp': Timestamp(now).normal})
 
         # some object servers stopped to make a situation that the
@@ -255,7 +255,7 @@ class TestObjectExpirer(ReplProbeTest):
         obj_brain.stop_primary_half()
         now = time.time()
         delete_at = int(now + 2.0)
-        obj_brain.put_object({'X-Delete-At': delete_at})
+        obj_brain.put_object({'X-Delete-At': str(delete_at)})
 
         # make sure auto-created containers get in the account listing
         Manager(['container-updater']).once()
