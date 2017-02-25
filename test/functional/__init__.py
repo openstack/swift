@@ -369,6 +369,49 @@ def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
     return proxy_conf_file, swift_conf_file
 
 
+def _load_domain_remap_staticweb(proxy_conf_file, swift_conf_file, **kwargs):
+    """
+    Load domain_remap and staticweb into proxy server pipeline.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
+    :raises InProcessException: raised if proxy conf contents are invalid
+    """
+    _debug('Setting configuration for domain_remap')
+
+    # The global conf dict cannot be used to modify the pipeline.
+    # The pipeline loader requires the pipeline to be set in the local_conf.
+    # If pipeline is set in the global conf dict (which in turn populates the
+    # DEFAULTS options) then it prevents pipeline being loaded into the local
+    # conf during wsgi load_app.
+    # Therefore we must modify the [pipeline:main] section.
+
+    conf = ConfigParser()
+    conf.read(proxy_conf_file)
+    try:
+        section = 'pipeline:main'
+        old_pipeline = conf.get(section, 'pipeline')
+        pipeline = old_pipeline.replace(
+            "tempauth",
+            "domain_remap tempauth staticweb")
+        if pipeline == old_pipeline:
+            raise InProcessException(
+                "Failed to insert domain_remap and staticweb into pipeline: %s"
+                % old_pipeline)
+        conf.set(section, 'pipeline', pipeline)
+    except NoSectionError as err:
+        msg = 'Error problem with proxy conf file %s: %s' % \
+              (proxy_conf_file, err)
+        raise InProcessException(msg)
+
+    test_conf_file = os.path.join(_testdir, 'proxy-server.conf')
+    with open(test_conf_file, 'w') as fp:
+        conf.write(fp)
+
+    return test_conf_file, swift_conf_file
+
+
 # Mapping from possible values of the variable
 # SWIFT_TEST_IN_PROCESS_CONF_LOADER
 # to the method to call for loading the associated configuration
@@ -376,7 +419,8 @@ def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
 # conf_filename_to_use loader(input_conf_filename, **kwargs)
 conf_loaders = {
     'encryption': _load_encryption,
-    'ec': _load_ec_as_default_policy
+    'ec': _load_ec_as_default_policy,
+    'domain_remap_staticweb': _load_domain_remap_staticweb,
 }
 
 
