@@ -1775,8 +1775,9 @@ def chunk_transformer(policy, nstreams):
 
             frags_by_byte_order = []
             for chunk_to_encode in chunks_to_encode:
-                frags_by_byte_order.append(
-                    policy.pyeclib_driver.encode(chunk_to_encode))
+                encoded_chunks = policy.pyeclib_driver.encode(chunk_to_encode)
+                send_chunks = encoded_chunks * policy.ec_duplication_factor
+                frags_by_byte_order.append(send_chunks)
             # Sequential calls to encode() have given us a list that
             # looks like this:
             #
@@ -1801,7 +1802,7 @@ def chunk_transformer(policy, nstreams):
     last_bytes = ''.join(buf)
     if last_bytes:
         last_frags = policy.pyeclib_driver.encode(last_bytes)
-        yield last_frags
+        yield last_frags * policy.ec_duplication_factor
     else:
         yield [''] * nstreams
 
@@ -2178,6 +2179,7 @@ class ECObjectController(BaseObjectController):
             range_specs = self._convert_range(req, policy)
 
         safe_iter = GreenthreadSafeIterator(node_iter)
+
         # Sending the request concurrently to all nodes, and responding
         # with the first response isn't something useful for EC as all
         # nodes contain different fragments. Also EC has implemented it's
@@ -2204,8 +2206,11 @@ class ECObjectController(BaseObjectController):
             # getters in case some unforeseen scenario, or a misbehaving object
             # server, causes us to otherwise make endless requests e.g. if an
             # object server were to ignore frag_prefs and always respond with
-            # a frag that is already in a bucket.
-            max_extra_requests = 2 * policy.ec_nparity + policy.ec_ndata
+            # a frag that is already in a bucket. Now we're assuming it should
+            # be limit at most 2 * replicas.
+            max_extra_requests = (
+                (policy.object_ring.replica_count * 2) - policy.ec_ndata)
+
             for get, parts_iter in pile:
                 if get.last_status is None:
                     # We may have spawned getters that find the node iterator
@@ -2322,7 +2327,7 @@ class ECObjectController(BaseObjectController):
             logger=self.app.logger,
             need_multiphase=True)
 
-    def _determine_chunk_destinations(self, putters):
+    def _determine_chunk_destinations(self, putters, policy):
         """
         Given a list of putters, return a dict where the key is the putter
         and the value is the node index to use.
@@ -2331,6 +2336,10 @@ class ECObjectController(BaseObjectController):
         (in the primary part list) as the primary that the handoff is standing
         in for.  This lets erasure-code fragment archives wind up on the
         preferred local primary nodes when possible.
+
+        :param putters: a list of swift.proxy.controllers.obj.MIMEPutter
+                        instance
+        :param policy: A policy instance
         """
         # Give each putter a "chunk index": the index of the
         # transformed chunk that we'll send to it.
@@ -2351,9 +2360,34 @@ class ECObjectController(BaseObjectController):
         # nodes. Holes occur when a storage node is down, in which
         # case the connection is not replaced, and when a storage node
         # returns 507, in which case a handoff is used to replace it.
-        holes = [x for x in range(len(putters))
-                 if x not in chunk_index.values()]
 
+        # lack_list is a dict of list to keep hole indexes
+        # e.g. if we have 2 holes for index 0 with ec_duplication_factor=2
+        # lack_list is like {0: [0], 1: [0]}, and then, if 1 hole found
+        # for index 1, lack_list will be {0: [0, 1], 1: [0]}.
+        # After that, holes will be filled from bigger key
+        # (i.e. 1:[0] at first)
+
+        # Grouping all missing fragment indexes for each unique_index
+        unique_index_to_holes = collections.defaultdict(list)
+        available_indexes = chunk_index.values()
+        for node_index in range(policy.object_ring.replica_count):
+            if node_index not in available_indexes:
+                unique_index = policy.get_backend_index(node_index)
+                unique_index_to_holes[unique_index].append(node_index)
+
+        # Set the missing index to lack_list
+        lack_list = collections.defaultdict(list)
+        for unique_index, holes in unique_index_to_holes.items():
+            for lack_tier, hole_node_index in enumerate(holes):
+                lack_list[lack_tier].append(hole_node_index)
+
+        # Extract the lack_list to a flat list
+        holes = []
+        for lack_tier, indexes in sorted(lack_list.items(), reverse=True):
+            holes.extend(indexes)
+
+        # Fill chunk_index list with the hole list
         for hole, p in zip(holes, handoff_conns):
             chunk_index[p] = hole
         return chunk_index
@@ -2405,7 +2439,8 @@ class ECObjectController(BaseObjectController):
 
                 # build our chunk index dict to place handoffs in the
                 # same part nodes index as the primaries they are covering
-                chunk_index = self._determine_chunk_destinations(putters)
+                chunk_index = self._determine_chunk_destinations(
+                    putters, policy)
 
                 for putter in putters:
                     putter.spawn_sender_greenthread(
@@ -2456,7 +2491,7 @@ class ECObjectController(BaseObjectController):
                     # Update any footers set by middleware with EC footers
                     trail_md = trailing_metadata(
                         policy, etag_hasher,
-                        bytes_transferred, ci)
+                        bytes_transferred, policy.get_backend_index(ci))
                     trail_md.update(footers)
                     # Etag footer must always be hash of what we sent
                     trail_md['Etag'] = chunk_hashers[ci].hexdigest()

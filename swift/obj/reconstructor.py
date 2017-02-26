@@ -193,6 +193,8 @@ class ObjectReconstructor(Daemon):
         return True
 
     def _full_path(self, node, part, path, policy):
+        frag_index = (policy.get_backend_index(node['index'])
+                      if 'index' in node else 'handoff')
         return '%(replication_ip)s:%(replication_port)s' \
             '/%(device)s/%(part)s%(path)s ' \
             'policy#%(policy)d frag#%(frag_index)s' % {
@@ -201,7 +203,7 @@ class ObjectReconstructor(Daemon):
                 'device': node['device'],
                 'part': part, 'path': path,
                 'policy': policy,
-                'frag_index': node.get('index', 'handoff'),
+                'frag_index': frag_index,
             }
 
     def _get_response(self, node, part, path, headers, policy):
@@ -217,6 +219,7 @@ class ObjectReconstructor(Daemon):
                        :class:`~swift.common.storage_policy.BaseStoragePolicy`
         :returns: response
         """
+        full_path = self._full_path(node, part, path, policy)
         resp = None
         try:
             with ConnectionTimeout(self.conn_timeout):
@@ -224,18 +227,18 @@ class ObjectReconstructor(Daemon):
                                     part, 'GET', path, headers=headers)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
+                resp.full_path = full_path
             if resp.status not in [HTTP_OK, HTTP_NOT_FOUND]:
                 self.logger.warning(
                     _("Invalid response %(resp)s from %(full_path)s"),
-                    {'resp': resp.status,
-                     'full_path': self._full_path(node, part, path, policy)})
+                    {'resp': resp.status, 'full_path': full_path})
                 resp = None
             elif resp.status == HTTP_NOT_FOUND:
                 resp = None
         except (Exception, Timeout):
             self.logger.exception(
                 _("Trying to GET %(full_path)s"), {
-                    'full_path': self._full_path(node, part, path, policy)})
+                    'full_path': full_path})
         return resp
 
     def reconstruct_fa(self, job, node, datafile_metadata):
@@ -259,7 +262,7 @@ class ObjectReconstructor(Daemon):
 
         # the fragment index we need to reconstruct is the position index
         # of the node we're rebuilding to within the primary part list
-        fi_to_rebuild = node['index']
+        fi_to_rebuild = job['policy'].get_backend_index(node['index'])
 
         # KISS send out connection requests to all nodes, see what sticks.
         # Use fragment preferences header to tell other nodes that we want
@@ -272,40 +275,96 @@ class ObjectReconstructor(Daemon):
         headers['X-Backend-Fragment-Preferences'] = json.dumps(frag_prefs)
         pile = GreenAsyncPile(len(part_nodes))
         path = datafile_metadata['name']
-        for node in part_nodes:
-            pile.spawn(self._get_response, node, job['partition'],
+        for _node in part_nodes:
+            pile.spawn(self._get_response, _node, job['partition'],
                        path, headers, job['policy'])
-        responses = []
-        etag = None
+
+        buckets = defaultdict(dict)
+        etag_buckets = {}
+        error_resp_count = 0
         for resp in pile:
             if not resp:
+                error_resp_count += 1
                 continue
             resp.headers = HeaderKeyDict(resp.getheaders())
-            if str(fi_to_rebuild) == \
-                    resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index'):
+            frag_index = resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index')
+            try:
+                unique_index = int(frag_index)
+            except (TypeError, ValueError):
+                # The successful response should include valid X-Object-
+                # Sysmeta-Ec-Frag-Index but for safety, catching the case
+                # either missing X-Object-Sysmeta-Ec-Frag-Index or invalid
+                # frag index to reconstruct and dump warning log for that
+                self.logger.warning(
+                    'Invalid resp from %s '
+                    '(invalid X-Object-Sysmeta-Ec-Frag-Index)',
+                    resp.full_path)
                 continue
-            if resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index') in set(
-                    r.headers.get('X-Object-Sysmeta-Ec-Frag-Index')
-                    for r in responses):
-                continue
-            responses.append(resp)
-            etag = sorted(responses, reverse=True,
-                          key=lambda r: Timestamp(
-                              r.headers.get('X-Backend-Timestamp')
-                          ))[0].headers.get('X-Object-Sysmeta-Ec-Etag')
-            responses = [r for r in responses if
-                         r.headers.get('X-Object-Sysmeta-Ec-Etag') == etag]
 
-            if len(responses) >= job['policy'].ec_ndata:
-                break
-        else:
-            self.logger.error(
-                'Unable to get enough responses (%s/%s) '
-                'to reconstruct %s with ETag %s' % (
-                    len(responses), job['policy'].ec_ndata,
+            if fi_to_rebuild == unique_index:
+                # TODO: With duplicated EC frags it's not unreasonable to find
+                # the very fragment we're trying to rebuild exists on another
+                # primary node.  In this case we should stream it directly from
+                # the remote node to our target instead of rebuild.  But
+                # instead we ignore it.
+                self.logger.debug(
+                    'Found existing frag #%s while rebuilding #%s from %s',
+                    unique_index, fi_to_rebuild, self._full_path(
+                        node, job['partition'], datafile_metadata['name'],
+                        job['policy']))
+                continue
+
+            timestamp = resp.headers.get('X-Backend-Timestamp')
+            if not timestamp:
+                self.logger.warning(
+                    'Invalid resp from %s (missing X-Backend-Timestamp)',
+                    resp.full_path)
+                continue
+            timestamp = Timestamp(timestamp)
+
+            etag = resp.headers.get('X-Object-Sysmeta-Ec-Etag')
+            if not etag:
+                self.logger.warning('Invalid resp from %s (missing Etag)',
+                                    resp.full_path)
+                continue
+
+            if etag != etag_buckets.setdefault(timestamp, etag):
+                self.logger.error(
+                    'Mixed Etag (%s, %s) for %s',
+                    etag, etag_buckets[timestamp],
                     self._full_path(node, job['partition'],
-                                    datafile_metadata['name'], job['policy']),
-                    etag))
+                                    datafile_metadata['name'], job['policy']))
+                continue
+
+            if unique_index not in buckets[timestamp]:
+                buckets[timestamp][unique_index] = resp
+                if len(buckets[timestamp]) >= job['policy'].ec_ndata:
+                    responses = buckets[timestamp].values()
+                    self.logger.debug(
+                        'Reconstruct frag #%s with frag indexes %s'
+                        % (fi_to_rebuild, list(buckets[timestamp])))
+                    break
+        else:
+            for timestamp, resp in sorted(buckets.items()):
+                etag = etag_buckets[timestamp]
+                self.logger.error(
+                    'Unable to get enough responses (%s/%s) '
+                    'to reconstruct %s with ETag %s' % (
+                        len(resp), job['policy'].ec_ndata,
+                        self._full_path(node, job['partition'],
+                                        datafile_metadata['name'],
+                                        job['policy']),
+                        etag))
+
+            if error_resp_count:
+                self.logger.error(
+                    'Unable to get enough responses (%s error responses) '
+                    'to reconstruct %s' % (
+                        error_resp_count,
+                        self._full_path(node, job['partition'],
+                                        datafile_metadata['name'],
+                                        job['policy'])))
+
             raise DiskFileError('Unable to reconstruct EC archive')
 
         rebuilt_fragment_iter = self.make_rebuilt_fragment_iter(
@@ -685,7 +744,7 @@ class ObjectReconstructor(Daemon):
         A partition may result in multiple jobs.  Potentially many
         REVERT jobs, and zero or one SYNC job.
 
-        :param local_dev:  the local device
+        :param local_dev: the local device (node dict)
         :param part_path: full path to partition
         :param partition: partition number
         :param policy: the policy
@@ -745,7 +804,7 @@ class ObjectReconstructor(Daemon):
         for node in part_nodes:
             if node['id'] == local_dev['id']:
                 # this partition belongs here, we'll need a sync job
-                frag_index = node['index']
+                frag_index = policy.get_backend_index(node['index'])
                 try:
                     suffixes = data_fi_to_suffixes.pop(frag_index)
                 except KeyError:
@@ -754,7 +813,7 @@ class ObjectReconstructor(Daemon):
                     job_type=SYNC,
                     frag_index=frag_index,
                     suffixes=suffixes,
-                    sync_to=_get_partners(frag_index, part_nodes),
+                    sync_to=_get_partners(node['index'], part_nodes),
                 )
                 # ssync callback to rebuild missing fragment_archives
                 sync_job['sync_diskfile_builder'] = self.reconstruct_fa
@@ -765,11 +824,21 @@ class ObjectReconstructor(Daemon):
         ordered_fis = sorted((len(suffixes), fi) for fi, suffixes
                              in data_fi_to_suffixes.items())
         for count, fi in ordered_fis:
+            # In single region EC a revert job must sync to the specific
+            # primary who's node_index matches the data's frag_index.  With
+            # duplicated EC frags a revert job must sync to all primary nodes
+            # that should be holding this frag_index.
+            nodes_sync_to = []
+            node_index = fi
+            for n in range(policy.ec_duplication_factor):
+                nodes_sync_to.append(part_nodes[node_index])
+                node_index += policy.ec_n_unique_fragments
+
             revert_job = build_job(
                 job_type=REVERT,
                 frag_index=fi,
                 suffixes=data_fi_to_suffixes[fi],
-                sync_to=[part_nodes[fi]],
+                sync_to=nodes_sync_to,
             )
             jobs.append(revert_job)
 
