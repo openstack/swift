@@ -5665,7 +5665,7 @@ class TestECMismatchedFA(unittest.TestCase):
             environ={"REQUEST_METHOD": "PUT"},
             headers={"X-Storage-Policy": "ec-dup", "X-Auth-Token": "t"})
         resp = ensure_container.get_response(prosrv)
-        self.assertTrue(resp.status_int in (201, 202))
+        self.assertIn(resp.status_int, (201, 202))
 
         obj1 = "first version..."
         put_req1 = Request.blank(

@@ -2205,7 +2205,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         _part, primary_nodes = self.obj_ring.get_nodes('a', 'c', 'o')
 
         node_key = lambda n: (n['ip'], n['port'])
-        backend_index = lambda index: self.policy.get_backend_index(index)
+        backend_index = self.policy.get_backend_index
         ts = self._ts_iter.next()
 
         response_map = {
@@ -3654,68 +3654,58 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
 class TestECFunctions(unittest.TestCase):
     def test_chunk_transformer(self):
-        segment_size = 1024
-        orig_chunk = 'a' * segment_size
-        policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
-                                 ec_ndata=8, ec_nparity=2,
-                                 object_ring=FakeRing(replicas=10),
-                                 ec_segment_size=segment_size)
-        expected = policy.pyeclib_driver.encode(orig_chunk)
-        transform = obj.chunk_transformer(
-            policy, policy.object_ring.replica_count)
-        transform.send(None)
+        def do_test(dup):
+            segment_size = 1024
+            orig_chunk = 'a' * segment_size
+            policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
+                                     ec_ndata=8, ec_nparity=2,
+                                     object_ring=FakeRing(replicas=10 * dup),
+                                     ec_segment_size=segment_size,
+                                     ec_duplication_factor=dup)
+            expected = policy.pyeclib_driver.encode(orig_chunk)
+            transform = obj.chunk_transformer(
+                policy, policy.object_ring.replica_count)
+            transform.send(None)
 
-        backend_chunks = transform.send(orig_chunk)
-        self.assertNotEqual(None, backend_chunks)  # sanity
-        self.assertEqual(
-            len(backend_chunks), policy.object_ring.replica_count)
-        self.assertEqual(expected, backend_chunks)
+            backend_chunks = transform.send(orig_chunk)
+            self.assertIsNotNone(backend_chunks)  # sanity
+            self.assertEqual(
+                len(backend_chunks), policy.object_ring.replica_count)
+            self.assertEqual(expected * dup, backend_chunks)
 
-    def test_chunk_transformer_duplication_factor(self):
-        segment_size = 1024
-        orig_chunk = 'a' * segment_size
-        policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
-                                 ec_ndata=8, ec_nparity=2,
-                                 object_ring=FakeRing(replicas=20),
-                                 ec_segment_size=segment_size,
-                                 ec_duplication_factor=2)
-        expected = policy.pyeclib_driver.encode(orig_chunk)
-        transform = obj.chunk_transformer(
-            policy, policy.object_ring.replica_count)
-        transform.send(None)
+            # flush out last chunk buffer
+            backend_chunks = transform.send('')
+            self.assertEqual(
+                len(backend_chunks), policy.object_ring.replica_count)
+            self.assertEqual([''] * policy.object_ring.replica_count,
+                             backend_chunks)
+        do_test(1)
+        do_test(2)
+        do_test(3)
 
-        backend_chunks = transform.send(orig_chunk)
-        self.assertNotEqual(None, backend_chunks)  # sanity
-        self.assertEqual(
-            len(backend_chunks), policy.object_ring.replica_count)
-        self.assertEqual(expected * 2, backend_chunks)
-
-        # flush out last chunk buffer
-        backend_chunks = transform.send('')
-        self.assertEqual(
-            len(backend_chunks), policy.object_ring.replica_count)
-        self.assertEqual([''] * policy.object_ring.replica_count,
-                         backend_chunks)
-
-    def test_chunk_transformer_duplication_factor_non_aligned_last_chunk(self):
+    def test_chunk_transformer_non_aligned_last_chunk(self):
         last_chunk = 'a' * 128
-        policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
-                                 ec_ndata=8, ec_nparity=2,
-                                 object_ring=FakeRing(replicas=20),
-                                 ec_segment_size=1024,
-                                 ec_duplication_factor=2)
-        expected = policy.pyeclib_driver.encode(last_chunk)
-        transform = obj.chunk_transformer(
-            policy, policy.object_ring.replica_count)
-        transform.send(None)
 
-        transform.send(last_chunk)
-        # flush out last chunk buffer
-        backend_chunks = transform.send('')
+        def do_test(dup):
+            policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
+                                     ec_ndata=8, ec_nparity=2,
+                                     object_ring=FakeRing(replicas=10 * dup),
+                                     ec_segment_size=1024,
+                                     ec_duplication_factor=dup)
+            expected = policy.pyeclib_driver.encode(last_chunk)
+            transform = obj.chunk_transformer(
+                policy, policy.object_ring.replica_count)
+            transform.send(None)
 
-        self.assertEqual(
-            len(backend_chunks), policy.object_ring.replica_count)
-        self.assertEqual(expected * 2, backend_chunks)
+            transform.send(last_chunk)
+            # flush out last chunk buffer
+            backend_chunks = transform.send('')
+
+            self.assertEqual(
+                len(backend_chunks), policy.object_ring.replica_count)
+            self.assertEqual(expected * dup, backend_chunks)
+        do_test(1)
+        do_test(2)
 
 
 @patch_policies([ECStoragePolicy(0, name='ec', is_default=True,
@@ -3767,7 +3757,7 @@ class TestECDuplicationObjController(
             index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
             collected_responses[etag].add(index)
 
-        # the backend requests should be >= num_data_fragmetns
+        # the backend requests should be >= num_data_fragments
         self.assertGreaterEqual(len(log), self.policy.ec_ndata)
         # but <= # of replicas
         self.assertLessEqual(len(log), self.replicas())
@@ -3820,9 +3810,9 @@ class TestECDuplicationObjController(
             {'obj': obj, 'frag': 5},
             {'obj': obj, 'frag': 6},
             {'obj': obj, 'frag': 6},
-            {'obj': obj, 'frag': 7},
-            {'obj': obj, 'frag': 7},
             # second half of # of replicas are 7, 8, 9, 10, 11, 12, 13
+            {'obj': obj, 'frag': 7},
+            {'obj': obj, 'frag': 7},
             {'obj': obj, 'frag': 8},
             {'obj': obj, 'frag': 8},
             {'obj': obj, 'frag': 9},
@@ -3865,7 +3855,7 @@ class TestECDuplicationObjController(
             {'obj': obj2, 'frag': 8},
         ]
         # ... and the rests are 404s which is limited by request_count
-        # (2 * replicas in default) rather than max_extra_count limitation
+        # (2 * replicas in default) rather than max_extra_requests limitation
         # because the retries will be in ResumingGetter if the responses
         # are 404s
         node_frags += [[]] * (self.replicas() * 2 - len(node_frags))
@@ -3917,7 +3907,7 @@ class TestECDuplicationObjController(
         ]
 
         # ... and the rests are 404s which is limited by request_count
-        # (2 * replicas in default) rather than max_extra_count limitation
+        # (2 * replicas in default) rather than max_extra_requests limitation
         # because the retries will be in ResumingGetter if the responses
         # are 404s
         node_frags += [[]] * (self.replicas() * 2 - len(node_frags))
@@ -3991,9 +3981,9 @@ class TestECDuplicationObjController(
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                 len(frags), etag))
 
     def test_GET_with_duplicate_but_sufficient_frag_indexes(self):
         obj1 = self._make_ec_object_stub()
@@ -4108,9 +4098,9 @@ class TestECDuplicationObjController(
         # ... regardless we should never need to fetch more than ec_ndata
         # frags for any given etag
         for etag, frags in collected_responses.items():
-            self.assertTrue(len(frags) <= self.policy.ec_ndata,
-                            'collected %s frags for etag %s' % (
-                                len(frags), etag))
+            self.assertLessEqual(len(frags), self.policy.ec_ndata,
+                                 'collected %s frags for etag %s' % (
+                                 len(frags), etag))
 
     def test_GET_with_mixed_frags_and_no_quorum_will_503(self):
         # all nodes have a frag but there is no one set that reaches quorum,
@@ -4332,7 +4322,7 @@ class TestECDuplicationObjController(
             unique, self.policy.get_backend_index(duplicated))  # sanity
         putters.pop(duplicated)
 
-        # pop one more frag ment too to make one missing hole
+        # pop one more fragment too to make one missing hole
         putters.pop(one_more_missing)
 
         # then determine chunk, we have 26 putters here and unique frag
