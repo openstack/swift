@@ -4304,6 +4304,9 @@ class TestECDuplicationObjController(
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
 
+        # sanity, tester should set unique frag index to the variable
+        self.assertEqual(
+            unique, self.policy.get_backend_index(unique))
         # create a dummy list of putters, check no handoffs
         putters = []
         for index in range(self.policy.object_ring.replica_count):
@@ -4327,9 +4330,13 @@ class TestECDuplicationObjController(
         # pop one more fragment too to make one missing hole
         putters.pop(one_more_missing)
 
-        # then determine chunk, we have 26 putters here and unique frag
-        # index 0 missing 2 copies and unique frag index 1 missing 1 copy
-        # i.e. the handoff node should be assigned to unique frag index 1
+        # we have 26 putters here and frag index "unique" missing 2
+        # copies. (i.e. missing "unique" and  "duplicated" which
+        # should be same unique index). Then "one_more_missing" frag
+        # is different from both of the "unique" and "duplicated"
+        # but it's only 1 copy missing so that the handoff node should
+        # be assigned to either "unique" or "duplicated" prior to
+        # "one_more_missing"
         got = controller._determine_chunk_destinations(putters, self.policy)
         # N.B. len(putters) is now len(expected - 2) due to pop twice
         self.assertEqual(len(putters), len(got))
