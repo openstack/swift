@@ -28,6 +28,7 @@ from swift.common.exceptions import EncryptionException
 from swift.common.swob import HTTPInternalServerError
 from swift.common.utils import get_logger
 from swift.common.wsgi import WSGIContext
+from cgi import parse_header
 
 CRYPTO_KEY_CALLBACK = 'swift.callback.fetch_crypto_keys'
 
@@ -270,15 +271,8 @@ def extract_crypto_meta(value):
     :return: a tuple of the form:
             (<value without crypto meta>, <deserialized crypto meta> or None)
     """
-    crypto_meta = None
-    # we only attempt to extract crypto meta from values that we know were
-    # encrypted and base64-encoded, or from etag values, so it's safe to split
-    # on ';' even if it turns out that the value was an unencrypted etag
-    parts = value.split(';')
-    if len(parts) == 2:
-        value, param = parts
-        crypto_meta_tag = 'swift_meta='
-        if param.strip().startswith(crypto_meta_tag):
-            param = param.strip()[len(crypto_meta_tag):]
-            crypto_meta = load_crypto_meta(param)
-    return value, crypto_meta
+    swift_meta = None
+    value, meta = parse_header(value)
+    if 'swift_meta' in meta:
+        swift_meta = load_crypto_meta(meta['swift_meta'])
+    return value, swift_meta

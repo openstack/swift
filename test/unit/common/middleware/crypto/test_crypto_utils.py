@@ -244,6 +244,11 @@ class TestModuleMethods(unittest.TestCase):
         self.assertEqual('abc', val)
         self.assertIsNone(meta)
 
+        val, meta = crypto_utils.extract_crypto_meta(
+            'abc; swift_meta=%s; foo=bar' % self.serialized_meta_with_key)
+        self.assertEqual('abc', val)
+        self.assertDictEqual(self.meta_with_key, meta)
+
     def test_append_then_extract_crypto_meta(self):
         val = 'abc'
         actual = crypto_utils.extract_crypto_meta(

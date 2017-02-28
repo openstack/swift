@@ -1076,6 +1076,12 @@ class WSGIContext(object):
                 return val
         return None
 
+    def update_content_length(self, new_total_len):
+        self._response_headers = [
+            (h, v) for h, v in self._response_headers
+            if h.lower() != 'content-length']
+        self._response_headers.append(('Content-Length', str(new_total_len)))
+
 
 def make_env(env, method=None, path=None, agent='Swift', query_string=None,
              swift_source=None):
