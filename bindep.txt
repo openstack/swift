@@ -12,7 +12,7 @@ memcached
 python-dev [platform:dpkg]
 python-devel [platform:rpm]
 python3-dev [platform:dpkg]
-python3-devel [platform:rpm]
+python34-devel [platform:rpm]
 rsync
 xfsprogs
 libssl-dev [platform:dpkg]
