@@ -854,14 +854,18 @@ class ObjectReconstructor(Daemon):
                 # push partitions off this node, but none of the suffixes
                 # have any data fragments to hint at which node would be a
                 # good candidate to receive the tombstones.
+                #
+                # we'll check a sample of other primaries before we delete our
+                # local tombstones, the exact number doesn't matter as long as
+                # it's enough to ensure the tombstones are not lost and less
+                # than *all the replicas*
+                nsample = (policy.ec_n_unique_fragments *
+                           policy.ec_duplication_factor) - policy.ec_ndata + 1
                 jobs.append(build_job(
                     job_type=REVERT,
                     frag_index=None,
                     suffixes=non_data_fragment_suffixes,
-                    # this is super safe
-                    sync_to=part_nodes,
-                    # something like this would be probably be better
-                    # sync_to=random.sample(part_nodes, 3),
+                    sync_to=random.sample(part_nodes, nsample)
                 ))
         # return a list of jobs for this part
         return jobs
