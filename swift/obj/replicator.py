@@ -318,7 +318,7 @@ class ObjectReplicator(Daemon):
                         failure_devs_info.add((node['replication_ip'],
                                                node['device']))
                     responses.append(success)
-                for region, cand_objs in synced_remote_regions.items():
+                for cand_objs in synced_remote_regions.values():
                     if delete_objs is None:
                         delete_objs = cand_objs
                     else:
