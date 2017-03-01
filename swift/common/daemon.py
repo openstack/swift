@@ -109,10 +109,9 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
     eventlet.debug.hub_exceptions(eventlet_debug)
 
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
-    # some platforms. This locks in reported times to the timezone in which
-    # the server first starts running in locations that periodically change
-    # timezones.
-    os.environ['TZ'] = time.strftime("%z", time.gmtime())
+    # some platforms. This locks in reported times to UTC.
+    os.environ['TZ'] = 'UTC+0'
+    time.tzset()
 
     try:
         klass(conf).run(once=once, **kwargs)

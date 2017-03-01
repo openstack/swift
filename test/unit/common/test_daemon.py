@@ -18,6 +18,7 @@
 import os
 from six import StringIO
 from six.moves import reload_module
+import time
 import unittest
 from getpass import getuser
 import logging
@@ -104,9 +105,11 @@ class TestRunDaemon(unittest.TestCase):
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
         with tmpfile(sample_conf) as conf_file:
             with mock.patch.dict('os.environ', {'TZ': ''}):
-                daemon.run_daemon(MyDaemon, conf_file)
-                self.assertEqual(MyDaemon.forever_called, True)
-                self.assertTrue(os.environ['TZ'] is not '')
+                with mock.patch('time.tzset') as mock_tzset:
+                    daemon.run_daemon(MyDaemon, conf_file)
+                    self.assertTrue(MyDaemon.forever_called)
+                    self.assertEqual(os.environ['TZ'], 'UTC+0')
+                    self.assertEqual(mock_tzset.mock_calls, [mock.call()])
             daemon.run_daemon(MyDaemon, conf_file, once=True)
             self.assertEqual(MyDaemon.once_called, True)
 
@@ -132,6 +135,28 @@ class TestRunDaemon(unittest.TestCase):
                                         'config section in.*',
                                         daemon.run_daemon, MyDaemon,
                                         conf_file, once=True)
+
+    def test_run_daemon_diff_tz(self):
+        old_tz = os.environ.get('TZ', '')
+        try:
+            os.environ['TZ'] = 'EST+05EDT,M4.1.0,M10.5.0'
+            time.tzset()
+            self.assertEqual((1970, 1, 1, 0, 0, 0), time.gmtime(0)[:6])
+            self.assertEqual((1969, 12, 31, 19, 0, 0), time.localtime(0)[:6])
+            self.assertEqual(18000, time.timezone)
+
+            sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
+            with tmpfile(sample_conf) as conf_file:
+                daemon.run_daemon(MyDaemon, conf_file)
+                self.assertFalse(MyDaemon.once_called)
+                self.assertTrue(MyDaemon.forever_called)
+
+            self.assertEqual((1970, 1, 1, 0, 0, 0), time.gmtime(0)[:6])
+            self.assertEqual((1970, 1, 1, 0, 0, 0), time.localtime(0)[:6])
+            self.assertEqual(0, time.timezone)
+        finally:
+            os.environ['TZ'] = old_tz
+            time.tzset()
 
 
 if __name__ == '__main__':
