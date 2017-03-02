@@ -33,7 +33,8 @@ class TestProxyServer(test_server.TestProxyServer):
     pass
 
 
-class TestObjectController(test_server.TestObjectController):
+class TestReplicatedObjectController(
+        test_server.TestReplicatedObjectController):
     def test_PUT_no_etag_fallocate(self):
         # mem server doesn't call fallocate(), believe it or not
         pass
@@ -42,6 +43,8 @@ class TestObjectController(test_server.TestObjectController):
     def test_policy_IO(self):
         pass
 
+
+class TestECObjectController(test_server.TestECObjectController):
     def test_PUT_ec(self):
         pass
 
