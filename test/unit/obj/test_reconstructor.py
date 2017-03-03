@@ -977,7 +977,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                                     filename.endswith(data_file_tail))
 
         # sanity check that some files should were deleted
-        self.assertTrue(n_files > n_files_after)
+        self.assertGreater(n_files, n_files_after)
 
     def test_get_part_jobs(self):
         # yeah, this test code expects a specific setup
@@ -1102,7 +1102,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         self.logger._clear()
                         self.reconstructor.process_job(job)
                         for line in self.logger.get_lines_for_level('error'):
-                            self.assertTrue('responded as unmounted' in line)
+                            self.assertIn('responded as unmounted', line)
                         self.assertEqual(0, count_stats(
                             self.logger, 'update_stats', 'suffix.hashes'))
                         self.assertEqual(0, count_stats(
@@ -1125,7 +1125,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         self.logger._clear()
                         self.reconstructor.process_job(job)
                         for line in self.logger.get_lines_for_level('error'):
-                            self.assertTrue('Invalid response 400' in line)
+                            self.assertIn('Invalid response 400', line)
                         self.assertEqual(0, count_stats(
                             self.logger, 'update_stats', 'suffix.hashes'))
                         self.assertEqual(0, count_stats(
@@ -1147,7 +1147,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     self.logger._clear()
                     self.reconstructor.process_job(job)
                     for line in self.logger.get_lines_for_level('error'):
-                        self.assertTrue('Timeout (Nones)' in line)
+                        self.assertIn('Timeout (Nones)', line)
                     self.assertStatCount(
                         'update_stats', 'suffix.hashes', 0)
                     self.assertStatCount(
@@ -1345,7 +1345,7 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(found_parts, expected_parts)
         for part_info in part_infos:
             self.assertEqual(part_info['policy'], self.policy)
-            self.assertTrue(part_info['local_dev'] in stub_ring_devs)
+            self.assertIn(part_info['local_dev'], stub_ring_devs)
             dev = part_info['local_dev']
             self.assertEqual(part_info['part_path'],
                              os.path.join(self.devices,
@@ -1397,7 +1397,7 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(found_parts, expected_parts)
         for part_info in part_infos:
             self.assertEqual(part_info['policy'], self.policy)
-            self.assertTrue(part_info['local_dev'] in stub_ring_devs)
+            self.assertIn(part_info['local_dev'], stub_ring_devs)
             dev = part_info['local_dev']
             self.assertEqual(part_info['part_path'],
                              os.path.join(self.devices,
@@ -1437,7 +1437,7 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(found_parts, expected_parts)
         for part_info in part_infos:
             self.assertEqual(part_info['policy'], self.policy)
-            self.assertTrue(part_info['local_dev'] in stub_ring_devs)
+            self.assertIn(part_info['local_dev'], stub_ring_devs)
             dev = part_info['local_dev']
             self.assertEqual(part_info['part_path'],
                              os.path.join(self.devices,
@@ -1574,8 +1574,8 @@ class TestObjectReconstructor(unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
         line = error_lines[0]
-        self.assertTrue('Unable to create' in line)
-        self.assertTrue(datadir_path in line)
+        self.assertIn('Unable to create', line)
+        self.assertIn(datadir_path, line)
 
     def test_collect_parts_skips_invalid_paths(self):
         datadir_path = os.path.join(self.devices, self.local_dev['device'],
@@ -1590,8 +1590,8 @@ class TestObjectReconstructor(unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
         line = error_lines[0]
-        self.assertTrue('Unable to list partitions' in line)
-        self.assertTrue(datadir_path in line)
+        self.assertIn('Unable to list partitions', line)
+        self.assertIn(datadir_path, line)
 
     def test_reconstruct_removes_non_partition_files(self):
         # create some junk next to partitions
@@ -3492,9 +3492,9 @@ class TestObjectReconstructorECDuplicationFactor(TestObjectReconstructor):
                                  md5(broken_body).hexdigest())
                 for called_header in called_headers:
                     called_header = HeaderKeyDict(called_header)
-                    self.assertTrue('Content-Length' in called_header)
+                    self.assertIn('Content-Length', called_header)
                     self.assertEqual(called_header['Content-Length'], '0')
-                    self.assertTrue('User-Agent' in called_header)
+                    self.assertIn('User-Agent', called_header)
                     user_agent = called_header['User-Agent']
                     self.assertTrue(user_agent.startswith('obj-reconstructor'))
 
