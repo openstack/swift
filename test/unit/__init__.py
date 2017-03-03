@@ -1147,7 +1147,8 @@ def encode_frag_archive_bodies(policy, body):
     # encode the buffers into fragment payloads
     fragment_payloads = []
     for chunk in chunks:
-        fragments = policy.pyeclib_driver.encode(chunk)
+        fragments = policy.pyeclib_driver.encode(chunk) \
+            * policy.ec_duplication_factor
         if not fragments:
             break
         fragment_payloads.append(fragments)

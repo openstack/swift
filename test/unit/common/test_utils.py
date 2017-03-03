@@ -2584,6 +2584,8 @@ cluster_dfw1 = http://dfw1.host/v1/
             1: 1,
             '2': 2,
             '1024': 1024,
+            '0': ValueError,
+            '-1': ValueError,
             '0x01': ValueError,
             'asdf': ValueError,
             None: ValueError,
