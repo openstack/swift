@@ -24,7 +24,6 @@ import base64
 
 from eventlet import Timeout
 import six
-from six.moves.urllib.parse import unquote
 from swift.common.swob import Response, Request
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
@@ -234,7 +233,7 @@ class TempAuth(object):
             return self.app(env, start_response)
         if env.get('PATH_INFO', '').startswith(self.auth_prefix):
             return self.handle(env, start_response)
-        s3 = env.get('HTTP_AUTHORIZATION')
+        s3 = env.get('swift3.auth_details')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
         service_token = env.get('HTTP_X_SERVICE_TOKEN')
         if s3 or (token and token.startswith(self.reseller_prefix)):
@@ -394,19 +393,21 @@ class TempAuth(object):
             if expires < time():
                 groups = None
 
-        if env.get('HTTP_AUTHORIZATION'):
-            account_user, sign = \
-                env['HTTP_AUTHORIZATION'].split(' ')[1].rsplit(':', 1)
+        s3_auth_details = env.get('swift3.auth_details')
+        if s3_auth_details:
+            account_user = s3_auth_details['access_key']
+            signature_from_user = s3_auth_details['signature']
             if account_user not in self.users:
                 return None
             account, user = account_user.split(':', 1)
             account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
             path = env['PATH_INFO']
             env['PATH_INFO'] = path.replace(account_user, account_id, 1)
-            msg = base64.urlsafe_b64decode(unquote(token))
-            key = self.users[account_user]['key']
-            s = base64.encodestring(hmac.new(key, msg, sha1).digest()).strip()
-            if s != sign:
+            valid_signature = base64.encodestring(hmac.new(
+                self.users[account_user]['key'],
+                s3_auth_details['string_to_sign'],
+                sha1).digest()).strip()
+            if signature_from_user != valid_signature:
                 return None
             groups = self._get_user_groups(account, account_user, account_id)
 
