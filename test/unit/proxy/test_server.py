@@ -1149,19 +1149,8 @@ class BaseTestObjectController(object):
     TestObjControllers.
     """
     def setUp(self):
-        self.app = proxy_server.Application(
-            None, FakeMemcache(),
-            logger=debug_logger('proxy-ut'),
-            account_ring=FakeRing(),
-            container_ring=FakeRing())
         # clear proxy logger result for each test
         _test_servers[0].logger._clear()
-
-    def tearDown(self):
-        self.app.account_ring.set_replicas(3)
-        self.app.container_ring.set_replicas(3)
-        for policy in POLICIES:
-            policy.object_ring = FakeRing(base_port=3000)
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():
@@ -1314,6 +1303,20 @@ class TestReplicatedObjectController(
     """
     Test suite for replication policy
     """
+    def setUp(self):
+        self.app = proxy_server.Application(
+            None, FakeMemcache(),
+            logger=debug_logger('proxy-ut'),
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        super(TestReplicatedObjectController, self).setUp()
+
+    def tearDown(self):
+        self.app.account_ring.set_replicas(3)
+        self.app.container_ring.set_replicas(3)
+        for policy in POLICIES:
+            policy.object_ring = FakeRing(base_port=3000)
+
     @unpatch_policies
     def test_policy_IO(self):
         def check_file(policy, cont, devs, check_val):
@@ -4812,11 +4815,8 @@ class TestReplicatedObjectController(
 
 
 class BaseTestECObjectController(BaseTestObjectController):
-
-    @unpatch_policies
     def test_PUT_ec(self):
-        policy = POLICIES[self.ec_policy_index]
-        self.put_container(policy.name, policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         obj = 'abCD' * 10  # small, so we don't get multiple EC stripes
         prolis = _test_sockets[0]
@@ -4829,28 +4829,29 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (policy.name, md5(obj).hexdigest(),
+                 '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
                              len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        ecd = policy.pyeclib_driver
+        ecd = self.ec_policy.pyeclib_driver
         expected_pieces = set(ecd.encode(obj))
 
         # go to disk to make sure it's there and all erasure-coded
-        partition, nodes = policy.object_ring.get_nodes('a', policy.name, 'o1')
+        partition, nodes = self.ec_policy.object_ring.get_nodes(
+            'a', self.ec_policy.name, 'o1')
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[policy]
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
 
         got_pieces = set()
         got_indices = set()
         got_durable = []
         for node_index, node in enumerate(nodes):
             df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', policy.name, 'o1',
-                                     policy=policy)
+                                     'a', self.ec_policy.name, 'o1',
+                                     policy=self.ec_policy)
             with df.open():
                 meta = df.get_metadata()
                 contents = ''.join(df.reader())
@@ -4883,8 +4884,8 @@ class BaseTestECObjectController(BaseTestObjectController):
                     '#d.data')
                 durable_file = os.path.join(
                     _testdir, node['device'], storage_directory(
-                        diskfile.get_data_dir(policy),
-                        partition, hash_path('a', policy.name, 'o1')),
+                        diskfile.get_data_dir(self.ec_policy),
+                        partition, hash_path('a', self.ec_policy.name, 'o1')),
                     durable_file)
                 if os.path.isfile(durable_file):
                     got_durable.append(True)
@@ -4897,13 +4898,11 @@ class BaseTestECObjectController(BaseTestObjectController):
         num_durable_puts = sum(d is True for d in got_durable)
         self.assertGreaterEqual(num_durable_puts, 2)
 
-    @unpatch_policies
     def test_PUT_ec_multiple_segments(self):
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
-        pyeclib_header_size = len(ec_policy.pyeclib_driver.encode("")[0])
-        segment_size = ec_policy.ec_segment_size
+        pyeclib_header_size = len(self.ec_policy.pyeclib_driver.encode("")[0])
+        segment_size = self.ec_policy.ec_segment_size
 
         # Big enough to have multiple segments. Also a multiple of the
         # segment size to get coverage of that path too.
@@ -4918,7 +4917,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, len(obj), obj))
+                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -4929,18 +4928,18 @@ class BaseTestECObjectController(BaseTestObjectController):
         # things (one per segment)
         expected_length = (len(obj) / 2 + pyeclib_header_size * 3)
 
-        partition, nodes = ec_policy.object_ring.get_nodes(
-            'a', ec_policy.name, 'o2')
+        partition, nodes = self.ec_policy.object_ring.get_nodes(
+            'a', self.ec_policy.name, 'o2')
 
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
 
         got_durable = []
         fragment_archives = []
         for node in nodes:
             df = df_mgr.get_diskfile(
                 node['device'], partition, 'a',
-                ec_policy.name, 'o2', policy=ec_policy)
+                self.ec_policy.name, 'o2', policy=self.ec_policy)
             with df.open():
                 meta = df.get_metadata()
                 contents = ''.join(df.reader())
@@ -4953,15 +4952,15 @@ class BaseTestECObjectController(BaseTestObjectController):
                     '#d.data')
                 durable_file = os.path.join(
                     _testdir, node['device'], storage_directory(
-                        diskfile.get_data_dir(ec_policy),
-                        partition, hash_path('a', ec_policy.name, 'o2')),
+                        diskfile.get_data_dir(self.ec_policy),
+                        partition, hash_path('a', self.ec_policy.name, 'o2')),
                     durable_file)
                 if os.path.isfile(durable_file):
                     got_durable.append(True)
 
         # Verify that we can decode each individual fragment and that they
         # are all the correct size
-        fragment_size = ec_policy.fragment_size
+        fragment_size = self.ec_policy.fragment_size
         nfragments = int(
             math.ceil(float(len(fragment_archives[0])) / fragment_size))
 
@@ -4972,7 +4971,7 @@ class BaseTestECObjectController(BaseTestObjectController):
             try:
                 frags = [fa[fragment_start:fragment_end]
                          for fa in fragment_archives]
-                seg = ec_policy.pyeclib_driver.decode(frags)
+                seg = self.ec_policy.pyeclib_driver.decode(frags)
             except ECDriverError:
                 self.fail("Failed to decode fragments %d; this probably "
                           "means the fragments are not the sizes they "
@@ -4988,10 +4987,8 @@ class BaseTestECObjectController(BaseTestObjectController):
         num_durable_puts = sum(d is True for d in got_durable)
         self.assertGreaterEqual(num_durable_puts, 2)
 
-    @unpatch_policies
     def test_PUT_ec_object_etag_mismatch(self):
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         obj = '90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
         prolis = _test_sockets[0]
@@ -5005,7 +5002,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name,
+                 '\r\n%s' % (self.ec_policy.name,
                              md5('something else').hexdigest(),
                              len(obj), obj))
         fd.flush()
@@ -5015,26 +5012,25 @@ class BaseTestECObjectController(BaseTestObjectController):
 
         # nothing should have made it to disk on the object servers
         partition, nodes = prosrv.get_object_ring(
-            int(ec_policy)).get_nodes('a', ec_policy.name, 'o3')
+            int(self.ec_policy)).get_nodes('a', self.ec_policy.name, 'o3')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', ec_policy.name, 'o3',
-                                     policy=ec_policy)
+                                     'a', self.ec_policy.name, 'o3',
+                                     policy=self.ec_policy)
             self.assertRaises(DiskFileNotExist, df.open)
 
-    @unpatch_policies
     def test_PUT_ec_fragment_archive_etag_mismatch(self):
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         # Cause a hash mismatch by feeding one particular MD5 hasher some
         # extra data. The goal here is to get exactly more than one of the
         # hashers in an object server.
-        count = (ec_policy.object_ring.replica_count - ec_policy.ec_ndata)
+        count = (
+            self.ec_policy.object_ring.replica_count - self.ec_policy.ec_ndata)
         countdown = [count]
 
         def busted_md5_constructor(initial_str=""):
@@ -5057,7 +5053,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                      'Content-Length: %d\r\n'
                      'X-Storage-Token: t\r\n'
                      'Content-Type: application/octet-stream\r\n'
-                     '\r\n%s' % (ec_policy.name, md5(obj).hexdigest(),
+                     '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
                                  len(obj), obj))
             fd.flush()
             headers = readuntil2crlfs(fd)
@@ -5067,16 +5063,16 @@ class BaseTestECObjectController(BaseTestObjectController):
         # replica count - 1 of the fragment archives should have
         # landed on disk
         partition, nodes = prosrv.get_object_ring(
-            int(ec_policy)).get_nodes('a', ec_policy.name, 'pimento')
+            int(self.ec_policy)).get_nodes('a', self.ec_policy.name, 'pimento')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
 
         found = 0
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', ec_policy.name, 'pimento',
-                                     policy=ec_policy)
+                                     'a', self.ec_policy.name, 'pimento',
+                                     policy=self.ec_policy)
             try:
                 # diskfile open won't succeed because no durable was written,
                 # so look under the hood for data files.
@@ -5091,11 +5087,9 @@ class BaseTestECObjectController(BaseTestObjectController):
                     found += 1
             except OSError:
                 pass
-        self.assertEqual(found, ec_policy.ec_ndata)
+        self.assertEqual(found, self.ec_policy.ec_ndata)
 
-    @unpatch_policies
     def test_PUT_ec_fragment_quorum_archive_etag_mismatch(self):
-        ec_policy = POLICIES[self.ec_policy_index]
         self.put_container("ec", "ec-con")
 
         def busted_md5_constructor(initial_str=""):
@@ -5139,18 +5133,16 @@ class BaseTestECObjectController(BaseTestObjectController):
             'a', 'ec-con', 'quorum')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'quorum',
-                                     policy=ec_policy)
+                                     policy=self.ec_policy)
             if os.path.exists(df._datadir):
                 self.assertFalse(os.listdir(df._datadir))  # should be empty
 
-    @unpatch_policies
     def test_PUT_ec_fragment_quorum_bad_request(self):
-        ec_policy = POLICIES[self.ec_policy_index]
         self.put_container("ec", "ec-con")
 
         obj = 'uvarovite-esurience-cerated-symphysic'
@@ -5198,19 +5190,17 @@ class BaseTestECObjectController(BaseTestObjectController):
             'a', 'ec-con', 'quorum')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[self.ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'quorum',
-                                     policy=ec_policy)
+                                     policy=self.ec_policy)
             if os.path.exists(df._datadir):
                 self.assertFalse(os.listdir(df._datadir))  # should be empty
 
-    @unpatch_policies
     def test_PUT_ec_if_none_match(self):
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         obj = 'ananepionic-lepidophyllous-ropewalker-neglectful'
         prolis = _test_sockets[0]
@@ -5223,7 +5213,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, md5(obj).hexdigest(),
+                 '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
                              len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
@@ -5240,20 +5230,18 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, md5(obj).hexdigest(),
+                 '\r\n%s' % (self.ec_policy.name, md5(obj).hexdigest(),
                              len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 412'
         self.assertEqual(headers[:len(exp)], exp)
 
-    @unpatch_policies
     def test_GET_ec(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
 
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         obj = '0123456' * 11 * 17
 
@@ -5266,7 +5254,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'X-Storage-Token: t\r\n'
                  'X-Object-Meta-Color: chartreuse\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, len(obj), obj))
+                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -5278,7 +5266,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'X-Storage-Token: t\r\n'
-                 '\r\n' % ec_policy.name)
+                 '\r\n' % self.ec_policy.name)
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
@@ -5301,25 +5289,22 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.assertEqual(len(error_lines), 0)  # sanity
         self.assertEqual(len(warn_lines), 0)  # sanity
 
-    @unpatch_policies
     def test_conditional_GET_ec(self):
-        policy = POLICIES[self.ec_policy_index]
-        self.assertEqual('erasure_coding', policy.policy_type)  # sanity
-        self._test_conditional_GET(policy)
+        # sanity
+        self.assertEqual('erasure_coding', self.ec_policy.policy_type)
+        self._test_conditional_GET(self.ec_policy)
 
-    @unpatch_policies
     def test_GET_ec_big(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
 
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         # our EC segment size is 4 KiB, so this is multiple (3) segments;
         # we'll verify that with a sanity check
         obj = 'a moose once bit my sister' * 400
         self.assertGreater(
-            len(obj), ec_policy.ec_segment_size * 2,
+            len(obj), self.ec_policy.ec_segment_size * 2,
             "object is too small for proper testing")
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -5330,7 +5315,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, len(obj), obj))
+                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -5342,7 +5327,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'X-Storage-Token: t\r\n'
-                 '\r\n' % ec_policy.name)
+                 '\r\n' % self.ec_policy.name)
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
@@ -5368,10 +5353,8 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.assertEqual(len(error_lines), 0)  # sanity
         self.assertEqual(len(warn_lines), 0)  # sanity
 
-    @unpatch_policies
     def test_GET_ec_failure_handling(self):
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         obj = 'look at this object; it is simply amazing ' * 500
         prolis = _test_sockets[0]
@@ -5383,7 +5366,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Content-Length: %d\r\n'
                  'X-Storage-Token: t\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, len(obj), obj))
+                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -5424,7 +5407,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                      'Host: localhost\r\n'
                      'Connection: close\r\n'
                      'X-Storage-Token: t\r\n'
-                     '\r\n' % ec_policy.name)
+                     '\r\n' % self.ec_policy.name)
             fd.flush()
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 200'
@@ -5450,13 +5433,11 @@ class BaseTestECObjectController(BaseTestObjectController):
             # get out of date without anyone noticing
             self.assertTrue(0 < len(gotten_obj) < len(obj))
 
-    @unpatch_policies
     def test_HEAD_ec(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
 
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         obj = '0123456' * 11 * 17
 
@@ -5469,7 +5450,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'X-Storage-Token: t\r\n'
                  'X-Object-Meta-Color: chartreuse\r\n'
                  'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (ec_policy.name, len(obj), obj))
+                 '\r\n%s' % (self.ec_policy.name, len(obj), obj))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
@@ -5481,7 +5462,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'X-Storage-Token: t\r\n'
-                 '\r\n' % ec_policy.name)
+                 '\r\n' % self.ec_policy.name)
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
@@ -5497,13 +5478,11 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.assertEqual(len(error_lines), 0)  # sanity
         self.assertEqual(len(warn_lines), 0)  # sanity
 
-    @unpatch_policies
     def test_GET_ec_404(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
 
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5511,7 +5490,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'X-Storage-Token: t\r\n'
-                 '\r\n' % ec_policy.name)
+                 '\r\n' % self.ec_policy.name)
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 404'
@@ -5522,13 +5501,11 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.assertEqual(len(error_lines), 0)  # sanity
         self.assertEqual(len(warn_lines), 0)  # sanity
 
-    @unpatch_policies
     def test_HEAD_ec_404(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
 
-        ec_policy = POLICIES[self.ec_policy_index]
-        self.put_container(ec_policy.name, ec_policy.name)
+        self.put_container(self.ec_policy.name, self.ec_policy.name)
 
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5536,7 +5513,7 @@ class BaseTestECObjectController(BaseTestObjectController):
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
                  'X-Storage-Token: t\r\n'
-                 '\r\n' % ec_policy.name)
+                 '\r\n' % self.ec_policy.name)
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 404'
@@ -5547,16 +5524,14 @@ class BaseTestECObjectController(BaseTestObjectController):
         self.assertEqual(len(error_lines), 0)  # sanity
         self.assertEqual(len(warn_lines), 0)  # sanity
 
-    @unpatch_policies
     def test_reload_ring_ec(self):
-        policy = POLICIES[self.ec_policy_index]
         self.put_container("ec", "ec-con")
 
-        orig_rtime = policy.object_ring._rtime
-        orig_replica_count = policy.object_ring.replica_count
+        orig_rtime = self.ec_policy.object_ring._rtime
+        orig_replica_count = self.ec_policy.object_ring.replica_count
         # save original file as back up
-        copyfile(policy.object_ring.serialized_path,
-                 policy.object_ring.serialized_path + '.bak')
+        copyfile(self.ec_policy.object_ring.serialized_path,
+                 self.ec_policy.object_ring.serialized_path + '.bak')
 
         try:
             # overwrite with 2 replica, 2 devices ring
@@ -5567,12 +5542,12 @@ class BaseTestECObjectController(BaseTestObjectController):
             obj_devs.append(
                 {'port': _test_sockets[-2].getsockname()[1],
                  'device': 'sdh1'})
-            write_fake_ring(policy.object_ring.serialized_path,
+            write_fake_ring(self.ec_policy.object_ring.serialized_path,
                             *obj_devs)
 
             def get_ring_reloaded_response(method):
                 # force to reload at the request
-                policy.object_ring._rtime = 0
+                self.ec_policy.object_ring._rtime = 0
 
                 trans_data = ['%s /v1/a/ec-con/o2 HTTP/1.1\r\n' % method,
                               'Host: localhost\r\n',
@@ -5610,7 +5585,7 @@ class BaseTestECObjectController(BaseTestObjectController):
 
                 # proxy didn't load newest ring, use older one
                 self.assertEqual(orig_replica_count,
-                                 policy.object_ring.replica_count)
+                                 self.ec_policy.object_ring.replica_count)
 
                 if method == 'POST':
                     # Take care fast post here!
@@ -5633,25 +5608,25 @@ class BaseTestECObjectController(BaseTestObjectController):
                     self.assertEqual(headers[:len(exp)], exp)
                     # sanity
                     self.assertEqual(orig_replica_count,
-                                     policy.object_ring.replica_count)
+                                     self.ec_policy.object_ring.replica_count)
 
         finally:
-            policy.object_ring._rtime = orig_rtime
-            os.rename(policy.object_ring.serialized_path + '.bak',
-                      policy.object_ring.serialized_path)
+            self.ec_policy.object_ring._rtime = orig_rtime
+            os.rename(self.ec_policy.object_ring.serialized_path + '.bak',
+                      self.ec_policy.object_ring.serialized_path)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True,
-                               object_ring=FakeRing(base_port=3000))])
 class TestECObjectController(BaseTestECObjectController, unittest.TestCase):
-    ec_policy_index = 3
+    def setUp(self):
+        self.ec_policy = POLICIES[3]
+        super(TestECObjectController, self).setUp()
 
 
-@patch_policies([StoragePolicy(0, 'zero', True,
-                               object_ring=FakeRing(base_port=3000))])
 class TestECDuplicationObjectController(
         BaseTestECObjectController, unittest.TestCase):
-    ec_policy_index = 4
+    def setUp(self):
+        self.ec_policy = POLICIES[4]
+        super(TestECDuplicationObjectController, self).setUp()
 
 
 class TestECMismatchedFA(unittest.TestCase):
