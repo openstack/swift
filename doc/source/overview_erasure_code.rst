@@ -284,7 +284,7 @@ span beyond a single region, neither performance nor functional validation has
 be been done in such a configuration.
 
 EC Duplication
-^^^^^^^^^^^^^^
+==============
 
 ec_duplication_factor is an option to make duplicate copies of fragments
 of erasure encoded Swift objects. The default value is 1 (not duplicate).
