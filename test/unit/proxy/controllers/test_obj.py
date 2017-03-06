@@ -3655,19 +3655,29 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
 class TestECFunctions(unittest.TestCase):
     def test_chunk_transformer(self):
-        def do_test(dup):
+        def do_test(dup_factor, segments):
             segment_size = 1024
-            orig_chunk = 'a' * segment_size
+            orig_chunks = []
+            for i in range(segments):
+                orig_chunks.append(chr(i + 97) * segment_size)
             policy = ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                                      ec_ndata=8, ec_nparity=2,
-                                     object_ring=FakeRing(replicas=10 * dup),
+                                     object_ring=FakeRing(
+                                         replicas=10 * dup_factor),
                                      ec_segment_size=segment_size,
-                                     ec_duplication_factor=dup)
-            expected = policy.pyeclib_driver.encode(orig_chunk)
+                                     ec_duplication_factor=dup_factor)
+            encoded_chunks = [[] for _ in range(policy.ec_n_unique_fragments)]
+            for orig_chunk in orig_chunks:
+                # each segment produces a set of frags
+                frag_set = policy.pyeclib_driver.encode(orig_chunk)
+                for frag_index, frag_data in enumerate(frag_set):
+                    encoded_chunks[frag_index].append(frag_data)
+            # chunk_transformer buffers and concatenates multiple frags
+            expected = [''.join(frags) for frags in encoded_chunks]
+
             transform = obj.chunk_transformer(policy)
             transform.send(None)
-
-            backend_chunks = transform.send(orig_chunk)
+            backend_chunks = transform.send(''.join(orig_chunks))
             self.assertIsNotNone(backend_chunks)  # sanity
             self.assertEqual(
                 len(backend_chunks), policy.ec_n_unique_fragments)
@@ -3679,9 +3689,13 @@ class TestECFunctions(unittest.TestCase):
                 len(backend_chunks), policy.ec_n_unique_fragments)
             self.assertEqual([''] * policy.ec_n_unique_fragments,
                              backend_chunks)
-        do_test(1)
-        do_test(2)
-        do_test(3)
+
+        do_test(dup_factor=1, segments=1)
+        do_test(dup_factor=2, segments=1)
+        do_test(dup_factor=3, segments=1)
+        do_test(dup_factor=1, segments=2)
+        do_test(dup_factor=2, segments=2)
+        do_test(dup_factor=3, segments=2)
 
     def test_chunk_transformer_non_aligned_last_chunk(self):
         last_chunk = 'a' * 128
@@ -4291,68 +4305,65 @@ class TestECDuplicationObjController(
                          ['Problem with fragment response: ETag mismatch'] * 7)
 
     def _test_determine_chunk_destinations_prioritize(
-            self, unique, duplicated, one_more_missing):
-        # This scenario is only in ec_duplication_factor >= 2 likely,
-        # If we have multiple failures such that frag 0 is missing
-        # two copies and frag 1 is missing 1, we should prioritize
-        # finding a handoff for frag 0.
+            self, missing_two, missing_one):
+        # This scenario is only likely for ec_duplication_factor >= 2. If we
+        # have multiple failures such that the putters collection is missing
+        # two primary nodes for frag index 'missing_two' and missing one
+        # primary node for frag index 'missing_one', then we should prioritize
+        # finding a handoff for frag index 'missing_two'.
 
         class FakePutter(object):
             def __init__(self, index):
                 self.node_index = index
 
-        controller = self.controller_cls(
-            self.app, 'a', 'c', 'o')
+        controller = self.controller_cls(self.app, 'a', 'c', 'o')
 
-        # sanity, tester should set unique frag index to the variable
-        self.assertEqual(
-            unique, self.policy.get_backend_index(unique))
+        # sanity, caller must set missing_two < than ec_num_unique_fragments
+        self.assertLess(missing_two, self.policy.ec_n_unique_fragments)
+
         # create a dummy list of putters, check no handoffs
         putters = []
         for index in range(self.policy.object_ring.replica_count):
             putters.append(FakePutter(index))
+
+        # sanity - all putters have primary nodes
         got = controller._determine_chunk_destinations(putters, self.policy)
         expected = {}
         for i, p in enumerate(putters):
             expected[p] = self.policy.get_backend_index(i)
-        # sanity
         self.assertEqual(got, expected)
 
-        # now lets make an unique fragment as handoffs
-        handoff_putter = putters[unique]
+        # now, for fragment index that is missing two copies, lets make one
+        # putter be a handoff
+        handoff_putter = putters[missing_two]
         handoff_putter.node_index = None
 
-        # and then, pop a fragment which has same fragment index with unique
-        self.assertEqual(
-            unique, self.policy.get_backend_index(duplicated))  # sanity
-        putters.pop(duplicated)
+        # and then pop another putter for a copy of same fragment index
+        putters.pop(missing_two + self.policy.ec_n_unique_fragments)
 
-        # pop one more fragment too to make one missing hole
-        putters.pop(one_more_missing)
+        # also pop one copy of a different fragment to make one missing hole
+        putters.pop(missing_one)
 
-        # we have 26 putters here and frag index "unique" missing 2
-        # copies. (i.e. missing "unique" and  "duplicated" which
-        # should be same unique index). Then "one_more_missing" frag
-        # is different from both of the "unique" and "duplicated"
-        # but it's only 1 copy missing so that the handoff node should
-        # be assigned to either "unique" or "duplicated" prior to
-        # "one_more_missing"
+        # then determine chunk destinations: we have 26 putters here;
+        # missing_two frag index is missing two copies;  missing_one frag index
+        # is missing one copy, therefore the handoff node should be assigned to
+        # missing_two frag index
         got = controller._determine_chunk_destinations(putters, self.policy)
         # N.B. len(putters) is now len(expected - 2) due to pop twice
         self.assertEqual(len(putters), len(got))
         # sanity, no node index - for handoff putter
         self.assertIsNone(handoff_putter.node_index)
-        self.assertEqual(got[handoff_putter], unique)
-        # sanity, other nodes execpt handoff_putter have node_index
+        self.assertEqual(got[handoff_putter], missing_two)
+        # sanity, other nodes except handoff_putter have node_index
         self.assertTrue(all(
-            [putter.node_index for putter in got if
+            [putter.node_index is not None for putter in got if
              putter != handoff_putter]))
 
     def test_determine_chunk_destinations_prioritize_more_missing(self):
         # drop node_index 0, 14 and 1 should work
-        self._test_determine_chunk_destinations_prioritize(0, 14, 1)
+        self._test_determine_chunk_destinations_prioritize(0, 1)
         # drop node_index 1, 15 and 0 should work, too
-        self._test_determine_chunk_destinations_prioritize(1, 15, 0)
+        self._test_determine_chunk_destinations_prioritize(1, 0)
 
 
 if __name__ == '__main__':
