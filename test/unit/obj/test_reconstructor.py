@@ -680,19 +680,21 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.assertIn('Trying to GET', line)
             # sanity Timeout has extra message in the error log
             self.assertIn('Timeout', line)
+        self.logger.clear()
 
-    def test_reconstructor_does_not_log_on_404(self):
-        part = self.part_nums[0]
-        node = POLICIES[1].object_ring.get_part_nodes(int(part))[0]
-        with mocked_http_conn(404):
-            self.reconstructor._get_response(node, part,
-                                             path='some_path',
-                                             headers={},
-                                             policy=POLICIES[1])
+        # we should get a warning on 503 (sanity)
+        resp = do_test(503)
+        self.assertIsNone(resp)
+        warnings = self.logger.get_lines_for_level('warning')
+        self.assertEqual(1, len(warnings))
+        self.assertIn('Invalid response 503', warnings[0])
+        self.logger.clear()
 
-            # Make sure that no warnings are emitted for a 404
-            len_warning_lines = len(self.logger.get_lines_for_level('warning'))
-            self.assertEqual(len_warning_lines, 0)
+        # ... but no messages should be emitted for 404
+        resp = do_test(404)
+        self.assertIsNone(resp)
+        for level, msgs in self.logger.lines_dict.items():
+            self.assertFalse(msgs)
 
     def test_reconstructor_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the reconstructor
