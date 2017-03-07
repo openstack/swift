@@ -152,7 +152,7 @@ class ObjectReconstructor(Daemon):
         if 'handoffs_first' in conf:
             self.logger.warning(
                 'The handoffs_first option is deprecated in favor '
-                'of handoffs_only.  This option may be ignored in a '
+                'of handoffs_only. This option may be ignored in a '
                 'future release.')
             # honor handoffs_first for backwards compatibility
             default_handoffs_only = config_true_value(conf['handoffs_first'])
@@ -1032,11 +1032,11 @@ class ObjectReconstructor(Daemon):
         if self.handoffs_only:
             if self.handoffs_remaining > 0:
                 self.logger.info(_(
-                    "Handoffs only mode still has handoffs remaining.  "
+                    "Handoffs only mode still has handoffs remaining. "
                     "Next pass will continue to revert handoffs."))
             else:
                 self.logger.warning(_(
-                    "Handoffs only mode found no handoffs remaining.  "
+                    "Handoffs only mode found no handoffs remaining. "
                     "You should disable handoffs_only once all nodes "
                     "are reporting no handoffs remaining."))
 
