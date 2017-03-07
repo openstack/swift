@@ -657,17 +657,29 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         resp = do_test(200)
         self.assertEqual(resp.status, 200)
+
         resp = do_test(400)
+        # on the error case return value will be None instead of response
+        self.assertIsNone(resp)
+        # ... and log warnings for 400
         for line in self.logger.get_lines_for_level('warning'):
             self.assertIn('Invalid response 400', line)
         self.logger._clear()
+
         resp = do_test(Exception())
+        self.assertIsNone(resp)
+        # exception should result in error logs
         for line in self.logger.get_lines_for_level('error'):
             self.assertIn('Trying to GET', line)
         self.logger._clear()
+
+        # Timeout also should result in error logs
         resp = do_test(Timeout())
+        self.assertIsNone(resp)
         for line in self.logger.get_lines_for_level('error'):
-            self.assertIn('Timeout (Nones)', line)
+            self.assertIn('Trying to GET', line)
+            # sanity Timeout has extra message in the error log
+            self.assertIn('Timeout', line)
 
     def test_reconstructor_does_not_log_on_404(self):
         part = self.part_nums[0]
