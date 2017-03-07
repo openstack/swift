@@ -144,7 +144,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
         write_fake_ring(obj_ring_path, *obj_devs)
 
     # write_fake_ring can't handle a 3-element ring, and the EC policy needs
-    # at least 6 devs to work with (ec_k=2, ec_m=1, duplication_fuctor=2),
+    # at least 6 devs to work with (ec_k=2, ec_m=1, duplication_factor=2),
     # so we do it manually
     devs = [{'id': 0, 'zone': 0, 'device': 'sdg1', 'ip': '127.0.0.1',
              'port': obj1lis.getsockname()[1]},
