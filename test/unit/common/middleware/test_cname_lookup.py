@@ -20,6 +20,7 @@ from nose import SkipTest
 try:
     # this test requires the dnspython package to be installed
     import dns.resolver  # noqa
+    import dns.exception
 except ImportError:
     skip = True
 else:  # executed if the try has no errors
@@ -169,6 +170,80 @@ class TestCNAMELookup(unittest.TestCase):
                             headers={'Host': 'mysite.com'})
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, 'FAKE APP')
+
+    def test_caching(self):
+        fail_to_resolve = ['CNAME lookup failed to resolve to a valid domain']
+
+        class memcache_stub(object):
+            def __init__(self):
+                self.cache = {}
+
+            def get(self, key):
+                return self.cache.get(key, None)
+
+            def set(self, key, value, *a, **kw):
+                self.cache[key] = value
+
+        module = 'swift.common.middleware.cname_lookup.lookup_cname'
+        dns_module = 'dns.resolver.query'
+        memcache = memcache_stub()
+
+        with mock.patch(module) as m:
+            m.return_value = (3600, 'c.example.com')
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'swift.cache': memcache},
+                                headers={'Host': 'mysite2.com'})
+            resp = self.app(req.environ, start_response)
+            self.assertEqual(resp, 'FAKE APP')
+            self.assertEqual(m.call_count, 1)
+            self.assertEqual(memcache.cache.get('cname-mysite2.com'),
+                             'c.example.com')
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'swift.cache': memcache},
+                                headers={'Host': 'mysite2.com'})
+            resp = self.app(req.environ, start_response)
+            self.assertEqual(resp, 'FAKE APP')
+            self.assertEqual(m.call_count, 1)
+            self.assertEqual(memcache.cache.get('cname-mysite2.com'),
+                             'c.example.com')
+
+        for exc, num in ((dns.resolver.NXDOMAIN(), 3),
+                         (dns.resolver.NoAnswer(), 4)):
+            with mock.patch(dns_module) as m:
+                m.side_effect = exc
+                req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                                  'swift.cache': memcache},
+                                    headers={'Host': 'mysite%d.com' % num})
+                resp = self.app(req.environ, start_response)
+                self.assertEqual(resp, fail_to_resolve)
+                self.assertEqual(m.call_count, 1)
+                self.assertEqual(memcache.cache.get('cname-mysite3.com'),
+                                 False)
+                req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                                  'swift.cache': memcache},
+                                    headers={'Host': 'mysite%d.com' % num})
+                resp = self.app(req.environ, start_response)
+                self.assertEqual(resp, fail_to_resolve)
+                self.assertEqual(m.call_count, 1)
+                self.assertEqual(
+                    memcache.cache.get('cname-mysite%d.com' % num), False)
+
+        with mock.patch(dns_module) as m:
+            m.side_effect = dns.exception.DNSException()
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'swift.cache': memcache},
+                                headers={'Host': 'mysite5.com'})
+            resp = self.app(req.environ, start_response)
+            self.assertEqual(resp, fail_to_resolve)
+            self.assertEqual(m.call_count, 1)
+            self.assertFalse('cname-mysite5.com' in memcache.cache)
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                              'swift.cache': memcache},
+                                headers={'Host': 'mysite5.com'})
+            resp = self.app(req.environ, start_response)
+            self.assertEqual(resp, fail_to_resolve)
+            self.assertEqual(m.call_count, 2)
+            self.assertFalse('cname-mysite5.com' in memcache.cache)
 
     def test_cname_matching_ending_not_domain(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},

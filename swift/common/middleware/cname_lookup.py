@@ -59,8 +59,12 @@ def lookup_cname(domain):  # pragma: no cover
         result = answer.items[0].to_text()
         result = result.rstrip('.')
         return ttl, result
-    except (dns.exception.DNSException, dns.resolver.NXDOMAIN,
-            dns.resolver.NoAnswer):
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        # As the memcache lib returns None when nothing is found in cache,
+        # returning false helps to distinguish between "nothing in cache"
+        # (None) and "nothing to cache" (False).
+        return 60, False
+    except (dns.exception.DNSException):
         return 0, None
 
 
@@ -131,13 +135,13 @@ class CNAMELookupMiddleware(object):
                 if self.memcache:
                     memcache_key = ''.join(['cname-', a_domain])
                     found_domain = self.memcache.get(memcache_key)
-                if not found_domain:
+                if found_domain is None:
                     ttl, found_domain = lookup_cname(a_domain)
-                    if self.memcache:
+                    if self.memcache and ttl > 0:
                         memcache_key = ''.join(['cname-', given_domain])
                         self.memcache.set(memcache_key, found_domain,
                                           time=ttl)
-                if found_domain is None or found_domain == a_domain:
+                if not found_domain or found_domain == a_domain:
                     # no CNAME records or we're at the last lookup
                     error = True
                     found_domain = None
