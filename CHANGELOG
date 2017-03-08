@@ -426,7 +426,7 @@ swift (2.7.0, OpenStack Mitaka)
       default it will stagger the firing.
 
     * Added an operational procedures guide to the docs. It can be
-      found at http://swift.openstack.org/ops_runbook/index.html and
+      found at http://docs.openstack.org/developer/swift/ops_runbook/index.html and
       includes information on detecting and handling day-to-day
       operational issues in a Swift cluster.
 
@@ -596,7 +596,7 @@ swift (2.6.0)
     * Container sync has been improved to more quickly find and iterate over
       the containers to be synced. This reduced server load and lowers the
       time required to see data propagate between two clusters. Please see
-      http://swift.openstack.org/overview_container_sync.html for more details
+      http://docs.openstack.org/developer/swift/overview_container_sync.html for more details
       about the new on-disk structure for tracking synchronized containers.
 
     * A container POST will now update that container's put-timestamp value.
@@ -682,7 +682,7 @@ swift (2.4.0)
       server config setting ("allow_versions"), if it is currently enabled.
       The existing container server config setting enables existing
       containers to continue being versioned. Please see
-      http://swift.openstack.org/middleware.html#how-to-enable-object-versioning-in-a-swift-cluster
+      http://docs.openstack.org/developer/swift/middleware.html#how-to-enable-object-versioning-in-a-swift-cluster
       for further upgrade notes.
 
     * Allow 1+ object-servers-per-disk deployment
@@ -807,7 +807,7 @@ swift (2.3.0, OpenStack Kilo)
       ssync for durability. Deployers are urged to do extensive testing and
       not deploy production data using an erasure code storage policy.
 
-      Full docs are at http://swift.openstack.org/overview_erasure_code.html
+      Full docs are at http://docs.openstack.org/developer/swift/overview_erasure_code.html
 
     * Add support for container TempURL Keys.
 
@@ -816,7 +816,7 @@ swift (2.3.0, OpenStack Kilo)
 
     * Swift now supports composite tokens. This allows another service to
       act on behalf of a user, but only with that user's consent.
-      See http://swift.openstack.org/overview_auth.html for more details.
+      See http://docs.openstack.org/developer/swift/overview_auth.html for more details.
 
     * Multi-region replication was improved. When replicating data to a
       different region, only one replica will be pushed per replication
@@ -824,7 +824,7 @@ swift (2.3.0, OpenStack Kilo)
       locally instead of pushing more data over the inter-region network.
 
     * Internal requests from the ratelimit middleware now properly log a
-      swift_source. See http://swift.openstack.org/logs.html for details.
+      swift_source. See http://docs.openstack.org/developer/swift/logs.html for details.
 
     * Improved storage policy support for quarantine stats in swift-recon.
 
@@ -960,7 +960,7 @@ swift (2.2.0, OpenStack Juno)
       now requires that ACLs be set on IDs, which are unique across
       domains, and further restricts setting new ACLs to only use IDs.
 
-      Please see http://swift.openstack.org/overview_auth.html for
+      Please see http://docs.openstack.org/developer/swift/overview_auth.html for
       more information on configuring Swift and Keystone together.
 
     * Swift now supports server-side account-to-account copy. Server-
@@ -1077,7 +1077,7 @@ swift (2.0.0)
       them. A policy is set on a Swift container at container creation
       time and cannot be changed.
 
-      Full docs are at http://swift.openstack.org/overview_policies.html
+      Full docs are at http://docs.openstack.org/developer/swift/overview_policies.html
 
     * Add profiling middleware in Swift
 
@@ -1171,7 +1171,7 @@ swift (1.13.0)
       the header is a JSON dictionary string to be interpreted by the
       auth system. A reference implementation is given in TempAuth.
       Please see the full docs at
-      http://swift.openstack.org/overview_auth.html
+      http://docs.openstack.org/developer/swift/overview_auth.html
 
     * Added a WSGI environment flag to stop swob from always using
       absolute location. This is useful if middleware needs to use
@@ -1253,7 +1253,7 @@ swift (1.12.0)
     * New container sync configuration option, separating the end user
       from knowing the required end point and adding more secure
       signed requests. See
-      http://swift.openstack.org/overview_container_sync.html for full
+      http://docs.openstack.org/developer/swift/overview_container_sync.html for full
       information.
 
     * bulk middleware now can be configured to retry deleting containers.
