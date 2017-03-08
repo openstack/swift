@@ -564,6 +564,10 @@ The domain to be used by the middleware.
 .IP \fBlookup_depth\fR
 How deep in the CNAME chain to look for something that matches the storage domain.
 The default is 1.
+.IP \fBnameservers\fR
+Specify the nameservers to use to do the CNAME resolution. If unset, the system
+configuration is used. Multiple nameservers can be specified separated by a comma.
+Default is unset.
 .RE
 .PD
 
