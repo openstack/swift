@@ -2360,7 +2360,7 @@ def compute_eta(start_time, current_value, final_value):
 
 def unlink_older_than(path, mtime):
     """
-    Remove any file in a given path that that was last modified before mtime.
+    Remove any file in a given path that was last modified before mtime.
 
     :param path: path to remove file from
     :param mtime: timestamp of oldest file to keep
@@ -2371,7 +2371,7 @@ def unlink_older_than(path, mtime):
 
 def unlink_paths_older_than(filepaths, mtime):
     """
-    Remove any files from the given list that that were
+    Remove any files from the given list that were
     last modified before mtime.
 
     :param filepaths: a list of strings, the full paths of files to check
