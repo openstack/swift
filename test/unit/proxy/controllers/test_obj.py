@@ -3663,21 +3663,20 @@ class TestECFunctions(unittest.TestCase):
                                      ec_segment_size=segment_size,
                                      ec_duplication_factor=dup)
             expected = policy.pyeclib_driver.encode(orig_chunk)
-            transform = obj.chunk_transformer(
-                policy, policy.object_ring.replica_count)
+            transform = obj.chunk_transformer(policy)
             transform.send(None)
 
             backend_chunks = transform.send(orig_chunk)
             self.assertIsNotNone(backend_chunks)  # sanity
             self.assertEqual(
-                len(backend_chunks), policy.object_ring.replica_count)
-            self.assertEqual(expected * dup, backend_chunks)
+                len(backend_chunks), policy.ec_n_unique_fragments)
+            self.assertEqual(expected, backend_chunks)
 
             # flush out last chunk buffer
             backend_chunks = transform.send('')
             self.assertEqual(
-                len(backend_chunks), policy.object_ring.replica_count)
-            self.assertEqual([''] * policy.object_ring.replica_count,
+                len(backend_chunks), policy.ec_n_unique_fragments)
+            self.assertEqual([''] * policy.ec_n_unique_fragments,
                              backend_chunks)
         do_test(1)
         do_test(2)
@@ -3693,8 +3692,7 @@ class TestECFunctions(unittest.TestCase):
                                      ec_segment_size=1024,
                                      ec_duplication_factor=dup)
             expected = policy.pyeclib_driver.encode(last_chunk)
-            transform = obj.chunk_transformer(
-                policy, policy.object_ring.replica_count)
+            transform = obj.chunk_transformer(policy)
             transform.send(None)
 
             transform.send(last_chunk)
@@ -3702,8 +3700,9 @@ class TestECFunctions(unittest.TestCase):
             backend_chunks = transform.send('')
 
             self.assertEqual(
-                len(backend_chunks), policy.object_ring.replica_count)
-            self.assertEqual(expected * dup, backend_chunks)
+                len(backend_chunks), policy.ec_n_unique_fragments)
+            self.assertEqual(expected, backend_chunks)
+
         do_test(1)
         do_test(2)
 
@@ -4310,12 +4309,13 @@ class TestECDuplicationObjController(
         got = controller._determine_chunk_destinations(putters, self.policy)
         expected = {}
         for i, p in enumerate(putters):
-            expected[p] = i
+            expected[p] = self.policy.get_backend_index(i)
         # sanity
         self.assertEqual(got, expected)
 
         # now lets make an unique fragment as handoffs
-        putters[unique].node_index = None
+        handoff_putter = putters[unique]
+        handoff_putter.node_index = None
 
         # and then, pop a fragment which has same fragment index with unique
         self.assertEqual(
@@ -4329,21 +4329,20 @@ class TestECDuplicationObjController(
         # index 0 missing 2 copies and unique frag index 1 missing 1 copy
         # i.e. the handoff node should be assigned to unique frag index 1
         got = controller._determine_chunk_destinations(putters, self.policy)
-        self.assertEqual(len(expected) - 2, len(got))
-
-        # index one_more_missing should not be choosen
-        self.assertNotIn(one_more_missing, got.values())
-        # either index unique or duplicated should be in the got dict
-        self.assertTrue(
-            any([unique in got.values(), duplicated in got.values()]))
-        # but it's not both
-        self.assertFalse(
-            all([unique in got.values(), duplicated in got.values()]))
+        # N.B. len(putters) is now len(expected - 2) due to pop twice
+        self.assertEqual(len(putters), len(got))
+        # sanity, no node index - for handoff putter
+        self.assertIsNone(handoff_putter.node_index)
+        self.assertEqual(got[handoff_putter], unique)
+        # sanity, other nodes execpt handoff_putter have node_index
+        self.assertTrue(all(
+            [putter.node_index for putter in got if
+             putter != handoff_putter]))
 
     def test_determine_chunk_destinations_prioritize_more_missing(self):
-        # drop 0, 14 and 1 should work
+        # drop node_index 0, 14 and 1 should work
         self._test_determine_chunk_destinations_prioritize(0, 14, 1)
-        # drop 1, 15 and 0 should work, too
+        # drop node_index 1, 15 and 0 should work, too
         self._test_determine_chunk_destinations_prioritize(1, 15, 0)
 
 
