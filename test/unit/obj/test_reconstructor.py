@@ -3427,12 +3427,14 @@ class TestObjectReconstructor(unittest.TestCase):
             "Invalid resp from 10.0.0.0:1000/sda/0/a/c/o policy#0"
 
         test_missing_header(
-            'X-Object-Sysmeta-Ec-Etag',
-            "%s %s" % (message_base, "(missing Etag)"))
-        test_missing_header(
             'X-Object-Sysmeta-Ec-Frag-Index',
             "%s %s" % (message_base,
-                       "(invalid X-Object-Sysmeta-Ec-Frag-Index)"))
+                       "(invalid X-Object-Sysmeta-Ec-Frag-Index: None)"))
+
+        message_base += ", frag index 0"
+        test_missing_header(
+            'X-Object-Sysmeta-Ec-Etag',
+            "%s %s" % (message_base, "(missing Etag)"))
         test_missing_header(
             'X-Backend-Timestamp',
             "%s %s" % (message_base, "(missing X-Backend-Timestamp)"))
@@ -3491,7 +3493,8 @@ class TestObjectReconstructor(unittest.TestCase):
             self.assertEqual(1, len(warning_log_lines))
             expected_message = \
                 "Invalid resp from 10.0.0.0:1000/sda/0/a/c/o " \
-                "policy#0 (invalid X-Object-Sysmeta-Ec-Frag-Index)"
+                "policy#0 (invalid X-Object-Sysmeta-Ec-Frag-Index: %r)" % \
+                invalid_frag_index
             self.assertIn(expected_message, warning_log_lines)
 
         for value in ('None', 'invalid'):
