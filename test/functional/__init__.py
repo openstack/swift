@@ -268,16 +268,20 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
             dev['replication_ip'] = dev['ip']
         ring_data.save(ring_file_test)
     else:
-        # make default test ring, 2 replicas, 4 partitions, 2 devices
-        _info('No source object ring file, creating 2rep/4part/2dev ring')
-        obj_sockets = [eventlet.listen(('localhost', 0)) for _ in (0, 1)]
-        ring_data = ring.RingData(
-            [[0, 1, 0, 1], [1, 0, 1, 0]],
-            [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-              'port': obj_sockets[0].getsockname()[1]},
-             {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-              'port': obj_sockets[1].getsockname()[1]}],
-            30)
+        # make default test ring, 3 replicas, 4 partitions, 3 devices
+        # which will work for a replication policy or a 2+1 EC policy
+        _info('No source object ring file, creating 3rep/4part/3dev ring')
+        obj_sockets = [eventlet.listen(('localhost', 0)) for _ in (0, 1, 2)]
+        replica2part2dev_id = [[0, 1, 2, 0],
+                               [1, 2, 0, 1],
+                               [2, 0, 1, 2]]
+        devs = [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                 'port': obj_sockets[0].getsockname()[1]},
+                {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                 'port': obj_sockets[1].getsockname()[1]},
+                {'id': 2, 'zone': 2, 'device': 'sdc1', 'ip': '127.0.0.1',
+                 'port': obj_sockets[2].getsockname()[1]}]
+        ring_data = ring.RingData(replica2part2dev_id, devs, 30)
         with closing(GzipFile(ring_file_test, 'wb')) as f:
             pickle.dump(ring_data, f)
 
@@ -287,12 +291,13 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     return obj_sockets
 
 
-def _load_encryption(proxy_conf_file, **kwargs):
+def _load_encryption(proxy_conf_file, swift_conf_file, **kwargs):
     """
     Load encryption configuration and override proxy-server.conf contents.
 
     :param proxy_conf_file: Source proxy conf filename
-    :returns: Path to the test proxy conf file to use
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
     :raises InProcessException: raised if proxy conf contents are invalid
     """
     _debug('Setting configuration for encryption')
@@ -324,7 +329,43 @@ def _load_encryption(proxy_conf_file, **kwargs):
     with open(test_conf_file, 'w') as fp:
         conf.write(fp)
 
-    return test_conf_file
+    return test_conf_file, swift_conf_file
+
+
+def _load_ec_as_default_policy(proxy_conf_file, swift_conf_file, **kwargs):
+    """
+    Override swift.conf [storage-policy:0] section to use a 2+1 EC policy.
+
+    :param proxy_conf_file: Source proxy conf filename
+    :param swift_conf_file: Source swift conf filename
+    :returns: Tuple of paths to the proxy conf file and swift conf file to use
+    """
+    _debug('Setting configuration for default EC policy')
+
+    conf = ConfigParser()
+    conf.read(swift_conf_file)
+    # remove existing policy sections that came with swift.conf-sample
+    for section in list(conf.sections()):
+        if section.startswith('storage-policy'):
+            conf.remove_section(section)
+    # add new policy 0 section for an EC policy
+    conf.add_section('storage-policy:0')
+    ec_policy_spec = {
+        'name': 'ec-test',
+        'policy_type': 'erasure_coding',
+        'ec_type': 'liberasurecode_rs_vand',
+        'ec_num_data_fragments': 2,
+        'ec_num_parity_fragments': 1,
+        'ec_object_segment_size': 1048576,
+        'default': True
+    }
+
+    for k, v in ec_policy_spec.items():
+        conf.set('storage-policy:0', k, str(v))
+
+    with open(swift_conf_file, 'w') as fp:
+        conf.write(fp)
+    return proxy_conf_file, swift_conf_file
 
 
 # Mapping from possible values of the variable
@@ -333,7 +374,8 @@ def _load_encryption(proxy_conf_file, **kwargs):
 # The expected signature for these methods is:
 # conf_filename_to_use loader(input_conf_filename, **kwargs)
 conf_loaders = {
-    'encryption': _load_encryption
+    'encryption': _load_encryption,
+    'ec': _load_ec_as_default_policy
 }
 
 
@@ -367,6 +409,10 @@ def in_process_setup(the_object_server=object_server):
     utils.mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
     utils.mkdirs(os.path.join(_testdir, 'sdb1'))
     utils.mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
+    utils.mkdirs(os.path.join(_testdir, 'sdc1'))
+    utils.mkdirs(os.path.join(_testdir, 'sdc1', 'tmp'))
+
+    swift_conf = _in_process_setup_swift_conf(swift_conf_src, _testdir)
 
     # Call the associated method for the value of
     # 'SWIFT_TEST_IN_PROCESS_CONF_LOADER', if one exists
@@ -382,13 +428,13 @@ def in_process_setup(the_object_server=object_server):
                                      missing_key)
 
         try:
-            # Pass-in proxy_conf
-            proxy_conf = conf_loader(proxy_conf)
+            # Pass-in proxy_conf, swift_conf files
+            proxy_conf, swift_conf = conf_loader(proxy_conf, swift_conf)
             _debug('Now using proxy conf %s' % proxy_conf)
+            _debug('Now using swift conf %s' % swift_conf)
         except Exception as err:  # noqa
             raise InProcessException(err)
 
-    swift_conf = _in_process_setup_swift_conf(swift_conf_src, _testdir)
     obj_sockets = _in_process_setup_ring(swift_conf, conf_src_dir, _testdir)
 
     global orig_swift_conf_name

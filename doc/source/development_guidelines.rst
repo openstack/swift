@@ -123,6 +123,10 @@ set using environment variables:
   environment variable ``SWIFT_TEST_IN_PROCESS_CONF_LOADER`` to
   ``encryption``.
 
+- a 2+1 EC policy may be installed as the default policy by setting the
+  environment variable ``SWIFT_TEST_IN_PROCESS_CONF_LOADER`` to
+  ``ec``.
+
 - the deprecated proxy-server ``object_post_as_copy`` option may be set using
   the environment variable ``SWIFT_TEST_IN_PROCESS_OBJECT_POST_AS_COPY``.
 
@@ -138,6 +142,12 @@ This particular example may also be run using the ``func-encryption``
 tox environment::
 
     tox -e func-encryption
+
+The ``tox.ini`` file also specifies test environments for running other
+in-process functional test configurations, e.g.::
+
+  tox -e func-ec
+  tox -e func-post-as-copy
 
 To debug the functional tests, use the 'in-process test' mode and pass the
 ``--pdb`` flag to ``tox``::
