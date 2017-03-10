@@ -2858,6 +2858,15 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'If-Match': '"11111111111111111111111111111111"'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 412)
+        self.assertIn(
+            '"HEAD /sda1/p/a/c/o" 412 - ',
+            self.object_controller.logger.get_lines_for_level('info')[-1])
+
+        req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Match': '"11111111111111111111111111111111"'})
         resp = req.get_response(self.object_controller)
