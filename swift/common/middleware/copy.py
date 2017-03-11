@@ -318,17 +318,17 @@ class ServerSideCopyMiddleware(object):
         self.container_name = container
         self.object_name = obj
 
-        # Save off original request method (COPY/POST) in case it gets mutated
-        # into PUT during handling. This way logging can display the method
-        # the client actually sent.
-        req.environ['swift.orig_req_method'] = req.method
-
         try:
+            # In some cases, save off original request method since it gets
+            # mutated into PUT during handling. This way logging can display
+            # the method the client actually sent.
             if req.method == 'PUT' and req.headers.get('X-Copy-From'):
                 return self.handle_PUT(req, start_response)
             elif req.method == 'COPY':
+                req.environ['swift.orig_req_method'] = req.method
                 return self.handle_COPY(req, start_response)
             elif req.method == 'POST' and self.object_post_as_copy:
+                req.environ['swift.orig_req_method'] = req.method
                 return self.handle_object_post_as_copy(req, start_response)
             elif req.method == 'OPTIONS':
                 # Does not interfere with OPTIONS response from
