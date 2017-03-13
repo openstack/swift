@@ -1573,6 +1573,11 @@ cors_allow_origin                                               This is a list o
                                                                 header in addition to what
                                                                 the container has set.
 strict_cors_mode                      True
+cors_expose_headers                                             This is a list of headers that
+                                                                are included in the header
+                                                                Access-Control-Expose-Headers
+                                                                in addition to what the container
+                                                                has set.
 client_timeout                        60
 trans_id_suffix                                                 This optional suffix (default is empty)
                                                                 that would be appended to the swift

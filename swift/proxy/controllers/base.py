@@ -232,6 +232,7 @@ def cors_validation(func):
             #  - simple response headers,
             #    http://www.w3.org/TR/cors/#simple-response-header
             #  - swift specific: etag, x-timestamp, x-trans-id
+            #  - headers provided by the operator in cors_expose_headers
             #  - user metadata headers
             #  - headers provided by the user in
             #    x-container-meta-access-control-expose-headers
@@ -240,6 +241,7 @@ def cors_validation(func):
                     'cache-control', 'content-language', 'content-type',
                     'expires', 'last-modified', 'pragma', 'etag',
                     'x-timestamp', 'x-trans-id', 'x-openstack-request-id'])
+                expose_headers.update(controller.app.cors_expose_headers)
                 for header in resp.headers:
                     if header.startswith('X-Container-Meta') or \
                             header.startswith('X-Object-Meta'):
