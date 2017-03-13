@@ -35,7 +35,7 @@ class AccountController(Controller):
     server_type = 'Account'
 
     def __init__(self, app, account_name, **kwargs):
-        Controller.__init__(self, app)
+        super(AccountController, self).__init__(app)
         self.account_name = unquote(account_name)
         if not self.app.allow_account_management:
             self.allowed_methods.remove('PUT')

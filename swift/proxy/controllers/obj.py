@@ -124,7 +124,7 @@ class BaseObjectController(Controller):
 
     def __init__(self, app, account_name, container_name, object_name,
                  **kwargs):
-        Controller.__init__(self, app)
+        super(BaseObjectController, self).__init__(app)
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)

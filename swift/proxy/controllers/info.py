@@ -28,7 +28,7 @@ class InfoController(Controller):
 
     def __init__(self, app, version, expose_info, disallowed_sections,
                  admin_key):
-        Controller.__init__(self, app)
+        super(InfoController, self).__init__(app)
         self.expose_info = expose_info
         self.disallowed_sections = disallowed_sections
         self.admin_key = admin_key
