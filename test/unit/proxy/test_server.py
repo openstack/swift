@@ -562,17 +562,47 @@ class TestController(unittest.TestCase):
 
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
-class TestProxyServer(unittest.TestCase):
+class TestProxyServerConfiguration(unittest.TestCase):
+    def _make_app(self, conf):
+        # helper function to instantiate a proxy server instance
+        return proxy_server.Application(conf, FakeMemcache(),
+                                        container_ring=FakeRing(),
+                                        account_ring=FakeRing())
 
-    def test_creation(self):
+    def test_node_timeout(self):
         # later config should be extended to assert more config options
-        app = proxy_server.Application({'node_timeout': '3.5',
-                                        'recoverable_node_timeout': '1.5'},
-                                       FakeMemcache(),
-                                       container_ring=FakeRing(),
-                                       account_ring=FakeRing())
+        app = self._make_app({'node_timeout': '3.5',
+                              'recoverable_node_timeout': '1.5'})
         self.assertEqual(app.node_timeout, 3.5)
         self.assertEqual(app.recoverable_node_timeout, 1.5)
+
+    def test_cors_options(self):
+        # check defaults
+        app = self._make_app({})
+        self.assertFalse(app.cors_allow_origin)
+        self.assertFalse(app.cors_expose_headers)
+        self.assertTrue(app.strict_cors_mode)
+
+        # check custom configs
+        app = self._make_app({
+            'cors_allow_origin': '',
+            'cors_expose_headers': '',
+            'strict_cors_mode': 'True'})
+        self.assertTrue(app.strict_cors_mode)
+
+        app = self._make_app({
+            'cors_allow_origin': ' http://X.com,http://Y.com ,,  http://Z.com',
+            'cors_expose_headers': ' custom1,,,  custom2,custom3,,',
+            'strict_cors_mode': 'False'})
+        self.assertEqual({'http://X.com', 'http://Y.com', 'http://Z.com'},
+                         set(app.cors_allow_origin))
+        self.assertEqual({'custom1', 'custom2', 'custom3'},
+                         set(app.cors_expose_headers))
+        self.assertFalse(app.strict_cors_mode)
+
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+class TestProxyServer(unittest.TestCase):
 
     def test_get_object_ring(self):
         baseapp = proxy_server.Application({},
@@ -5279,6 +5309,14 @@ class TestReplicatedObjectController(
             container_cors=container_cors, strict_mode=True)
         self.assertNotIn('access-control-expose-headers', resp.headers)
         self.assertNotIn('access-control-allow-origin', resp.headers)
+
+        # test proxy server cors_allow_origin option
+        self.app.cors_allow_origin = ['http://foo.bar']
+        resp = self._get_CORS_response(
+            container_cors=container_cors, strict_mode=True)
+        self.assertEqual('http://foo.bar',
+                         resp.headers['access-control-allow-origin'])
+        self.assertEqual(expected_exposed, exposed)
 
     def test_CORS_valid_with_obj_headers(self):
         container_cors = {'allow_origin': 'http://foo.bar'}

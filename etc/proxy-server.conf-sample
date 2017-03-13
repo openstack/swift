@@ -70,11 +70,18 @@ bind_port = 8080
 # log_statsd_sample_rate_factor = 1.0
 # log_statsd_metric_prefix =
 #
+# List of origin hosts that are allowed for CORS requests in addition to what
+# the container has set.
 # Use a comma separated list of full URL (http://foo.bar:1234,https://foo.bar)
 # cors_allow_origin =
+
+# If True (default) then CORS requests are only allowed if their Origin header
+# matches an allowed origin. Otherwise, any Origin is allowed.
 # strict_cors_mode = True
 #
-# Comma separated list of headers to expose through Access-Control-Expose-Headers
+# Comma separated list of headers to expose through Access-Control-Expose-Headers,
+# in addition to the defaults and any headers set in container metadata (see
+# CORS documentation).
 # cors_expose_headers =
 #
 # client_timeout = 60

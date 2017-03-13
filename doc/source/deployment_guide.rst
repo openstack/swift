@@ -1765,14 +1765,14 @@ cert_file                                                       Path to the ssl 
 key_file                                                        Path to the ssl .key. This
                                                                 should be enabled for testing
                                                                 purposes only.
-cors_allow_origin                                               This is a list of hosts that
-                                                                are included with any CORS
-                                                                request by default and
-                                                                returned with the
-                                                                Access-Control-Allow-Origin
-                                                                header in addition to what
+cors_allow_origin                                               List of origin hosts that are allowed
+                                                                for CORS requests in addition to what
                                                                 the container has set.
-strict_cors_mode                      True
+strict_cors_mode                      True                      If True (default) then CORS
+                                                                requests are only allowed if their
+                                                                Origin header matches an allowed
+                                                                origin. Otherwise, any Origin is
+                                                                allowed.
 cors_expose_headers                                             This is a list of headers that
                                                                 are included in the header
                                                                 Access-Control-Expose-Headers
