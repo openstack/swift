@@ -38,7 +38,7 @@ class ContainerController(Controller):
                             'x-versions-location']
 
     def __init__(self, app, account_name, container_name, **kwargs):
-        Controller.__init__(self, app)
+        super(ContainerController, self).__init__(app)
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
 
