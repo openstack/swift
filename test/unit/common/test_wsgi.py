@@ -1273,6 +1273,21 @@ class TestWSGIContext(unittest.TestCase):
         iterable.close()
         self.assertRaises(StopIteration, iterator.next)
 
+    def test_update_content_length(self):
+        statuses = ['200 Ok']
+
+        def app(env, start_response):
+            start_response(statuses.pop(0), [('Content-Length', '30')])
+            yield 'Ok\n'
+
+        wc = wsgi.WSGIContext(app)
+        r = Request.blank('/')
+        it = wc._app_call(r.environ)
+        wc.update_content_length(35)
+        self.assertEqual(wc._response_status, '200 Ok')
+        self.assertEqual(''.join(it), 'Ok\n')
+        self.assertEqual(wc._response_headers, [('Content-Length', '35')])
+
 
 class TestPipelineWrapper(unittest.TestCase):
 
