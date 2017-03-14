@@ -426,8 +426,8 @@ class ServerSideCopyMiddleware(object):
         resp_headers['X-Copied-From-Account'] = quote(acct)
         resp_headers['X-Copied-From'] = quote(path)
         if 'last-modified' in source_resp.headers:
-                resp_headers['X-Copied-From-Last-Modified'] = \
-                    source_resp.headers['last-modified']
+            resp_headers['X-Copied-From-Last-Modified'] = \
+                source_resp.headers['last-modified']
         # Existing sys and user meta of source object is added to response
         # headers in addition to the new ones.
         _copy_headers(sink_req.headers, resp_headers)

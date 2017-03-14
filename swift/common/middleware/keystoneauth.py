@@ -307,7 +307,7 @@ class KeystoneAuth(object):
         method = req.method
         if (obj or (container and method != 'PUT')
                 or method not in ['PUT', 'POST']):
-                return
+            return
 
         tenant_id, tenant_name = env_identity['tenant']
         exists, sysmeta_id = self._get_project_domain_id(req.environ)

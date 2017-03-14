@@ -2811,13 +2811,13 @@ class ECDiskFile(BaseDiskFile):
                              for fi in pref['exclude']]}
                 for pref in frag_prefs]
         except ValueError as e:
-                raise DiskFileError(
-                    'Bad timestamp in frag_prefs: %r: %s'
-                    % (frag_prefs, e))
+            raise DiskFileError(
+                'Bad timestamp in frag_prefs: %r: %s'
+                % (frag_prefs, e))
         except DiskFileError as e:
-                raise DiskFileError(
-                    'Bad fragment index in frag_prefs: %r: %s'
-                    % (frag_prefs, e))
+            raise DiskFileError(
+                'Bad fragment index in frag_prefs: %r: %s'
+                % (frag_prefs, e))
         except (KeyError, TypeError) as e:
             raise DiskFileError(
                 'Bad frag_prefs: %r: %s' % (frag_prefs, e))
