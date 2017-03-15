@@ -397,27 +397,42 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertNotIn('GET', called_method)
 
     def test_put_request_is_dlo_manifest_with_container_config_true(self):
-        # set x-object-manifest on request and expect no versioning occurred
-        # only the PUT for the original client request
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'last-modified': 'Thu, 1 Jan 1970 00:01:00 GMT'}, 'old version')
+        self.app.register(
+            'PUT', '/v1/a/ver_cont/001o/0000000060.00000', swob.HTTPCreated,
+            {}, '')
         cache = FakeCache({'versions': 'ver_cont'})
         req = Request.blank(
             '/v1/a/c/o',
+            headers={'X-Object-Manifest': 'req/manifest'},
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
-        req.headers['X-Object-Manifest'] = 'req/manifest'
         status, headers, body = self.call_vw(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(1, self.app.call_count)
+        self.assertRequestEqual(req, self.authorized[1])
+        self.assertEqual(3, self.app.call_count)
+        self.assertEqual([
+            ('GET', '/v1/a/c/o'),
+            ('PUT', '/v1/a/ver_cont/001o/0000000060.00000'),
+            ('PUT', '/v1/a/c/o'),
+        ], self.app.calls)
+        self.assertIn('x-object-manifest',
+                      self.app.calls_with_headers[2].headers)
 
     def test_put_version_is_dlo_manifest_with_container_config_true(self):
-        # set x-object-manifest on response and expect no versioning occurred
-        # only initial GET on source object ok followed by PUT
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
-                          {'X-Object-Manifest': 'resp/manifest'}, 'passed')
+                          {'X-Object-Manifest': 'resp/manifest',
+                           'last-modified': 'Thu, 1 Jan 1970 01:00:00 GMT'},
+                          'passed')
+        self.app.register(
+            'PUT', '/v1/a/ver_cont/001o/0000003600.00000', swob.HTTPCreated,
+            {}, '')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
         cache = FakeCache({'versions': 'ver_cont'})
@@ -433,7 +448,14 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
         self.assertRequestEqual(req, self.authorized[1])
-        self.assertEqual(2, self.app.call_count)
+        self.assertEqual(3, self.app.call_count)
+        self.assertEqual([
+            ('GET', '/v1/a/c/o'),
+            ('PUT', '/v1/a/ver_cont/001o/0000003600.00000'),
+            ('PUT', '/v1/a/c/o'),
+        ], self.app.calls)
+        self.assertIn('x-object-manifest',
+                      self.app.calls_with_headers[1].headers)
 
     def test_delete_object_no_versioning_with_container_config_true(self):
         # set False to versions_write obviously and expect no GET versioning
