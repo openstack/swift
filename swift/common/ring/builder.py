@@ -19,6 +19,8 @@ import itertools
 import logging
 import math
 import random
+import uuid
+
 import six.moves.cPickle as pickle
 from copy import deepcopy
 from contextlib import contextmanager
@@ -91,6 +93,7 @@ class RingBuilder(object):
         self.devs_changed = False
         self.version = 0
         self.overload = 0.0
+        self._id = None
 
         # _replica2part2dev maps from replica number to partition number to
         # device id. So, for a three replica, 2**23 ring, it's an array of
@@ -126,6 +129,21 @@ class RingBuilder(object):
             self.logger.disabled = True
             # silence "no handler for X" error messages
             self.logger.addHandler(NullHandler())
+
+    @property
+    def id(self):
+        if self._id is None:
+            # We don't automatically assign an id here because we want a caller
+            # to explicitly know when a builder needs an id to be assigned. In
+            # that case the caller must save the builder in order that a newly
+            # assigned id is persisted.
+            raise AttributeError(
+                'id attribute has not been initialised by calling save()')
+        return self._id
+
+    @property
+    def part_shift(self):
+        return 32 - self.part_power
 
     def _set_part_moved(self, part):
         self._last_part_moves[part] = 0
@@ -204,6 +222,7 @@ class RingBuilder(object):
             self._last_part_moves = builder._last_part_moves
             self._last_part_gather_start = builder._last_part_gather_start
             self._remove_devs = builder._remove_devs
+            self._id = getattr(builder, '_id', None)
         else:
             self.part_power = builder['part_power']
             self.replicas = builder['replicas']
@@ -220,6 +239,7 @@ class RingBuilder(object):
             self._dispersion_graph = builder.get('_dispersion_graph', {})
             self.dispersion = builder.get('dispersion')
             self._remove_devs = builder['_remove_devs']
+            self._id = builder.get('id')
         self._ring = None
 
         # Old builders may not have a region defined for their devices, in
@@ -254,7 +274,8 @@ class RingBuilder(object):
                 '_last_part_gather_start': self._last_part_gather_start,
                 '_dispersion_graph': self._dispersion_graph,
                 'dispersion': self.dispersion,
-                '_remove_devs': self._remove_devs}
+                '_remove_devs': self._remove_devs,
+                'id': self._id}
 
     def change_min_part_hours(self, min_part_hours):
         """
@@ -315,12 +336,12 @@ class RingBuilder(object):
             # shift an unsigned int >I right to obtain the partition for the
             # int).
             if not self._replica2part2dev:
-                self._ring = RingData([], devs, 32 - self.part_power)
+                self._ring = RingData([], devs, self.part_shift)
             else:
                 self._ring = \
                     RingData([array('H', p2d) for p2d in
                               self._replica2part2dev],
-                             devs, 32 - self.part_power)
+                             devs, self.part_shift)
         return self._ring
 
     def add_dev(self, dev):
@@ -369,6 +390,7 @@ class RingBuilder(object):
             self.devs.append(None)
         dev['weight'] = float(dev['weight'])
         dev['parts'] = 0
+        dev.setdefault('meta', '')
         self.devs[dev['id']] = dev
         self.devs_changed = True
         self.version += 1
@@ -1650,6 +1672,10 @@ class RingBuilder(object):
             builder_dict = builder
             builder = RingBuilder(1, 1, 1)
             builder.copy_from(builder_dict)
+
+        if not hasattr(builder, '_id'):
+            builder._id = None
+
         for dev in builder.devs:
             # really old rings didn't have meta keys
             if dev and 'meta' not in dev:
@@ -1668,8 +1694,21 @@ class RingBuilder(object):
 
         :param builder_file: path to builder file to save
         """
-        with open(builder_file, 'wb') as f:
-            pickle.dump(self.to_dict(), f, protocol=2)
+        # We want to be sure the builder id's are persistent, so this is the
+        # only place where the id is assigned. Newly created instances of this
+        # class, or instances loaded from legacy builder files that have no
+        # persisted id, must be saved in order for an id to be assigned.
+        id_persisted = True
+        if self._id is None:
+            id_persisted = False
+            self._id = uuid.uuid4().hex
+        try:
+            with open(builder_file, 'wb') as f:
+                pickle.dump(self.to_dict(), f, protocol=2)
+        except Exception:
+            if not id_persisted:
+                self._id = None
+            raise
 
     def search_devs(self, search_values):
         """Search devices by parameters.
