@@ -3096,8 +3096,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # fragments for different content at the same timestamp then the
         # object controller should handle it gracefully
         ts = self.ts()  # force equal timestamps for two objects
-        obj1 = self._make_ec_object_stub(timestamp=ts)
-        obj2 = self._make_ec_object_stub(timestamp=ts)
+        obj1 = self._make_ec_object_stub(timestamp=ts, test_body='obj1')
+        obj2 = self._make_ec_object_stub(timestamp=ts, test_body='obj2')
+        self.assertNotEqual(obj1['etag'], obj2['etag'])  # sanity
 
         node_frags = [
             # 7 frags of obj2 are available and durable
@@ -4244,8 +4245,9 @@ class TestECDuplicationObjController(
         # the difference from parent class is only handoff stub length
 
         ts = self.ts()  # force equal timestamps for two objects
-        obj1 = self._make_ec_object_stub(timestamp=ts)
-        obj2 = self._make_ec_object_stub(timestamp=ts)
+        obj1 = self._make_ec_object_stub(timestamp=ts, test_body='obj1')
+        obj2 = self._make_ec_object_stub(timestamp=ts, test_body='obj2')
+        self.assertNotEqual(obj1['etag'], obj2['etag'])  # sanity
 
         node_frags = [
             # 7 frags of obj2 are available and durable
