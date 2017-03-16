@@ -67,9 +67,12 @@ class DomainRemapMiddleware(object):
 
     def __init__(self, app, conf):
         self.app = app
-        self.storage_domain = conf.get('storage_domain', 'example.com')
-        if self.storage_domain and not self.storage_domain.startswith('.'):
-            self.storage_domain = '.' + self.storage_domain
+        storage_domain = conf.get('storage_domain', 'example.com')
+        self.storage_domain = ['.' + s for s in
+                               list_from_csv(storage_domain)
+                               if not s.startswith('.')]
+        self.storage_domain += [s for s in list_from_csv(storage_domain)
+                                if s.startswith('.')]
         self.path_root = conf.get('path_root', 'v1').strip('/')
         prefixes = conf.get('reseller_prefixes', 'AUTH')
         self.reseller_prefixes = list_from_csv(prefixes)
@@ -87,8 +90,10 @@ class DomainRemapMiddleware(object):
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
-        if given_domain.endswith(self.storage_domain):
-            parts_to_parse = given_domain[:-len(self.storage_domain)]
+        storage_domain = next((domain for domain in self.storage_domain
+                               if given_domain.endswith(domain)), None)
+        if storage_domain:
+            parts_to_parse = given_domain[:-len(storage_domain)]
             parts_to_parse = parts_to_parse.strip('.').split('.')
             len_parts_to_parse = len(parts_to_parse)
             if len_parts_to_parse == 2:
