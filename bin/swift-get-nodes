@@ -59,7 +59,7 @@ if __name__ == '__main__':
 
     ring = ring_name = None
     if ring_path:
-        ring_name = basename(ring_path)[:len('ring.gz')]
+        ring_name = basename(ring_path)[:-len('.ring.gz')]
         ring = Ring(ring_path)
 
     try:

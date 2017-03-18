@@ -49,7 +49,7 @@ def parse_get_node_args(options, args):
     if options.policy_name:
         if POLICIES.get_by_name(options.policy_name) is None:
             raise InfoSystemExit('No policy named %r' % options.policy_name)
-    elif args and args[0].endswith('ring.gz'):
+    elif args and args[0].endswith('.ring.gz'):
         if os.path.exists(args[0]):
             ring_path = args.pop(0)
         else:
