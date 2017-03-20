@@ -1825,7 +1825,7 @@ auth_prefix            /auth/                          The HTTP request path
 token_life             86400                           The number of seconds a
                                                        token is valid.
 storage_url_scheme     default                         Scheme to return with
-                                                       storage urls: http,
+                                                       storage URLs: http,
                                                        https, or default
                                                        (chooses based on what
                                                        the server is running
