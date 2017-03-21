@@ -137,6 +137,18 @@ class TestSwiftInfo(unittest.TestCase):
             swift_info['name_check'].get('forbidden_regexp'),
             str))
 
+    def test_registered_configured_options(self):
+        conf = {'maximum_length': 512,
+                'forbidden_chars': '\'\"`',
+                'forbidden_regexp': "/\./|/\.\./|/\.$"}
+        name_check.filter_factory(conf)(FakeApp())
+        swift_info = utils.get_swift_info()
+        self.assertTrue('name_check' in swift_info)
+        self.assertEqual(swift_info['name_check'].get('maximum_length'), 512)
+        self.assertEqual(set(swift_info['name_check'].get('forbidden_chars')),
+                         set('\'\"`'))
+        self.assertEqual(swift_info['name_check'].get('forbidden_regexp'),
+                         "/\./|/\.\./|/\.$")
 
 if __name__ == '__main__':
     unittest.main()
