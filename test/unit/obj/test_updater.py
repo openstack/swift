@@ -92,6 +92,49 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEqual(ou.node_timeout, 5.5)
         self.assertTrue(ou.get_container_ring() is not None)
 
+    def test_conf_params(self):
+        # defaults
+        daemon = object_updater.ObjectUpdater({}, logger=self.logger)
+        self.assertEqual(daemon.devices, '/srv/node')
+        self.assertEqual(daemon.mount_check, True)
+        self.assertEqual(daemon.swift_dir, '/etc/swift')
+        self.assertEqual(daemon.interval, 300)
+        self.assertEqual(daemon.concurrency, 1)
+        self.assertEqual(daemon.max_objects_per_second, 50.0)
+
+        # non-defaults
+        conf = {
+            'devices': '/some/where/else',
+            'mount_check': 'huh?',
+            'swift_dir': '/not/here',
+            'interval': '600',
+            'concurrency': '2',
+            'objects_per_second': '10.5',
+        }
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        self.assertEqual(daemon.devices, '/some/where/else')
+        self.assertEqual(daemon.mount_check, False)
+        self.assertEqual(daemon.swift_dir, '/not/here')
+        self.assertEqual(daemon.interval, 600)
+        self.assertEqual(daemon.concurrency, 2)
+        self.assertEqual(daemon.max_objects_per_second, 10.5)
+
+        # check deprecated option
+        daemon = object_updater.ObjectUpdater({'slowdown': '0.04'},
+                                              logger=self.logger)
+        self.assertEqual(daemon.max_objects_per_second, 20.0)
+
+        def check_bad(conf):
+            with self.assertRaises(ValueError):
+                object_updater.ObjectUpdater(conf, logger=self.logger)
+
+        check_bad({'interval': 'foo'})
+        check_bad({'interval': '300.0'})
+        check_bad({'concurrency': 'bar'})
+        check_bad({'concurrency': '1.0'})
+        check_bad({'slowdown': 'baz'})
+        check_bad({'objects_per_second': 'quux'})
+
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
         e = OSError('permission_denied')

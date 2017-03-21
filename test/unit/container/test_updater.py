@@ -83,6 +83,48 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(cu.account_suppression_time, 0)
         self.assertTrue(cu.get_account_ring() is not None)
 
+    def test_conf_params(self):
+        # defaults
+        daemon = container_updater.ContainerUpdater({})
+        self.assertEqual(daemon.devices, '/srv/node')
+        self.assertEqual(daemon.mount_check, True)
+        self.assertEqual(daemon.swift_dir, '/etc/swift')
+        self.assertEqual(daemon.interval, 300)
+        self.assertEqual(daemon.concurrency, 4)
+        self.assertEqual(daemon.max_containers_per_second, 50.0)
+
+        # non-defaults
+        conf = {
+            'devices': '/some/where/else',
+            'mount_check': 'huh?',
+            'swift_dir': '/not/here',
+            'interval': '600',
+            'concurrency': '2',
+            'containers_per_second': '10.5',
+        }
+        daemon = container_updater.ContainerUpdater(conf)
+        self.assertEqual(daemon.devices, '/some/where/else')
+        self.assertEqual(daemon.mount_check, False)
+        self.assertEqual(daemon.swift_dir, '/not/here')
+        self.assertEqual(daemon.interval, 600)
+        self.assertEqual(daemon.concurrency, 2)
+        self.assertEqual(daemon.max_containers_per_second, 10.5)
+
+        # check deprecated option
+        daemon = container_updater.ContainerUpdater({'slowdown': '0.04'})
+        self.assertEqual(daemon.max_containers_per_second, 20.0)
+
+        def check_bad(conf):
+            with self.assertRaises(ValueError):
+                container_updater.ContainerUpdater(conf)
+
+        check_bad({'interval': 'foo'})
+        check_bad({'interval': '300.0'})
+        check_bad({'concurrency': 'bar'})
+        check_bad({'concurrency': '1.0'})
+        check_bad({'slowdown': 'baz'})
+        check_bad({'containers_per_second': 'quux'})
+
     @mock.patch.object(container_updater, 'ismount')
     @mock.patch.object(container_updater.ContainerUpdater, 'container_sweep')
     def test_run_once_with_device_unmounted(self, mock_sweep, mock_ismount):

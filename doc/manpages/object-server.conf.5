@@ -500,8 +500,10 @@ Minimum time for a pass to take. The default is 300 seconds.
 Number of reaper workers to spawn. The default is 1.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 10 seconds.
+.IP \fBobjects_per_second\fR
+Maximum objects updated per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 50.
 .IP \fBslowdown\fR
-Slowdown will sleep that amount between objects. The default is 0.01 seconds.
+Slowdown will sleep that amount between objects. The default is 0.01 seconds. Deprecated in favor of objects_per_second.
 .IP "\fBrecon_cache_path\fR"
 The recon_cache_path simply sets the directory where stats for a few items will be stored.
 Depending on the method of deployment you may need to create this directory manually
