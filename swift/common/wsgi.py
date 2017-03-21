@@ -65,6 +65,7 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
         context = super(NamedConfigLoader, self).get_context(
             object_type, name=name, global_conf=global_conf)
         context.name = name
+        context.local_conf['__name__'] = name
         return context
 
 
@@ -114,7 +115,7 @@ class ConfigString(NamedConfigLoader):
         self.filename = "string"
         defaults = {
             'here': "string",
-            '__file__': "string",
+            '__file__': StringIO(dedent(config_string)),
         }
         self.parser = loadwsgi.NicerConfigParser("string", defaults=defaults)
         self.parser.optionxform = str  # Don't lower-case keys

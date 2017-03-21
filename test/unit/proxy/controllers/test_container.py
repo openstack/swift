@@ -180,7 +180,7 @@ class TestContainerController(TestRingBase):
         self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
 
     def test_node_errors(self):
-        self.app.sort_nodes = lambda n: n
+        self.app.sort_nodes = lambda n, *args, **kwargs: n
 
         for method in ('PUT', 'DELETE', 'POST'):
             def test_status_map(statuses, expected):

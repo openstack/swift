@@ -195,11 +195,12 @@ class BaseObjectControllerMixin(object):
 
     def test_iter_nodes_local_first_noops_when_no_affinity(self):
         # this test needs a stable node order - most don't
-        self.app.sort_nodes = lambda l: l
+        self.app.sort_nodes = lambda l, *args, **kwargs: l
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
-        self.app.write_affinity_is_local_fn = None
-        object_ring = self.policy.object_ring
+        policy = self.policy
+        self.app.get_policy_options(policy).write_affinity_is_local_fn = None
+        object_ring = policy.object_ring
         all_nodes = object_ring.get_part_nodes(1)
         all_nodes.extend(object_ring.get_more_nodes(1))
 
@@ -213,10 +214,11 @@ class BaseObjectControllerMixin(object):
     def test_iter_nodes_local_first_moves_locals_first(self):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
-        self.app.write_affinity_is_local_fn = (
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_is_local_fn = (
             lambda node: node['region'] == 1)
         # we'll write to one more than replica count local nodes
-        self.app.write_affinity_node_count = lambda r: r + 1
+        policy_conf.write_affinity_node_count = lambda r: r + 1
 
         object_ring = self.policy.object_ring
         # make our fake ring have plenty of nodes, and not get limited
@@ -234,7 +236,7 @@ class BaseObjectControllerMixin(object):
 
         # make sure we have enough local nodes (sanity)
         all_local_nodes = [n for n in all_nodes if
-                           self.app.write_affinity_is_local_fn(n)]
+                           policy_conf.write_affinity_is_local_fn(n)]
         self.assertGreaterEqual(len(all_local_nodes), self.replicas() + 1)
 
         # finally, create the local_first_nodes iter and flatten it out
@@ -252,7 +254,8 @@ class BaseObjectControllerMixin(object):
     def test_iter_nodes_local_first_best_effort(self):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
-        self.app.write_affinity_is_local_fn = (
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_is_local_fn = (
             lambda node: node['region'] == 1)
 
         object_ring = self.policy.object_ring
@@ -266,7 +269,7 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(len(all_nodes), self.replicas() +
                          POLICIES.default.object_ring.max_more_nodes)
         all_local_nodes = [n for n in all_nodes if
-                           self.app.write_affinity_is_local_fn(n)]
+                           policy_conf.write_affinity_is_local_fn(n)]
         self.assertEqual(len(all_local_nodes), self.replicas())
         # but the local nodes we do have are at the front of the local iter
         first_n_local_first_nodes = local_first_nodes[:len(all_local_nodes)]
@@ -575,6 +578,80 @@ class BaseObjectControllerMixin(object):
 
                 self.assertEqual(container_updates, expected)
 
+    def _check_write_affinity(
+            self, conf, policy_conf, policy, affinity_regions, affinity_count):
+        conf['policy_config'] = policy_conf
+        app = PatchedObjControllerApp(
+            conf, FakeMemcache(), account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=self.logger)
+
+        controller = self.controller_cls(app, 'a', 'c', 'o')
+
+        object_ring = app.get_object_ring(int(policy))
+        # make our fake ring have plenty of nodes, and not get limited
+        # artificially by the proxy max request node count
+        object_ring.max_more_nodes = 100
+
+        all_nodes = object_ring.get_part_nodes(1)
+        all_nodes.extend(object_ring.get_more_nodes(1))
+
+        # make sure we have enough local nodes (sanity)
+        all_local_nodes = [n for n in all_nodes if
+                           n['region'] in affinity_regions]
+        self.assertGreaterEqual(len(all_local_nodes), affinity_count)
+
+        # finally, create the local_first_nodes iter and flatten it out
+        local_first_nodes = list(controller.iter_nodes_local_first(
+            object_ring, 1, policy))
+
+        # check that the required number of local nodes were moved up the order
+        node_regions = [node['region'] for node in local_first_nodes]
+        self.assertTrue(
+            all(r in affinity_regions for r in node_regions[:affinity_count]),
+            'Unexpected region found in local nodes, expected %s but got %s' %
+            (affinity_regions, node_regions))
+        return app
+
+    def test_write_affinity_not_configured(self):
+        # default is no write affinity so expect both regions 0 and 1
+        self._check_write_affinity({}, {}, POLICIES[0], [0, 1],
+                                   2 * self.replicas(POLICIES[0]))
+        self._check_write_affinity({}, {}, POLICIES[1], [0, 1],
+                                   2 * self.replicas(POLICIES[1]))
+
+    def test_write_affinity_proxy_server_config(self):
+        # without overrides policies use proxy-server config section options
+        conf = {'write_affinity_node_count': '1 * replicas',
+                'write_affinity': 'r0'}
+        self._check_write_affinity(conf, {}, POLICIES[0], [0],
+                                   self.replicas(POLICIES[0]))
+        self._check_write_affinity(conf, {}, POLICIES[1], [0],
+                                   self.replicas(POLICIES[1]))
+
+    def test_write_affinity_per_policy_config(self):
+        # check only per-policy configuration is sufficient
+        conf = {}
+        policy_conf = {'0': {'write_affinity_node_count': '1 * replicas',
+                             'write_affinity': 'r1'},
+                       '1': {'write_affinity_node_count': '5',
+                             'write_affinity': 'r0'}}
+        self._check_write_affinity(conf, policy_conf, POLICIES[0], [1],
+                                   self.replicas(POLICIES[0]))
+        self._check_write_affinity(conf, policy_conf, POLICIES[1], [0], 5)
+
+    def test_write_affinity_per_policy_config_overrides_and_inherits(self):
+        # check per-policy config is preferred over proxy-server section config
+        conf = {'write_affinity_node_count': '1 * replicas',
+                'write_affinity': 'r0'}
+        policy_conf = {'0': {'write_affinity': 'r1'},
+                       '1': {'write_affinity_node_count': '3 * replicas'}}
+        # policy 0 inherits default node count, override affinity to r1
+        self._check_write_affinity(conf, policy_conf, POLICIES[0], [1],
+                                   self.replicas(POLICIES[0]))
+        # policy 1 inherits default affinity to r0, overrides node count
+        self._check_write_affinity(conf, policy_conf, POLICIES[1], [0],
+                                   3 * self.replicas(POLICIES[1]))
+
 # end of BaseObjectControllerMixin
 
 
@@ -843,7 +920,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 
     def test_PUT_connect_exceptions(self):
         object_ring = self.app.get_object_ring(None)
-        self.app.sort_nodes = lambda n: n  # disable shuffle
+        self.app.sort_nodes = lambda n, *args, **kwargs: n  # disable shuffle
 
         def test_status_map(statuses, expected):
             self.app._error_limiting = {}
