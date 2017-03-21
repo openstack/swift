@@ -909,7 +909,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     self.job['policy'], self.suffixes,
                     frag_index=self.job.get('frag_index'))
                 self.available_map = {}
-                for path, hash_, timestamps in hash_gen:
+                for hash_, timestamps in hash_gen:
                     self.available_map[hash_] = timestamps
                 context['available_map'] = self.available_map
                 ssync_calls.append(context)

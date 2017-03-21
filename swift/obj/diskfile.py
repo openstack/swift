@@ -1351,7 +1351,7 @@ class BaseDiskFileManager(object):
     def yield_hashes(self, device, partition, policy,
                      suffixes=None, **kwargs):
         """
-        Yields tuples of (full_path, hash_only, timestamps) for object
+        Yields tuples of (hash_only, timestamps) for object
         information stored for the given device, partition, and
         (optionally) suffixes. If suffixes is None, all stored
         suffixes will be searched for object hashes. Note that if
@@ -1407,7 +1407,7 @@ class BaseDiskFileManager(object):
                         # file cannot be opened and therefore cannot
                         # be ssync'd
                         continue
-                    yield (object_path, object_hash, timestamps)
+                    yield (object_hash, timestamps)
                 except AssertionError as err:
                     self.logger.debug('Invalid file set in %s (%s)' % (
                         object_path, err))

@@ -433,8 +433,6 @@ class TestSender(BaseTest):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == POLICIES.legacy:
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000),
                      'ts_meta': Timestamp(1380155570.00005)})
@@ -483,8 +481,6 @@ class TestSender(BaseTest):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == POLICIES.legacy:
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -521,8 +517,6 @@ class TestSender(BaseTest):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == POLICIES.legacy:
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -557,8 +551,6 @@ class TestSender(BaseTest):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == POLICIES.legacy:
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -758,19 +750,13 @@ class TestSender(BaseTest):
                     policy == POLICIES.legacy and
                     suffixes == ['abc', 'def']):
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
                 yield (
-                    '/srv/node/dev/objects/9/def/'
-                    '9d41d8cd98f00b204e9800998ecf0def',
                     '9d41d8cd98f00b204e9800998ecf0def',
                     {'ts_data': Timestamp(1380144472.22222),
                      'ts_meta': Timestamp(1380144473.22222)})
                 yield (
-                    '/srv/node/dev/objects/9/def/'
-                    '9d41d8cd98f00b204e9800998ecf1def',
                     '9d41d8cd98f00b204e9800998ecf1def',
                     {'ts_data': Timestamp(1380144474.44444),
                      'ts_ctype': Timestamp(1380144474.44448),
@@ -820,8 +806,6 @@ class TestSender(BaseTest):
                     policy == POLICIES.legacy and
                     suffixes == ['abc']):
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -859,8 +843,6 @@ class TestSender(BaseTest):
                     policy == POLICIES.legacy and
                     suffixes == ['abc']):
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -899,8 +881,6 @@ class TestSender(BaseTest):
                     policy == POLICIES.legacy and
                     suffixes == ['abc']):
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -938,8 +918,6 @@ class TestSender(BaseTest):
                     policy == POLICIES.legacy and
                     suffixes == ['abc']):
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
@@ -980,8 +958,6 @@ class TestSender(BaseTest):
                     policy == POLICIES.legacy and
                     suffixes == ['abc']):
                 yield (
-                    '/srv/node/dev/objects/9/abc/'
-                    '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     {'ts_data': Timestamp(1380144470.00000)})
             else:
