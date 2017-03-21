@@ -40,10 +40,8 @@ The filter returns HTTPBadRequest if path is invalid.
 @author: eamonn-otoole
 '''
 
-from six.moves.urllib.parse import unquote
-
 import re
-from swift.common.utils import get_logger
+from swift.common.utils import get_logger, register_swift_info
 
 from swift.common.swob import Request, HTTPBadRequest
 
@@ -69,6 +67,15 @@ class NameCheckMiddleware(object):
             self.forbidden_regexp_compiled = None
         self.logger = get_logger(self.conf, log_route='name_check')
 
+        self.register_info()
+
+    def register_info(self):
+        register_swift_info('name_check',
+                            forbidden_chars=self.forbidden_chars,
+                            maximum_length=self.maximum_length,
+                            forbidden_regexp=self.forbidden_regexp
+                            )
+
     def check_character(self, req):
         '''
         Checks req.path for any forbidden characters
@@ -79,7 +86,7 @@ class NameCheckMiddleware(object):
         self.logger.debug("name_check: self.forbidden_chars %s" %
                           self.forbidden_chars)
 
-        return any((c in unquote(req.path)) for c in self.forbidden_chars)
+        return any((c in req.path_info) for c in self.forbidden_chars)
 
     def check_length(self, req):
         '''
@@ -87,7 +94,7 @@ class NameCheckMiddleware(object):
         Returns True if the length exceeds the maximum
         Returns False if the length is <= the maximum
         '''
-        length = len(unquote(req.path))
+        length = len(req.path_info)
         return length > self.maximum_length
 
     def check_regexp(self, req):
@@ -103,8 +110,7 @@ class NameCheckMiddleware(object):
         self.logger.debug("name_check: self.forbidden_regexp %s" %
                           self.forbidden_regexp)
 
-        unquoted_path = unquote(req.path)
-        match = self.forbidden_regexp_compiled.search(unquoted_path)
+        match = self.forbidden_regexp_compiled.search(req.path_info)
         return (match is not None)
 
     def __call__(self, env, start_response):

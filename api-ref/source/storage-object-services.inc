@@ -165,6 +165,11 @@ is a normal object and not a copy of the manifest. Instead it is a
 concatenation of all the segment objects. This means that you
 cannot copy objects larger than 5 GB.
 
+Note that the provider may have limited the characters which are allowed
+in an object name. Any name limits are exposed under the ``name_check`` key
+in the ``/info`` discoverability response. Regardless of ``name_check``
+limitations, names must be URL quoted UTF-8.
+
 To create custom metadata, use the
 ``X-Object-Meta-name`` header, where ``name`` is the name of the metadata
 item.
