@@ -36,7 +36,7 @@ class FakeFilter(object):
 
     def __call__(self, env, start_response):
         path = SUB_PUT_POST_PATH
-        if env['REQUEST_METHOD'] is 'GET':
+        if env['REQUEST_METHOD'] == 'GET':
             path = SUB_GET_PATH
 
         # Make a subrequest that will be logged
@@ -51,9 +51,6 @@ class FakeFilter(object):
 
         resp = sub_req.get_response(self.app)
         close_if_possible(resp.app_iter)
-
-        def _start_response(status, headers, exc_info=None):
-            return start_response(status, headers, exc_info)
 
         return self.app(env, start_response)
 
