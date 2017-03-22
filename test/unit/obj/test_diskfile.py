@@ -583,8 +583,37 @@ class TestDiskFileRouter(unittest.TestCase):
 
 class BaseDiskFileTestMixin(object):
     """
-    Bag of helpers that are useful in the per-policy DiskFile test classes.
+    Bag of helpers that are useful in the per-policy DiskFile test classes,
+    plus common setUp and tearDown methods.
     """
+
+    # set mgr_cls on subclasses
+    mgr_cls = None
+
+    def setUp(self):
+        self.tmpdir = mkdtemp()
+        self.testdir = os.path.join(
+            self.tmpdir, 'tmp_test_obj_server_DiskFile')
+        self.existing_device = 'sda1'
+        self.existing_device2 = 'sda2'
+        for policy in POLICIES:
+            mkdirs(os.path.join(self.testdir, self.existing_device,
+                                diskfile.get_tmp_dir(policy)))
+            mkdirs(os.path.join(self.testdir, self.existing_device2,
+                                diskfile.get_tmp_dir(policy)))
+        self._orig_tpool_exc = tpool.execute
+        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
+        self.conf = dict(devices=self.testdir, mount_check='false',
+                         keep_cache_size=2 * 1024, mb_per_sync=1)
+        self.logger = debug_logger('test-' + self.__class__.__name__)
+        self.df_mgr = self.mgr_cls(self.conf, self.logger)
+        self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
+        self._ts_iter = (Timestamp(t) for t in
+                         itertools.count(int(time())))
+
+    def tearDown(self):
+        rmtree(self.tmpdir, ignore_errors=True)
+        tpool.execute = self._orig_tpool_exc
 
     def _manager_mock(self, manager_attribute_name, df=None):
         mgr_cls = df._manager.__class__ if df else self.mgr_cls
@@ -627,32 +656,6 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
     won't get picked up by test runners because it doesn't subclass
     unittest.TestCase and doesn't have [Tt]est in the name.
     """
-
-    # set mgr_cls on subclasses
-    mgr_cls = None
-
-    def setUp(self):
-        self.tmpdir = mkdtemp()
-        self.testdir = os.path.join(
-            self.tmpdir, 'tmp_test_obj_server_DiskFile')
-        self.existing_device1 = 'sda1'
-        self.existing_device2 = 'sda2'
-        for policy in POLICIES:
-            mkdirs(os.path.join(self.testdir, self.existing_device1,
-                                diskfile.get_tmp_dir(policy)))
-            mkdirs(os.path.join(self.testdir, self.existing_device2,
-                                diskfile.get_tmp_dir(policy)))
-        self._orig_tpool_exc = tpool.execute
-        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
-        self.conf = dict(devices=self.testdir, mount_check='false',
-                         keep_cache_size=2 * 1024)
-        self.logger = debug_logger('test-' + self.__class__.__name__)
-        self.df_mgr = self.mgr_cls(self.conf, self.logger)
-        self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
-
-    def tearDown(self):
-        rmtree(self.tmpdir, ignore_errors=1)
-
     def _get_diskfile(self, policy, frag_index=None, **kwargs):
         df_mgr = self.df_router[policy]
         return df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
@@ -876,10 +879,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.logger.increment = mock.MagicMock()
         ts = Timestamp(10000.0).internal
         with mock.patch('swift.obj.diskfile.write_pickle') as wp:
-            self.df_mgr.pickle_async_update(self.existing_device1,
+            self.df_mgr.pickle_async_update(self.existing_device,
                                             'a', 'c', 'o',
                                             dict(a=1, b=2), ts, POLICIES[0])
-            dp = self.df_mgr.construct_dev_path(self.existing_device1)
+            dp = self.df_mgr.construct_dev_path(self.existing_device)
             ohash = diskfile.hash_path('a', 'c', 'o')
             wp.assert_called_with({'a': 1, 'b': 2},
                                   os.path.join(
@@ -896,12 +899,12 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # Double check settings
         self.df_mgr.replication_one_per_device = True
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, self.existing_device1)
-        with self.df_mgr.replication_lock(self.existing_device1):
+        dev_path = os.path.join(self.testdir, self.existing_device)
+        with self.df_mgr.replication_lock(self.existing_device):
             lock_exc = None
             exc = None
             try:
-                with self.df_mgr.replication_lock(self.existing_device1):
+                with self.df_mgr.replication_lock(self.existing_device):
                     raise Exception(
                         '%r was not replication locked!' % dev_path)
             except ReplicationLockTimeout as err:
@@ -915,7 +918,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # Double check settings
         self.df_mgr.replication_one_per_device = False
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, self.existing_device1)
+        dev_path = os.path.join(self.testdir, self.existing_device)
         with self.df_mgr.replication_lock(dev_path):
             lock_exc = None
             exc = None
@@ -934,7 +937,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # Double check settings
         self.df_mgr.replication_one_per_device = True
         self.df_mgr.replication_lock_timeout = 0.1
-        with self.df_mgr.replication_lock(self.existing_device1):
+        with self.df_mgr.replication_lock(self.existing_device):
             lock_exc = None
             try:
                 with self.df_mgr.replication_lock(self.existing_device2):
@@ -1120,7 +1123,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
         exc = None
         try:
-            list(self.df_mgr.yield_suffixes(self.existing_device1, '9', 0))
+            list(self.df_mgr.yield_suffixes(self.existing_device, '9', 0))
         except DiskFileDeviceUnavailable as err:
             exc = err
         self.assertEqual(str(exc), '')
@@ -1128,7 +1131,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
     def test_yield_suffixes(self):
         self.df_mgr._listdir = mock.MagicMock(return_value=[
             'abc', 'def', 'ghi', 'abcd', '012'])
-        dev = self.existing_device1
+        dev = self.existing_device
         self.assertEqual(
             list(self.df_mgr.yield_suffixes(dev, '9', POLICIES[0])),
             [(self.testdir + '/' + dev + '/objects/9/abc', 'abc'),
@@ -1139,7 +1142,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
         exc = None
         try:
-            list(self.df_mgr.yield_hashes(self.existing_device1, '9',
+            list(self.df_mgr.yield_hashes(self.existing_device, '9',
                                           POLICIES[0]))
         except DiskFileDeviceUnavailable as err:
             exc = err
@@ -1151,7 +1154,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
         with mock.patch('os.listdir', _listdir):
             self.assertEqual(list(self.df_mgr.yield_hashes(
-                self.existing_device1, '9', POLICIES[0])), [])
+                self.existing_device, '9', POLICIES[0])), [])
 
     def test_yield_hashes_empty_suffixes(self):
         def _listdir(path):
@@ -1159,12 +1162,12 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
         with mock.patch('os.listdir', _listdir):
             self.assertEqual(
-                list(self.df_mgr.yield_hashes(self.existing_device1, '9',
+                list(self.df_mgr.yield_hashes(self.existing_device, '9',
                                               POLICIES[0],
                                               suffixes=['456'])), [])
 
     def _check_yield_hashes(self, policy, suffix_map, expected, **kwargs):
-        device = self.existing_device1
+        device = self.existing_device
         part = '9'
         part_path = os.path.join(
             self.testdir, device, diskfile.get_data_dir(policy), part)
@@ -2757,7 +2760,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         hash_ = os.path.basename(df._datadir)
         self.assertRaises(DiskFileNotExist,
                           self.df_mgr.get_diskfile_from_hash,
-                          self.existing_device1, '0', hash_,
+                          self.existing_device, '0', hash_,
                           POLICIES.default)  # sanity
         timestamp = Timestamp(time())
         for frag_index in (4, 7):
@@ -2765,12 +2768,12 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                            legacy_durable=legacy_durable)
 
         df4 = self.df_mgr.get_diskfile_from_hash(
-            self.existing_device1, '0', hash_, POLICIES.default, frag_index=4)
+            self.existing_device, '0', hash_, POLICIES.default, frag_index=4)
         self.assertEqual(df4._frag_index, 4)
         self.assertEqual(
             df4.read_metadata()['X-Object-Sysmeta-Ec-Frag-Index'], '4')
         df7 = self.df_mgr.get_diskfile_from_hash(
-            self.existing_device1, '0', hash_, POLICIES.default, frag_index=7)
+            self.existing_device, '0', hash_, POLICIES.default, frag_index=7)
         self.assertEqual(df7._frag_index, 7)
         self.assertEqual(
             df7.read_metadata()['X-Object-Sysmeta-Ec-Frag-Index'], '7')
@@ -2784,38 +2787,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
 class DiskFileMixin(BaseDiskFileTestMixin):
 
-    # set mgr_cls on subclasses
-    mgr_cls = None
-
-    def setUp(self):
-        """Set up for testing swift.obj.diskfile"""
-        self.tmpdir = mkdtemp()
-        self.testdir = os.path.join(
-            self.tmpdir, 'tmp_test_obj_server_DiskFile')
-        self.existing_device = 'sda1'
-        for policy in POLICIES:
-            mkdirs(os.path.join(self.testdir, self.existing_device,
-                                diskfile.get_tmp_dir(policy)))
-        self._orig_tpool_exc = tpool.execute
-        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
-        self.conf = dict(devices=self.testdir, mount_check='false',
-                         keep_cache_size=2 * 1024, mb_per_sync=1)
-        self.logger = debug_logger('test-' + self.__class__.__name__)
-        self.df_mgr = self.mgr_cls(self.conf, self.logger)
-        self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
-        self._ts_iter = (Timestamp(t) for t in
-                         itertools.count(int(time())))
-
     def ts(self):
         """
         Timestamps - forever.
         """
         return next(self._ts_iter)
-
-    def tearDown(self):
-        """Tear down for testing swift.obj.diskfile"""
-        rmtree(self.tmpdir, ignore_errors=1)
-        tpool.execute = self._orig_tpool_exc
 
     def _create_ondisk_file(self, df, data, timestamp, metadata=None,
                             ctype_timestamp=None,
@@ -3396,13 +3372,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         verify(obj_name='3', csize=100000)
 
     def run_quarantine_invalids(self, invalid_type):
+        open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length',
+                                    'Subtly-Corrupt-Xattrs',
+                                    'Corrupt-Xattrs', 'Truncated-Xattrs',
+                                    'Missing-Name', 'Bad-X-Delete-At')
+        open_collision = invalid_type == 'Bad-Name'
 
         def verify(*args, **kwargs):
-            open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length',
-                                        'Corrupt-Xattrs', 'Truncated-Xattrs',
-                                        'Missing-Name', 'Bad-X-Delete-At')
-            open_collision = invalid_type == 'Bad-Name'
-            reader = None
             quarantine_msgs = []
             try:
                 df = self._get_open_disk_file(**kwargs)
@@ -3439,11 +3415,6 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
         def verify_air(params, start=0, adjustment=0):
             """verify (a)pp (i)ter (r)ange"""
-            open_exc = invalid_type in ('Content-Length', 'Bad-Content-Length',
-                                        'Corrupt-Xattrs', 'Truncated-Xattrs',
-                                        'Missing-Name', 'Bad-X-Delete-At')
-            open_collision = invalid_type == 'Bad-Name'
-            reader = None
             try:
                 df = self._get_open_disk_file(**params)
                 reader = df.reader()

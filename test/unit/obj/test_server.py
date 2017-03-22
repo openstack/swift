@@ -32,7 +32,6 @@ from shutil import rmtree
 from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5
-import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
 from textwrap import dedent
@@ -6857,7 +6856,7 @@ class TestObjectServer(unittest.TestCase):
 
     def setUp(self):
         # dirs
-        self.tmpdir = tempfile.mkdtemp()
+        self.tmpdir = mkdtemp()
         self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')
 
         self.devices = os.path.join(self.tempdir, 'srv/node')
