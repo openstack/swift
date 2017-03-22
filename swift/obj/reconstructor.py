@@ -193,17 +193,14 @@ class ObjectReconstructor(Daemon):
         return True
 
     def _full_path(self, node, part, path, policy):
-        frag_index = (policy.get_backend_index(node['index'])
-                      if 'index' in node else 'handoff')
         return '%(replication_ip)s:%(replication_port)s' \
             '/%(device)s/%(part)s%(path)s ' \
-            'policy#%(policy)d frag#%(frag_index)s' % {
+            'policy#%(policy)d' % {
                 'replication_ip': node['replication_ip'],
                 'replication_port': node['replication_port'],
                 'device': node['device'],
                 'part': part, 'path': path,
                 'policy': policy,
-                'frag_index': frag_index,
             }
 
     def _get_response(self, node, part, path, headers, policy):
@@ -308,8 +305,9 @@ class ObjectReconstructor(Daemon):
                 # the remote node to our target instead of rebuild.  But
                 # instead we ignore it.
                 self.logger.debug(
-                    'Found existing frag #%s while rebuilding #%s from %s',
-                    unique_index, fi_to_rebuild, self._full_path(
+                    'Found existing frag #%s at %s while rebuilding to %s',
+                    fi_to_rebuild, resp.full_path,
+                    self._full_path(
                         node, job['partition'], datafile_metadata['name'],
                         job['policy']))
                 continue
@@ -330,10 +328,11 @@ class ObjectReconstructor(Daemon):
 
             if etag != etag_buckets.setdefault(timestamp, etag):
                 self.logger.error(
-                    'Mixed Etag (%s, %s) for %s',
+                    'Mixed Etag (%s, %s) for %s frag#%s',
                     etag, etag_buckets[timestamp],
                     self._full_path(node, job['partition'],
-                                    datafile_metadata['name'], job['policy']))
+                                    datafile_metadata['name'], job['policy']),
+                    fi_to_rebuild)
                 continue
 
             if unique_index not in buckets[timestamp]:
@@ -349,21 +348,22 @@ class ObjectReconstructor(Daemon):
                 etag = etag_buckets[timestamp]
                 self.logger.error(
                     'Unable to get enough responses (%s/%s) '
-                    'to reconstruct %s with ETag %s' % (
+                    'to reconstruct %s frag#%s with ETag %s' % (
                         len(resp), job['policy'].ec_ndata,
                         self._full_path(node, job['partition'],
                                         datafile_metadata['name'],
                                         job['policy']),
-                        etag))
+                        fi_to_rebuild, etag))
 
             if error_resp_count:
                 self.logger.error(
                     'Unable to get enough responses (%s error responses) '
-                    'to reconstruct %s' % (
+                    'to reconstruct %s frag#%s' % (
                         error_resp_count,
                         self._full_path(node, job['partition'],
                                         datafile_metadata['name'],
-                                        job['policy'])))
+                                        job['policy']),
+                        fi_to_rebuild))
 
             raise DiskFileError('Unable to reconstruct EC archive')
 
