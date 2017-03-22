@@ -642,6 +642,50 @@ class TestDBReplicator(unittest.TestCase):
         replicator._replicate_object('0', '/path/to/file', 'node_id')
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
 
+    def test_replicate_object_with_exception(self):
+        replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        replicator.brokerclass = FakeAccountBroker
+        replicator.delete_db = self.stub_delete_db
+        replicator._repl_to_node = mock.Mock(side_effect=Exception())
+        replicator._replicate_object('0', '/path/to/file',
+                                     replicator.ring.devs[0]['id'])
+        self.assertEqual(2, replicator._repl_to_node.call_count)
+        # with one DriveNotMounted exception called on +1 more replica
+        replicator._repl_to_node = mock.Mock(side_effect=[DriveNotMounted()])
+        replicator._replicate_object('0', '/path/to/file',
+                                     replicator.ring.devs[0]['id'])
+        self.assertEqual(3, replicator._repl_to_node.call_count)
+        # called on +1 more replica and self when *first* handoff
+        replicator._repl_to_node = mock.Mock(side_effect=[DriveNotMounted()])
+        replicator._replicate_object('0', '/path/to/file',
+                                     replicator.ring.devs[3]['id'])
+        self.assertEqual(4, replicator._repl_to_node.call_count)
+        # even if it's the last handoff it works to keep 3 replicas
+        # 2 primaries + 1 handoff
+        replicator._repl_to_node = mock.Mock(side_effect=[DriveNotMounted()])
+        replicator._replicate_object('0', '/path/to/file',
+                                     replicator.ring.devs[-1]['id'])
+        self.assertEqual(4, replicator._repl_to_node.call_count)
+        # with two DriveNotMounted exceptions called on +2 more replica keeping
+        # durability
+        replicator._repl_to_node = mock.Mock(
+            side_effect=[DriveNotMounted()] * 2)
+        replicator._replicate_object('0', '/path/to/file',
+                                     replicator.ring.devs[0]['id'])
+        self.assertEqual(4, replicator._repl_to_node.call_count)
+
+    def test_replicate_object_with_exception_run_out_of_nodes(self):
+        replicator = TestReplicator({})
+        replicator.ring = FakeRingWithNodes().Ring('path')
+        replicator.brokerclass = FakeAccountBroker
+        replicator.delete_db = self.stub_delete_db
+        # all other devices are not mounted
+        replicator._repl_to_node = mock.Mock(side_effect=DriveNotMounted())
+        replicator._replicate_object('0', '/path/to/file',
+                                     replicator.ring.devs[0]['id'])
+        self.assertEqual(5, replicator._repl_to_node.call_count)
+
     def test_replicate_account_out_of_place(self):
         replicator = TestReplicator({}, logger=unit.FakeLogger())
         replicator.ring = FakeRingWithNodes().Ring('path')

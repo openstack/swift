@@ -533,7 +533,7 @@ class Replicator(Daemon):
         more_nodes = self.ring.get_more_nodes(int(partition))
         if not local_dev:
             # Check further if local device is a handoff node
-            for node in more_nodes:
+            for node in self.ring.get_more_nodes(int(partition)):
                 if node['id'] == node_id:
                     local_dev = node
                     break
@@ -549,7 +549,13 @@ class Replicator(Daemon):
                 success = self._repl_to_node(node, broker, partition, info,
                                              different_region)
             except DriveNotMounted:
-                repl_nodes.append(next(more_nodes))
+                try:
+                    repl_nodes.append(next(more_nodes))
+                except StopIteration:
+                    self.logger.error(
+                        _('ERROR There are not enough handoff nodes to reach '
+                          'replica count for partition %s'),
+                        partition)
                 self.logger.error(_('ERROR Remote drive not mounted %s'), node)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR syncing %(file)s with node'
