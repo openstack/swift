@@ -69,7 +69,7 @@ bind_port = 8080
 # log_statsd_sample_rate_factor = 1.0
 # log_statsd_metric_prefix =
 #
-# Use a comma separated list of full url (http://foo.bar:1234,https://foo.bar)
+# Use a comma separated list of full URL (http://foo.bar:1234,https://foo.bar)
 # cors_allow_origin =
 # strict_cors_mode = True
 #
@@ -286,7 +286,7 @@ use = egg:swift#tempauth
 # you can set this to false.
 # allow_overrides = true
 #
-# This specifies what scheme to return with storage urls:
+# This specifies what scheme to return with storage URLs:
 # http, https, or default (chooses based on what the server is running as)
 # This can be useful with an SSL load balancer in front of a non-SSL server.
 # storage_url_scheme = default
@@ -757,8 +757,8 @@ use = egg:swift#gatekeeper
 
 [filter:container_sync]
 use = egg:swift#container_sync
-# Set this to false if you want to disallow any full url values to be set for
-# any new X-Container-Sync-To headers. This will keep any new full urls from
+# Set this to false if you want to disallow any full URL values to be set for
+# any new X-Container-Sync-To headers. This will keep any new full URLs from
 # coming in, but won't change any existing values already in the cluster.
 # Updating those will have to be done manually, as knowing what the true realm
 # endpoint should be cannot always be guessed.

@@ -49,7 +49,7 @@ ring building server **last** after all Swift nodes have been successfully
 upgraded, or refrain from generating rings until all Swift nodes have
 been successfully upgraded.
 
-If you need to downgrade from a version of swift greater than 1.6.0 to
+If you need to downgrade from a version of Swift greater than 1.6.0 to
 a version less than or equal to 1.6.0, first downgrade your ring-building
 server, generate new rings, push them out, then continue with the rest
 of the downgrade.
@@ -202,7 +202,7 @@ Handling Drive Failure
 ----------------------
 
 In the event that a drive has failed, the first step is to make sure the drive
-is unmounted.  This will make it easier for swift to work around the failure
+is unmounted.  This will make it easier for Swift to work around the failure
 until it has been resolved.  If the drive is going to be replaced immediately,
 then it is just best to replace the drive, format it, remount it, and let
 replication fill it up.
@@ -232,7 +232,7 @@ Handling Server Failure
 -----------------------
 
 If a server is having hardware issues, it is a good idea to make sure the
-swift services are not running.  This will allow Swift to work around the
+Swift services are not running.  This will allow Swift to work around the
 failure while you troubleshoot.
 
 If the server just needs a reboot, or a small amount of work that should
@@ -673,7 +673,7 @@ account-server.conf sample::
 
 The recon_cache_path simply sets the directory where stats for a few items will
 be stored. Depending on the method of deployment you may need to create this
-directory manually and ensure that swift has read/write access.
+directory manually and ensure that Swift has read/write access.
 
 Finally, if you also wish to track asynchronous pending on your object
 servers you will need to setup a cronjob to run the swift-recon-cron script
@@ -1325,7 +1325,7 @@ Managing Services
 -----------------
 
 Swift services are generally managed with `swift-init`. the general usage is
-``swift-init <service> <command>``, where service is the swift service to
+``swift-init <service> <command>``, where service is the Swift service to
 manage (for example object, container, account, proxy) and command is one of:
 
 ==========  ===============================================
