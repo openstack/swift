@@ -31,7 +31,6 @@ SWIFT_DIR = '/etc/swift'
 RUN_DIR = '/var/run/swift'
 PROC_DIR = '/proc'
 
-# auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
                'container-replicator', 'container-reconciler',
                'container-server', 'container-sync',
@@ -44,7 +43,7 @@ MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
 # aliases mapping
 ALIASES = {'all': ALL_SERVERS, 'main': MAIN_SERVERS, 'rest': REST_SERVERS}
-GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS + ['auth-server']
+GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS
 START_ONCE_SERVERS = REST_SERVERS
 # These are servers that match a type (account-*, container-*, object-*) but
 # don't use that type-server.conf file and instead use their own.

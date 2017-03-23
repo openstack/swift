@@ -2099,7 +2099,8 @@ class TestManager(unittest.TestCase):
 
         _orig_manager = manager.Manager
         try:
-            m = _orig_manager(['auth'])
+            m = _orig_manager(['*-server'])
+            self.assertEqual(len(m.servers), 4)
             for server in m.servers:
                 self.assertTrue(server.server in
                                 manager.GRACEFUL_SHUTDOWN_SERVERS)
@@ -2107,8 +2108,8 @@ class TestManager(unittest.TestCase):
             status = m.reload()
             self.assertEqual(status, 0)
             expected = {
-                'start': [{'graceful': True}],
-                'stop': [{'graceful': True}],
+                'start': [{'graceful': True}] * 4,
+                'stop': [{'graceful': True}] * 4,
             }
             self.assertEqual(MockManager.called, expected)
             # test force graceful
