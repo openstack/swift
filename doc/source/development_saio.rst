@@ -241,9 +241,14 @@ Setting up rsync
 
   #. Start the rsync daemon
 
-     * On Ubuntu, run::
+     * On Ubuntu 14.04, run::
 
         sudo service rsync restart
+
+     * On Ubuntu 16.04, run::
+
+        sudo systemctl enable rsync
+        sudo systemctl start rsync
 
      * On Fedora, run::
 
