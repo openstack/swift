@@ -16,6 +16,7 @@ from __future__ import print_function
 import unittest
 from test.unit import temptree
 
+import mock
 import os
 import sys
 import resource
@@ -2079,57 +2080,38 @@ class TestManager(unittest.TestCase):
         self.assertEqual(m.start_was_called, True)
 
     def test_reload(self):
-        class MockManager(object):
+        def do_test(graceful):
             called = defaultdict(list)
 
-            def __init__(self, servers):
-                pass
-
-            @classmethod
-            def reset_called(cls):
-                cls.called = defaultdict(list)
-
             def stop(self, **kwargs):
-                MockManager.called['stop'].append(kwargs)
+                called[self].append(('stop', kwargs))
                 return 0
 
             def start(self, **kwargs):
-                MockManager.called['start'].append(kwargs)
+                called[self].append(('start', kwargs))
                 return 0
 
-        _orig_manager = manager.Manager
-        try:
-            m = _orig_manager(['*-server'])
+            m = manager.Manager(['*-server'])
             self.assertEqual(len(m.servers), 4)
-            for server in m.servers:
-                self.assertTrue(server.server in
-                                manager.GRACEFUL_SHUTDOWN_SERVERS)
-            manager.Manager = MockManager
-            status = m.reload()
-            self.assertEqual(status, 0)
-            expected = {
-                'start': [{'graceful': True}] * 4,
-                'stop': [{'graceful': True}] * 4,
-            }
-            self.assertEqual(MockManager.called, expected)
-            # test force graceful
-            MockManager.reset_called()
-            m = _orig_manager(['*-server'])
-            self.assertEqual(len(m.servers), 4)
-            for server in m.servers:
-                self.assertTrue(server.server in
-                                manager.GRACEFUL_SHUTDOWN_SERVERS)
-            manager.Manager = MockManager
-            status = m.reload(graceful=False)
-            self.assertEqual(status, 0)
-            expected = {
-                'start': [{'graceful': True}] * 4,
-                'stop': [{'graceful': True}] * 4,
-            }
-            self.assertEqual(MockManager.called, expected)
+            expected_servers = set([server.server for server in m.servers])
+            for server in expected_servers:
+                self.assertIn(server, manager.GRACEFUL_SHUTDOWN_SERVERS)
 
-        finally:
-            manager.Manager = _orig_manager
+            with mock.patch('swift.common.manager.Manager.start', start):
+                with mock.patch('swift.common.manager.Manager.stop', stop):
+                    status = m.reload(graceful=graceful)
+
+            self.assertEqual(status, 0)
+            self.assertEqual(4, len(called))
+            actual_servers = set()
+            for m, calls in called.items():
+                self.assertEqual(calls, [('stop', {'graceful': True}),
+                                         ('start', {'graceful': True})])
+                actual_servers.update([server.server for server in m.servers])
+            self.assertEqual(expected_servers, actual_servers)
+
+        do_test(graceful=True)
+        do_test(graceful=False)  # graceful is forced regardless of the kwarg
 
     def test_force_reload(self):
         m = manager.Manager(['test'])
