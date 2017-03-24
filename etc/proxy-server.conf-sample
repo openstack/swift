@@ -94,7 +94,7 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
@@ -915,3 +915,9 @@ use = egg:swift#encryption
 # disable_encryption to True. However, all encryption middleware should remain
 # in the pipeline in order for existing encrypted data to be read.
 # disable_encryption = False
+
+# listing_formats should be just right of the first proxy-logging middleware,
+# and left of most other middlewares. If it is not already present, it will
+# be automatically inserted for you.
+[filter:listing_formats]
+use = egg:swift#listing_formats

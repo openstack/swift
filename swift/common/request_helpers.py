@@ -31,10 +31,9 @@ from swift.common.header_key_dict import HeaderKeyDict
 
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
-from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
-from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
+from swift.common.swob import HTTPBadRequest, \
     HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
@@ -68,28 +67,6 @@ def get_param(req, name, default=None):
                 request=req, content_type='text/plain',
                 body='"%s" parameter not valid UTF-8' % name)
     return value
-
-
-def get_listing_content_type(req):
-    """
-    Determine the content type to use for an account or container listing
-    response.
-
-    :param req: request object
-    :returns: content type as a string (e.g. text/plain, application/json)
-    :raises HTTPNotAcceptable: if the requested content type is not acceptable
-    :raises HTTPBadRequest: if the 'format' query param is provided and
-             not valid UTF-8
-    """
-    query_format = get_param(req, 'format')
-    if query_format:
-        req.accept = FORMAT2CONTENT_TYPE.get(
-            query_format.lower(), FORMAT2CONTENT_TYPE['plain'])
-    out_content_type = req.accept.best_match(
-        ['text/plain', 'application/json', 'application/xml', 'text/xml'])
-    if not out_content_type:
-        raise HTTPNotAcceptable(request=req)
-    return out_content_type
 
 
 def get_name_and_placement(request, minsegs=1, maxsegs=None,

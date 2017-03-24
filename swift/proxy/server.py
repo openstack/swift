@@ -66,16 +66,19 @@ required_filters = [
      'after_fn': lambda pipe: (['catch_errors']
                                if pipe.startswith('catch_errors')
                                else [])},
+    {'name': 'listing_formats', 'after_fn': lambda _junk: [
+        'catch_errors', 'gatekeeper', 'proxy_logging', 'memcache']},
+    # Put copy before dlo, slo and versioned_writes
+    {'name': 'copy', 'after_fn': lambda _junk: [
+        'staticweb', 'tempauth', 'keystoneauth',
+        'catch_errors', 'gatekeeper', 'proxy_logging']},
     {'name': 'dlo', 'after_fn': lambda _junk: [
         'copy', 'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']},
     {'name': 'versioned_writes', 'after_fn': lambda _junk: [
         'slo', 'dlo', 'copy', 'staticweb', 'tempauth',
         'keystoneauth', 'catch_errors', 'gatekeeper', 'proxy_logging']},
-    # Put copy before dlo, slo and versioned_writes
-    {'name': 'copy', 'after_fn': lambda _junk: [
-        'staticweb', 'tempauth', 'keystoneauth',
-        'catch_errors', 'gatekeeper', 'proxy_logging']}]
+]
 
 
 def _label_for_policy(policy):

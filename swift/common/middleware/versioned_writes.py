@@ -329,8 +329,7 @@ class VersionedWritesContext(WSGIContext):
                 env, method='GET', swift_source='VW',
                 path='/v1/%s/%s' % (account_name, lcontainer))
             lreq.environ['QUERY_STRING'] = \
-                'format=json&prefix=%s&marker=%s' % (
-                    quote(lprefix), quote(marker))
+                'prefix=%s&marker=%s' % (quote(lprefix), quote(marker))
             if end_marker:
                 lreq.environ['QUERY_STRING'] += '&end_marker=%s' % (
                     quote(end_marker))

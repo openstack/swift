@@ -24,7 +24,7 @@ import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
 from swift.account.utils import account_listing_response, get_response_headers
 from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
-from swift.common.request_helpers import get_param, get_listing_content_type, \
+from swift.common.request_helpers import get_param, \
     split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, config_true_value, \
@@ -33,6 +33,7 @@ from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.base_storage_server import BaseStorageServer
+from swift.common.middleware import listing_formats
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
@@ -167,7 +168,7 @@ class AccountController(BaseStorageServer):
     def HEAD(self, req):
         """Handle HTTP HEAD request."""
         drive, part, account = split_and_validate_path(req, 3)
-        out_content_type = get_listing_content_type(req)
+        out_content_type = listing_formats.get_listing_content_type(req)
         if not check_drive(self.root, drive, self.mount_check):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
@@ -201,7 +202,7 @@ class AccountController(BaseStorageServer):
                     constraints.ACCOUNT_LISTING_LIMIT)
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        out_content_type = get_listing_content_type(req)
+        out_content_type = listing_formats.get_listing_content_type(req)
 
         if not check_drive(self.root, drive, self.mount_check):
             return HTTPInsufficientStorage(drive=drive, request=req)
