@@ -408,7 +408,8 @@ class ObjectReplicator(Daemon):
         df_mgr = self._df_router[job['policy']]
         try:
             hashed, local_hash = tpool_reraise(
-                df_mgr._get_hashes, job['path'],
+                df_mgr._get_hashes, job['device'],
+                job['partition'], job['policy'],
                 do_listdir=_do_listdir(
                     int(job['partition']),
                     self.replication_cycle))
@@ -462,7 +463,8 @@ class ObjectReplicator(Daemon):
                         continue
                     hashed, recalc_hash = tpool_reraise(
                         df_mgr._get_hashes,
-                        job['path'], recalculate=suffixes)
+                        job['device'], job['partition'], job['policy'],
+                        recalculate=suffixes)
                     self.logger.update_stats('suffix.hashes', hashed)
                     local_hash = recalc_hash
                     suffixes = [suffix for suffix in local_hash if
