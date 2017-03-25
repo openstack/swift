@@ -47,7 +47,7 @@ class InMemoryFileSystem(object):
         Return back an file-like object and its metadata
 
         :param name: standard object name
-        :return (fp, metadata): fp is `StringIO` in-memory representation
+        :return: (fp, metadata) fp is `StringIO` in-memory representation
                                 object (or None). metadata is a dictionary
                                 of metadata (or None)
         """

@@ -199,7 +199,7 @@ class _StaticWebContext(WSGIContext):
         self._error, self._listings, self._listings_css and self._dir_type.
 
         :param env: The WSGI environment dict.
-        :return container_info: The container_info dict.
+        :return: The container_info dict.
         """
         self._index = self._error = self._listings = self._listings_css = \
             self._dir_type = None
