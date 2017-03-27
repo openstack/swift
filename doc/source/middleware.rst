@@ -80,7 +80,7 @@ There may be administrator-only information available via ``/info``. To
 retrieve it, one must use an HMAC-signed request, similar to TempURL.
 The signature may be produced like so::
 
-    swift-temp-url GET 3600 /info secret 2>/dev/null | sed s/temp_url/swiftinfo/g
+    swift tempurl GET 3600 /info secret 2>/dev/null | sed s/temp_url/swiftinfo/g
 
 Domain Remap
 ============
