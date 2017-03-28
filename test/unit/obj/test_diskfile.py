@@ -1183,7 +1183,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                         return files
             self.fail('Unexpected listdir of %r' % path)
         expected_items = [
-            (os.path.join(part_path, hash_[-3:], hash_), hash_, timestamps)
+            (hash_, timestamps)
             for hash_, timestamps in expected.items()]
         with mock.patch('os.listdir', _listdir), \
                 mock.patch('os.unlink'):

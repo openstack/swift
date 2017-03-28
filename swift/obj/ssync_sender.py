@@ -271,10 +271,10 @@ class Sender(object):
             frag_index=self.job.get('frag_index'))
         if self.remote_check_objs is not None:
             hash_gen = six.moves.filter(
-                lambda path_objhash_timestamps:
-                path_objhash_timestamps[1] in
+                lambda objhash_timestamps:
+                objhash_timestamps[0] in
                 self.remote_check_objs, hash_gen)
-        for path, object_hash, timestamps in hash_gen:
+        for object_hash, timestamps in hash_gen:
             self.available_map[object_hash] = timestamps
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
