@@ -34,7 +34,7 @@ def collect_info(path_list):
     Recursive collect dirs and files in path_list directory.
 
     :param path_list: start directory for collecting
-    :return files_list, dir_list: tuple of included
+    :return: files_list, dir_list tuple of included
     directories and files
     """
     files_list = []
@@ -56,7 +56,7 @@ def find_max_occupancy_node(dir_list):
     Find node with maximum occupancy.
 
     :param list_dir: list of directories for each node.
-    :return number: number node in list_dir
+    :return: number number node in list_dir
     """
     count = 0
     number = 0
