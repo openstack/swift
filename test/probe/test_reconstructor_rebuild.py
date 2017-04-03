@@ -63,10 +63,13 @@ class Body(object):
 
 class TestReconstructorRebuild(ECProbeTest):
 
+    def _make_name(self, prefix):
+        return '%s%s' % (prefix, uuid.uuid4())
+
     def setUp(self):
         super(TestReconstructorRebuild, self).setUp()
-        self.container_name = 'container-%s' % uuid.uuid4()
-        self.object_name = 'object-%s' % uuid.uuid4()
+        self.container_name = self._make_name('container-')
+        self.object_name = self._make_name('object-')
         # sanity
         self.assertEqual(self.policy.policy_type, EC_POLICY)
         self.reconstructor = Manager(["object-reconstructor"])
@@ -115,9 +118,12 @@ class TestReconstructorRebuild(ECProbeTest):
         if not require_durable:
             req_headers.update(
                 {'X-Backend-Fragment-Preferences': json.dumps([])})
+        # node dict has unicode values so utf8 decode our path parts too in
+        # case they have non-ascii characters
         headers, data = direct_client.direct_get_object(
-            node, part, self.account, self.container_name,
-            self.object_name, headers=req_headers,
+            node, part, self.account.decode('utf8'),
+            self.container_name.decode('utf8'),
+            self.object_name.decode('utf8'), headers=req_headers,
             resp_chunk_size=64 * 2 ** 20)
         hasher = md5()
         for chunk in data:
@@ -323,6 +329,12 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # just to be nice
         self.revive_drive(device_path)
+
+
+class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
+
+    def _make_name(self, prefix):
+        return '%s\xc3\xa8-%s' % (prefix, uuid.uuid4())
 
 
 if __name__ == "__main__":

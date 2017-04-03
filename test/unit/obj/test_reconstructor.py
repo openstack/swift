@@ -652,7 +652,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 resp = self.reconstructor._get_response(node, part,
                                                         path='nada',
                                                         headers={},
-                                                        policy=self.policy)
+                                                        full_path='nada/nada')
             return resp
 
         resp = do_test(200)
@@ -1161,8 +1161,7 @@ class TestGlobalSetupObjectReconstructorLegacyDurable(
 
 
 @patch_policies(with_ec_default=True)
-class TestObjectReconstructor(unittest.TestCase):
-
+class BaseTestObjectReconstructor(unittest.TestCase):
     def setUp(self):
         self.policy = POLICIES.default
         self.policy.object_ring._rtime = time.time() + 3600
@@ -1205,6 +1204,8 @@ class TestObjectReconstructor(unittest.TestCase):
     def ts(self):
         return next(self.ts_iter)
 
+
+class TestObjectReconstructor(BaseTestObjectReconstructor):
     def test_handoffs_only_default(self):
         # sanity neither option added to default conf
         self.conf.pop('handoffs_first', None)
@@ -2723,6 +2724,20 @@ class TestObjectReconstructor(unittest.TestCase):
         # hashpath is still there, but it's empty
         self.assertEqual([], os.listdir(df._datadir))
 
+
+class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
+    obj_path = '/a/c/o'  # subclass overrides this
+
+    def setUp(self):
+        super(TestReconstructFragmentArchive, self).setUp()
+        self.obj_timestamp = self.ts()
+        self.obj_metadata = {
+            'name': self.obj_path,
+            'Content-Length': '0',
+            'ETag': 'etag',
+            'X-Timestamp': self.obj_timestamp.normal
+        }
+
     def test_reconstruct_fa_no_errors(self):
         job = {
             'partition': 0,
@@ -2730,12 +2745,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': '0',
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -2764,7 +2773,7 @@ class TestObjectReconstructor(unittest.TestCase):
             with mocked_http_conn(
                     *codes, body_iter=body_iter, headers=headers):
                 df = self.reconstructor.reconstruct_fa(
-                    job, node, metadata)
+                    job, node, self.obj_metadata)
                 self.assertEqual(0, df.content_length)
                 fixed_body = ''.join(df.reader())
         self.assertEqual(len(fixed_body), len(broken_body))
@@ -2783,7 +2792,7 @@ class TestObjectReconstructor(unittest.TestCase):
                              self.policy)
             self.assertIn('X-Backend-Fragment-Preferences', called_header)
             self.assertEqual(
-                [{'timestamp': '1234567890.12345', 'exclude': []}],
+                [{'timestamp': self.obj_timestamp.normal, 'exclude': []}],
                 json.loads(called_header['X-Backend-Fragment-Preferences']))
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -2796,12 +2805,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[4]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -2825,7 +2828,7 @@ class TestObjectReconstructor(unittest.TestCase):
             with mocked_http_conn(*codes, body_iter=body_iter,
                                   headers=headers_iter):
                 df = self.reconstructor.reconstruct_fa(
-                    job, node, dict(metadata))
+                    job, node, dict(self.obj_metadata))
                 fixed_body = ''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
                 self.assertEqual(md5(fixed_body).hexdigest(),
@@ -2838,12 +2841,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[4]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345',
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -2875,7 +2872,7 @@ class TestObjectReconstructor(unittest.TestCase):
         with mocked_http_conn(*codes, body_iter=body_iter,
                               headers=headers_iter):
             df = self.reconstructor.reconstruct_fa(
-                job, node, dict(metadata))
+                job, node, dict(self.obj_metadata))
             fixed_body = ''.join(df.reader())
             # ... this bad response should be ignored like any other failure
             self.assertEqual(len(fixed_body), len(broken_body))
@@ -2889,12 +2886,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[-4]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         # make up some data (trim some amount to make it unaligned with
         # segment size)
@@ -2918,7 +2909,7 @@ class TestObjectReconstructor(unittest.TestCase):
             with mocked_http_conn(*codes, body_iter=body_iter,
                                   headers=headers_iter):
                 df = self.reconstructor.reconstruct_fa(
-                    job, node, dict(metadata))
+                    job, node, dict(self.obj_metadata))
                 fixed_body = ''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
                 self.assertEqual(md5(fixed_body).hexdigest(),
@@ -2932,19 +2923,13 @@ class TestObjectReconstructor(unittest.TestCase):
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
         policy = self.policy
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         possible_errors = [Timeout(), Exception('kaboom!')]
         codes = [random.choice(possible_errors) for i in
                  range(policy.object_ring.replicas - 1)]
         with mocked_http_conn(*codes):
             self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
-                              job, node, metadata)
+                              job, node, self.obj_metadata)
         error_lines = self.logger.get_lines_for_level('error')
         # # of replicas failed and one more error log to report not enough
         # responses to reconstruct.
@@ -2967,17 +2952,11 @@ class TestObjectReconstructor(unittest.TestCase):
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
         policy = self.policy
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         codes = [404 for i in range(policy.object_ring.replicas - 1)]
         with mocked_http_conn(*codes):
             self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
-                              job, node, metadata)
+                              job, node, self.obj_metadata)
         error_lines = self.logger.get_lines_for_level('error')
         # only 1 log to report not enough responses
         self.assertEqual(1, len(error_lines))
@@ -2996,12 +2975,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3035,7 +3008,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, node, metadata)
+                job, node, self.obj_metadata)
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3052,12 +3025,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3079,7 +3046,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, node, dict(metadata))
+                job, node, dict(self.obj_metadata))
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3095,7 +3062,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, node, dict(metadata))
+                job, node, dict(self.obj_metadata))
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3112,12 +3079,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3136,7 +3097,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, node, dict(metadata))
+                job, node, dict(self.obj_metadata))
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3156,7 +3117,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, node, dict(metadata))
+                job, node, dict(self.obj_metadata))
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3166,8 +3127,9 @@ class TestObjectReconstructor(unittest.TestCase):
         error_log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_log_lines))
         self.assertIn(
-            'Mixed Etag (some garbage, %s) for 10.0.0.1:1001/sdb/0/a/c/o '
-            'policy#%s frag#1' % (etag, int(self.policy)),
+            'Mixed Etag (some garbage, %s) for 10.0.0.1:1001/sdb/0%s '
+            'policy#%s frag#1' %
+            (etag, self.obj_path.decode('utf8'), int(self.policy)),
             error_log_lines[0])
         self.assertFalse(self.logger.get_lines_for_level('warning'))
 
@@ -3178,12 +3140,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         ec_archive_dict = dict()
@@ -3220,7 +3176,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
-                              job, node, metadata)
+                              job, node, self.obj_metadata)
 
         error_lines = self.logger.get_lines_for_level('error')
         # 1 error log per etag to report not enough responses
@@ -3238,8 +3194,10 @@ class TestObjectReconstructor(unittest.TestCase):
             del ec_archive_dict[(expected_etag, ts)]
 
             expected = 'Unable to get enough responses (%s/10) to ' \
-                       'reconstruct 10.0.0.1:1001/sdb/0/a/c/o policy#0 ' \
-                       'frag#1 with ETag' % etag_count[expected_etag]
+                       'reconstruct 10.0.0.1:1001/sdb/0%s policy#0 ' \
+                       'frag#1 with ETag' % \
+                       (etag_count[expected_etag],
+                        self.obj_path.decode('utf8'))
             self.assertIn(
                 expected, error_line,
                 "Unexpected error line found: Expected: %s Got: %s"
@@ -3257,12 +3215,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         broken_node = random.randint(0, self.policy.ec_ndata - 1)
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3283,7 +3235,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, part_nodes[broken_node], metadata)
+                job, part_nodes[broken_node], self.obj_metadata)
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3321,12 +3273,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3348,7 +3294,7 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter, headers = zip(*responses)
         with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
             df = self.reconstructor.reconstruct_fa(
-                job, node, metadata)
+                job, node, self.obj_metadata)
             fixed_body = ''.join(df.reader())
             self.assertEqual(len(fixed_body), len(broken_body))
             self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3376,14 +3322,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        ts = make_timestamp_iter()
-        timestamp = next(ts)
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': timestamp.normal
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3395,7 +3333,7 @@ class TestObjectReconstructor(unittest.TestCase):
             headers = get_header_frag_index(self, body)
             headers.update(
                 {'X-Object-Sysmeta-Ec-Etag': etag,
-                 'X-Backend-Timestamp': timestamp.internal})
+                 'X-Backend-Timestamp': self.obj_timestamp.internal})
             return headers
 
         def test_missing_header(missing_header, expected_warning):
@@ -3413,7 +3351,7 @@ class TestObjectReconstructor(unittest.TestCase):
             with mocked_http_conn(
                     *codes, body_iter=body_iter, headers=headers):
                 df = self.reconstructor.reconstruct_fa(
-                    job, node, metadata)
+                    job, node, self.obj_metadata)
                 fixed_body = ''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
                 self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3427,7 +3365,8 @@ class TestObjectReconstructor(unittest.TestCase):
             self.assertIn(expected_warning, warning_log_lines)
 
         message_base = \
-            "Invalid resp from 10.0.0.0:1000/sda/0/a/c/o policy#0"
+            "Invalid resp from 10.0.0.0:1000/sda/0%s policy#0" % \
+            self.obj_path.decode('utf-8')
 
         test_missing_header(
             'X-Object-Sysmeta-Ec-Frag-Index',
@@ -3453,12 +3392,6 @@ class TestObjectReconstructor(unittest.TestCase):
         }
         part_nodes = self.policy.object_ring.get_part_nodes(0)
         node = part_nodes[1]
-        metadata = {
-            'name': '/a/c/o',
-            'Content-Length': 0,
-            'ETag': 'etag',
-            'X-Timestamp': '1234567890.12345'
-        }
 
         test_data = ('rebuild' * self.policy.ec_segment_size)[:-777]
         etag = md5(test_data).hexdigest()
@@ -3483,7 +3416,7 @@ class TestObjectReconstructor(unittest.TestCase):
             with mocked_http_conn(
                     *codes, body_iter=body_iter, headers=headers):
                 df = self.reconstructor.reconstruct_fa(
-                    job, node, metadata)
+                    job, node, self.obj_metadata)
                 fixed_body = ''.join(df.reader())
                 self.assertEqual(len(fixed_body), len(broken_body))
                 self.assertEqual(md5(fixed_body).hexdigest(),
@@ -3495,13 +3428,19 @@ class TestObjectReconstructor(unittest.TestCase):
             warning_log_lines = self.logger.get_lines_for_level('warning')
             self.assertEqual(1, len(warning_log_lines))
             expected_message = \
-                "Invalid resp from 10.0.0.0:1000/sda/0/a/c/o " \
+                "Invalid resp from 10.0.0.0:1000/sda/0%s " \
                 "policy#0 (invalid X-Object-Sysmeta-Ec-Frag-Index: %r)" % \
-                invalid_frag_index
+                (self.obj_path.decode('utf8'), invalid_frag_index)
             self.assertIn(expected_message, warning_log_lines)
 
         for value in ('None', 'invalid'):
             test_invalid_ec_frag_index_header(value)
+
+
+@patch_policies(with_ec_default=True)
+class TestReconstructFragmentArchiveUTF8(TestReconstructFragmentArchive):
+    # repeat superclass tests with an object path that contains non-ascii chars
+    obj_path = '/a/c/o\xc3\xa8'
 
 
 @patch_policies([ECStoragePolicy(0, name='ec', is_default=True,
