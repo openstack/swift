@@ -263,6 +263,26 @@ class TestRecon(unittest.TestCase):
         self.assertEqual(set([('127.0.0.1', 10001),
                               ('127.0.0.2', 10004)]), ips)
 
+    def test_get_error_ringnames(self):
+        # create invalid ring name files
+        invalid_ring_file_names = ('object.sring.gz',
+                                   'object-1.sring.gz',
+                                   'broken')
+        for invalid_ring in invalid_ring_file_names:
+            ring_path = os.path.join(self.swift_dir, invalid_ring)
+            with open(ring_path, 'w'):
+                pass
+
+        hosts = [("127.0.0.1", "8080")]
+        self.recon_instance.verbose = True
+        self.recon_instance.server_type = 'object'
+        stdout = StringIO()
+        with mock.patch('sys.stdout', new=stdout), \
+                mock.patch('swift.common.utils.md5'):
+            self.recon_instance.get_ringmd5(hosts, self.swift_dir)
+        output = stdout.getvalue()
+        self.assertNotIn('On disk ', output)
+
     def test_get_ringmd5(self):
         for server_type in ('account', 'container', 'object', 'object-1'):
             ring_name = '%s.ring.gz' % server_type
