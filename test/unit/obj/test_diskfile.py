@@ -7386,6 +7386,59 @@ class TestSuffixHashes(unittest.TestCase):
             # ... and create a hashes pickle for it
             self.assertTrue(os.path.exists(hashes_file))
 
+    def test_get_hashes_new_pkl_missing_invalid_finds_new_suffix_dirs(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            part_path = os.path.join(
+                self.devices, self.existing_device,
+                diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path,
+                                       diskfile.HASH_FILE)
+            invalidations_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
+            # add something to find
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy, frag_index=4)
+            timestamp = self.ts()
+            df.delete(timestamp)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            with open(invalidations_file) as f:
+                self.assertEqual('%s\n' % suffix, f.read())
+            # even if invalidations_file is missing ...
+            os.unlink(invalidations_file)
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            # get_hashes will *still* find the untracked suffix dir
+            self.assertIn(suffix, hashes)
+            # ... and create a hashes pickle for it
+            self.assertTrue(os.path.exists(hashes_file))
+
+    def test_get_hashes_new_pkl_lying_invalid_finds_new_suffix_dirs(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            part_path = os.path.join(
+                self.devices, self.existing_device,
+                diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path,
+                                       diskfile.HASH_FILE)
+            invalidations_file = os.path.join(
+                part_path, diskfile.HASH_INVALIDATIONS_FILE)
+            # add something to find
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy, frag_index=4)
+            timestamp = self.ts()
+            df.delete(timestamp)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            with open(invalidations_file) as f:
+                self.assertEqual('%s\n' % suffix, f.read())
+            # even if invalidations_file is lying ...
+            with open(invalidations_file, 'w') as f:
+                f.write('%x\n' % (int(suffix, 16) + 1))
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            # get_hashes will *still* find the untracked suffix dir
+            self.assertIn(suffix, hashes)
+            # ... and create a hashes pickle for it
+            self.assertTrue(os.path.exists(hashes_file))
+
     def test_get_hashes_old_pickle_does_not_find_new_suffix_dirs(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
