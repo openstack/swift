@@ -275,6 +275,17 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             # check tempdir
             self.assertTrue(os.path.isdir(tmp_path))
 
+    def test_get_part_path(self):
+        # partition passed as 'str'
+        part_dir = diskfile.get_part_path('/srv/node/sda1', POLICIES[0], '123')
+        exp_dir = '/srv/node/sda1/objects/123'
+        self.assertEqual(part_dir, exp_dir)
+
+        # partition passed as 'int'
+        part_dir = diskfile.get_part_path('/srv/node/sdb5', POLICIES[1], 123)
+        exp_dir = '/srv/node/sdb5/objects-1/123'
+        self.assertEqual(part_dir, exp_dir)
+
 
 @patch_policies
 class TestObjectAuditLocationGenerator(unittest.TestCase):

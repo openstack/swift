@@ -1627,8 +1627,11 @@ class TestObjectReplicator(unittest.TestCase):
         # if a timeout occurs while replicating one partition to one node.
         timeouts = [Timeout()]
 
-        def fake_get_hashes(df_mgr, part_path, **kwargs):
+        def fake_get_hashes(df_mgr, device, partition, policy, **kwargs):
             self.get_hash_count += 1
+            dev_path = df_mgr.get_dev_path(device)
+            part_path = os.path.join(dev_path, diskfile.get_data_dir(policy),
+                                     str(partition))
             # Simulate a REPLICATE timeout by raising Timeout for second call
             # to get_hashes (with recalculate suffixes) for a specific
             # partition
@@ -1750,7 +1753,7 @@ class TestObjectReplicator(unittest.TestCase):
         mock_do_listdir.side_effect = do_listdir_results
         expected_tpool_calls = [
             mock.call(self.replicator._df_router[job['policy']]._get_hashes,
-                      job['path'],
+                      job['device'], job['partition'], job['policy'],
                       do_listdir=do_listdir)
             for job, do_listdir in zip(jobs, do_listdir_results)
         ]

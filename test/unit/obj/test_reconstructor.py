@@ -1793,7 +1793,7 @@ class TestObjectReconstructor(unittest.TestCase):
                                    diskfile.HASH_FILE)
         self.assertTrue(os.path.exists(hashes_file))
         suffixes = self.reconstructor._get_hashes(
-            self.policy, part_path, do_listdir=True)
+            self.local_dev['device'], 0, self.policy, do_listdir=True)
         self.assertEqual(suffixes, {})
 
     def test_build_jobs_no_hashes(self):

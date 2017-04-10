@@ -328,6 +328,14 @@ def invalidate_hash(suffix_dir):
             inv_fh.write(suffix + "\n")
 
 
+def get_part_path(dev_path, policy, partition):
+    """
+    Given the device path, policy, and partition, returns the full
+    path to the partition
+    """
+    return os.path.join(dev_path, get_data_dir(policy), str(partition))
+
+
 class AuditLocation(object):
     """
     Represents an object location to be audited.
@@ -1029,13 +1037,16 @@ class BaseDiskFileManager(object):
         hashes.pop('valid', None)
         return hashed, hashes
 
-    def __get_hashes(self, partition_path, recalculate=None, do_listdir=False):
+    def __get_hashes(self, device, partition, policy, recalculate=None,
+                     do_listdir=False):
         """
         Get hashes for each suffix dir in a partition.  do_listdir causes it to
         mistrust the hash cache for suffix existence at the (unexpectedly high)
         cost of a listdir.
 
-        :param partition_path: absolute path of partition to get hashes for
+        :param device: name of target device
+        :param partition: partition on the device in which the object lives
+        :param policy: the StoragePolicy instance
         :param recalculate: list of suffixes which should be recalculated when
                             got
         :param do_listdir: force existence check for all hashes in the
@@ -1044,6 +1055,8 @@ class BaseDiskFileManager(object):
         :returns: tuple of (number of suffix dirs hashed, dictionary of hashes)
         """
         hashed = 0
+        dev_path = self.get_dev_path(device)
+        partition_path = get_part_path(dev_path, policy, partition)
         hashes_file = join(partition_path, HASH_FILE)
         modified = False
         orig_hashes = {'valid': False}
@@ -1100,7 +1113,9 @@ class BaseDiskFileManager(object):
                 if read_hashes(partition_path) == orig_hashes:
                     write_hashes(partition_path, hashes)
                     return hashed, hashes
-            return self.__get_hashes(partition_path, recalculate, do_listdir)
+            return self.__get_hashes(device, partition, policy,
+                                     recalculate=recalculate,
+                                     do_listdir=do_listdir)
         else:
             return hashed, hashes
 
@@ -1289,12 +1304,11 @@ class BaseDiskFileManager(object):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, get_data_dir(policy),
-                                      partition)
+        partition_path = get_part_path(dev_path, policy, partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
         _junk, hashes = tpool_reraise(
-            self._get_hashes, partition_path, recalculate=suffixes)
+            self._get_hashes, device, partition, policy, recalculate=suffixes)
         return hashes
 
     def _listdir(self, path):
@@ -1322,8 +1336,7 @@ class BaseDiskFileManager(object):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, get_data_dir(policy),
-                                      partition)
+        partition_path = get_part_path(dev_path, policy, partition)
         for suffix in self._listdir(partition_path):
             if len(suffix) != 3:
                 continue
@@ -1364,9 +1377,7 @@ class BaseDiskFileManager(object):
         if suffixes is None:
             suffixes = self.yield_suffixes(device, partition, policy)
         else:
-            partition_path = os.path.join(dev_path,
-                                          get_data_dir(policy),
-                                          str(partition))
+            partition_path = get_part_path(dev_path, policy, partition)
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)

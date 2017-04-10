@@ -505,11 +505,12 @@ class ObjectReconstructor(Daemon):
                 self.kill_coros()
             self.last_reconstruction_count = self.reconstruction_count
 
-    def _get_hashes(self, policy, path, recalculate=None, do_listdir=False):
+    def _get_hashes(self, device, partition, policy, recalculate=None,
+                    do_listdir=False):
         df_mgr = self._df_router[policy]
         hashed, suffix_hashes = tpool_reraise(
-            df_mgr._get_hashes, path, recalculate=recalculate,
-            do_listdir=do_listdir)
+            df_mgr._get_hashes, device, partition, policy,
+            recalculate=recalculate, do_listdir=do_listdir)
         self.logger.update_stats('suffix.hashes', hashed)
         return suffix_hashes
 
@@ -602,8 +603,9 @@ class ObjectReconstructor(Daemon):
                                          node['index'])
         # now recalculate local hashes for suffixes that don't
         # match so we're comparing the latest
-        local_suff = self._get_hashes(job['policy'], job['path'],
-                                      recalculate=suffixes)
+        local_suff = self._get_hashes(job['local_dev']['device'],
+                                      job['partition'],
+                                      job['policy'], recalculate=suffixes)
 
         suffixes = self.get_suffix_delta(local_suff,
                                          job['frag_index'],
@@ -769,7 +771,8 @@ class ObjectReconstructor(Daemon):
         """
         # find all the fi's in the part, and which suffixes have them
         try:
-            hashes = self._get_hashes(policy, part_path, do_listdir=True)
+            hashes = self._get_hashes(local_dev['device'], partition, policy,
+                                      do_listdir=True)
         except OSError as e:
             if e.errno != errno.ENOTDIR:
                 raise
