@@ -1110,10 +1110,11 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200):
+        with set_http_connect(200, headers={'Connection': 'close'}):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
 
     def test_GET_transfer_encoding_chunked(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -1484,11 +1485,13 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        get_resp = [200] * self.policy.ec_ndata
-        with set_http_connect(*get_resp):
+        get_statuses = [200] * self.policy.ec_ndata
+        get_hdrs = [{'Connection': 'close'}] * self.policy.ec_ndata
+        with set_http_connect(*get_statuses, headers=get_hdrs):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
 
     def _test_if_match(self, method):
         num_responses = self.policy.ec_ndata if method == 'GET' else 1
