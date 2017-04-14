@@ -257,7 +257,7 @@ class Receiver(object):
         try:
             df = self.diskfile_mgr.get_diskfile_from_hash(
                 self.device, self.partition, remote['object_hash'],
-                self.policy, frag_index=self.frag_index)
+                self.policy, frag_index=self.frag_index, open_expired=True)
         except exceptions.DiskFileNotExist:
             return {}
         try:

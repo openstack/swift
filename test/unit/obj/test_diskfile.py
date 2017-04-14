@@ -2847,22 +2847,23 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                            pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
 
     def _simple_get_diskfile(self, partition='0', account='a', container='c',
-                             obj='o', policy=None, frag_index=None):
+                             obj='o', policy=None, frag_index=None, **kwargs):
         policy = policy or POLICIES.default
         df_mgr = self.df_router[policy]
         if policy.policy_type == EC_POLICY and frag_index is None:
             frag_index = 2
         return df_mgr.get_diskfile(self.existing_device, partition,
                                    account, container, obj,
-                                   policy=policy, frag_index=frag_index)
+                                   policy=policy, frag_index=frag_index,
+                                   **kwargs)
 
     def _create_test_file(self, data, timestamp=None, metadata=None,
-                          account='a', container='c', obj='o'):
+                          account='a', container='c', obj='o', **kwargs):
         if metadata is None:
             metadata = {}
         metadata.setdefault('name', '/%s/%s/%s' % (account, container, obj))
         df = self._simple_get_diskfile(account=account, container=container,
-                                       obj=obj)
+                                       obj=obj, **kwargs)
         if timestamp is None:
             timestamp = time()
         timestamp = Timestamp(timestamp)
@@ -2931,6 +2932,16 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertRaises(DiskFileExpired,
                           self._create_test_file,
                           '1234567890', metadata={'X-Delete-At': '0'})
+
+        try:
+            self._create_test_file('1234567890', open_expired=True,
+                                   metadata={'X-Delete-At': '0',
+                                             'X-Object-Meta-Foo': 'bar'})
+            df = self._simple_get_diskfile(open_expired=True)
+            md = df.read_metadata()
+            self.assertEqual(md['X-Object-Meta-Foo'], 'bar')
+        except SwiftException as err:
+            self.fail("Unexpected swift exception raised: %r" % err)
 
     def test_open_not_expired(self):
         try:

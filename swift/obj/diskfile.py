@@ -1903,6 +1903,8 @@ class BaseDiskFile(object):
     :param use_splice: if true, use zero-copy splice() to send data
     :param pipe_size: size of pipe buffer used in zero-copy operations
     :param use_linkat: if True, use open() with linkat() to create obj file
+    :param open_expired: if True, open() will not raise a DiskFileExpired if
+                         object is expired
     """
     reader_cls = None  # must be set by subclasses
     writer_cls = None  # must be set by subclasses
@@ -1910,7 +1912,7 @@ class BaseDiskFile(object):
     def __init__(self, mgr, device_path, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None,
-                 use_linkat=False, **kwargs):
+                 use_linkat=False, open_expired=False, **kwargs):
         self._manager = mgr
         self._device_path = device_path
         self._logger = mgr.logger
@@ -1919,6 +1921,7 @@ class BaseDiskFile(object):
         self._use_splice = use_splice
         self._pipe_size = pipe_size
         self._use_linkat = use_linkat
+        self._open_expired = open_expired
         # This might look a lttle hacky i.e tracking number of newly created
         # dirs to fsync only those many later. If there is a better way,
         # please suggest.
@@ -2217,7 +2220,7 @@ class BaseDiskFile(object):
                 data_file, "bad metadata x-delete-at value %s" % (
                     self._metadata['X-Delete-At']))
         else:
-            if x_delete_at <= time.time():
+            if x_delete_at <= time.time() and not self._open_expired:
                 raise DiskFileExpired(metadata=self._metadata)
         try:
             metadata_size = int(self._metadata['Content-Length'])

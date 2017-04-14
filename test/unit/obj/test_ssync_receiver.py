@@ -35,6 +35,7 @@ from swift.obj.reconstructor import ObjectReconstructor
 
 from test import unit
 from test.unit import debug_logger, patch_policies, make_timestamp_iter
+from test.unit.obj.common import write_diskfile
 
 
 @unit.patch_policies()
@@ -659,6 +660,36 @@ class TestReceiver(unittest.TestCase):
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
              self.hash2 + ' dm',
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
+    def test_MISSING_CHECK_missing_meta_expired_data(self):
+        # verify that even when rx disk file has expired x-delete-at, it will
+        # still be opened and checked for missing meta
+        self.controller.logger = mock.MagicMock()
+        ts1 = next(make_timestamp_iter())
+        df = self.controller.get_diskfile(
+            'sda1', '1', self.account1, self.container1, self.object1,
+            POLICIES[0])
+        write_diskfile(df, ts1, extra_metadata={'X-Delete-At': 0})
+
+        # make a request - expect newer metadata to be wanted
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + ts1.internal + ' m:30d40\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             'c2519f265f9633e74f9b2fe3b9bec27d m',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
