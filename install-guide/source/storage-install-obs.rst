@@ -16,8 +16,8 @@ indicate the best performance and reliability on XFS. For
 more information on horizontally scaling your environment, see the
 `Deployment Guide <http://docs.openstack.org/developer/swift/deployment_guide.html>`_.
 
-This section applies to openSUSE Leap 42.1 and SUSE Linux Enterprise Server
-12 SP1.
+This section applies to openSUSE Leap 42.2 and SUSE Linux Enterprise Server
+12 SP2.
 
 Prerequisites
 -------------
