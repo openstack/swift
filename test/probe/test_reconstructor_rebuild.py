@@ -81,8 +81,13 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # PUT object and POST some metadata
         contents = Body()
-        headers = {'x-object-meta-foo': 'meta-foo'}
-        self.headers_post = {'x-object-meta-bar': 'meta-bar'}
+        headers = {
+            self._make_name('x-object-meta-').decode('utf8'):
+                self._make_name('meta-foo-').decode('utf8'),
+        }
+        self.headers_post = {
+            self._make_name('x-object-meta-').decode('utf8'):
+                self._make_name('meta-bar-').decode('utf8')}
 
         self.etag = client.put_object(self.url, self.token,
                                       self.container_name,

@@ -7255,6 +7255,19 @@ class TestObjectServer(unittest.TestCase):
         obj_datafile = found_files['.data'][0]
         self.assertEqual("%s#2#d.data" % put_timestamp.internal,
                          os.path.basename(obj_datafile))
+
+        with open(obj_datafile) as fd:
+            actual_meta = diskfile.read_metadata(fd)
+        expected_meta = {'Content-Length': '82',
+                         'name': '/a/c/o',
+                         'X-Object-Sysmeta-Ec-Frag-Index': '2',
+                         'X-Timestamp': put_timestamp.normal,
+                         'Content-Type': 'text/plain'}
+        for k, v in actual_meta.items():
+            self.assertIsInstance(k, six.binary_type)
+            self.assertIsInstance(v, six.binary_type)
+        self.assertIsNotNone(actual_meta.pop('ETag', None))
+        self.assertEqual(expected_meta, actual_meta)
         # but no other files
         self.assertFalse(found_files['.data'][1:])
         found_files.pop('.data')

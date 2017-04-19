@@ -114,6 +114,20 @@ def _get_filename(fd):
     return fd
 
 
+def _encode_metadata(metadata):
+    """
+    UTF8 encode any unicode keys or values in given metadata dict.
+
+    :param metadata: a dict
+    """
+    def encode_str(item):
+        if isinstance(item, six.text_type):
+            return item.encode('utf8')
+        return item
+
+    return dict(((encode_str(k), encode_str(v)) for k, v in metadata.items()))
+
+
 def read_metadata(fd):
     """
     Helper function to read the pickled metadata from an object file.
@@ -140,7 +154,10 @@ def read_metadata(fd):
             raise DiskFileNotExist()
         # TODO: we might want to re-raise errors that don't denote a missing
         # xattr here.  Seems to be ENODATA on linux and ENOATTR on BSD/OSX.
-    return pickle.loads(metadata)
+    # strings are utf-8 encoded when written, but have not always been
+    # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
+    # when read
+    return _encode_metadata(pickle.loads(metadata))
 
 
 def write_metadata(fd, metadata, xattr_size=65536):
@@ -150,7 +167,7 @@ def write_metadata(fd, metadata, xattr_size=65536):
     :param fd: file descriptor or filename to write the metadata
     :param metadata: metadata to write
     """
-    metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
+    metastr = pickle.dumps(_encode_metadata(metadata), PICKLE_PROTOCOL)
     key = 0
     while metastr:
         try:

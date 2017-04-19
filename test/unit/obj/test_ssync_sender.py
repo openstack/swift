@@ -1452,62 +1452,86 @@ class TestSender(BaseTest):
             exc = err
         self.assertEqual(str(exc), '0.01 seconds: send_put chunk')
 
-    def test_send_put(self):
+    def _check_send_put(self, obj_name, meta_value):
         ts_iter = make_timestamp_iter()
         t1 = next(ts_iter)
         body = 'test'
-        extra_metadata = {'Some-Other-Header': 'value'}
-        df = self._make_open_diskfile(body=body, timestamp=t1,
+        extra_metadata = {'Some-Other-Header': 'value',
+                          u'Unicode-Meta-Name': meta_value}
+        df = self._make_open_diskfile(obj=obj_name, body=body,
+                                      timestamp=t1,
                                       extra_metadata=extra_metadata)
         expected = dict(df.get_metadata())
         expected['body'] = body
         expected['chunk_size'] = len(body)
+        expected['meta'] = meta_value
+        path = six.moves.urllib.parse.quote(expected['name'])
+        expected['path'] = path
+        expected['length'] = format(145 + len(path) + len(meta_value), 'x')
         # .meta file metadata is not included in expected for data only PUT
         t2 = next(ts_iter)
         metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
         df.write_metadata(metadata)
         df.open()
         self.sender.connection = FakeConnection()
-        self.sender.send_put('/a/c/o', df)
+        self.sender.send_put(path, df)
         self.assertEqual(
             ''.join(self.sender.connection.sent),
-            '82\r\n'
-            'PUT /a/c/o\r\n'
+            '%(length)s\r\n'
+            'PUT %(path)s\r\n'
             'Content-Length: %(Content-Length)s\r\n'
             'ETag: %(ETag)s\r\n'
             'Some-Other-Header: value\r\n'
+            'Unicode-Meta-Name: %(meta)s\r\n'
             'X-Timestamp: %(X-Timestamp)s\r\n'
             '\r\n'
             '\r\n'
             '%(chunk_size)s\r\n'
             '%(body)s\r\n' % expected)
 
-    def test_send_post(self):
+    def test_send_put(self):
+        self._check_send_put('o', 'meta')
+
+    def test_send_put_unicode(self):
+        self._check_send_put(
+            'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
+
+    def _check_send_post(self, obj_name, meta_value):
         ts_iter = make_timestamp_iter()
         # create .data file
         extra_metadata = {'X-Object-Meta-Foo': 'old_value',
                           'X-Object-Sysmeta-Test': 'test_sysmeta',
                           'Content-Type': 'test_content_type'}
         ts_0 = next(ts_iter)
-        df = self._make_open_diskfile(extra_metadata=extra_metadata,
+        df = self._make_open_diskfile(obj=obj_name,
+                                      extra_metadata=extra_metadata,
                                       timestamp=ts_0)
         # create .meta file
         ts_1 = next(ts_iter)
-        newer_metadata = {'X-Object-Meta-Foo': 'new_value',
+        newer_metadata = {u'X-Object-Meta-Foo': meta_value,
                           'X-Timestamp': ts_1.internal}
         df.write_metadata(newer_metadata)
+        path = six.moves.urllib.parse.quote(df.read_metadata()['name'])
+        length = format(61 + len(path) + len(meta_value), 'x')
 
         self.sender.connection = FakeConnection()
         with df.open():
-            self.sender.send_post('/a/c/o', df)
+            self.sender.send_post(path, df)
         self.assertEqual(
             ''.join(self.sender.connection.sent),
-            '4c\r\n'
-            'POST /a/c/o\r\n'
-            'X-Object-Meta-Foo: new_value\r\n'
+            '%s\r\n'
+            'POST %s\r\n'
+            'X-Object-Meta-Foo: %s\r\n'
             'X-Timestamp: %s\r\n'
             '\r\n'
-            '\r\n' % ts_1.internal)
+            '\r\n' % (length, path, meta_value, ts_1.internal))
+
+    def test_send_post(self):
+        self._check_send_post('o', 'meta')
+
+    def test_send_post_unicode(self):
+        self._check_send_post(
+            'o_with_caract\xc3\xa8res_like_in_french', 'm\xc3\xa8ta')
 
     def test_disconnect_timeout(self):
         self.sender.connection = FakeConnection()

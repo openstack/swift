@@ -286,6 +286,58 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         exp_dir = '/srv/node/sdb5/objects-1/123'
         self.assertEqual(part_dir, exp_dir)
 
+    def test_write_read_metadata(self):
+        path = os.path.join(self.testdir, str(uuid.uuid4()))
+        metadata = {'name': '/a/c/o',
+                    'Content-Length': 99,
+                    u'X-Object-Sysmeta-Ec-Frag-Index': 4,
+                    u'X-Object-Meta-Strange': u'should be bytes',
+                    b'X-Object-Meta-x\xff': b'not utf8 \xff',
+                    u'X-Object-Meta-y\xe8': u'not ascii \xe8'}
+        expected = {b'name': b'/a/c/o',
+                    b'Content-Length': 99,
+                    b'X-Object-Sysmeta-Ec-Frag-Index': 4,
+                    b'X-Object-Meta-Strange': b'should be bytes',
+                    b'X-Object-Meta-x\xff': b'not utf8 \xff',
+                    b'X-Object-Meta-y\xc3\xa8': b'not ascii \xc3\xa8'}
+
+        def check_metadata():
+            with open(path, 'rb') as fd:
+                actual = diskfile.read_metadata(fd)
+            self.assertEqual(expected, actual)
+            for k in actual.keys():
+                self.assertIsInstance(k, six.binary_type)
+            for k in (b'name',
+                      b'X-Object-Meta-Strange',
+                      b'X-Object-Meta-x\xff',
+                      b'X-Object-Meta-y\xc3\xa8'):
+                self.assertIsInstance(actual[k], six.binary_type)
+
+        with open(path, 'wb') as fd:
+            diskfile.write_metadata(fd, metadata)
+        check_metadata()
+
+        # mock the read path to check the write path encoded persisted metadata
+        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
+            check_metadata()
+
+        # simulate a legacy diskfile that might have persisted unicode metadata
+        with mock.patch.object(diskfile, '_encode_metadata', lambda x: x):
+            with open(path, 'wb') as fd:
+                diskfile.write_metadata(fd, metadata)
+            # sanity check, while still mocked, that we did persist unicode
+            with open(path, 'rb') as fd:
+                actual = diskfile.read_metadata(fd)
+                for k, v in actual.items():
+                    if k == u'X-Object-Meta-Strange':
+                        self.assertIsInstance(k, six.text_type)
+                        self.assertIsInstance(v, six.text_type)
+                        break
+                else:
+                    self.fail('Did not find X-Object-Meta-Strange')
+        # check that read_metadata converts binary_type
+        check_metadata()
+
 
 @patch_policies
 class TestObjectAuditLocationGenerator(unittest.TestCase):
