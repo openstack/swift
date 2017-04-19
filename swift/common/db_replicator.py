@@ -229,9 +229,9 @@ class Replicator(Daemon):
              'replication_last': now},
             self.rcache, self.logger)
         self.logger.info(' '.join(['%s:%s' % item for item in
-                         self.stats.items() if item[0] in
+                         sorted(self.stats.items()) if item[0] in
                          ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl',
-                          'empty', 'diff_capped')]))
+                          'empty', 'diff_capped', 'remote_merge')]))
 
     def _add_failure_stats(self, failure_devs_info):
         for node, dev in failure_devs_info:
