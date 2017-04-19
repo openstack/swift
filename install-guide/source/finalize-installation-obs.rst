@@ -11,8 +11,8 @@ Finalize installation for openSUSE and SUSE Linux Enterprise
    snippets indicates potential default configuration options that you
    should retain.
 
-This section applies to openSUSE Leap 42.1 and SUSE Linux Enterprise Server
-12 SP1.
+This section applies to openSUSE Leap 42.2 and SUSE Linux Enterprise Server
+12 SP2.
 
 #. Edit the ``/etc/swift/swift.conf`` file and complete the following
    actions:
