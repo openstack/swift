@@ -80,6 +80,8 @@ def _full_path(node, part, relative_path, policy):
                    :class:`~swift.common.storage_policy.BaseStoragePolicy`
     :return: string representation of absolute path on node plus policy index
     """
+    if not isinstance(relative_path, six.text_type):
+        relative_path = relative_path.decode('utf8')
     return '%(replication_ip)s:%(replication_port)s' \
         '/%(device)s/%(part)s%(path)s ' \
         'policy#%(policy)d' % {
@@ -215,7 +217,7 @@ class ObjectReconstructor(Daemon):
                 return False
         return True
 
-    def _get_response(self, node, part, path, headers, policy):
+    def _get_response(self, node, part, path, headers, full_path):
         """
         Helper method for reconstruction that GETs a single EC fragment
         archive
@@ -224,11 +226,9 @@ class ObjectReconstructor(Daemon):
         :param part: the partition
         :param path: path of the desired EC archive relative to partition dir
         :param headers: the headers to send
-        :param policy: an instance of
-                       :class:`~swift.common.storage_policy.BaseStoragePolicy`
+        :param full_path: full path to desired EC archive
         :returns: response
         """
-        full_path = _full_path(node, part, path, policy)
         resp = None
         try:
             with ConnectionTimeout(self.conn_timeout):
@@ -285,8 +285,10 @@ class ObjectReconstructor(Daemon):
         pile = GreenAsyncPile(len(part_nodes))
         path = datafile_metadata['name']
         for _node in part_nodes:
+            full_get_path = _full_path(
+                _node, job['partition'], path, job['policy'])
             pile.spawn(self._get_response, _node, job['partition'],
-                       path, headers, job['policy'])
+                       path, headers, full_get_path)
 
         buckets = defaultdict(dict)
         etag_buckets = {}
