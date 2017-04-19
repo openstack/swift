@@ -45,7 +45,7 @@ from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test import listen_zero
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
-    make_timestamp_iter, DEFAULT_TEST_EC_TYPE
+    make_timestamp_iter, DEFAULT_TEST_EC_TYPE, mock_check_drive
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies, \
     encode_frag_archive_bodies
 from swift.obj import server as object_server
@@ -2761,6 +2761,68 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(len(resp.headers['Allow'].split(', ')), 8)
         self.assertEqual(resp.headers['Server'],
                          (server_handler.server_type + '/' + swift_version))
+
+    def test_insufficient_storage_mount_check_true(self):
+        conf = {'devices': self.testdir, 'mount_check': 'true'}
+        object_controller = object_server.ObjectController(conf)
+        for policy in POLICIES:
+            mgr = object_controller._diskfile_router[policy]
+            self.assertTrue(mgr.mount_check)
+        for method in object_controller.allowed_methods:
+            if method in ('OPTIONS', 'SSYNC'):
+                continue
+            path = '/sda1/p/'
+            if method == 'REPLICATE':
+                path += 'suff'
+            else:
+                path += 'a/c/o'
+            req = Request.blank(path, method=method,
+                                headers={'x-timestamp': '1',
+                                         'content-type': 'app/test',
+                                         'content-length': 0})
+            with mock_check_drive() as mocks:
+                try:
+                    resp = req.get_response(object_controller)
+                    self.assertEqual(resp.status_int, 507)
+                    mocks['ismount'].return_value = True
+                    resp = req.get_response(object_controller)
+                    self.assertNotEqual(resp.status_int, 507)
+                    # feel free to rip out this last assertion...
+                    expected = 2 if method in ('PUT', 'REPLICATE') else 4
+                    self.assertEqual(resp.status_int // 100, expected)
+                except AssertionError as e:
+                    self.fail('%s for %s' % (e, method))
+
+    def test_insufficient_storage_mount_check_false(self):
+        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        object_controller = object_server.ObjectController(conf)
+        for policy in POLICIES:
+            mgr = object_controller._diskfile_router[policy]
+            self.assertFalse(mgr.mount_check)
+        for method in object_controller.allowed_methods:
+            if method in ('OPTIONS', 'SSYNC'):
+                continue
+            path = '/sda1/p/'
+            if method == 'REPLICATE':
+                path += 'suff'
+            else:
+                path += 'a/c/o'
+            req = Request.blank(path, method=method,
+                                headers={'x-timestamp': '1',
+                                         'content-type': 'app/test',
+                                         'content-length': 0})
+            with mock_check_drive() as mocks:
+                try:
+                    resp = req.get_response(object_controller)
+                    self.assertEqual(resp.status_int, 507)
+                    mocks['isdir'].return_value = True
+                    resp = req.get_response(object_controller)
+                    self.assertNotEqual(resp.status_int, 507)
+                    # feel free to rip out this last assertion...
+                    expected = 2 if method in ('PUT', 'REPLICATE') else 4
+                    self.assertEqual(resp.status_int // 100, expected)
+                except AssertionError as e:
+                    self.fail('%s for %s' % (e, method))
 
     def test_GET(self):
         # Test swift.obj.server.ObjectController.GET
@@ -6224,22 +6286,6 @@ class TestObjectController(unittest.TestCase):
         finally:
             tpool.execute = was_tpool_exe
             diskfile.DiskFileManager._get_hashes = was_get_hashes
-
-    def test_REPLICATE_insufficient_storage(self):
-        conf = {'devices': self.testdir, 'mount_check': 'true'}
-        self.object_controller = object_server.ObjectController(
-            conf, logger=debug_logger())
-        self.object_controller.bytes_per_sync = 1
-
-        def fake_check_mount(*args, **kwargs):
-            return False
-
-        with mock.patch("swift.obj.diskfile.check_mount", fake_check_mount):
-            req = Request.blank('/sda1/p/suff',
-                                environ={'REQUEST_METHOD': 'REPLICATE'},
-                                headers={})
-            resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.status_int, 507)
 
     def test_REPLICATE_reclaims_tombstones(self):
         conf = {'devices': self.testdir, 'mount_check': False,

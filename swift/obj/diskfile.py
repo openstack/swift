@@ -57,7 +57,7 @@ from pyeclib.ec_iface import ECDriverError, ECInvalidFragmentMetadata, \
     ECBadFragmentChecksum, ECInvalidParameter
 
 from swift import gettext_ as _
-from swift.common.constraints import check_mount, check_dir
+from swift.common.constraints import check_drive
 from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
@@ -1191,12 +1191,11 @@ class BaseDiskFileManager(object):
         # we'll do some kind of check unless explicitly forbidden
         if mount_check is not False:
             if mount_check or self.mount_check:
-                check = check_mount
+                mount_check = True
             else:
-                check = check_dir
-            if not check(self.devices, device):
-                return None
-        return os.path.join(self.devices, device)
+                mount_check = False
+            return check_drive(self.devices, device, mount_check)
+        return join(self.devices, device)
 
     @contextmanager
     def replication_lock(self, device):
