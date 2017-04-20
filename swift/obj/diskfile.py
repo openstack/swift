@@ -1949,17 +1949,12 @@ class BaseDiskFile(object):
             self._account = account
             self._container = container
             self._obj = obj
-            name_hash = hash_path(account, container, obj)
-            self._datadir = join(
-                device_path, storage_directory(get_data_dir(policy),
-                                               partition, name_hash))
         else:
             # gets populated when we read the metadata
             self._name = None
             self._account = None
             self._container = None
             self._obj = None
-            self._datadir = None
         self._tmpdir = join(device_path, get_tmp_dir(policy))
         self._ondisk_info = None
         self._metadata = None
