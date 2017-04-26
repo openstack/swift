@@ -346,19 +346,25 @@ class TestReconstructorRebuild(ECProbeTest):
 
     def test_sync_expired_object(self):
         # verify that missing frag can be rebuilt for an expired object
-        delete_at = int(time.time() + 3)
-        self.proxy_put(extra_headers={'x-delete-at': delete_at})
+        delete_after = 2
+        self.proxy_put(extra_headers={'x-delete-after': delete_after})
         self.proxy_get()  # sanity check
         orig_frag_headers, orig_frag_etags = self._assert_all_nodes_have_frag(
             extra_headers={'X-Backend-Replication': 'True'})
 
         # wait for object to expire
-        time.sleep(3)
-
-        # sanity check - object has now expired, proxy get fails
-        with self.assertRaises(ClientException) as cm:
-            self.proxy_get()
-        self.assertEqual(404, cm.exception.http_status)
+        timeout = time.time() + delete_after + 1
+        while time.time() < timeout:
+            try:
+                self.proxy_get()
+            except ClientException as e:
+                if e.http_status == 404:
+                    break
+                else:
+                    raise
+        else:
+            self.fail('Timed out waiting for %s/%s to expire after %ss' % (
+                self.container_name, self.object_name, delete_after))
 
         # sanity check - X-Backend-Replication let's us get expired frag...
         fail_node = random.choice(self.onodes)
@@ -388,6 +394,63 @@ class TestReconstructorRebuild(ECProbeTest):
         self.assertEqual(orig_frag_etags, frag_etags)
         self.maxDiff = None
         self.assertEqual(orig_frag_headers, frag_headers)
+
+    def test_sync_unexpired_object_metadata(self):
+        # verify that metadata can be sync'd to a frag that has missed a POST
+        # and consequently that frag appears to be expired, when in fact the
+        # POST removed the x-delete-at header
+        client.put_container(self.url, self.token, self.container_name,
+                             headers={'x-storage-policy': self.policy.name})
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, self.container_name, self.object_name)
+        delete_at = int(time.time() + 3)
+        contents = 'body-%s' % uuid.uuid4()
+        headers = {'x-delete-at': delete_at}
+        client.put_object(self.url, self.token, self.container_name,
+                          self.object_name, headers=headers, contents=contents)
+        # fail a primary
+        post_fail_node = random.choice(onodes)
+        post_fail_path = self.device_dir('object', post_fail_node)
+        self.kill_drive(post_fail_path)
+        # post over w/o x-delete-at
+        client.post_object(self.url, self.token, self.container_name,
+                           self.object_name, {'content-type': 'something-new'})
+        # revive failed primary
+        self.revive_drive(post_fail_path)
+        # wait for the delete_at to pass, and check that it thinks the object
+        # is expired
+        timeout = time.time() + 5
+        while time.time() < timeout:
+            try:
+                direct_client.direct_head_object(
+                    post_fail_node, opart, self.account, self.container_name,
+                    self.object_name, headers={
+                        'X-Backend-Storage-Policy-Index': int(self.policy)})
+            except direct_client.ClientException as err:
+                if err.http_status != 404:
+                    raise
+                break
+            else:
+                time.sleep(0.1)
+        else:
+            self.fail('Failed to get a 404 from node with expired object')
+        self.assertEqual(err.http_status, 404)
+        self.assertIn('X-Backend-Timestamp', err.http_headers)
+
+        # but from the proxy we've got the whole story
+        headers, body = client.get_object(self.url, self.token,
+                                          self.container_name,
+                                          self.object_name)
+        self.assertNotIn('X-Delete-At', headers)
+        self.reconstructor.once()
+
+        # ... and all the nodes have the final unexpired state
+        for node in onodes:
+            headers = direct_client.direct_head_object(
+                node, opart, self.account, self.container_name,
+                self.object_name, headers={
+                    'X-Backend-Storage-Policy-Index': int(self.policy)})
+            self.assertNotIn('X-Delete-At', headers)
 
 
 class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
