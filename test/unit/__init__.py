@@ -1075,8 +1075,9 @@ def mocked_http_conn(*args, **kwargs):
             raise AssertionError('left over status %r' % left_over_status)
 
 
-def make_timestamp_iter():
-    return iter(Timestamp(t) for t in itertools.count(int(time.time())))
+def make_timestamp_iter(offset=0):
+    return iter(Timestamp(t)
+                for t in itertools.count(int(time.time()) + offset))
 
 
 class Timeout(object):

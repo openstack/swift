@@ -4797,6 +4797,9 @@ class TestObjectController(unittest.TestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
 
+        # put everything in the future; otherwise setting X-Delete-At may fail
+        self.ts = make_timestamp_iter(10)
+
         put_timestamp = next(self.ts).internal
         delete_at_timestamp = utils.normalize_delete_at_timestamp(
             next(self.ts).normal)
@@ -4824,6 +4827,7 @@ class TestObjectController(unittest.TestCase):
                 500, 500, give_connect=capture_updates) as fake_conn:
             with fake_spawn():
                 resp = req.get_response(self.object_controller)
+            self.assertEqual(201, resp.status_int, resp.body)
         self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(2, len(container_updates))
