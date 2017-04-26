@@ -229,6 +229,13 @@ class TestRingBuilder(unittest.TestCase):
                              'ip': '127.0.0.1', 'port': 6200})
         self.assertEqual(rb.devs[1]['id'], 1)
         self.assertEqual(dev_id, 1)
+        # some keys are required
+        self.assertRaises(ValueError, rb.add_dev, {})
+        stub_dev = {'weight': 1, 'ip': '127.0.0.1', 'port': 7000}
+        for key in (stub_dev.keys()):
+            dev = stub_dev.copy()
+            dev.pop(key)
+            self.assertRaises(ValueError, rb.add_dev, dev)
 
     def test_set_dev_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
