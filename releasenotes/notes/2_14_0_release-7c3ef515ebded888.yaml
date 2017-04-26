@@ -1,0 +1,41 @@
+---
+features:
+  - EC Fragment Duplication - Foundational Global EC Cluster Support.
+  - name_check and cname_lookup keys have been added to `/info`.
+  - Add Vary headers for CORS responses.
+  - Always set Swift processes to use UTC.
+  - >
+    Removed per-device reconstruction stats. Now that the reconstructor
+    is shuffling parts before going through them, those stats no longer
+    make sense.
+  - domain_remap now accepts a list of domains in "storage_domain".
+  - Do not follow CNAME when host is in storage_domain.
+  - >
+    Enable cluster-wide CORS Expose-Headers setting via
+    "cors_expose_headers".
+  - Cache all answers from nameservers in cname_lookup.
+fixes:
+  - >
+    Fixed error where a container drive error resulted in double space
+    usage on rest drives. When drive with container or account database
+    is unmounted, the bug would create handoff replicas on all remaining
+    drives, increasing the drive space used and filling the cluster.
+  - >
+    Fixed UnicodeDecodeError in the object reconstructor that would
+    prevent objects with non-ascii names from being reconstructed and
+    caused the reconstructor process to hang.
+  - >
+    Fixed encoding issue in ssync where a mix of ascii and non-ascii
+    metadata values would cause an error.
+  - Log the correct request type of a subrequest downstream of copy.
+  - >
+    Prevent logged traceback in object-server on client disconnect for
+    chunked transfers to replicated policies.
+  - >
+    Fixed a race condition in updating hashes.pkl where a partition
+    suffix invalidation may have been skipped.
+  - Include received fragment index in reconstructor log warnings.
+  - Log correct status code for conditional requests.
+other:
+  - Drop support for auth-server from common/manager.py and `swift-init`.
+  - Various other minor bug fixes and improvements.
