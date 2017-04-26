@@ -3373,6 +3373,27 @@ cluster_dfw1 = http://dfw1.host/v1/
         for before, after in subtests.items():
             self.assertEqual(utils.clean_content_type(before), after)
 
+    def test_get_valid_utf8_str(self):
+        def do_test(input_value, expected):
+            actual = utils.get_valid_utf8_str(input_value)
+            self.assertEqual(expected, actual)
+            self.assertIsInstance(actual, six.binary_type)
+            actual.decode('utf-8')
+
+        do_test(b'abc', b'abc')
+        do_test(u'abc', b'abc')
+        do_test(u'\uc77c\uc601', b'\xec\x9d\xbc\xec\x98\x81')
+        do_test(b'\xec\x9d\xbc\xec\x98\x81', b'\xec\x9d\xbc\xec\x98\x81')
+
+        # test some invalid UTF-8
+        do_test(b'\xec\x9d\xbc\xec\x98', b'\xec\x9d\xbc\xef\xbf\xbd')
+
+        # check surrogate pairs, too
+        do_test(u'\U0001f0a1', b'\xf0\x9f\x82\xa1'),
+        do_test(u'\uD83C\uDCA1', b'\xf0\x9f\x82\xa1'),
+        do_test(b'\xf0\x9f\x82\xa1', b'\xf0\x9f\x82\xa1'),
+        do_test(b'\xed\xa0\xbc\xed\xb2\xa1', b'\xf0\x9f\x82\xa1'),
+
     def test_quote(self):
         res = utils.quote('/v1/a/c3/subdirx/')
         assert res == '/v1/a/c3/subdirx/'
@@ -5107,17 +5128,6 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertStat('alpha.beta.another.counter:3|c|@0.9912',
                         self.logger.update_stats, 'another.counter', 3,
                         sample_rate=0.9912)
-
-    def test_get_valid_utf8_str(self):
-        unicode_sample = u'\uc77c\uc601'
-        valid_utf8_str = unicode_sample.encode('utf-8')
-        invalid_utf8_str = unicode_sample.encode('utf-8')[::-1]
-        self.assertEqual(valid_utf8_str,
-                         utils.get_valid_utf8_str(valid_utf8_str))
-        self.assertEqual(valid_utf8_str,
-                         utils.get_valid_utf8_str(unicode_sample))
-        self.assertEqual(b'\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
-                         utils.get_valid_utf8_str(invalid_utf8_str))
 
     @reset_logger_state
     def test_thread_locals(self):
