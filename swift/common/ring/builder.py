@@ -367,6 +367,11 @@ class RingBuilder(object):
         # Add holes to self.devs to ensure self.devs[dev['id']] will be the dev
         while dev['id'] >= len(self.devs):
             self.devs.append(None)
+        required_keys = ('ip', 'port', 'weight')
+        if any(required not in dev for required in required_keys):
+            raise ValueError(
+                '%r is missing at least one the required key %r' % (
+                    dev, required_keys))
         dev['weight'] = float(dev['weight'])
         dev['parts'] = 0
         self.devs[dev['id']] = dev
@@ -1657,10 +1662,8 @@ class RingBuilder(object):
             # NOTE(akscram): An old ring builder file don't contain
             #                replication parameters.
             if dev:
-                if 'ip' in dev:
-                    dev.setdefault('replication_ip', dev['ip'])
-                if 'port' in dev:
-                    dev.setdefault('replication_port', dev['port'])
+                dev.setdefault('replication_ip', dev['ip'])
+                dev.setdefault('replication_port', dev['port'])
         return builder
 
     def save(self, builder_file):
