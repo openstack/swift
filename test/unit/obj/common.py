@@ -17,7 +17,6 @@ import os
 import shutil
 import tempfile
 import unittest
-import time
 
 from swift.common import utils
 from swift.common.storage_policy import POLICIES
@@ -78,7 +77,7 @@ class BaseTest(unittest.TestCase):
                        commit=True):
         policy = policy or POLICIES.legacy
         object_parts = account, container, obj
-        timestamp = Timestamp(time.time()) if timestamp is None else timestamp
+        timestamp = Timestamp.now() if timestamp is None else timestamp
         if df_mgr is None:
             df_mgr = self.daemon._df_router[policy]
         df = df_mgr.get_diskfile(

@@ -28,7 +28,7 @@ import eventlet
 from swift.account import reaper
 from swift.account.backend import DATADIR
 from swift.common.exceptions import ClientException
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import normalize_timestamp, Timestamp
 
 from test import unit
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -333,11 +333,11 @@ class TestReaper(unittest.TestCase):
         for policy in POLICIES:
             r.reset_stats()
             with patch(mock_path) as fake_direct_delete:
-                with patch('swift.account.reaper.time') as mock_time:
-                    mock_time.return_value = 1429117638.86767
+                with patch('swift.common.utils.Timestamp.now') as mock_now:
+                    mock_now.return_value = Timestamp(1429117638.86767)
                     r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
                                   policy.idx)
-                    mock_time.assert_called_once_with()
+                    mock_now.assert_called_once_with()
                     for i, call_args in enumerate(
                             fake_direct_delete.call_args_list):
                         cnode = cont_nodes[i % len(cont_nodes)]
@@ -439,8 +439,9 @@ class TestReaper(unittest.TestCase):
                 return headers, obj_list
 
             mocks['direct_get_container'].side_effect = fake_get_container
-            with patch('swift.account.reaper.time') as mock_time:
-                mock_time.side_effect = [1429117638.86767, 1429117639.67676]
+            with patch('swift.common.utils.Timestamp.now') as mock_now:
+                mock_now.side_effect = [Timestamp(1429117638.86767),
+                                        Timestamp(1429117639.67676)]
                 r.reap_container('a', 'partition', acc_nodes, 'c')
 
             # verify calls to direct_delete_object

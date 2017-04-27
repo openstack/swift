@@ -474,7 +474,7 @@ class BaseObjectControllerMixin(object):
     def test_HEAD_x_newest_with_two_vector_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(time.time(), offset=offset)
+        ts = (utils.Timestamp.now(offset=offset)
               for offset in itertools.count())
         timestamps = [next(ts) for i in range(self.replicas())]
         newest_timestamp = timestamps[-1]
@@ -1214,7 +1214,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             self.app.container_info['storage_policy'] = policy_index
-            put_timestamp = utils.Timestamp(time.time()).normal
+            put_timestamp = utils.Timestamp.now().normal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -1228,7 +1228,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             self.app.container_info['storage_policy'] = policy_index
-            put_timestamp = utils.Timestamp(time.time()).normal
+            put_timestamp = utils.Timestamp.now().normal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,

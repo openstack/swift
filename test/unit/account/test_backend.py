@@ -94,33 +94,33 @@ class TestAccountBroker(unittest.TestCase):
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(Timestamp('1').internal)
         self.assertTrue(broker.empty())
-        broker.put_container('o', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         self.assertTrue(not broker.empty())
         sleep(.00001)
-        broker.put_container('o', 0, Timestamp(time()).internal, 0, 0,
+        broker.put_container('o', 0, Timestamp.now().internal, 0, 0,
                              POLICIES.default.idx)
         self.assertTrue(broker.empty())
 
     def test_is_status_deleted(self):
         # Test AccountBroker.is_status_deleted
         broker1 = AccountBroker(':memory:', account='a')
-        broker1.initialize(Timestamp(time()).internal)
+        broker1.initialize(Timestamp.now().internal)
         self.assertTrue(not broker1.is_status_deleted())
-        broker1.delete_db(Timestamp(time()).internal)
+        broker1.delete_db(Timestamp.now().internal)
         self.assertTrue(broker1.is_status_deleted())
         broker2 = AccountBroker(':memory:', account='a')
-        broker2.initialize(Timestamp(time()).internal)
+        broker2.initialize(Timestamp.now().internal)
         # Set delete_timestamp greater than put_timestamp
         broker2.merge_timestamps(
-            time(), Timestamp(time()).internal,
+            time(), Timestamp.now().internal,
             Timestamp(time() + 999).internal)
         self.assertTrue(broker2.is_status_deleted())
 
     def test_reclaim(self):
         broker = AccountBroker(':memory:', account='test_account')
         broker.initialize(Timestamp('1').internal)
-        broker.put_container('c', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('c', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -138,7 +138,7 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.put_container('c', 0, Timestamp(time()).internal, 0, 0,
+        broker.put_container('c', 0, Timestamp.now().internal, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -156,7 +156,7 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 1)
         sleep(.00001)
-        broker.reclaim(Timestamp(time()).internal, time())
+        broker.reclaim(Timestamp.now().internal, time())
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM container "
@@ -168,10 +168,10 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('x', 0, 0, 0, 0, POLICIES.default.idx)
         broker.put_container('y', 0, 0, 0, 0, POLICIES.default.idx)
         broker.put_container('z', 0, 0, 0, 0, POLICIES.default.idx)
-        broker.reclaim(Timestamp(time()).internal, time())
+        broker.reclaim(Timestamp.now().internal, time())
         # Now delete the account
-        broker.delete_db(Timestamp(time()).internal)
-        broker.reclaim(Timestamp(time()).internal, time())
+        broker.delete_db(Timestamp.now().internal)
+        broker.reclaim(Timestamp.now().internal, time())
 
     def test_delete_db_status(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
@@ -201,7 +201,7 @@ class TestAccountBroker(unittest.TestCase):
         # Test AccountBroker.delete_container
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(Timestamp('1').internal)
-        broker.put_container('o', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -211,7 +211,7 @@ class TestAccountBroker(unittest.TestCase):
                 "SELECT count(*) FROM container "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.put_container('o', 0, Timestamp(time()).internal, 0, 0,
+        broker.put_container('o', 0, Timestamp.now().internal, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -227,7 +227,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(Timestamp('1').internal)
 
         # Create initial container
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
@@ -255,7 +255,7 @@ class TestAccountBroker(unittest.TestCase):
 
         # Put new event
         sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
@@ -301,7 +301,7 @@ class TestAccountBroker(unittest.TestCase):
 
         # Put new delete event
         sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_container('"{<container \'&\' name>}"', 0, timestamp, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
@@ -316,7 +316,7 @@ class TestAccountBroker(unittest.TestCase):
 
         # Put new event
         sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_container('"{<container \'&\' name>}"', timestamp, 0, 0, 0,
                              POLICIES.default.idx)
         with broker.get() as conn:
@@ -347,31 +347,31 @@ class TestAccountBroker(unittest.TestCase):
         info = broker.get_info()
         self.assertEqual(info['container_count'], 0)
 
-        broker.put_container('c1', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('c1', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         info = broker.get_info()
         self.assertEqual(info['container_count'], 1)
 
         sleep(.00001)
-        broker.put_container('c2', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('c2', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         info = broker.get_info()
         self.assertEqual(info['container_count'], 2)
 
         sleep(.00001)
-        broker.put_container('c2', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('c2', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         info = broker.get_info()
         self.assertEqual(info['container_count'], 2)
 
         sleep(.00001)
-        broker.put_container('c1', 0, Timestamp(time()).internal, 0, 0,
+        broker.put_container('c1', 0, Timestamp.now().internal, 0, 0,
                              POLICIES.default.idx)
         info = broker.get_info()
         self.assertEqual(info['container_count'], 1)
 
         sleep(.00001)
-        broker.put_container('c2', 0, Timestamp(time()).internal, 0, 0,
+        broker.put_container('c2', 0, Timestamp.now().internal, 0, 0,
                              POLICIES.default.idx)
         info = broker.get_info()
         self.assertEqual(info['container_count'], 0)
@@ -383,16 +383,16 @@ class TestAccountBroker(unittest.TestCase):
         for cont1 in range(4):
             for cont2 in range(125):
                 broker.put_container('%d-%04d' % (cont1, cont2),
-                                     Timestamp(time()).internal, 0, 0, 0,
+                                     Timestamp.now().internal, 0, 0, 0,
                                      POLICIES.default.idx)
         for cont in range(125):
             broker.put_container('2-0051-%04d' % cont,
-                                 Timestamp(time()).internal, 0, 0, 0,
+                                 Timestamp.now().internal, 0, 0, 0,
                                  POLICIES.default.idx)
 
         for cont in range(125):
             broker.put_container('3-%04d-0049' % cont,
-                                 Timestamp(time()).internal, 0, 0, 0,
+                                 Timestamp.now().internal, 0, 0, 0,
                                  POLICIES.default.idx)
 
         listing = broker.list_containers_iter(100, '', None, None, '')
@@ -485,7 +485,7 @@ class TestAccountBroker(unittest.TestCase):
                           '3-0047-', '3-0048', '3-0048-', '3-0049',
                           '3-0049-', '3-0050'])
 
-        broker.put_container('3-0049-', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('3-0049-', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         listing = broker.list_containers_iter(10, '3-0048', None, None, None)
         self.assertEqual(len(listing), 10)
@@ -673,30 +673,30 @@ class TestAccountBroker(unittest.TestCase):
         # account that has an odd container with a trailing delimiter
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(Timestamp('1').internal)
-        broker.put_container('a', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('a-', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a-', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('a-a', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a-a', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('a-a-a', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a-a-a', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('a-a-b', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a-a-b', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('a-b', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a-b', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         # NB: ord(".") == ord("-") + 1
-        broker.put_container('a.', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a.', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('a.b', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('a.b', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('b', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('b', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('b-a', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('b-a', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('b-b', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('b-b', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('c', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('c', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         listing = broker.list_containers_iter(15, None, None, None, None)
         self.assertEqual([row[0] for row in listing],
@@ -1022,7 +1022,7 @@ def premetadata_create_account_stat_table(self, conn, put_timestamp):
     conn.execute('''
         UPDATE account_stat SET account = ?, created_at = ?, id = ?,
                put_timestamp = ?
-        ''', (self.account, Timestamp(time()).internal, str(uuid4()),
+        ''', (self.account, Timestamp.now().internal, str(uuid4()),
               put_timestamp))
 
 
@@ -1191,7 +1191,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         self.assertEqual(len(stats), 0)
 
         # now do a PUT to create the table
-        broker.put_container('o', Timestamp(time()).internal, 0, 0, 0,
+        broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
         broker._commit_puts_stale_ok()
 
@@ -1225,7 +1225,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                           'from container table!')
 
         # manually insert an existing row to avoid migration
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         with broker.get() as conn:
             conn.execute('''
                 INSERT INTO container (name, put_timestamp,
@@ -1247,7 +1247,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # which will update the DB schema as well as update policy_stats
         # for legacy containers in the DB (those without an SPI)
         other_policy = [p for p in POLICIES if p.idx != 0][0]
-        broker.put_container('test_second', Timestamp(time()).internal,
+        broker.put_container('test_second', Timestamp.now().internal,
                              0, 3, 4, other_policy.idx)
         broker._commit_puts_stale_ok()
 

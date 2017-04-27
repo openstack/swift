@@ -16,7 +16,6 @@
 import os
 import itertools
 import json
-import time
 from collections import defaultdict
 from eventlet import Timeout
 
@@ -67,7 +66,7 @@ class ContainerReplicator(db_replicator.Replicator):
         if is_success(response.status):
             remote_info = json.loads(response.data)
             if incorrect_policy_index(info, remote_info):
-                status_changed_at = Timestamp(time.time())
+                status_changed_at = Timestamp.now()
                 broker.set_storage_policy_index(
                     remote_info['storage_policy_index'],
                     timestamp=status_changed_at.internal)
@@ -284,7 +283,7 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
         """
         info = broker.get_replication_info()
         if incorrect_policy_index(info, remote_info):
-            status_changed_at = Timestamp(time.time()).internal
+            status_changed_at = Timestamp.now().internal
             broker.set_storage_policy_index(
                 remote_info['storage_policy_index'],
                 timestamp=status_changed_at)

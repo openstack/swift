@@ -97,18 +97,18 @@ class TestContainerBroker(unittest.TestCase):
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         self.assertTrue(broker.empty())
-        broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         self.assertTrue(not broker.empty())
         sleep(.00001)
-        broker.delete_object('o', Timestamp(time()).internal)
+        broker.delete_object('o', Timestamp.now().internal)
         self.assertTrue(broker.empty())
 
     def test_reclaim(self):
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -126,7 +126,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.delete_object('o', Timestamp(time()).internal)
+        broker.delete_object('o', Timestamp.now().internal)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -143,7 +143,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 1)
         sleep(.00001)
-        broker.reclaim(Timestamp(time()).internal, time())
+        broker.reclaim(Timestamp.now().internal, time())
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -152,17 +152,17 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
         # Test the return values of reclaim()
-        broker.put_object('w', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('w', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('x', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('x', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('y', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('y', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('z', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('z', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         # Test before deletion
-        broker.reclaim(Timestamp(time()).internal, time())
-        broker.delete_db(Timestamp(time()).internal)
+        broker.reclaim(Timestamp.now().internal, time())
+        broker.delete_db(Timestamp.now().internal)
 
     def test_get_info_is_deleted(self):
         start = int(time())
@@ -214,7 +214,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.delete_object
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
+        broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -224,7 +224,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.delete_object('o', Timestamp(time()).internal)
+        broker.delete_object('o', Timestamp.now().internal)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM object "
@@ -239,7 +239,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.initialize(Timestamp('1').internal, 0)
 
         # Create initial object
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
@@ -283,7 +283,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new event
         sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 124,
                           'application/x-test',
                           'aa0749bacbc79ec65fe206943d8fe449')
@@ -349,7 +349,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new delete event
         sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 0, '', '',
                           deleted=1)
         with broker.get() as conn:
@@ -363,7 +363,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new event
         sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
@@ -386,12 +386,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # We'll use this later
         sleep(.0001)
-        in_between_timestamp = Timestamp(time()).internal
+        in_between_timestamp = Timestamp.now().internal
 
         # New post event
         sleep(.0001)
         previous_timestamp = timestamp
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -933,7 +933,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(policy_stats[0]['bytes_used'], 0)
         self.assertEqual(policy_stats[0]['object_count'], 0)
 
-        broker.put_object('o1', Timestamp(time()).internal, 123, 'text/plain',
+        broker.put_object('o1', Timestamp.now().internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
 
         info = broker.get_info()
@@ -970,34 +970,34 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['object_count'], 0)
         self.assertEqual(info['bytes_used'], 0)
 
-        broker.put_object('o1', Timestamp(time()).internal, 123, 'text/plain',
+        broker.put_object('o1', Timestamp.now().internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 123)
 
         sleep(.00001)
-        broker.put_object('o2', Timestamp(time()).internal, 123, 'text/plain',
+        broker.put_object('o2', Timestamp.now().internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEqual(info['object_count'], 2)
         self.assertEqual(info['bytes_used'], 246)
 
         sleep(.00001)
-        broker.put_object('o2', Timestamp(time()).internal, 1000,
+        broker.put_object('o2', Timestamp.now().internal, 1000,
                           'text/plain', '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEqual(info['object_count'], 2)
         self.assertEqual(info['bytes_used'], 1123)
 
         sleep(.00001)
-        broker.delete_object('o1', Timestamp(time()).internal)
+        broker.delete_object('o1', Timestamp.now().internal)
         info = broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 1000)
 
         sleep(.00001)
-        broker.delete_object('o2', Timestamp(time()).internal)
+        broker.delete_object('o2', Timestamp.now().internal)
         info = broker.get_info()
         self.assertEqual(info['object_count'], 0)
         self.assertEqual(info['bytes_used'], 0)
@@ -1033,7 +1033,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
 
-        broker.put_object('o1', Timestamp(time()).internal, 123, 'text/plain',
+        broker.put_object('o1', Timestamp.now().internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEqual(info['object_count'], 1)
@@ -1042,7 +1042,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_bytes_used'], 0)
 
         sleep(.00001)
-        broker.put_object('o2', Timestamp(time()).internal, 123, 'text/plain',
+        broker.put_object('o2', Timestamp.now().internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEqual(info['object_count'], 2)
@@ -1051,7 +1051,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_bytes_used'], 0)
 
         sleep(.00001)
-        broker.put_object('o2', Timestamp(time()).internal, 1000,
+        broker.put_object('o2', Timestamp.now().internal, 1000,
                           'text/plain', '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEqual(info['object_count'], 2)
@@ -1059,9 +1059,9 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
 
-        put_timestamp = Timestamp(time()).internal
+        put_timestamp = Timestamp.now().internal
         sleep(.001)
-        delete_timestamp = Timestamp(time()).internal
+        delete_timestamp = Timestamp.now().internal
         broker.reported(put_timestamp, delete_timestamp, 2, 1123)
         info = broker.get_info()
         self.assertEqual(info['object_count'], 2)
@@ -1072,7 +1072,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_bytes_used'], 1123)
 
         sleep(.00001)
-        broker.delete_object('o1', Timestamp(time()).internal)
+        broker.delete_object('o1', Timestamp.now().internal)
         info = broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 1000)
@@ -1080,7 +1080,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['reported_bytes_used'], 1123)
 
         sleep(.00001)
-        broker.delete_object('o2', Timestamp(time()).internal)
+        broker.delete_object('o2', Timestamp.now().internal)
         info = broker.get_info()
         self.assertEqual(info['object_count'], 0)
         self.assertEqual(info['bytes_used'], 0)
@@ -1094,16 +1094,16 @@ class TestContainerBroker(unittest.TestCase):
         for obj1 in range(4):
             for obj2 in range(125):
                 broker.put_object('%d/%04d' % (obj1, obj2),
-                                  Timestamp(time()).internal, 0, 'text/plain',
+                                  Timestamp.now().internal, 0, 'text/plain',
                                   'd41d8cd98f00b204e9800998ecf8427e')
         for obj in range(125):
             broker.put_object('2/0051/%04d' % obj,
-                              Timestamp(time()).internal, 0, 'text/plain',
+                              Timestamp.now().internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         for obj in range(125):
             broker.put_object('3/%04d/0049' % obj,
-                              Timestamp(time()).internal, 0, 'text/plain',
+                              Timestamp.now().internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         listing = broker.list_objects_iter(100, '', None, None, '')
@@ -1202,7 +1202,7 @@ class TestContainerBroker(unittest.TestCase):
                           '3/0047/', '3/0048', '3/0048/', '3/0049',
                           '3/0049/', '3/0050'])
 
-        broker.put_object('3/0049/', Timestamp(time()).internal, 0,
+        broker.put_object('3/0049/', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(10, '3/0048', None, None, None)
         self.assertEqual(len(listing), 10)
@@ -1394,16 +1394,16 @@ class TestContainerBroker(unittest.TestCase):
         for obj1 in range(4):
             for obj2 in range(125):
                 broker.put_object('%d:%04d' % (obj1, obj2),
-                                  Timestamp(time()).internal, 0, 'text/plain',
+                                  Timestamp.now().internal, 0, 'text/plain',
                                   'd41d8cd98f00b204e9800998ecf8427e')
         for obj in range(125):
             broker.put_object('2:0051:%04d' % obj,
-                              Timestamp(time()).internal, 0, 'text/plain',
+                              Timestamp.now().internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         for obj in range(125):
             broker.put_object('3:%04d:0049' % obj,
-                              Timestamp(time()).internal, 0, 'text/plain',
+                              Timestamp.now().internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         listing = broker.list_objects_iter(100, '', None, None, '')
@@ -1468,7 +1468,7 @@ class TestContainerBroker(unittest.TestCase):
                           '3:0047:', '3:0048', '3:0048:', '3:0049',
                           '3:0049:', '3:0050'])
 
-        broker.put_object('3:0049:', Timestamp(time()).internal, 0,
+        broker.put_object('3:0049:', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(10, '3:0048', None, None, None)
         self.assertEqual(len(listing), 10)
@@ -1589,49 +1589,49 @@ class TestContainerBroker(unittest.TestCase):
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_object('a', Timestamp(time()).internal, 0,
+        broker.put_object('a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/', Timestamp(time()).internal, 0,
+        broker.put_object('a/', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/a', Timestamp(time()).internal, 0,
+        broker.put_object('a/a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/a/a', Timestamp(time()).internal, 0,
+        broker.put_object('a/a/a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/a/b', Timestamp(time()).internal, 0,
+        broker.put_object('a/a/b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/b', Timestamp(time()).internal, 0,
+        broker.put_object('a/b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b', Timestamp(time()).internal, 0,
+        broker.put_object('b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b/a', Timestamp(time()).internal, 0,
+        broker.put_object('b/a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b/b', Timestamp(time()).internal, 0,
+        broker.put_object('b/b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('c', Timestamp(time()).internal, 0,
+        broker.put_object('c', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/0', Timestamp(time()).internal, 0,
+        broker.put_object('a/0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0', Timestamp(time()).internal, 0,
+        broker.put_object('0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/', Timestamp(time()).internal, 0,
+        broker.put_object('0/', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('00', Timestamp(time()).internal, 0,
+        broker.put_object('00', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/0', Timestamp(time()).internal, 0,
+        broker.put_object('0/0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/00', Timestamp(time()).internal, 0,
+        broker.put_object('0/00', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/1', Timestamp(time()).internal, 0,
+        broker.put_object('0/1', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/1/', Timestamp(time()).internal, 0,
+        broker.put_object('0/1/', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/1/0', Timestamp(time()).internal, 0,
+        broker.put_object('0/1/0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1', Timestamp(time()).internal, 0,
+        broker.put_object('1', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1/', Timestamp(time()).internal, 0,
+        broker.put_object('1/', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1/0', Timestamp(time()).internal, 0,
+        broker.put_object('1/0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(25, None, None, None, None)
         self.assertEqual(len(listing), 22)
@@ -1669,49 +1669,49 @@ class TestContainerBroker(unittest.TestCase):
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_object('a', Timestamp(time()).internal, 0,
+        broker.put_object('a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:', Timestamp(time()).internal, 0,
+        broker.put_object('a:', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:a', Timestamp(time()).internal, 0,
+        broker.put_object('a:a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:a:a', Timestamp(time()).internal, 0,
+        broker.put_object('a:a:a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:a:b', Timestamp(time()).internal, 0,
+        broker.put_object('a:a:b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:b', Timestamp(time()).internal, 0,
+        broker.put_object('a:b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b', Timestamp(time()).internal, 0,
+        broker.put_object('b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b:a', Timestamp(time()).internal, 0,
+        broker.put_object('b:a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b:b', Timestamp(time()).internal, 0,
+        broker.put_object('b:b', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('c', Timestamp(time()).internal, 0,
+        broker.put_object('c', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:0', Timestamp(time()).internal, 0,
+        broker.put_object('a:0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0', Timestamp(time()).internal, 0,
+        broker.put_object('0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:', Timestamp(time()).internal, 0,
+        broker.put_object('0:', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('00', Timestamp(time()).internal, 0,
+        broker.put_object('00', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:0', Timestamp(time()).internal, 0,
+        broker.put_object('0:0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:00', Timestamp(time()).internal, 0,
+        broker.put_object('0:00', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:1', Timestamp(time()).internal, 0,
+        broker.put_object('0:1', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:1:', Timestamp(time()).internal, 0,
+        broker.put_object('0:1:', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:1:0', Timestamp(time()).internal, 0,
+        broker.put_object('0:1:0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1', Timestamp(time()).internal, 0,
+        broker.put_object('1', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1:', Timestamp(time()).internal, 0,
+        broker.put_object('1:', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1:0', Timestamp(time()).internal, 0,
+        broker.put_object('1:0', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(25, None, None, None, None)
         self.assertEqual(len(listing), 22)
@@ -2186,7 +2186,7 @@ def premetadata_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, Timestamp(time()).internal,
+    ''', (self.account, self.container, Timestamp.now().internal,
           str(uuid4()), put_timestamp))
 
 
@@ -2258,7 +2258,7 @@ def prexsync_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, Timestamp(time()).internal,
+    ''', (self.account, self.container, Timestamp.now().internal,
           str(uuid4()), put_timestamp))
 
 
@@ -2372,7 +2372,7 @@ def prespi_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, Timestamp(time()).internal,
+    ''', (self.account, self.container, Timestamp.now().internal,
           str(uuid4()), put_timestamp))
 
 
@@ -2430,7 +2430,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                           'from object table!')
 
         # manually insert an existing row to avoid automatic migration
-        obj_put_timestamp = Timestamp(time()).internal
+        obj_put_timestamp = Timestamp.now().internal
         with broker.get() as conn:
             conn.execute('''
                 INSERT INTO object (name, created_at, size,
@@ -2542,7 +2542,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         # now do a PUT with a different value for storage_policy_index
         # which will update the DB schema as well as update policy_stats
         # for legacy objects in the DB (those without an SPI)
-        second_object_put_timestamp = Timestamp(time()).internal
+        second_object_put_timestamp = Timestamp.now().internal
         other_policy = [p for p in POLICIES if p.idx != 0][0]
         broker.put_object('test_second', second_object_put_timestamp,
                           456, 'text/plain',

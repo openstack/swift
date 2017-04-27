@@ -907,6 +907,10 @@ class Timestamp(object):
         if self.timestamp >= 10000000000:
             raise ValueError('timestamp too large')
 
+    @classmethod
+    def now(cls, offset=0, delta=0):
+        return cls(time.time(), offset=offset, delta=delta)
+
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
 

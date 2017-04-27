@@ -336,7 +336,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('HEAD' in str(err))
 
     def test_direct_head_container_deleted(self):
-        important_timestamp = Timestamp(time.time()).internal
+        important_timestamp = Timestamp.now().internal
         headers = HeaderKeyDict({'X-Backend-Important-Timestamp':
                                  important_timestamp})
 
@@ -551,7 +551,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertTrue('HEAD' in str(err))
 
     def test_direct_head_object_not_found(self):
-        important_timestamp = Timestamp(time.time()).internal
+        important_timestamp = Timestamp.now().internal
         stub_headers = {'X-Backend-Important-Timestamp': important_timestamp}
         with mocked_http_conn(404, headers=stub_headers) as conn:
             try:

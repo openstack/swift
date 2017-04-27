@@ -266,7 +266,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         df_mgr = self.reconstructor._df_router[policy]
         df = df_mgr.get_diskfile('sda1', part, 'a', 'c', object_name,
                                  policy=policy)
-        timestamp = timestamp or utils.Timestamp(time.time())
+        timestamp = timestamp or utils.Timestamp.now()
         test_data = test_data or 'test data'
         write_diskfile(df, timestamp, data=test_data, frag_index=frag_index,
                        legacy_durable=self.legacy_durable)

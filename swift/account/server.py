@@ -105,7 +105,7 @@ class AccountController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if container:   # put account container
             if 'x-timestamp' not in req.headers:
-                timestamp = Timestamp(time.time())
+                timestamp = Timestamp.now()
             else:
                 timestamp = valid_timestamp(req)
             pending_timeout = None
