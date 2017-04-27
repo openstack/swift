@@ -31,6 +31,7 @@ from eventlet import Timeout, sleep
 from contextlib import closing, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
+from six.moves.urllib.parse import unquote
 from swift.common import utils
 from swift.common.exceptions import DiskFileError
 from swift.common.header_key_dict import HeaderKeyDict
@@ -3336,7 +3337,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                  'X-Backend-Timestamp': self.obj_timestamp.internal})
             return headers
 
-        def test_missing_header(missing_header, expected_warning):
+        def test_missing_header(missing_header, warning_extra):
             self.logger._clear()
             responses = [(200, body, make_header(body))
                          for body in ec_archive_bodies]
@@ -3349,7 +3350,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
 
             codes, body_iter, headers = zip(*responses)
             with mocked_http_conn(
-                    *codes, body_iter=body_iter, headers=headers):
+                    *codes, body_iter=body_iter, headers=headers) as mock_conn:
                 df = self.reconstructor.reconstruct_fa(
                     job, node, self.obj_metadata)
                 fixed_body = ''.join(df.reader())
@@ -3362,24 +3363,23 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             # ...but warning for the missing header
             warning_log_lines = self.logger.get_lines_for_level('warning')
             self.assertEqual(1, len(warning_log_lines))
-            self.assertIn(expected_warning, warning_log_lines)
 
-        message_base = \
-            "Invalid resp from 10.0.0.0:1000/sda/0%s policy#0" % \
-            self.obj_path.decode('utf-8')
+            path = unquote(
+                '%(ip)s:%(port)d%(path)s' % mock_conn.requests[0]
+            ).encode('latin1').decode('utf8')
+            expected_warning = 'Invalid resp from %s policy#0%s' % (
+                path, warning_extra)
+            self.assertIn(expected_warning, warning_log_lines)
 
         test_missing_header(
             'X-Object-Sysmeta-Ec-Frag-Index',
-            "%s %s" % (message_base,
-                       "(invalid X-Object-Sysmeta-Ec-Frag-Index: None)"))
-
-        message_base += ", frag index 0"
+            ' (invalid X-Object-Sysmeta-Ec-Frag-Index: None)')
         test_missing_header(
             'X-Object-Sysmeta-Ec-Etag',
-            "%s %s" % (message_base, "(missing Etag)"))
+            ', frag index 0 (missing Etag)')
         test_missing_header(
             'X-Backend-Timestamp',
-            "%s %s" % (message_base, "(missing X-Backend-Timestamp)"))
+            ', frag index 0 (missing X-Backend-Timestamp)')
 
     def test_reconstruct_fa_invalid_frag_index_headers(self):
         # This is much negative tests asserting when the expected
@@ -3414,7 +3414,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
 
             codes, body_iter, headers = zip(*responses)
             with mocked_http_conn(
-                    *codes, body_iter=body_iter, headers=headers):
+                    *codes, body_iter=body_iter, headers=headers) as mock_conn:
                 df = self.reconstructor.reconstruct_fa(
                     job, node, self.obj_metadata)
                 fixed_body = ''.join(df.reader())
@@ -3427,11 +3427,15 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             # ...but warning for the invalid header
             warning_log_lines = self.logger.get_lines_for_level('warning')
             self.assertEqual(1, len(warning_log_lines))
-            expected_message = \
-                "Invalid resp from 10.0.0.0:1000/sda/0%s " \
-                "policy#0 (invalid X-Object-Sysmeta-Ec-Frag-Index: %r)" % \
-                (self.obj_path.decode('utf8'), invalid_frag_index)
-            self.assertIn(expected_message, warning_log_lines)
+
+            path = unquote(
+                '%(ip)s:%(port)d%(path)s' % mock_conn.requests[0]
+            ).encode('latin1').decode('utf8')
+            expected_warning = (
+                'Invalid resp from %s policy#0 '
+                '(invalid X-Object-Sysmeta-Ec-Frag-Index: %r)'
+                % (path, invalid_frag_index))
+            self.assertIn(expected_warning, warning_log_lines)
 
         for value in ('None', 'invalid'):
             test_invalid_ec_frag_index_header(value)
