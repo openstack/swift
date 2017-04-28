@@ -874,13 +874,30 @@ class TestContainerBroker(unittest.TestCase):
         }
         self.assertEqual(policy_stats, expected)
 
+    @patch_policies
     def test_policy_stat_tracking(self):
         ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
+        # Note: in subclasses of this TestCase that inherit the
+        # ContainerBrokerMigrationMixin, passing POLICIES.default.idx here has
+        # no effect and broker.get_policy_stats() returns a dict with a single
+        # entry mapping policy index 0 to the container stats
         broker.initialize(next(ts), POLICIES.default.idx)
         stats = defaultdict(dict)
+
+        def assert_empty_default_policy_stats(policy_stats):
+            # if no objects were added for the default policy we still
+            # expect an entry for the default policy in the returned info
+            # because the database was initialized with that storage policy
+            # - but it must be empty.
+            default_stats = policy_stats[POLICIES.default.idx]
+            expected = {'object_count': 0, 'bytes_used': 0}
+            self.assertEqual(default_stats, expected)
+
+        policy_stats = broker.get_policy_stats()
+        assert_empty_default_policy_stats(policy_stats)
 
         iters = 100
         for i in range(iters):
@@ -894,14 +911,10 @@ class TestContainerBroker(unittest.TestCase):
             # in each storage policy
             stats[policy_index][name] = size
         policy_stats = broker.get_policy_stats()
-        # if no objects were added for the default policy we still
-        # expect an entry for the default policy in the returned info
-        # because the database was initialized with that storage policy
-        # - but it must be empty.
         if POLICIES.default.idx not in stats:
-            default_stats = policy_stats.pop(POLICIES.default.idx)
-            expected = {'object_count': 0, 'bytes_used': 0}
-            self.assertEqual(default_stats, expected)
+            # unlikely, but check empty default index still in policy stats
+            assert_empty_default_policy_stats(policy_stats)
+            policy_stats.pop(POLICIES.default.idx)
         self.assertEqual(len(policy_stats), len(stats))
         for policy_index, stat in policy_stats.items():
             self.assertEqual(stat['object_count'], len(stats[policy_index]))
