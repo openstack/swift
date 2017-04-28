@@ -7961,7 +7961,8 @@ class TestContainerController(unittest.TestCase):
 class TestAccountController(unittest.TestCase):
 
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache(),
+        conf = {'error_suppression_interval': 0}
+        self.app = proxy_server.Application(conf, FakeMemcache(),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing())
 
