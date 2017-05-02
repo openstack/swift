@@ -5874,7 +5874,7 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
-        delete_at_timestamp = int(time() + 1)
+        delete_at_timestamp = int(time() + 2)
         delete_at_container = str(
             delete_at_timestamp /
             self.object_controller.expiring_objects_container_divisor *
@@ -5892,7 +5892,7 @@ class TestObjectController(unittest.TestCase):
 
         orig_time = object_server.time.time
         try:
-            t = time() + 2
+            t = time() + 3
             object_server.time.time = lambda: t
             req = Request.blank(
                 '/sda1/p/a/c/o',
