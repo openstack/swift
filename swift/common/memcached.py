@@ -239,10 +239,10 @@ class MemcacheRing(object):
                           to memcache, or with pickle if configured to use
                           pickle instead of JSON (to avoid cache poisoning)
         :param time: the time to live
-        :min_compress_len: minimum compress length, this parameter was added
-                           to keep the signature compatible with
-                           python-memcached interface. This implementation
-                           ignores it.
+        :param min_compress_len: minimum compress length, this parameter was
+                                 added to keep the signature compatible with
+                                 python-memcached interface. This
+                                 implementation ignores it.
         """
         key = md5hash(key)
         timeout = sanitize_timeout(time)
@@ -430,8 +430,8 @@ class MemcacheRing(object):
         Gets multiple values from memcache for the given keys.
 
         :param keys: keys for values to be retrieved from memcache
-        :param servery_key: key to use in determining which server in the ring
-                            is used
+        :param server_key: key to use in determining which server in the ring
+                           is used
         :returns: list of values
         """
         server_key = md5hash(server_key)

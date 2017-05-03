@@ -496,8 +496,8 @@ def get_policy_index(req_headers, res_headers):
     Returns the appropriate index of the storage policy for the request from
     a proxy server
 
-    :param req: dict of the request headers.
-    :param res: dict of the response headers.
+    :param req_headers: dict of the request headers.
+    :param res_headers: dict of the response headers.
 
     :returns: string index of storage policy, or None
     """
@@ -2574,7 +2574,7 @@ def remove_file(path):
 
 def audit_location_generator(devices, datadir, suffix='',
                              mount_check=True, logger=None):
-    '''
+    """
     Given a devices path and a data directory, yield (path, device,
     partition) for all files in that directory
 
@@ -2586,7 +2586,7 @@ def audit_location_generator(devices, datadir, suffix='',
     :param mount_check: Flag to check if a mount check should be performed
                     on devices
     :param logger: a logger object
-    '''
+    """
     device_dir = listdir(devices)
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dir)
@@ -2636,7 +2636,7 @@ def audit_location_generator(devices, datadir, suffix='',
 
 
 def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
-    '''
+    """
     Will eventlet.sleep() for the appropriate time so that the max_rate
     is never exceeded.  If max_rate is 0, will not ratelimit.  The
     maximum recommended rate should not exceed (1000 * incr_by) a second
@@ -2655,7 +2655,7 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
                         A larger number will result in larger spikes in rate
                         but better average accuracy. Must be > 0 to engage
                         rate-limiting behavior.
-    '''
+    """
     if max_rate <= 0 or incr_by <= 0:
         return running_time
 
@@ -2682,7 +2682,7 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
 
 
 class ContextPool(GreenPool):
-    "GreenPool subclassed to kill its coros when it gets gc'ed"
+    """GreenPool subclassed to kill its coros when it gets gc'ed"""
 
     def __enter__(self):
         return self
@@ -2828,7 +2828,7 @@ class StreamingPile(GreenAsyncPile):
 
 
 class ModifiedParseResult(ParseResult):
-    "Parse results class for urlparse."
+    """Parse results class for urlparse."""
 
     @property
     def hostname(self):
@@ -2991,7 +2991,7 @@ def affinity_locality_predicate(write_affinity_str):
     If affinity_str is empty or all whitespace, then the resulting function
     will consider everything local
 
-    :param affinity_str: affinity config value, e.g. "r1z2"
+    :param write_affinity_str: affinity config value, e.g. "r1z2"
         or "r1, r2z1, r2z2"
     :returns: single-argument function, or None if affinity_str is empty
     :raises: ValueError if argument invalid
@@ -3151,7 +3151,7 @@ def pairs(item_list):
     """
     Returns an iterator of all pairs of elements from item_list.
 
-    :param items: items (no duplicates allowed)
+    :param item_list: items (no duplicates allowed)
     """
     for i, item1 in enumerate(item_list):
         for item2 in item_list[(i + 1):]:

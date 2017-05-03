@@ -183,14 +183,14 @@ class RateLimitMiddleware(object):
         return keys
 
     def _get_sleep_time(self, key, max_rate):
-        '''
+        """
         Returns the amount of time (a float in seconds) that the app
         should sleep.
 
         :param key: a memcache key
         :param max_rate: maximum rate allowed in requests per second
         :raises: MaxSleepTimeHitError if max sleep time is exceeded.
-        '''
+        """
         try:
             now_m = int(round(time.time() * self.clock_accuracy))
             time_per_request_m = int(round(self.clock_accuracy / max_rate))
@@ -219,7 +219,7 @@ class RateLimitMiddleware(object):
             return 0
 
     def handle_ratelimit(self, req, account_name, container_name, obj_name):
-        '''
+        """
         Performs rate limiting and account white/black listing.  Sleeps
         if necessary. If self.memcache_client is not set, immediately returns
         None.
@@ -227,7 +227,7 @@ class RateLimitMiddleware(object):
         :param account_name: account name from path
         :param container_name: container name from path
         :param obj_name: object name from path
-        '''
+        """
         if not self.memcache_client:
             return None
 
