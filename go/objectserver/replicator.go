@@ -38,7 +38,7 @@ var TmpEmptyTime = 24 * time.Hour
 var ReplicateDeviceTimeout = 4 * time.Hour
 
 type PriorityRepJob struct {
-	Partition  uint64                `json:"partition"`
+	Partition  hummingbird.PartitionID                `json:"partition"`
 	FromDevice *hummingbird.Device   `json:"from_device"`
 	ToDevices  []*hummingbird.Device `json:"to_devices"`
 	Policy     int                   `json:"policy"`
@@ -46,8 +46,8 @@ type PriorityRepJob struct {
 
 // minimal ring interface for replication
 type replicationRing interface {
-	GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool)
-	GetMoreNodes(partition uint64) hummingbird.MoreNodes
+	GetJobNodes(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool)
+	GetMoreNodes(partition hummingbird.PartitionID) hummingbird.MoreNodes
 	LocalDevices(localPort int) (devs []*hummingbird.Device, err error)
 }
 
@@ -142,16 +142,16 @@ type ReplicationDevice interface {
 
 type replicationDevice struct {
 	// If you have a better way to make struct methods that are overridable for tests, please call my house.
-	i interface {
-		beginReplication(dev *hummingbird.Device, partition string, hashes bool, rChan chan beginReplicationResponse)
-		listObjFiles(objChan chan string, cancel chan struct{}, partdir string, needSuffix func(string) bool)
-		syncFile(objFile string, dst []*syncFileArg) (syncs int, insync int, err error)
-		replicateLocal(partition string, nodes []*hummingbird.Device, moreNodes hummingbird.MoreNodes)
-		replicateHandoff(partition string, nodes []*hummingbird.Device)
-		cleanTemp()
-		listPartitions() ([]string, error)
-		replicatePartition(partition string)
-	}
+	i      interface {
+		       beginReplication(dev *hummingbird.Device, partition string, hashes bool, rChan chan beginReplicationResponse)
+		       listObjFiles(objChan chan string, cancel chan struct{}, partdir string, needSuffix func(string) bool)
+		       syncFile(objFile string, dst []*syncFileArg) (syncs int, insync int, err error)
+		       replicateLocal(partition string, nodes []*hummingbird.Device, moreNodes hummingbird.MoreNodes)
+		       replicateHandoff(partition string, nodes []*hummingbird.Device)
+		       cleanTemp()
+		       listPartitions() ([]string, error)
+		       replicatePartition(partition string)
+	       }
 	r      *Replicator
 	dev    *hummingbird.Device
 	policy int
@@ -195,7 +195,8 @@ func (rd *replicationDevice) listObjFiles(objChan chan string, cancel chan struc
 		os.Remove(partdir)
 		return
 	}
-	for i := len(suffixDirs) - 1; i > 0; i-- { // shuffle suffixDirs list
+	for i := len(suffixDirs) - 1; i > 0; i-- {
+		// shuffle suffixDirs list
 		j := rand.Intn(i + 1)
 		suffixDirs[j], suffixDirs[i] = suffixDirs[i], suffixDirs[j]
 	}
@@ -241,7 +242,7 @@ type syncFileArg struct {
 func (rd *replicationDevice) syncFile(objFile string, dst []*syncFileArg) (syncs int, insync int, err error) {
 	var wrs []*syncFileArg
 	lst := strings.Split(objFile, string(os.PathSeparator))
-	relPath := filepath.Join(lst[len(lst)-5:]...)
+	relPath := filepath.Join(lst[len(lst) - 5:]...)
 	fp, xattrs, fileSize, err := getFile(objFile)
 	if _, ok := err.(quarantineFileError); ok {
 		hashDir := filepath.Dir(objFile)
@@ -271,7 +272,8 @@ func (rd *replicationDevice) syncFile(objFile string, dst []*syncFileArg) (syncs
 			insync++
 		}
 	}
-	if len(wrs) == 0 { // nobody needed the file
+	if len(wrs) == 0 {
+		// nobody needed the file
 		return
 	}
 
@@ -331,8 +333,8 @@ func (rd *replicationDevice) replicateLocal(partition string, nodes []*hummingbi
 	path := filepath.Join(rd.r.deviceRoot, rd.dev.Device, PolicyDir(rd.policy), partition)
 	syncCount := 0
 	startGetHashesRemote := time.Now()
-	remoteHashes := make(map[int]map[string]string)
-	remoteConnections := make(map[int]RepConn)
+	remoteHashes := make(map[hummingbird.DeviceID]map[string]string)
+	remoteConnections := make(map[hummingbird.DeviceID]RepConn)
 	rChan := make(chan beginReplicationResponse)
 	for _, dev := range nodes {
 		go rd.i.beginReplication(dev, partition, true, rChan)
@@ -424,7 +426,7 @@ func (rd *replicationDevice) replicateLocal(partition string, nodes []*hummingbi
 func (rd *replicationDevice) replicateHandoff(partition string, nodes []*hummingbird.Device) {
 	path := filepath.Join(rd.r.deviceRoot, rd.dev.Device, PolicyDir(rd.policy), partition)
 	syncCount := 0
-	remoteConnections := make(map[int]RepConn)
+	remoteConnections := make(map[hummingbird.DeviceID]RepConn)
 	rChan := make(chan beginReplicationResponse)
 	for _, dev := range nodes {
 		go rd.i.beginReplication(dev, partition, false, rChan)
@@ -443,7 +445,9 @@ func (rd *replicationDevice) replicateHandoff(partition string, nodes []*humming
 	objChan := make(chan string, 100)
 	cancel := make(chan struct{})
 	defer close(cancel)
-	go rd.i.listObjFiles(objChan, cancel, path, func(string) bool { return true })
+	go rd.i.listObjFiles(objChan, cancel, path, func(string) bool {
+		return true
+	})
 	for objFile := range objChan {
 		toSync := make([]*syncFileArg, 0)
 		for _, dev := range nodes {
@@ -456,7 +460,7 @@ func (rd *replicationDevice) replicateHandoff(partition string, nodes []*humming
 
 			success := insync == len(nodes)
 			if rd.r.quorumDelete {
-				success = insync >= len(nodes)/2+1
+				success = insync >= len(nodes) / 2 + 1
 			}
 			if success {
 				os.Remove(objFile)
@@ -496,7 +500,7 @@ func (rd *replicationDevice) replicatePartition(partition string) {
 	defer func() {
 		<-rd.r.concurrencySem
 	}()
-	partitioni, err := strconv.ParseUint(partition, 10, 64)
+	partitioni, err := hummingbird.PartitionIDFromString(partition)
 	if err != nil {
 		return
 	}
@@ -525,7 +529,8 @@ func (rd *replicationDevice) listPartitions() ([]string, error) {
 			partitionList = append(partitionList, partition)
 		}
 	}
-	for i := len(partitionList) - 1; i > 0; i-- { // shuffle partition list
+	for i := len(partitionList) - 1; i > 0; i-- {
+		// shuffle partition list
 		j := rand.Intn(i + 1)
 		partitionList[j], partitionList[i] = partitionList[i], partitionList[j]
 	}
@@ -615,7 +620,7 @@ func (rd *replicationDevice) processPriorityJobs() {
 				defer func() {
 					<-rd.r.concurrencySem
 				}()
-				partition := strconv.FormatUint(pri.Partition, 10)
+				partition := string(pri.Partition)
 				_, handoff := rd.r.Rings[rd.policy].GetJobNodes(pri.Partition, pri.FromDevice.Id)
 				toDevicesArr := make([]string, len(pri.ToDevices))
 				for i, s := range pri.ToDevices {
@@ -759,7 +764,7 @@ func (r *Replicator) reportStats() {
 	if processingTime > 0 {
 		partsPerSecond := float64(doneParts) / processingTime
 		remaining := time.Duration((1.0 / partsPerSecond) * float64(time.Second) *
-			float64(totalParts-doneParts) / float64(len(r.runningDevices)))
+			float64(totalParts - doneParts) / float64(len(r.runningDevices)))
 		var remainingStr string
 		if remaining >= time.Hour {
 			remainingStr = fmt.Sprintf("%.0fh", remaining.Hours())
@@ -769,7 +774,7 @@ func (r *Replicator) reportStats() {
 			remainingStr = fmt.Sprintf("%.0fs", remaining.Seconds())
 		}
 		r.LogInfo("%d/%d (%.2f%%) partitions replicated in %.2f worker seconds (%.2f/sec, %v remaining)",
-			doneParts, totalParts, float64(100*doneParts)/float64(totalParts),
+			doneParts, totalParts, float64(100 * doneParts) / float64(totalParts),
 			processingTime, partsPerSecond, remainingStr)
 	}
 
@@ -936,7 +941,7 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 			continue
 		}
 		if replicator.Rings[policy.Index], err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix, policy.Index); err != nil {
-			return nil, fmt.Errorf("Unable to load ring for Policy %d.", policy.Index)
+			return nil, fmt.Errorf("Unable to load ring for Policy %d: %s", policy.Index, err)
 		}
 	}
 	if replicator.logger, err = hummingbird.SetupLogger(serverconf, flags, "app:object-replicator", "object-replicator"); err != nil {
@@ -964,7 +969,8 @@ func NewReplicator(serverconf hummingbird.Config, flags *flag.FlagSet) (hummingb
 			replicator.quorumDelete = true
 		}
 	}
-	if serverconf.GetBool("object-replicator", "vm_test_mode", false) { // slow down the replicator in saio mode
+	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
+		// slow down the replicator in saio mode
 		replicator.partSleepTime = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 500)) * time.Millisecond
 	}
 	statsdHost := serverconf.GetDefault("object-replicator", "log_statsd_host", "")

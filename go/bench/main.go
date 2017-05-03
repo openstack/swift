@@ -276,11 +276,15 @@ func RunThrash(args []string) {
 	workch := make(chan func() bool)
 
 	for i := 0; i < concurrency; i++ {
-		go func() {
+		go func(workch chan func() bool) {
 			for {
-				(<-workch)()
+				f, ok := <-workch
+				if !ok {
+					return
+				}
+				f()
 			}
-		}()
+		}(workch)
 	}
 
 	for {

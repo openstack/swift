@@ -32,22 +32,22 @@ import (
 )
 
 type priFakeRing struct {
-	mapping map[uint64][]int
+	mapping map[hummingbird.PartitionID][]int
 }
 
-func (p *priFakeRing) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+func (p *priFakeRing) GetJobNodes(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 	isaHandoff := false
 	if localDevice == 0 {
 		response = append(response, &hummingbird.Device{Id: 1, Device: "drive1", Ip: "127.0.0.1", Port: 1})
 		response = append(response, &hummingbird.Device{Id: 2, Device: "drive2", Ip: "127.0.0.1", Port: 1})
 		isaHandoff = true
 	} else {
-		response = append(response, &hummingbird.Device{Id: localDevice%2 + 1, Device: fmt.Sprintf("drive%d", localDevice%2+1), Ip: "127.0.0.1", Port: 1})
+		response = append(response, &hummingbird.Device{Id: hummingbird.DeviceID(localDevice % 2 + 1), Device: fmt.Sprintf("drive%d", localDevice%2+1), Ip: "127.0.0.1", Port: 1})
 	}
 	return response, isaHandoff
 }
 
-func (p *priFakeRing) GetPartition(account string, container string, object string) uint64 { return 0 }
+func (p *priFakeRing) GetPartition(account hummingbird.AccountName, container hummingbird.ContainerName, object hummingbird.ObjectName) hummingbird.PartitionID { return 0 }
 
 func (p *priFakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
 	return nil, nil
@@ -60,29 +60,29 @@ func (p *priFakeRing) AllDevices() (devs []hummingbird.Device) {
 	return devs
 }
 
-func (p *priFakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes { return nil }
+func (p *priFakeRing) GetMoreNodes(partition hummingbird.PartitionID) hummingbird.MoreNodes { return nil }
 
-func (p *priFakeRing) GetNodes(partition uint64) (response []*hummingbird.Device) {
+func (p *priFakeRing) GetNodes(partition hummingbird.PartitionID) (response []*hummingbird.Device) {
 	for _, p := range p.mapping[partition] {
-		response = append(response, &hummingbird.Device{Id: p, Device: fmt.Sprintf("drive%d", p), Ip: "127.0.0.1", Port: p})
+		response = append(response, &hummingbird.Device{Id: hummingbird.DeviceID(p), Device: fmt.Sprintf("drive%d", p), Ip: "127.0.0.1", Port: p})
 	}
 	return
 }
 
-func (p *priFakeRing) GetNodesInOrder(partition uint64) (response []*hummingbird.Device) {
+func (p *priFakeRing) GetNodesInOrder(partition hummingbird.PartitionID) (response []*hummingbird.Device) {
 	return p.GetNodes(partition)
 }
 
 func TestGetPartMoveJobs(t *testing.T) {
 	t.Parallel()
 	oldRing := &priFakeRing{
-		mapping: map[uint64][]int{
+		mapping: map[hummingbird.PartitionID][]int{
 			0: {1, 2, 3, 4, 5},
 			1: {6, 7, 8, 9, 10},
 		},
 	}
 	newRing := &priFakeRing{
-		mapping: map[uint64][]int{
+		mapping: map[hummingbird.PartitionID][]int{
 			0: {6, 2, 3, 4, 5},
 			1: {6, 7, 8, 9, 11},
 		},
@@ -100,7 +100,7 @@ func TestGetPartMoveJobs(t *testing.T) {
 func TestGetRestoreDeviceJobs(t *testing.T) {
 	t.Parallel()
 	ring := &priFakeRing{
-		mapping: map[uint64][]int{
+		mapping: map[hummingbird.PartitionID][]int{
 			0: {1, 2},
 			1: {1, 3},
 		},
@@ -168,7 +168,7 @@ func TestDevLimiter(t *testing.T) {
 		FromDevice: &hummingbird.Device{Id: 1},
 		ToDevices:  []*hummingbird.Device{&hummingbird.Device{Id: 0, Device: "sdb"}},
 	}
-	limiter := &devLimiter{inUse: make(map[int]int), max: 2, somethingFinished: make(chan struct{}, 1)}
+	limiter := &devLimiter{inUse: make(map[hummingbird.DeviceID]int), max: 2, somethingFinished: make(chan struct{}, 1)}
 	require.True(t, limiter.start(job1))
 	require.True(t, limiter.start(job2))
 	require.False(t, limiter.start(job3))
@@ -179,12 +179,12 @@ func TestDevLimiter(t *testing.T) {
 func TestGetRescuePartsJobs(t *testing.T) {
 	t.Parallel()
 	objRing := &priFakeRing{
-		mapping: map[uint64][]int{
+		mapping: map[hummingbird.PartitionID][]int{
 			0: {1, 2, 3},
 			1: {6, 7, 8},
 		},
 	}
-	jobs := getRescuePartsJobs(objRing, []uint64{1})
+	jobs := getRescuePartsJobs(objRing, []hummingbird.PartitionID{1})
 	require.EqualValues(t, 3, len(jobs))
 
 	require.EqualValues(t, 0, jobs[0].FromDevice.Id)

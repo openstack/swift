@@ -120,7 +120,7 @@ func (r *Replicator) priorityRepHandler(w http.ResponseWriter, req *http.Request
 			return
 		}
 	}
-	if !hummingbird.Exists(filepath.Join(r.deviceRoot, pri.FromDevice.Device, "objects", strconv.FormatUint(pri.Partition, 10))) {
+	if !hummingbird.Exists(filepath.Join(r.deviceRoot, pri.FromDevice.Device, "objects", string(pri.Partition))) {
 		w.WriteHeader(404)
 		return
 	}

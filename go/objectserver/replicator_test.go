@@ -63,15 +63,15 @@ func newTestReplicatorWithFlags(settings []string, flags *flag.FlagSet) (*Replic
 
 // TODO: is all this stuff something a mocking library could do for me?
 type mockReplicationRing struct {
-	_GetJobNodes  func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool)
-	_GetMoreNodes func(partition uint64) hummingbird.MoreNodes
+	_GetJobNodes  func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool)
+	_GetMoreNodes func(partition hummingbird.PartitionID) hummingbird.MoreNodes
 	_LocalDevices func(localPort int) (devs []*hummingbird.Device, err error)
 }
 
-func (r *mockReplicationRing) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+func (r *mockReplicationRing) GetJobNodes(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 	return r._GetJobNodes(partition, localDevice)
 }
-func (r *mockReplicationRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes {
+func (r *mockReplicationRing) GetMoreNodes(partition hummingbird.PartitionID) hummingbird.MoreNodes {
 	return r._GetMoreNodes(partition)
 }
 func (r *mockReplicationRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
@@ -750,10 +750,10 @@ func TestReplicatePartition(t *testing.T) {
 	defer os.RemoveAll(deviceRoot)
 	replicator, err := newTestReplicator("bind_port", "1234", "check_mounts", "no", "devices", deviceRoot)
 	replicator.Rings[0] = &mockReplicationRing{
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{&hummingbird.Device{}}, false
 		},
-		_GetMoreNodes: func(partition uint64) hummingbird.MoreNodes { return &NoMoreNodes{} },
+		_GetMoreNodes: func(partition hummingbird.PartitionID) hummingbird.MoreNodes { return &NoMoreNodes{} },
 	}
 	require.Nil(t, err)
 	rd := newPatchableReplicationDevice(replicator)
@@ -771,10 +771,10 @@ func TestReplicatePartition(t *testing.T) {
 	require.False(t, replicateHandoffCalled)
 
 	replicator.Rings[0] = &mockReplicationRing{
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{&hummingbird.Device{}}, true
 		},
-		_GetMoreNodes: func(partition uint64) hummingbird.MoreNodes { return &NoMoreNodes{} },
+		_GetMoreNodes: func(partition hummingbird.PartitionID) hummingbird.MoreNodes { return &NoMoreNodes{} },
 	}
 	replicateLocalCalled = false
 	replicateHandoffCalled = false
@@ -789,7 +789,7 @@ func TestProcessPriorityJobs(t *testing.T) {
 	defer os.RemoveAll(deviceRoot)
 	replicator, err := newTestReplicator("bind_port", "1234", "check_mounts", "no", "devices", deviceRoot)
 	replicator.Rings[0] = &mockReplicationRing{
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{&hummingbird.Device{}}, false
 		},
 	}
@@ -822,7 +822,7 @@ func TestProcessPriorityJobs(t *testing.T) {
 		Policy:     0,
 	}
 	replicator.Rings[0] = &mockReplicationRing{
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{&hummingbird.Device{}}, true
 		},
 	}
@@ -1098,10 +1098,10 @@ func TestReplicationLocal(t *testing.T) {
 		_LocalDevices: func(localPort int) (devs []*hummingbird.Device, err error) {
 			return []*hummingbird.Device{ldev}, nil
 		},
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{rdev}, false
 		},
-		_GetMoreNodes: func(partition uint64) hummingbird.MoreNodes {
+		_GetMoreNodes: func(partition hummingbird.PartitionID) hummingbird.MoreNodes {
 			return &NoMoreNodes{}
 		},
 	}
@@ -1155,7 +1155,7 @@ func TestReplicationHandoff(t *testing.T) {
 		_LocalDevices: func(localPort int) (devs []*hummingbird.Device, err error) {
 			return []*hummingbird.Device{ldev}, nil
 		},
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{rdev}, true
 		},
 	}
@@ -1220,7 +1220,7 @@ func TestReplicationHandoffQuorumDelete(t *testing.T) {
 		_LocalDevices: func(localPort int) (devs []*hummingbird.Device, err error) {
 			return []*hummingbird.Device{ldev}, nil
 		},
-		_GetJobNodes: func(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+		_GetJobNodes: func(partition hummingbird.PartitionID, localDevice hummingbird.DeviceID) (response []*hummingbird.Device, handoff bool) {
 			return []*hummingbird.Device{rdev}, true
 		},
 	}
