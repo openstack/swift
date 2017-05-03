@@ -650,7 +650,7 @@ class TestStoragePolicies(unittest.TestCase):
             parse_storage_policies(good_conf)
         mock_driver.assert_called_once()
         mock_driver.reset_mock()
-        self.assertFalse([(r.levelname, r.message) for r in records])
+        self.assertFalse([(r.levelname, r.msg) for r in records])
 
         good_conf = self._conf("""
         [storage-policy:0]
@@ -665,7 +665,7 @@ class TestStoragePolicies(unittest.TestCase):
             parse_storage_policies(good_conf)
         mock_driver.assert_called_once()
         mock_driver.reset_mock()
-        self.assertFalse([(r.levelname, r.message) for r in records])
+        self.assertFalse([(r.levelname, r.msg) for r in records])
 
         bad_conf = self._conf("""
         [storage-policy:0]
@@ -685,9 +685,9 @@ class TestStoragePolicies(unittest.TestCase):
         for msg in ('known to harm data durability',
                     'Any data in this policy should be migrated',
                     'https://bugs.launchpad.net/swift/+bug/1639691'):
-            self.assertIn(msg, records[0].message)
+            self.assertIn(msg, records[0].msg)
         self.assertIn('In a future release, this will prevent services from '
-                      'starting', records[1].message)
+                      'starting', records[1].msg)
 
         slightly_less_bad_conf = self._conf("""
         [storage-policy:0]
@@ -716,7 +716,7 @@ class TestStoragePolicies(unittest.TestCase):
         for msg in ('known to harm data durability',
                     'Any data in this policy should be migrated',
                     'https://bugs.launchpad.net/swift/+bug/1639691'):
-            self.assertIn(msg, records[0].message)
+            self.assertIn(msg, records[0].msg)
 
     def test_no_default(self):
         orig_conf = self._conf("""
