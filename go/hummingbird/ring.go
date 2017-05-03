@@ -34,14 +34,27 @@ import (
 
 const reloadTime = 15 * time.Second
 
+const (
+	FirstPartitionID PartitionID = 0
+)
+
+type (
+	PartitionID uint64
+	DeviceID int
+
+	AccountName string
+	ContainerName string
+	ObjectName string
+)
+
 type Ring interface {
-	GetNodes(partition uint64) (response []*Device)
-	GetNodesInOrder(partition uint64) (response []*Device)
-	GetJobNodes(partition uint64, localDevice int) (response []*Device, handoff bool)
-	GetPartition(account string, container string, object string) uint64
+	GetNodes(partition PartitionID) (response []*Device)
+	GetNodesInOrder(partition PartitionID) (response []*Device)
+	GetJobNodes(partition PartitionID, localDevice DeviceID) (response []*Device, handoff bool)
+	GetPartition(account AccountName, container ContainerName, object ObjectName) PartitionID
 	LocalDevices(localPort int) (devs []*Device, err error)
 	AllDevices() (devs []Device)
-	GetMoreNodes(partition uint64) MoreNodes
+	GetMoreNodes(partition PartitionID) MoreNodes
 }
 
 type MoreNodes interface {
@@ -49,7 +62,7 @@ type MoreNodes interface {
 }
 
 type Device struct {
-	Id              int     `json:"id"`
+	Id              DeviceID     `json:"id"`
 	Device          string  `json:"device"`
 	Ip              string  `json:"ip"`
 	Meta            string  `json:"meta"`
@@ -88,11 +101,25 @@ type ipPort struct {
 
 type hashMoreNodes struct {
 	r                 *hashRing
-	used, sameRegions map[int]bool
+	used              map[DeviceID]bool
+	sameRegions       map[int]bool
 	sameZones         map[regionZone]bool
 	sameIpPorts       map[ipPort]bool
 	parts, start, inc int
-	partition         uint64
+	partition         PartitionID
+}
+
+
+func (p PartitionID) String() string {
+	return strconv.FormatUint(uint64(p), 10)
+}
+
+func PartitionIDFromString(p string) (PartitionID, error) {
+	partitioni, err := strconv.ParseUint(p, 10, 64)
+	if err != nil {
+		return PartitionID(0), err
+	}
+	return PartitionID(partitioni), nil
 }
 
 func (d *Device) String() string {
@@ -103,14 +130,8 @@ func (r *hashRing) getData() *ringData {
 	return r.data.Load().(*ringData)
 }
 
-func (r *hashRing) GetNodes(partition uint64) (response []*Device) {
-	d := r.getData()
-	if partition >= uint64(len(d.replica2part2devId[0])) {
-		return nil
-	}
-	for i := 0; i < d.ReplicaCount; i++ {
-		response = append(response, &d.Devs[d.replica2part2devId[i][partition]])
-	}
+func (r *hashRing) GetNodes(partition PartitionID) (response []*Device) {
+	response = r.GetNodesInOrder(partition)
 	for i := range response {
 		j := rand.Intn(i + 1)
 		response[i], response[j] = response[j], response[i]
@@ -118,9 +139,9 @@ func (r *hashRing) GetNodes(partition uint64) (response []*Device) {
 	return response
 }
 
-func (r *hashRing) GetNodesInOrder(partition uint64) (response []*Device) {
+func (r *hashRing) GetNodesInOrder(partition PartitionID) (response []*Device) {
 	d := r.getData()
-	if partition >= uint64(len(d.replica2part2devId[0])) {
+	if uint64(partition) >= uint64(len(d.replica2part2devId[0])) {
 		return nil
 	}
 	for i := 0; i < d.ReplicaCount; i++ {
@@ -129,10 +150,10 @@ func (r *hashRing) GetNodesInOrder(partition uint64) (response []*Device) {
 	return response
 }
 
-func (r *hashRing) GetJobNodes(partition uint64, localDevice int) (response []*Device, handoff bool) {
+func (r *hashRing) GetJobNodes(partition PartitionID, localDevice DeviceID) (response []*Device, handoff bool) {
 	d := r.getData()
 	handoff = true
-	if partition >= uint64(len(d.replica2part2devId[0])) {
+	if uint64(partition) >= uint64(len(d.replica2part2devId[0])) {
 		return nil, false
 	}
 	for i := 0; i < d.ReplicaCount; i++ {
@@ -146,21 +167,21 @@ func (r *hashRing) GetJobNodes(partition uint64, localDevice int) (response []*D
 	return response, handoff
 }
 
-func (r *hashRing) GetPartition(account string, container string, object string) uint64 {
+func (r *hashRing) GetPartition(account AccountName, container ContainerName, object ObjectName) PartitionID {
 	d := r.getData()
 	hash := md5.New()
-	hash.Write([]byte(r.prefix + "/" + account))
+	hash.Write([]byte(r.prefix + "/" + string(account)))
 	if container != "" {
-		hash.Write([]byte("/" + container))
+		hash.Write([]byte("/" + string(container)))
 		if object != "" {
-			hash.Write([]byte("/" + object))
+			hash.Write([]byte("/" + string(object)))
 		}
 	}
 	hash.Write([]byte(r.suffix))
 	digest := hash.Sum(nil)
 	// treat as big endian unsigned int
-	val := uint64(digest[0])<<24 | uint64(digest[1])<<16 | uint64(digest[2])<<8 | uint64(digest[3])
-	return val >> d.PartShift
+	val := uint64(digest[0]) << 24 | uint64(digest[1]) << 16 | uint64(digest[2]) << 8 | uint64(digest[3])
+	return PartitionID(val >> d.PartShift)
 }
 
 func (r *hashRing) LocalDevices(localPort int) (devs []*Device, err error) {
@@ -188,7 +209,7 @@ func (r *hashRing) AllDevices() (devs []Device) {
 	return d.Devs
 }
 
-func (r *hashRing) GetMoreNodes(partition uint64) MoreNodes {
+func (r *hashRing) GetMoreNodes(partition PartitionID) MoreNodes {
 	return &hashMoreNodes{r: r, partition: partition, used: nil}
 }
 
@@ -265,7 +286,7 @@ func (m *hashMoreNodes) addDevice(d *Device) {
 func (m *hashMoreNodes) initialize() {
 	d := m.r.getData()
 	m.parts = len(d.replica2part2devId[0])
-	m.used = make(map[int]bool)
+	m.used = make(map[DeviceID]bool)
 	m.sameRegions = make(map[int]bool)
 	m.sameZones = make(map[regionZone]bool)
 	m.sameIpPorts = make(map[ipPort]bool)
@@ -273,9 +294,9 @@ func (m *hashMoreNodes) initialize() {
 		m.addDevice(&d.Devs[mp[m.partition]])
 	}
 	hash := md5.New()
-	hash.Write([]byte(strconv.FormatUint(m.partition, 10)))
+	hash.Write([]byte(string(m.partition)))
 	digest := hash.Sum(nil)
-	m.start = int((uint64(digest[0])<<24 | uint64(digest[1])<<16 | uint64(digest[2])<<8 | uint64(digest[3])) >> d.PartShift)
+	m.start = int((uint64(digest[0]) << 24 | uint64(digest[1]) << 16 | uint64(digest[2]) << 8 | uint64(digest[3])) >> d.PartShift)
 	m.inc = m.parts / 65536
 	if m.inc == 0 {
 		m.inc = 1
@@ -289,13 +310,21 @@ func (m *hashMoreNodes) Next() *Device {
 	}
 	var check func(d *Device) bool
 	if len(m.sameRegions) < d.regionCount {
-		check = func(d *Device) bool { return !m.sameRegions[d.Region] }
+		check = func(d *Device) bool {
+			return !m.sameRegions[d.Region]
+		}
 	} else if len(m.sameZones) < d.zoneCount {
-		check = func(d *Device) bool { return !m.sameZones[regionZone{d.Region, d.Zone}] }
+		check = func(d *Device) bool {
+			return !m.sameZones[regionZone{d.Region, d.Zone}]
+		}
 	} else if len(m.sameIpPorts) < d.ipPortCount {
-		check = func(d *Device) bool { return !m.sameIpPorts[ipPort{d.Region, d.Zone, d.Port, d.Ip}] }
+		check = func(d *Device) bool {
+			return !m.sameIpPorts[ipPort{d.Region, d.Zone, d.Port, d.Ip}]
+		}
 	} else {
-		check = func(d *Device) bool { return !m.used[d.Id] }
+		check = func(d *Device) bool {
+			return !m.used[d.Id]
+		}
 	}
 	for i := 0; i < m.parts; i += m.inc {
 		handoffPart := (i + m.start) % m.parts
@@ -333,7 +362,7 @@ func GetRing(ringType, prefix, suffix string, policy int) (Ring, error) {
 	}
 	if ring, err = LoadRing(fmt.Sprintf("/etc/hummingbird/%s", ringFile), prefix, suffix); err != nil {
 		if ring, err = LoadRing(fmt.Sprintf("/etc/swift/%s", ringFile), prefix, suffix); err != nil {
-			return nil, fmt.Errorf("Error loading %s:%d ring", ringType, policy)
+			return nil, fmt.Errorf("Error loading %s:%d ring: %s", ringType, policy, err)
 		}
 	}
 	return ring, nil

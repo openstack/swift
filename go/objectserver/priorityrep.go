@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ import (
 )
 
 type devLimiter struct {
-	inUse             map[int]int
+	inUse             map[hummingbird.DeviceID]int
 	m                 sync.Mutex
 	max               int
 	somethingFinished chan struct{}
@@ -72,7 +71,11 @@ func (d *devLimiter) waitForSomethingToFinish() {
 
 // doPriRepJobs executes a list of PriorityRepJobs, limiting concurrent jobs per device to deviceMax.
 func doPriRepJobs(jobs []*PriorityRepJob, deviceMax int, client *http.Client) {
-	limiter := &devLimiter{inUse: make(map[int]int), max: deviceMax, somethingFinished: make(chan struct{}, 1)}
+	limiter := &devLimiter{
+		inUse: make(map[hummingbird.DeviceID]int),
+		max: deviceMax,
+		somethingFinished: make(chan struct{}, 1),
+	}
 	wg := sync.WaitGroup{}
 	for len(jobs) > 0 {
 		foundDoable := false
@@ -85,7 +88,7 @@ func doPriRepJobs(jobs []*PriorityRepJob, deviceMax int, client *http.Client) {
 			go func(job *PriorityRepJob) {
 				defer wg.Done()
 				defer limiter.finished(job)
-				url := fmt.Sprintf("http://%s:%d/priorityrep", job.FromDevice.ReplicationIp, job.FromDevice.ReplicationPort+500)
+				url := fmt.Sprintf("http://%s:%d/priorityrep", job.FromDevice.ReplicationIp, job.FromDevice.ReplicationPort + 500)
 				jsonned, err := json.Marshal(job)
 				if err != nil {
 					fmt.Println("Failed to serialize job for some reason:", err)
@@ -104,13 +107,13 @@ func doPriRepJobs(jobs []*PriorityRepJob, deviceMax int, client *http.Client) {
 					return
 				}
 				resp.Body.Close()
-				if resp.StatusCode/100 != 2 {
+				if resp.StatusCode / 100 != 2 {
 					fmt.Printf("Bad status code moving partition %d: %d\n", job.Partition, resp.StatusCode)
 				} else {
 					fmt.Printf("Replicating partition %d from %s/%s\n", job.Partition, job.FromDevice.Ip, job.FromDevice.Device)
 				}
 			}(jobs[i])
-			jobs = append(jobs[:i], jobs[i+1:]...)
+			jobs = append(jobs[:i], jobs[i + 1:]...)
 			break
 		}
 		if !foundDoable {
@@ -123,7 +126,7 @@ func doPriRepJobs(jobs []*PriorityRepJob, deviceMax int, client *http.Client) {
 // getPartMoveJobs takes two rings and creates a list of jobs for any partition moves between them.
 func getPartMoveJobs(oldRing, newRing hummingbird.Ring) []*PriorityRepJob {
 	jobs := make([]*PriorityRepJob, 0)
-	for partition := uint64(0); true; partition++ {
+	for partition := hummingbird.FirstPartitionID; true; partition++ {
 		olddevs := oldRing.GetNodesInOrder(partition)
 		newdevs := newRing.GetNodesInOrder(partition)
 		if olddevs == nil || newdevs == nil {
@@ -182,14 +185,14 @@ func MoveParts(args []string) {
 // getRestoreDeviceJobs takes an ip address and device name, and creates a list of jobs to restore that device's data from peers.
 func getRestoreDeviceJobs(ring hummingbird.Ring, ip string, devName string) []*PriorityRepJob {
 	jobs := make([]*PriorityRepJob, 0)
-	for partition := uint64(0); true; partition++ {
+	for partition := hummingbird.FirstPartitionID; true; partition++ {
 		devs := ring.GetNodesInOrder(partition)
 		if devs == nil {
 			break
 		}
 		for i, dev := range devs {
 			if dev.Device == devName && (dev.Ip == ip || dev.ReplicationIp == ip) {
-				src := devs[(i+1)%len(devs)]
+				src := devs[(i + 1) % len(devs)]
 				jobs = append(jobs, &PriorityRepJob{
 					Partition:  partition,
 					FromDevice: src,
@@ -232,7 +235,7 @@ func RestoreDevice(args []string) {
 	fmt.Println("Done sending jobs.")
 }
 
-func getRescuePartsJobs(objRing hummingbird.Ring, partitions []uint64) []*PriorityRepJob {
+func getRescuePartsJobs(objRing hummingbird.Ring, partitions []hummingbird.PartitionID) []*PriorityRepJob {
 	jobs := make([]*PriorityRepJob, 0)
 	allDevices := objRing.AllDevices()
 	for d := range allDevices {
@@ -272,9 +275,9 @@ func RescueParts(args []string) {
 		return
 	}
 	partsStr := strings.Split(flags.Arg(0), ",")
-	partsInt := make([]uint64, len(partsStr))
+	partsInt := make([]hummingbird.PartitionID, len(partsStr))
 	for i, p := range partsStr {
-		partsInt[i], err = strconv.ParseUint(p, 10, 64)
+		partsInt[i], err = hummingbird.PartitionIDFromString(p)
 		if err != nil {
 			fmt.Println("Invalid Partition:", p)
 			return
