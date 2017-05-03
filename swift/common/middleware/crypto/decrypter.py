@@ -233,7 +233,7 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         :param resp: application response
         :param boundary: multipart boundary string
-        :param body_key: a dict of decryption keys.
+        :param body_key: decryption key for the response body
         :param crypto_meta: crypto_meta for the response body
         :return: generator for decrypted response body
         """
@@ -262,7 +262,7 @@ class DecrypterObjContext(BaseDecrypterContext):
         Decrypts a response body.
 
         :param resp: application response
-        :param body_key: a dict of decryption keys.
+        :param body_key: decryption key for the response body
         :param crypto_meta: crypto_meta for the response body
         :param offset: offset into object content at which response body starts
         :return: generator for decrypted response body
