@@ -507,7 +507,7 @@ def set_object_info_cache(app, env, account, container, obj, resp):
     :param  app: the application object
     :param  account: the unquoted account name
     :param  container: the unquoted container name
-    :param  object: the unquoted object name
+    :param  obj: the unquoted object name
     :param  resp: a GET or HEAD response received from an object server, or
               None if info cache should be cleared
     :returns: the object info

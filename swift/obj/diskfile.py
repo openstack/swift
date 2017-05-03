@@ -297,8 +297,8 @@ def consolidate_hashes(partition_dir):
     Take what's in hashes.pkl and hashes.invalid, combine them, write the
     result back to hashes.pkl, and clear out hashes.invalid.
 
-    :param suffix_dir: absolute path to partition dir containing hashes.pkl
-                       and hashes.invalid
+    :param partition_dir: absolute path to partition dir containing hashes.pkl
+                          and hashes.invalid
 
     :returns: a dict, the suffix hashes (if any), the key 'valid' will be False
               if hashes.pkl is corrupt, cannot be read or does not exist

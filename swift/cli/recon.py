@@ -903,7 +903,7 @@ class SwiftRecon(object):
         print("=" * 79)
 
     def _get_ring_names(self, policy=None):
-        '''
+        """
         Retrieve name of ring files.
 
         If no policy is passed and the server type is object,
@@ -912,7 +912,7 @@ class SwiftRecon(object):
         :param policy: name or index of storage policy, only applicable
          with server_type==object.
          :returns: list of ring names.
-        '''
+        """
         if self.server_type == 'object':
             ring_names = [p.ring_name for p in POLICIES if (
                 p.name == policy or not policy or (
