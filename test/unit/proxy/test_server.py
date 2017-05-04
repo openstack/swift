@@ -118,11 +118,11 @@ def unpatch_policies(f):
     return wrapper
 
 
-def setup():
+def setUpModule():
     do_setup(object_server)
 
 
-def teardown():
+def tearDownModule():
     teardown_servers(_test_context)
 
 
@@ -9243,8 +9243,4 @@ class TestSocketObjectVersions(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    setup()
-    try:
-        unittest.main()
-    finally:
-        teardown()
+    unittest.main()

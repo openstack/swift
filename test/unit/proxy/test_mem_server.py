@@ -16,13 +16,16 @@
 import unittest
 
 from test.unit.proxy import test_server
-from test.unit.proxy.test_server import teardown
 
 from swift.obj import mem_server
 
 
-def setup():
+def setUpModule():
     test_server.do_setup(mem_server)
+
+
+def tearDownModule():
+    test_server.tearDownModule()
 
 
 class TestController(test_server.TestController):
@@ -72,8 +75,4 @@ class TestAccountControllerFakeGetResponse(
 
 
 if __name__ == '__main__':
-    setup()
-    try:
-        unittest.main()
-    finally:
-        teardown()
+    unittest.main()
