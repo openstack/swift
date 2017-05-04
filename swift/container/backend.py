@@ -25,8 +25,8 @@ import six.moves.cPickle as pickle
 from six.moves import range
 import sqlite3
 
-from swift.common.utils import Timestamp, encode_timestamps, decode_timestamps, \
-    extract_swift_bytes
+from swift.common.utils import Timestamp, encode_timestamps, \
+    decode_timestamps, extract_swift_bytes
 from swift.common.db import DatabaseBroker, utf8encode
 
 
