@@ -505,6 +505,7 @@ def set_object_info_cache(app, env, account, container, obj, resp):
     per-request cache only.
 
     :param  app: the application object
+    :param env: the environment used by the current request
     :param  account: the unquoted account name
     :param  container: the unquoted container name
     :param  obj: the unquoted object name
