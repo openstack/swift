@@ -1794,6 +1794,38 @@ ionice_priority               None             I/O scheduling priority of server
                                                I/O priority of the process. Work
                                                only with ionice_class.
                                                Ignored if IOPRIO_CLASS_IDLE is set.
+read_affinity                 None             Specifies which backend servers to
+                                               prefer on reads; used in conjunction
+                                               with the sorting_method option being
+                                               set to 'affinity'. Format is a comma
+                                               separated list of affinity descriptors
+                                               of the form <selection>=<priority>.
+                                               The <selection> may be r<N> for
+                                               selecting nodes in region N or
+                                               r<N>z<M> for selecting nodes in
+                                               region N, zone M. The <priority>
+                                               value should be a whole number
+                                               that represents the priority to
+                                               be given to the selection; lower
+                                               numbers are higher priority.
+                                               Default is empty, meaning no
+                                               preference.
+write_affinity                None             Specifies which backend servers to
+                                               prefer on writes. Format is a comma
+                                               separated list of affinity
+                                               descriptors of the form r<N> for
+                                               region N or r<N>z<M> for region N,
+                                               zone M. Default is empty, meaning no
+                                               preference.
+write_affinity_node_count     2 * replicas     The number of local (as governed by
+                                               the write_affinity setting) nodes to
+                                               attempt to contact first on writes,
+                                               before any non-local ones. The value
+                                               should be an integer number, or use
+                                               '* replicas' at the end to have it
+                                               use the number given times the number
+                                               of replicas for the ring being used
+                                               for the request.
 ============================  ===============  =====================================
 
 [tempauth]

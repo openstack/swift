@@ -1026,26 +1026,42 @@ Set to the number of nodes to contact for a normal request. You can use '* repli
 at the end to have it use the number given times the number of
 replicas for the ring being used for the request. The default is '2 * replicas'.
 .IP \fBread_affinity\fR
-Which backend servers to prefer on reads. Format is r<N> for region
-N or r<N>z<M> for region N, zone M. The value after the equals is
-the priority; lower numbers are higher priority.
-Default is empty, meaning no preference.
-Example: first read from region 1 zone 1, then region 1 zone 2, then anything in region 2, then everything else:
-read_affinity = r1z1=100, r1z2=200, r2=300
+Specifies which backend servers to prefer on reads. Format is a comma
+separated list of affinity descriptors of the form <selection>=<priority>.
+The <selection> may be r<N> for selecting nodes in region N or r<N>z<M> for
+selecting nodes in region N, zone M. The <priority> value should be a whole
+number that represents the priority to be given to the selection; lower numbers
+are higher priority. Default is empty, meaning no preference.
+
+Example: first read from region 1 zone 1, then region 1 zone 2, then anything
+in region 2, then everything else:
+
+.PD 0
+.RS 10
+.IP "read_affinity = r1z1=100, r1z2=200, r2=300"
+.RE
+.PD
 .IP \fBwrite_affinity\fR
-Which backend servers to prefer on writes. Format is r<N> for region
-N or r<N>z<M> for region N, zone M. If this is set, then when
-handling an object PUT request, some number (see setting
-write_affinity_node_count) of local backend servers will be tried
-before any nonlocal ones. Default is empty, meaning no preference.
+Specifies which backend servers to prefer on writes. Format is a comma
+separated list of affinity descriptors of the form r<N> for region N or
+r<N>z<M> for region N, zone M. If this is set, then when handling an object
+PUT request, some number (see setting write_affinity_node_count) of local
+backend servers will be tried before any nonlocal ones. Default is empty,
+meaning no preference.
+
 Example: try to write to regions 1 and 2 before writing to any other
 nodes:
+
+.PD 0
+.RS 10
 write_affinity = r1, r2
+.RE
+.PD
 .IP \fBwrite_affinity_node_count\fR
-The number of local (as governed by the write_affinity setting)
-nodes to attempt to contact first, before any non-local ones. You
-can use '* replicas' at the end to have it use the number given
-times the number of replicas for the ring being used for the
+The number of local (as governed by the write_affinity setting) nodes to
+attempt to contact first on writes, before any non-local ones. The value
+should be an integer number, or use '* replicas' at the end to have it use
+the number given times the number of replicas for the ring being used for the
 request. The default is '2 * replicas'.
 .IP \fBswift_owner_headers\fR
 These are the headers whose values will only be shown to swift_owners. The
