@@ -14,8 +14,6 @@
 # limitations under the License.
 
 
-import eventlet
-import eventlet.wsgi
 import eventlet.greenio
 from six.moves import urllib
 
