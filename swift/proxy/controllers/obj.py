@@ -65,7 +65,7 @@ from swift.common.http import (
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation, ResumingGetter
+    cors_validation, ResumingGetter, update_headers
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -2272,9 +2272,9 @@ class ECObjectController(BaseObjectController):
                 self.app.logger)
             resp = Response(
                 request=req,
-                headers=resp_headers,
                 conditional_response=True,
                 app_iter=app_iter)
+            update_headers(resp, resp_headers)
             try:
                 app_iter.kickoff(req, resp)
             except HTTPException as err_resp:
