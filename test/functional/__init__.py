@@ -616,7 +616,8 @@ def in_process_setup(the_object_server=object_server):
                 node['ip'], node['port'], node['device'], partition, 'PUT',
                 '/' + act, {'X-Timestamp': ts, 'x-trans-id': act})
             resp = conn.getresponse()
-            assert(resp.status == 201)
+            assert resp.status == 201, 'Unable to create account: %s\n%s' % (
+                resp.status, resp.body)
 
     create_account('AUTH_test')
     create_account('AUTH_test2')
