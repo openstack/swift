@@ -173,7 +173,7 @@ The sequence of events and actions are as follows:
   by:
 
       * Putting the URL in the ``preauthurl`` parameter
-      * Putting the <user-token> in ``preauthtoken`` paramater
+      * Putting the <user-token> in ``preauthtoken`` parameter
       * Adding the X-Service-Token to the ``headers`` parameter
 
 
