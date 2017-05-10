@@ -5172,7 +5172,9 @@ class TestObjectController(unittest.TestCase):
         diskfile_mgr.pickle_async_update = fake_pickle_async_update
         with mocked_http_conn(500) as fake_conn, fake_spawn():
             resp = req.get_response(self.object_controller)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        # fake_spawn() above waits on greenthreads to finish;
+        # don't start making assertions until then
+        self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(given_args), 7)
         (objdevice, account, container, obj, data, timestamp,
