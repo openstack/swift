@@ -27,7 +27,7 @@ from tempfile import mkdtemp
 import time
 
 
-from eventlet import listen, spawn, wsgi
+from eventlet import spawn, wsgi
 import mock
 from shutil import rmtree
 import six.moves.cPickle as pickle
@@ -45,6 +45,7 @@ from swift.obj import server as object_server
 from swift.proxy import server as proxy_server
 import swift.proxy.controllers.obj
 
+from test import listen_zero
 from test.unit import write_fake_ring, DEFAULT_TEST_EC_TYPE, debug_logger, \
     connect_tcp, readuntil2crlfs
 
@@ -92,14 +93,14 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
             'allow_versions': 't'}
     if extra_conf:
         conf.update(extra_conf)
-    prolis = listen(('localhost', 0))
-    acc1lis = listen(('localhost', 0))
-    acc2lis = listen(('localhost', 0))
-    con1lis = listen(('localhost', 0))
-    con2lis = listen(('localhost', 0))
-    obj1lis = listen(('localhost', 0))
-    obj2lis = listen(('localhost', 0))
-    obj3lis = listen(('localhost', 0))
+    prolis = listen_zero()
+    acc1lis = listen_zero()
+    acc2lis = listen_zero()
+    con1lis = listen_zero()
+    con2lis = listen_zero()
+    obj1lis = listen_zero()
+    obj2lis = listen_zero()
+    obj3lis = listen_zero()
     objsocks = [obj1lis, obj2lis, obj3lis]
     context["test_sockets"] = \
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis, obj3lis)

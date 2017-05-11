@@ -23,11 +23,13 @@ from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
+from test import listen_zero
 from test.unit import FakeLogger
+from test.unit import debug_logger, patch_policies, mocked_http_conn
 from time import time
 from distutils.dir_util import mkpath
 
-from eventlet import spawn, Timeout, listen
+from eventlet import spawn, Timeout
 from six.moves import range
 
 from swift.obj import updater as object_updater
@@ -38,7 +40,6 @@ from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
-from test.unit import debug_logger, patch_policies, mocked_http_conn
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -304,7 +305,7 @@ class TestObjectUpdater(unittest.TestCase):
                          {'failures': 1, 'unlinks': 1})
         self.assertIsNone(pickle.load(open(op_path)).get('successes'))
 
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
 
         def accepter(sock, return_code):
             try:

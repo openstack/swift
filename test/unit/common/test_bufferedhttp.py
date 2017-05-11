@@ -19,9 +19,11 @@ import unittest
 
 import socket
 
-from eventlet import spawn, Timeout, listen
+from eventlet import spawn, Timeout
 
 from swift.common import bufferedhttp
+
+from test import listen_zero
 
 
 class MockHTTPSConnection(object):
@@ -45,7 +47,7 @@ class MockHTTPSConnection(object):
 class TestBufferedHTTP(unittest.TestCase):
 
     def test_http_connect(self):
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
 
         def accept(expected_par):
             try:

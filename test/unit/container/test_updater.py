@@ -23,13 +23,15 @@ from shutil import rmtree
 from tempfile import mkdtemp
 from test.unit import FakeLogger
 
-from eventlet import spawn, Timeout, listen
+from eventlet import spawn, Timeout
 
 from swift.common import utils
 from swift.container import updater as container_updater
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.ring import RingData
 from swift.common.utils import normalize_timestamp
+
+from test import listen_zero
 
 
 class TestContainerUpdater(unittest.TestCase):
@@ -180,7 +182,7 @@ class TestContainerUpdater(unittest.TestCase):
                 traceback.print_exc()
                 return err
             return None
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
 
         def spawn_accepts():
             events = []
@@ -275,7 +277,7 @@ class TestContainerUpdater(unittest.TestCase):
                 return err
             return None
 
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
 
         def spawn_accepts():
             events = []

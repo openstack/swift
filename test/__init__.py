@@ -33,6 +33,8 @@ except ImportError:
             return result
         return result[:_MAX_LENGTH] + ' [truncated]...'
 
+from eventlet.green import socket
+
 # make unittests pass on all locale
 import swift
 setattr(swift, 'gettext_', lambda x: x)
@@ -72,3 +74,16 @@ def get_config(section_name=None, defaults=None):
             print('Unable to read test config %s - section %s not found'
                   % (config_file, section_name), file=sys.stderr)
     return config
+
+
+def listen_zero():
+    """
+    The eventlet.listen() always sets SO_REUSEPORT, so when called with
+    ("localhost",0), instead of returning unique ports it can return the
+    same port twice. That causes our tests to fail, so open-code it here
+    without SO_REUSEPORT.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(50)
+    return sock

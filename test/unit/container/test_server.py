@@ -27,7 +27,7 @@ from xml.dom import minidom
 import time
 import random
 
-from eventlet import spawn, Timeout, listen
+from eventlet import spawn, Timeout
 import json
 import six
 from six import BytesIO
@@ -45,6 +45,7 @@ from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
+from test import listen_zero
 from test.unit import patch_policies
 
 
@@ -1023,7 +1024,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 400)
 
     def test_account_update_account_override_deleted(self):
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT',
@@ -1041,7 +1042,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(resp.status_int, 201)
 
     def test_PUT_account_update(self):
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
 
         def accept(return_code, expected_timestamp):
             try:
@@ -1901,7 +1902,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(obj['last_modified'], t9.isoformat)
 
     def test_DELETE_account_update(self):
-        bindsock = listen(('127.0.0.1', 0))
+        bindsock = listen_zero()
 
         def accept(return_code, expected_timestamp):
             try:

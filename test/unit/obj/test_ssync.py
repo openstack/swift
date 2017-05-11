@@ -32,6 +32,7 @@ from swift.obj import ssync_sender, server
 from swift.obj.reconstructor import RebuildingECDiskFileStream, \
     ObjectReconstructor
 
+from test import listen_zero
 from test.unit import patch_policies, debug_logger, encode_frag_archive_bodies
 from test.unit.obj.common import BaseTest, FakeReplicator
 
@@ -66,7 +67,7 @@ class TestBaseSsync(BaseTest):
         self.ts_iter = (Timestamp(t)
                         for t in itertools.count(int(time.time())))
         self.rx_ip = '127.0.0.1'
-        sock = eventlet.listen((self.rx_ip, 0))
+        sock = listen_zero()
         self.rx_server = eventlet.spawn(
             eventlet.wsgi.server, sock, self.rx_controller, self.rx_logger)
         self.rx_port = sock.getsockname()[1]
