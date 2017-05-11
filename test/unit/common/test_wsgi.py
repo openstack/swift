@@ -23,7 +23,6 @@ import os
 from textwrap import dedent
 from collections import defaultdict
 
-from eventlet import listen
 import six
 from six import BytesIO
 from six import StringIO
@@ -45,6 +44,7 @@ from swift.common.swob import Request
 from swift.common import wsgi, utils
 from swift.common.storage_policy import POLICIES
 
+from test import listen_zero
 from test.unit import (
     temptree, with_tempdir, write_fake_ring, patch_policies, FakeLogger)
 
@@ -384,7 +384,7 @@ class TestWSGI(unittest.TestCase):
                         with mock.patch('swift.common.wsgi.inspect'):
                             conf = wsgi.appconfig(conf_file)
                             logger = logging.getLogger('test')
-                            sock = listen(('localhost', 0))
+                            sock = listen_zero()
                             wsgi.run_server(conf, logger, sock)
         self.assertEqual('HTTP/1.0',
                          _wsgi.HttpProtocol.default_request_version)
@@ -434,7 +434,7 @@ class TestWSGI(unittest.TestCase):
                                getargspec=argspec_stub):
                 conf = wsgi.appconfig(conf_file)
                 logger = logging.getLogger('test')
-                sock = listen(('localhost', 0))
+                sock = listen_zero()
                 wsgi.run_server(conf, logger, sock)
 
         self.assertTrue(_wsgi.server.called)
@@ -472,7 +472,7 @@ class TestWSGI(unittest.TestCase):
                                 with mock.patch('time.tzset') as mock_tzset:
                                     conf = wsgi.appconfig(conf_dir)
                                     logger = logging.getLogger('test')
-                                    sock = listen(('localhost', 0))
+                                    sock = listen_zero()
                                     wsgi.run_server(conf, logger, sock)
                                     self.assertEqual(os.environ['TZ'], 'UTC+0')
                                     self.assertEqual(mock_tzset.mock_calls,
@@ -529,7 +529,7 @@ class TestWSGI(unittest.TestCase):
                     with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
                         conf = wsgi.appconfig(conf_file)
                         logger = logging.getLogger('test')
-                        sock = listen(('localhost', 0))
+                        sock = listen_zero()
                         wsgi.run_server(conf, logger, sock)
         self.assertEqual('HTTP/1.0',
                          _wsgi.HttpProtocol.default_request_version)
