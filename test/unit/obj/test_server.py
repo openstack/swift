@@ -37,13 +37,14 @@ from collections import defaultdict
 from contextlib import contextmanager
 from textwrap import dedent
 
-from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool, greenthread
+from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
 from eventlet.green import httplib
 
 from nose import SkipTest
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
+from test import listen_zero
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies, \
@@ -4335,7 +4336,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_chunked_put(self):
-        listener = listen(('localhost', 0))
+        listener = listen_zero()
         port = listener.getsockname()[1]
         killer = spawn(wsgi.server, listener, self.object_controller,
                        NullLogger())
@@ -4364,7 +4365,7 @@ class TestObjectController(unittest.TestCase):
         killer.kill()
 
     def test_chunked_content_length_mismatch_zero(self):
-        listener = listen(('localhost', 0))
+        listener = listen_zero()
         port = listener.getsockname()[1]
         killer = spawn(wsgi.server, listener, self.object_controller,
                        NullLogger())
@@ -6841,7 +6842,7 @@ class TestObjectServer(unittest.TestCase):
         self.logger = debug_logger('test-object-server')
         self.app = object_server.ObjectController(
             self.conf, logger=self.logger)
-        sock = listen(('127.0.0.1', 0))
+        sock = listen_zero()
         self.server = spawn(wsgi.server, sock, self.app, utils.NullLogger())
         self.port = sock.getsockname()[1]
 
@@ -7517,7 +7518,7 @@ class TestZeroCopy(unittest.TestCase):
         self.df_mgr = diskfile.DiskFileManager(
             conf, self.object_controller.logger)
 
-        listener = listen(('localhost', 0))
+        listener = listen_zero()
         port = listener.getsockname()[1]
         self.wsgi_greenlet = spawn(
             wsgi.server, listener, self.object_controller, NullLogger())

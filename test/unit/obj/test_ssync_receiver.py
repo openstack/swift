@@ -33,7 +33,7 @@ from swift.obj import server
 from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
 
-from test import unit
+from test import listen_zero, unit
 from test.unit import debug_logger, patch_policies, make_timestamp_iter
 
 
@@ -1933,7 +1933,6 @@ class TestSsyncRxServer(unittest.TestCase):
     # server socket.
 
     def setUp(self):
-        self.rx_ip = '127.0.0.1'
         # dirs
         self.tmpdir = tempfile.mkdtemp()
         self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')
@@ -1948,7 +1947,8 @@ class TestSsyncRxServer(unittest.TestCase):
         }
         self.rx_logger = debug_logger('test-object-server')
         rx_server = server.ObjectController(self.conf, logger=self.rx_logger)
-        self.sock = eventlet.listen((self.rx_ip, 0))
+        self.rx_ip = '127.0.0.1'
+        self.sock = listen_zero()
         self.rx_server = eventlet.spawn(
             eventlet.wsgi.server, self.sock, rx_server, utils.NullLogger())
         self.rx_port = self.sock.getsockname()[1]
