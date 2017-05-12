@@ -55,21 +55,21 @@ class TestDomainRemap(unittest.TestCase):
                                           'SERVER_NAME': 'AUTH_a.example.com'},
                             headers={'Host': None})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, '/v1/AUTH_a')
+        self.assertEqual(resp, '/v1/AUTH_a/')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, '/v1/AUTH_a')
+        self.assertEqual(resp, '/v1/AUTH_a/')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'AUTH-uuid.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, '/v1/AUTH_uuid')
+        self.assertEqual(resp, '/v1/AUTH_uuid/')
 
     def test_domain_remap_account_container(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, '/v1/AUTH_a/c')
+        self.assertEqual(resp, '/v1/AUTH_a/c/')
 
     def test_domain_remap_extra_subdomains(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -81,13 +81,35 @@ class TestDomainRemap(unittest.TestCase):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, '/v1/AUTH_a')
+        self.assertEqual(resp, '/v1/AUTH_a/')
 
     def test_domain_remap_account_container_with_path_root(self):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, '/v1/AUTH_a/c')
+        self.assertEqual(resp, '/v1/AUTH_a/c/')
+
+    def test_domain_remap_account_container_with_path_obj_slash_v1(self):
+        # Include http://localhost because urlparse used in Request.__init__
+        # parse //v1 as http://v1
+        req = Request.blank('http://localhost//v1',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, '/v1/AUTH_a/c//v1')
+
+    def test_domain_remap_account_container_with_root_path_obj_slash_v1(self):
+        req = Request.blank('/v1//v1',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, '/v1/AUTH_a/c//v1')
+
+    def test_domain_remap_account_container_with_path_trailing_slash(self):
+        req = Request.blank('/obj/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, '/v1/AUTH_a/c/obj/')
 
     def test_domain_remap_account_container_with_path(self):
         req = Request.blank('/obj', environ={'REQUEST_METHOD': 'GET'},
