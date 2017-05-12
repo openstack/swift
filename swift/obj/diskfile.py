@@ -1534,7 +1534,7 @@ class BaseDiskFileWriter(object):
         self._put_succeeded = True
         if cleanup:
             try:
-                self.manager.cleanup_ondisk_files(self._datadir)['files']
+                self.manager.cleanup_ondisk_files(self._datadir)
             except OSError:
                 logging.exception(_('Problem cleaning up %s'), self._datadir)
 
@@ -2725,7 +2725,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     'No space left on device for %(file)s (%(err)s)' % params)
             else:
                 try:
-                    self.manager.cleanup_ondisk_files(self._datadir)['files']
+                    self.manager.cleanup_ondisk_files(self._datadir)
                 except OSError as os_err:
                     self.manager.logger.exception(
                         _('Problem cleaning up %(datadir)s (%(err)s)'),
