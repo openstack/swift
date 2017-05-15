@@ -42,21 +42,19 @@ from collections import defaultdict
 import uuid
 
 import mock
-from eventlet import sleep, spawn, wsgi, listen, Timeout, debug
+from eventlet import sleep, spawn, wsgi, Timeout, debug
 from eventlet.green import httplib
 from six import BytesIO
 from six import StringIO
 from six.moves import range
 from six.moves.urllib.parse import quote
 
-from swift.common.utils import hash_path, storage_directory, \
-    parse_content_type, parse_mime_headers, \
-    iter_multipart_mime_documents, public
-
+from test import listen_zero
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
     mocked_http_conn, DEFAULT_TEST_EC_TYPE, make_timestamp_iter)
+from test.unit.helpers import setup_servers, teardown_servers
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.obj import server as object_server
@@ -66,7 +64,9 @@ from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
     APIVersionError, ChunkWriteTimeout
 from swift.common import utils, constraints
-from swift.common.utils import mkdirs, NullLogger
+from swift.common.utils import hash_path, storage_directory, \
+    parse_content_type, parse_mime_headers, \
+    iter_multipart_mime_documents, public, mkdirs, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_cache_key, cors_validation, \
@@ -79,8 +79,6 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
 from swift.common.storage_policy import StoragePolicy, POLICIES
 import swift.common.request_helpers
 from swift.common.request_helpers import get_sys_meta_prefix
-
-from test.unit.helpers import setup_servers, teardown_servers
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -8558,7 +8556,7 @@ class TestSocketObjectVersions(unittest.TestCase):
 
     def setUp(self):
         global _test_sockets
-        self.prolis = prolis = listen(('localhost', 0))
+        self.prolis = prolis = listen_zero()
         self._orig_prolis = _test_sockets[0]
         allowed_headers = ', '.join([
             'content-encoding',
