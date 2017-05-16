@@ -19,15 +19,16 @@ domains, but does not provide any guarantees such as placing at least one
 replica of every partition into each region. Composite rings are intended to
 provide operators with greater control over the dispersion of object replicas
 or fragments across a cluster, in particular when there is a desire to
-guarantee that some replicas or fragments are placed in certain failure
-domains.
+have strict guarantees that some replicas or fragments are placed in certain
+failure domains. This is particularly important for policies with duplicated
+erasure-coded fragments.
 
 A composite ring comprises two or more component rings that are combined to
-form a single ring with a replica count equal to the sum of the component
-rings. The component rings are built independently, using distinct devices in
-distinct regions, which means that the dispersion of replicas between the
-components can be guaranteed. The composite_builder utilities may
-then be used to combine components into a composite ring.
+form a single ring with a replica count equal to the sum of replica counts
+from the component rings. The component rings are built independently, using
+distinct devices in distinct regions, which means that the dispersion of
+replicas between the components can be guaranteed. The ``composite_builder``
+utilities may then be used to combine components into a composite ring.
 
 For example, consider a normal ring ``ring0`` with replica count of 4 and
 devices in two regions ``r1`` and ``r2``. Despite the best efforts of the
@@ -56,15 +57,16 @@ composite ring.
 For rings to be formed into a composite they must satisfy the following
 requirements:
 
-* All component rings must have the same number of partitions
+* All component rings must have the same part power (and therefore number of
+  partitions)
 * All component rings must have an integer replica count
 * Each region may only be used in one component ring
 * Each device may only be used in one component ring
 
-Under the hood, the composite ring has a replica2part2dev_id table that is the
-union of the tables from the component rings. Whenever the component rings are
-rebalanced, the composite ring must be rebuilt. There is no dynamic rebuilding
-of the composite ring.
+Under the hood, the composite ring has a ``_replica2part2dev_id`` table that is
+the union of the tables from the component rings. Whenever the component rings
+are rebalanced, the composite ring must be rebuilt. There is no dynamic
+rebuilding of the composite ring.
 
 .. note::
     The order in which component rings are combined into a composite ring is
@@ -77,11 +79,11 @@ of the composite ring.
 
     The ``id`` of each component RingBuilder is therefore stored in metadata of
     the composite and used to check for the component ordering when the same
-    composite ring is re-composed. RingBuilder id's are only assigned when a
-    RingBuilder instance is first saved. Older RingBuilders instances loaded
-    from file may not have an ``id`` assigned and will need to be saved before
-    they can be used as components of a composite ring. This can be achieved
-    by, for example::
+    composite ring is re-composed. RingBuilder ``id``\s are normally assigned
+    when a RingBuilder instance is first saved. Older RingBuilder instances
+    loaded from file may not have an ``id`` assigned and will need to be saved
+    before they can be used as components of a composite ring. This can be
+    achieved by, for example::
 
         swift-ring-builder <builder-file> rebalance --force
 
@@ -147,7 +149,7 @@ def pre_validate_all_builders(builders):
     regions_info = {}
     for builder in builders:
         regions_info[builder] = set(
-            [dev['region'] for dev in builder._iter_devs()])
+            dev['region'] for dev in builder._iter_devs())
     for first_region_set, second_region_set in combinations(
             regions_info.values(), 2):
         inter = first_region_set & second_region_set
