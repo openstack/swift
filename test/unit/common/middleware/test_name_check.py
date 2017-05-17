@@ -66,12 +66,10 @@ class TestNameCheckMiddleware(unittest.TestCase):
 
     def test_maximum_length_from_config(self):
         # test invalid length
-        orig_test_check = self.test_check
-        conf = {'maximum_length': "500"}
-        self.test_check = name_check.filter_factory(conf)(FakeApp())
-        path = '/V1.0/a/c' + 'o' * (500 - 8)
+        app = name_check.filter_factory({'maximum_length': "500"})(FakeApp())
+        path = '/V1.0/a/c/' + 'o' * (500 - 9)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
-                             ).get_response(self.test_check)
+                             ).get_response(app)
         self.assertEqual(
             resp.body,
             ("Object/Container/Account name longer than the allowed "
@@ -79,12 +77,11 @@ class TestNameCheckMiddleware(unittest.TestCase):
         self.assertEqual(resp.status_int, 400)
 
         # test valid length
-        path = '/V1.0/a/c' + 'o' * (MAX_LENGTH - 10)
+        path = '/V1.0/a/c/' + 'o' * (500 - 10)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
-                             ).get_response(self.test_check)
+                             ).get_response(app)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, 'OK')
-        self.test_check = orig_test_check
 
     def test_invalid_length(self):
         path = '/V1.0/' + 'c' * (MAX_LENGTH - 5)
