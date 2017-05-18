@@ -23,3 +23,11 @@ Ring Builder
     :members:
     :undoc-members:
     :show-inheritance:
+
+Composite Ring Builder
+======================
+
+.. automodule:: swift.common.ring.composite_builder
+    :members:
+    :undoc-members:
+    :show-inheritance:

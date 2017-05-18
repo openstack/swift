@@ -1,4 +1,4 @@
-__RINGFILE__, build version 4
+__RINGFILE__, build version 4, id __BUILDER_ID__
 256 partitions, 3.000000 replicas, 4 regions, 4 zones, 4 devices, 100.00 balance, 0.00 dispersion
 The minimum number of hours before a partition can be reassigned is 1 (0:00:00 remaining)
 The overload factor is 0.00% (0.000000)

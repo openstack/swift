@@ -466,7 +466,12 @@ swift-ring-builder <builder_file>
         DEL - indicates that the device is marked for removal from
               ring and will be removed in next rebalance.
         """
-        print('%s, build version %d' % (builder_file, builder.version))
+        try:
+            builder_id = builder.id
+        except AttributeError:
+            builder_id = "(not assigned)"
+        print('%s, build version %d, id %s' %
+              (builder_file, builder.version, builder_id))
         regions = 0
         zones = 0
         balance = 0

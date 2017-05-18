@@ -2029,6 +2029,109 @@ class TestRingBuilder(unittest.TestCase):
                                                  mock_fh.__enter__(),
                                                  protocol=2)
 
+    def test_id(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        # check id is assigned after save
+        builder_file = os.path.join(self.testdir, 'test_save.builder')
+        rb.save(builder_file)
+        assigned_id = rb.id
+        # check id doesn't change when builder is saved again
+        rb.save(builder_file)
+        self.assertEqual(assigned_id, rb.id)
+        # check same id after loading
+        loaded_rb = ring.RingBuilder.load(builder_file)
+        self.assertEqual(assigned_id, loaded_rb.id)
+        # check id doesn't change when loaded builder is saved
+        rb.save(builder_file)
+        self.assertEqual(assigned_id, rb.id)
+        # check same id after loading again
+        loaded_rb = ring.RingBuilder.load(builder_file)
+        self.assertEqual(assigned_id, loaded_rb.id)
+        # check id remains once assigned, even when save fails
+        with self.assertRaises(IOError):
+            rb.save(os.path.join(
+                self.testdir, 'non_existent_dir', 'test_save.file'))
+        self.assertEqual(assigned_id, rb.id)
+
+        # sanity check that different builders get different id's
+        other_rb = ring.RingBuilder(8, 3, 1)
+        other_builder_file = os.path.join(self.testdir, 'test_save_2.builder')
+        other_rb.save(other_builder_file)
+        self.assertNotEqual(assigned_id, other_rb.id)
+
+    def test_id_copy_from(self):
+        # copy_from preserves the same id
+        orig_rb = ring.RingBuilder(8, 3, 1)
+        copy_rb = ring.RingBuilder(8, 3, 1)
+        copy_rb.copy_from(orig_rb)
+        for rb in(orig_rb, copy_rb):
+            with self.assertRaises(AttributeError) as cm:
+                rb.id
+            self.assertIn('id attribute has not been initialised',
+                          cm.exception.message)
+
+        builder_file = os.path.join(self.testdir, 'test_save.builder')
+        orig_rb.save(builder_file)
+        copy_rb = ring.RingBuilder(8, 3, 1)
+        copy_rb.copy_from(orig_rb)
+        self.assertEqual(orig_rb.id, copy_rb.id)
+
+    def test_id_legacy_builder_file(self):
+        builder_file = os.path.join(self.testdir, 'legacy.builder')
+
+        def do_test():
+            # load legacy file
+            loaded_rb = ring.RingBuilder.load(builder_file)
+            with self.assertRaises(AttributeError) as cm:
+                loaded_rb.id
+            self.assertIn('id attribute has not been initialised',
+                          cm.exception.message)
+
+            # check saving assigns an id, and that it is persisted
+            loaded_rb.save(builder_file)
+            assigned_id = loaded_rb.id
+            self.assertIsNotNone(assigned_id)
+            loaded_rb = ring.RingBuilder.load(builder_file)
+            self.assertEqual(assigned_id, loaded_rb.id)
+
+        # older builders had no id so the pickled builder dict had no id key
+        rb = ring.RingBuilder(8, 3, 1)
+        orig_to_dict = rb.to_dict
+
+        def mock_to_dict():
+            result = orig_to_dict()
+            result.pop('id')
+            return result
+
+        with mock.patch.object(rb, 'to_dict', mock_to_dict):
+            rb.save(builder_file)
+        do_test()
+
+        # even older builders pickled the class instance, which would have had
+        # no _id attribute
+        rb = ring.RingBuilder(8, 3, 1)
+        del rb.logger  # logger type cannot be pickled
+        del rb._id
+        builder_file = os.path.join(self.testdir, 'legacy.builder')
+        with open(builder_file, 'wb') as f:
+            pickle.dump(rb, f, protocol=2)
+        do_test()
+
+    def test_id_not_initialised_errors(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        # id is not set until builder has been saved
+        with self.assertRaises(AttributeError) as cm:
+            rb.id
+        self.assertIn('id attribute has not been initialised',
+                      cm.exception.message)
+        # save must succeed for id to be assigned
+        with self.assertRaises(IOError):
+            rb.save(self.testdir + '/non-existent-dir/foo.builder')
+        with self.assertRaises(AttributeError) as cm:
+            rb.id
+        self.assertIn('id attribute has not been initialised',
+                      cm.exception.message)
+
     def test_search_devs(self):
         rb = ring.RingBuilder(8, 3, 1)
         devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,

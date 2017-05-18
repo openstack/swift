@@ -38,6 +38,8 @@ to be assigned to a device who's failure domain does not already have a
 replica for the part.  Only a single replica of a part may be assigned to each
 device - you must have as many devices as replicas.
 
+.. _ring_builder:
+
 ------------
 Ring Builder
 ------------
@@ -348,6 +350,10 @@ Ring Builder Analyzer
 ---------------------
 .. automodule:: swift.cli.ring_builder_analyzer
 
+---------------
+Composite Rings
+---------------
+.. automodule:: swift.common.ring.composite_builder
 
 -------
 History

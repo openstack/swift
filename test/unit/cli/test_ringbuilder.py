@@ -95,7 +95,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         except OSError:
             pass
 
-    def assertOutputStub(self, output, ext='stub'):
+    def assertOutputStub(self, output, ext='stub',
+                         builder_id='(not assigned)'):
         """
         assert that the given output string is equal to a in-tree stub file,
         if a test needs to check multiple outputs it can use custom ext's
@@ -113,6 +114,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             else:
                 self.fail('%r could not be read (%s)' % (filepath, e))
         output = output.replace(self.tempfile, '__RINGFILE__')
+        stub = stub.replace('__BUILDER_ID__', builder_id)
         for i, (value, expected) in enumerate(
                 itertools.izip_longest(
                     output.splitlines(), stub.splitlines())):
@@ -179,6 +181,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                       'device': 'sdd4'
                       })
         ring.save(self.tmpfile)
+        return ring
 
     def assertSystemExit(self, return_code, func, *argv):
         with self.assertRaises(SystemExit) as cm:
@@ -1656,9 +1659,15 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
     def test_default_output(self):
-        self.create_sample_ring()
+        with mock.patch('uuid.uuid4', return_value=mock.Mock(hex=None)):
+            self.create_sample_ring()
         out, err = self.run_srb('')
         self.assertOutputStub(out)
+
+    def test_default_output_id_assigned(self):
+        ring = self.create_sample_ring()
+        out, err = self.run_srb('')
+        self.assertOutputStub(out, builder_id=ring.id)
 
     def test_ipv6_output(self):
         ring = RingBuilder(8, 3, 1)
@@ -1697,13 +1706,13 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                       })
         ring.save(self.tmpfile)
         out, err = self.run_srb('')
-        self.assertOutputStub(out)
+        self.assertOutputStub(out, builder_id=ring.id)
 
     def test_default_show_removed(self):
         mock_stdout = six.StringIO()
         mock_stderr = six.StringIO()
 
-        self.create_sample_ring()
+        ring = self.create_sample_ring()
 
         # Note: it also sets device's weight to zero.
         argv = ["", self.tmpfile, "remove", "--id", "1"]
@@ -1719,7 +1728,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
-        expected = "%s, build version 6\n" \
+        expected = "%s, build version 6, id %s\n" \
             "64 partitions, 3.000000 replicas, 4 regions, 4 zones, " \
             "4 devices, 100.00 balance, 0.00 dispersion\n" \
             "The minimum number of hours before a partition can be " \
@@ -1741,7 +1750,8 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             "          0 -100.00       \n" \
             "            3      3    3  127.0.0.4:6203 " \
             "     127.0.0.4:6203  sdd4   0.00" \
-            "          0    0.00       \n" % (self.tmpfile, self.tmpfile)
+            "          0    0.00       \n" %\
+                   (self.tmpfile, ring.id, self.tmpfile)
         self.assertEqual(expected, mock_stdout.getvalue())
 
     def test_default_ringfile_check(self):
