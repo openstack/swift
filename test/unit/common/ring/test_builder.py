@@ -2119,7 +2119,8 @@ class TestRingBuilder(unittest.TestCase):
                       cm.exception.message)
         # save must succeed for id to be assigned
         with self.assertRaises(IOError):
-            rb.save(self.testdir + '/non-existent-dir/foo.builder')
+            rb.save(os.path.join(
+                self.testdir, 'non-existent-dir', 'foo.builder'))
         with self.assertRaises(AttributeError) as cm:
             rb.id
         self.assertIn('id attribute has not been initialised',

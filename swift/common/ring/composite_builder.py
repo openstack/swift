@@ -372,7 +372,7 @@ class CompositeRingBuilder(object):
         ring_data = crb.compose()
 
         # save the composite ring file
-        ring_data.save("composite_ring.gz"")
+        ring_data.save("composite_ring.gz")
 
         # save the composite metadata file
         crb.save("composite_builder.composite")

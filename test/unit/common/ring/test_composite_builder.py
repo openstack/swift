@@ -325,7 +325,7 @@ class TestCompositeBuilder(BaseTestCompositeBuilder):
         # (default, part power is 6 with create_sample_ringbuilders)
         builders = self.create_sample_ringbuilders(1)
 
-        # prepare another ring which has different part power
+        # prepare another ring which has different replica count
         builder = RingBuilder(6, 1, 1)
         _, fname = tempfile.mkstemp(dir=self.tmpdir)
         for _ in range(4):
@@ -383,9 +383,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
     def test_compose_with_builder_files(self):
         cb_file = os.path.join(self.tmpdir, 'test-composite-ring.json')
         builders = self.create_sample_ringbuilders(2)
-        cb = CompositeRingBuilder(self.save_builders(builders))
-        cb.compose().save(self.output_ring)
-        self.check_composite_ring(self.output_ring, builders)
+        cb, _ = self._make_composite_builder(builders)
         cb.save(cb_file)
 
         for i, b in enumerate(builders):
@@ -424,6 +422,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
         # ...unless we force it
         cb.compose(force=True).save(self.output_ring)
         self.check_composite_ring(self.output_ring, builders)
+        self.assertEqual(2, cb.version)
         # check composite builder persists ok again
         cb_file = os.path.join(self.tmpdir, 'test-composite-ring.json2')
         cb.save(cb_file)
@@ -661,7 +660,7 @@ class TestCompositeRingBuilder(BaseTestCompositeBuilder):
             self.assertIn("Attribute mismatch for id", line)
         self.assertEqual(1, cb.version)
 
-    def test_compose_different_replica_count(self):
+    def test_compose_replica_count_changed(self):
         # not ok to change the number of replicas in a ring
         builders = self.create_sample_ringbuilders(3)
         cb, builder_files = self._make_composite_builder(builders)
