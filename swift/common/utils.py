@@ -3583,6 +3583,12 @@ def ismount_raw(path):
         # path/.. is the same i-node as path
         return True
 
+    # Device and inode checks are not properly working inside containerized
+    # environments, therefore using a workaround to check if there is a
+    # stubfile placed by an operator
+    if os.path.isfile(os.path.join(path, ".ismount")):
+        return True
+
     return False
 
 
