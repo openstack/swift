@@ -13,6 +13,165 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Test authentication and authorization system.
+
+Add to your pipeline in proxy-server.conf, such as::
+
+    [pipeline:main]
+    pipeline = catch_errors cache tempauth proxy-server
+
+Set account auto creation to true in proxy-server.conf::
+
+    [app:proxy-server]
+    account_autocreate = true
+
+And add a tempauth filter section, such as::
+
+    [filter:tempauth]
+    use = egg:swift#tempauth
+    user_admin_admin = admin .admin .reseller_admin
+    user_test_tester = testing .admin
+    user_test2_tester2 = testing2 .admin
+    user_test_tester3 = testing3
+    # To allow accounts/users with underscores you can base64 encode them.
+    # Here is the account "under_score" and username "a_b" (note the lack
+    # of padding equal signs):
+    user64_dW5kZXJfc2NvcmU_YV9i = testing4
+
+See the proxy-server.conf-sample for more information.
+
+Account/User List
+^^^^^^^^^^^^^^^^^
+
+All accounts/users are listed in the filter section. The format is::
+
+    user_<account>_<user> = <key> [group] [group] [...] [storage_url]
+
+If you want to be able to include underscores in the ``<account>`` or
+``<user>`` portions, you can base64 encode them (with *no* equal signs)
+in a line like this::
+
+    user64_<account_b64>_<user_b64> = <key> [group] [...] [storage_url]
+
+There are two special groups:
+
+* ``.reseller_admin`` -- can do anything to any account for this auth
+* ``.admin`` -- can do anything within the account
+
+If neither of these groups are specified, the user can only access
+containers that have been explicitly allowed for them by a ``.admin`` or
+``.reseller_admin``.
+
+The trailing optional ``storage_url`` allows you to specify an alternate
+URL to hand back to the user upon authentication. If not specified, this
+defaults to::
+
+    $HOST/v1/<reseller_prefix>_<account>
+
+Where ``$HOST`` will do its best to resolve to what the requester would
+need to use to reach this host, ``<reseller_prefix>`` is from this section,
+and ``<account>`` is from the ``user_<account>_<user>`` name. Note that
+``$HOST`` cannot possibly handle when you have a load balancer in front of
+it that does https while TempAuth itself runs with http; in such a case,
+you'll have to specify the  ``storage_url_scheme`` configuration value as
+an override.
+
+Multiple Reseller Prefix Items
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The reseller prefix specifies which parts of the account namespace this
+middleware is responsible for managing authentication and authorization.
+By default, the prefix is 'AUTH' so accounts and tokens are prefixed
+by 'AUTH\_'. When a request's token and/or path start with 'AUTH\_', this
+middleware knows it is responsible.
+
+We allow the reseller prefix to be a list. In tempauth, the first item
+in the list is used as the prefix for tokens and user groups. The
+other prefixes provide alternate accounts that user's can access. For
+example if the reseller prefix list is 'AUTH, OTHER', a user with
+admin access to 'AUTH_account' also has admin access to
+'OTHER_account'.
+
+Required Group
+^^^^^^^^^^^^^^
+
+The group ``.admin`` is normally needed to access an account (ACLs provide
+an additional way to access an account). You can specify the
+``require_group`` parameter. This means that you also need the named group
+to access an account. If you have several reseller prefix items, prefix
+the ``require_group`` parameter with the appropriate prefix.
+
+X-Service-Token
+^^^^^^^^^^^^^^^
+
+If an ``X-Service-Token`` is presented in the request headers, the groups
+derived from the token are appended to the roles derived from
+``X-Auth-Token``. If ``X-Auth-Token`` is missing or invalid,
+``X-Service-Token`` is not processed.
+
+The ``X-Service-Token`` is useful when combined with multiple reseller
+prefix items. In the following configuration, accounts prefixed
+``SERVICE\_`` are only accessible if ``X-Auth-Token`` is from the end-user
+and ``X-Service-Token`` is from the ``glance`` user::
+
+   [filter:tempauth]
+   use = egg:swift#tempauth
+   reseller_prefix = AUTH, SERVICE
+   SERVICE_require_group = .service
+   user_admin_admin = admin .admin .reseller_admin
+   user_joeacct_joe = joepw .admin
+   user_maryacct_mary = marypw .admin
+   user_glance_glance = glancepw .service
+
+The name ``.service`` is an example. Unlike ``.admin`` and
+``.reseller_admin`` it is not a reserved name.
+
+Please note that ACLs can be set on service accounts and are matched
+against the identity validated by ``X-Auth-Token``. As such ACLs can grant
+access to a service account's container without needing to provide a
+service token, just like any other cross-reseller request using ACLs.
+
+Account ACLs
+^^^^^^^^^^^^
+
+If a swift_owner issues a POST or PUT to the account with the
+``X-Account-Access-Control`` header set in the request, then this may
+allow certain types of access for additional users.
+
+* Read-Only: Users with read-only access can list containers in the
+  account, list objects in any container, retrieve objects, and view
+  unprivileged account/container/object metadata.
+* Read-Write: Users with read-write access can (in addition to the
+  read-only privileges) create objects, overwrite existing objects,
+  create new containers, and set unprivileged container/object
+  metadata.
+* Admin: Users with admin access are swift_owners and can perform
+  any action, including viewing/setting privileged metadata (e.g.
+  changing account ACLs).
+
+To generate headers for setting an account ACL::
+
+    from swift.common.middleware.acl import format_acl
+    acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
+    header_value = format_acl(version=2, acl_dict=acl_data)
+
+To generate a curl command line from the above::
+
+    token=...
+    storage_url=...
+    python -c '
+      from swift.common.middleware.acl import format_acl
+      acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
+      headers = {'X-Account-Access-Control':
+                 format_acl(version=2, acl_dict=acl_data)}
+      header_str = ' '.join(["-H '%s: %s'" % (k, v)
+                             for k, v in headers.items()])
+      print('curl -D- -X POST -H "x-auth-token: $token" %s '
+            '$storage_url' % header_str)
+    '
+"""
+
 from __future__ import print_function
 
 from time import time
@@ -42,123 +201,6 @@ DEFAULT_TOKEN_LIFE = 86400
 
 class TempAuth(object):
     """
-    Test authentication and authorization system.
-
-    Add to your pipeline in proxy-server.conf, such as::
-
-        [pipeline:main]
-        pipeline = catch_errors cache tempauth proxy-server
-
-    Set account auto creation to true in proxy-server.conf::
-
-        [app:proxy-server]
-        account_autocreate = true
-
-    And add a tempauth filter section, such as::
-
-        [filter:tempauth]
-        use = egg:swift#tempauth
-        user_admin_admin = admin .admin .reseller_admin
-        user_test_tester = testing .admin
-        user_test2_tester2 = testing2 .admin
-        user_test_tester3 = testing3
-        # To allow accounts/users with underscores you can base64 encode them.
-        # Here is the account "under_score" and username "a_b" (note the lack
-        # of padding equal signs):
-        user64_dW5kZXJfc2NvcmU_YV9i = testing4
-
-
-    See the proxy-server.conf-sample for more information.
-
-    Multiple Reseller Prefix Items:
-
-    The reseller prefix specifies which parts of the account namespace this
-    middleware is responsible for managing authentication and authorization.
-    By default, the prefix is 'AUTH' so accounts and tokens are prefixed
-    by 'AUTH\_'. When a request's token and/or path start with 'AUTH\_', this
-    middleware knows it is responsible.
-
-    We allow the reseller prefix to be a list. In tempauth, the first item
-    in the list is used as the prefix for tokens and user groups. The
-    other prefixes provide alternate accounts that user's can access. For
-    example if the reseller prefix list is 'AUTH, OTHER', a user with
-    admin access to 'AUTH_account' also has admin access to
-    'OTHER_account'.
-
-    Required Group:
-
-    The group .admin is normally needed to access an account (ACLs provide
-    an additional way to access an account). You can specify the
-    ``require_group`` parameter. This means that you also need the named group
-    to access an account. If you have several reseller prefix items, prefix
-    the ``require_group`` parameter with the appropriate prefix.
-
-    X-Service-Token:
-
-    If an X-Service-Token is presented in the request headers, the groups
-    derived from the token are appended to the roles derived from
-    X-Auth-Token. If X-Auth-Token is missing or invalid, X-Service-Token
-    is not processed.
-
-    The X-Service-Token is useful when combined with multiple reseller prefix
-    items. In the following configuration, accounts prefixed 'SERVICE\_'
-    are only accessible if X-Auth-Token is from the end-user and
-    X-Service-Token is from the ``glance`` user::
-
-       [filter:tempauth]
-       use = egg:swift#tempauth
-       reseller_prefix = AUTH, SERVICE
-       SERVICE_require_group = .service
-       user_admin_admin = admin .admin .reseller_admin
-       user_joeacct_joe = joepw .admin
-       user_maryacct_mary = marypw .admin
-       user_glance_glance = glancepw .service
-
-    The name .service is an example. Unlike .admin and .reseller_admin
-    it is not a reserved name.
-
-    Please note that ACLs can be set on service accounts and are matched
-    against the identity validated by X-Auth-Token. As such ACLs can grant
-    access to a service account's container without needing to provide a
-    service token, just like any other cross-reseller request using ACLs.
-
-    Account ACLs:
-        If a swift_owner issues a POST or PUT to the account, with the
-        X-Account-Access-Control header set in the request, then this may
-        allow certain types of access for additional users.
-
-        * Read-Only: Users with read-only access can list containers in the
-          account, list objects in any container, retrieve objects, and view
-          unprivileged account/container/object metadata.
-        * Read-Write: Users with read-write access can (in addition to the
-          read-only privileges) create objects, overwrite existing objects,
-          create new containers, and set unprivileged container/object
-          metadata.
-        * Admin: Users with admin access are swift_owners and can perform
-          any action, including viewing/setting privileged metadata (e.g.
-          changing account ACLs).
-
-    To generate headers for setting an account ACL::
-
-        from swift.common.middleware.acl import format_acl
-        acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
-        header_value = format_acl(version=2, acl_dict=acl_data)
-
-    To generate a curl command line from the above::
-
-        token=...
-        storage_url=...
-        python -c '
-          from swift.common.middleware.acl import format_acl
-          acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
-          headers = {'X-Account-Access-Control':
-                     format_acl(version=2, acl_dict=acl_data)}
-          header_str = ' '.join(["-H '%s: %s'" % (k, v)
-                                 for k, v in headers.items()])
-          print('curl -D- -X POST -H "x-auth-token: $token" %s '
-                '$storage_url' % header_str)
-        '
-
     :param app: The next WSGI app in the pipeline
     :param conf: The dict of configuration values from the Paste config file
     """

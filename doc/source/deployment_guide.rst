@@ -1920,89 +1920,14 @@ policy with index 3::
     * ``read_affinity = r1=100`` (set in the proxy-server section)
     * ``write_affinity = r0`` (inherited from the ``[DEFAULT]`` section)
 
+Proxy Middlewares
+^^^^^^^^^^^^^^^^^
 
-Tempauth
-^^^^^^^^
+Many features in Swift are implemented as middleware in the proxy-server
+pipeline. See :doc:`middleware` and the ``proxy-server.conf-sample`` file for
+more information. In particular, the use of some type of :doc:`authentication
+and authorization middleware <overview_auth>` is highly recommended.
 
-[tempauth]
-
-=====================  =============================== =======================
-Option                 Default                         Description
----------------------  ------------------------------- -----------------------
-use                                                    Entry point for
-                                                       paste.deploy to use for
-                                                       auth. To use tempauth
-                                                       set to:
-                                                       `egg:swift#tempauth`
-set log_name           tempauth                        Label used when logging
-set log_facility       LOG_LOCAL0                      Syslog log facility
-set log_level          INFO                            Log level
-set log_headers        True                            If True, log headers in
-                                                       each request
-reseller_prefix        AUTH                            The naming scope for the
-                                                       auth service. Swift
-                                                       storage accounts and
-                                                       auth tokens will begin
-                                                       with this prefix.
-auth_prefix            /auth/                          The HTTP request path
-                                                       prefix for the auth
-                                                       service. Swift itself
-                                                       reserves anything
-                                                       beginning with the
-                                                       letter `v`.
-token_life             86400                           The number of seconds a
-                                                       token is valid.
-storage_url_scheme     default                         Scheme to return with
-                                                       storage URLs: http,
-                                                       https, or default
-                                                       (chooses based on what
-                                                       the server is running
-                                                       as) This can be useful
-                                                       with an SSL load
-                                                       balancer in front of a
-                                                       non-SSL server.
-=====================  =============================== =======================
-
-Additionally, you need to list all the accounts/users you want here. The format
-is::
-
-    user_<account>_<user> = <key> [group] [group] [...] [storage_url]
-
-or if you want to be able to include underscores in the ``<account>`` or
-``<user>`` portions, you can base64 encode them (with *no* equal signs) in a
-line like this::
-
-    user64_<account_b64>_<user_b64> = <key> [group] [group] [...] [storage_url]
-
-There are special groups of::
-
-    .reseller_admin = can do anything to any account for this auth
-    .admin = can do anything within the account
-
-If neither of these groups are specified, the user can only access containers
-that have been explicitly allowed for them by a .admin or .reseller_admin.
-
-The trailing optional storage_url allows you to specify an alternate URL to
-hand back to the user upon authentication. If not specified, this defaults to::
-
-    $HOST/v1/<reseller_prefix>_<account>
-
-Where $HOST will do its best to resolve to what the requester would need to use
-to reach this host, <reseller_prefix> is from this section, and <account> is
-from the user_<account>_<user> name. Note that $HOST cannot possibly handle
-when you have a load balancer in front of it that does https while TempAuth
-itself runs with http; in such a case, you'll have to specify the
-storage_url_scheme configuration value as an override.
-
-Here are example entries, required for running the tests::
-
-    user_admin_admin = admin .admin .reseller_admin
-    user_test_tester = testing .admin
-    user_test2_tester2 = testing2 .admin
-    user_test_tester3 = testing3
-
-    # account "test_y" and user "tester_y" (note the lack of padding = chars)
-    user64_dGVzdF95_dGVzdGVyX3k = testing4 .admin
 
 ------------------------
 Memcached Considerations
