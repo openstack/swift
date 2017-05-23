@@ -40,7 +40,6 @@ import re
 import random
 from collections import defaultdict
 import uuid
-from copy import deepcopy
 
 import mock
 from eventlet import sleep, spawn, wsgi, Timeout, debug
@@ -753,9 +752,8 @@ class TestProxyServer(unittest.TestCase):
                        node_timings=None):
         # Note with shuffling mocked out, sort_nodes will by default return
         # nodes in the order they are given
-        nodes = deepcopy(nodes)
-        conf = deepcopy(conf)
-        conf['policy_config'] = deepcopy(policy_conf)
+        nodes = list(nodes)
+        conf = dict(conf, policy_config=policy_conf)
         baseapp = proxy_server.Application(conf,
                                            FakeMemcache(),
                                            logger=FakeLogger(),
@@ -1298,17 +1296,17 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             f.write(dedent(conf_body))
         return conf_path
 
-    def _write_conf_and_load_app(self, conf_sections):
+    def _write_conf_and_load_app(self, conf_sections, app_name='proxy-server'):
         # write proxy-server.conf file, load app
-        conf_body = """
+        conf_body = dedent("""
         [DEFAULT]
         swift_dir = %s
 
         [pipeline:main]
-        pipeline = proxy-server
+        pipeline = %s
 
         %s
-        """ % (self.tempdir, conf_sections)
+        """) % (self.tempdir, app_name, dedent(conf_sections))
 
         conf_path = self._write_conf(conf_body)
         with mock.patch('swift.proxy.server.get_logger',
@@ -1316,12 +1314,12 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             app = loadapp(conf_path, allow_modify_pipeline=False)
         return app
 
-    def _check_policy_conf(self, app, exp_conf, exp_is_local):
+    def _check_policy_options(self, app, exp_options, exp_is_local):
         # verify expected config
-        for policy, options in exp_conf.items():
+        for policy, options in exp_options.items():
             for k, v in options.items():
                 actual = getattr(app.get_policy_options(policy), k)
-                if k == "write_affinity_node_count":
+                if k == "write_affinity_node_count_fn":
                     if policy:  # this check only applies when using a policy
                         actual = actual(policy.object_ring.replica_count)
                         self.assertEqual(v, actual)
@@ -1340,7 +1338,6 @@ class TestProxyServerConfigLoading(unittest.TestCase):
                 self.assertIs(expected_result, actual,
                               "Expected %s but got %s for %s, policy %s" %
                               (expected_result, actual, node, policy))
-        return app
 
     def test_per_policy_conf_none_configured(self):
         conf_sections = """
@@ -1349,14 +1346,14 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
-                            "write_affinity_node_count": 6}
-        exp_conf = {None: expected_default,
-                    POLICIES[0]: expected_default,
-                    POLICIES[1]: expected_default}
+                            "write_affinity_node_count_fn": 6}
+        exp_options = {None: expected_default,
+                       POLICIES[0]: expected_default,
+                       POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: None,
                         POLICIES[1]: None}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, exp_is_local)
+        self._check_policy_options(app, exp_options, exp_is_local)
 
     def test_per_policy_conf_one_configured(self):
         conf_sections = """
@@ -1371,30 +1368,39 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
-                            "write_affinity_node_count": 6}
-        exp_conf = {None: expected_default,
-                    POLICIES[0]: {"read_affinity": "r1=100",
-                                  "sorting_method": "affinity",
-                                  "write_affinity_node_count": 3},
-                    POLICIES[1]: expected_default}
+                            "write_affinity_node_count_fn": 6}
+        exp_options = {None: expected_default,
+                       POLICIES[0]: {"read_affinity": "r1=100",
+                                     "sorting_method": "affinity",
+                                     "write_affinity_node_count_fn": 3},
+                       POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
                         POLICIES[1]: None}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, exp_is_local)
+        self._check_policy_options(app, exp_options, exp_is_local)
 
-        default_conf = app.get_policy_options(None)
+        default_options = app.get_policy_options(None)
         self.assertEqual(
-            ('sorting_method: shuffle, read_affinity: , write_affinity: , '
-             'write_affinity_node_count: 2 * replicas'),
-            repr(default_conf))
-        policy_0_conf = app.get_policy_options(POLICIES[0])
+            "ProxyOverrideOptions({}, {'sorting_method': 'shuffle', "
+            "'read_affinity': '', 'write_affinity': '', "
+            "'write_affinity_node_count': '2 * replicas'})",
+            repr(default_options))
+        self.assertEqual(default_options, eval(repr(default_options), {
+            'ProxyOverrideOptions': default_options.__class__}))
+
+        policy_0_options = app.get_policy_options(POLICIES[0])
         self.assertEqual(
-            ('sorting_method: affinity, read_affinity: r1=100, '
-             'write_affinity: r1, write_affinity_node_count: 1 * replicas'),
-            repr(policy_0_conf))
-        policy_1_conf = app.get_policy_options(POLICIES[1])
-        self.assertIs(default_conf, policy_1_conf)
+            "ProxyOverrideOptions({}, {'sorting_method': 'affinity', "
+            "'read_affinity': 'r1=100', 'write_affinity': 'r1', "
+            "'write_affinity_node_count': '1 * replicas'})",
+            repr(policy_0_options))
+        self.assertEqual(policy_0_options, eval(repr(policy_0_options), {
+            'ProxyOverrideOptions': policy_0_options.__class__}))
+        self.assertNotEqual(default_options, policy_0_options)
+
+        policy_1_options = app.get_policy_options(POLICIES[1])
+        self.assertIs(default_options, policy_1_options)
 
     def test_per_policy_conf_inherits_defaults(self):
         conf_sections = """
@@ -1409,17 +1415,17 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "affinity",
-                            "write_affinity_node_count": 3}
-        exp_conf = {None: expected_default,
-                    POLICIES[0]: {"read_affinity": "r1=100",
-                                  "sorting_method": "affinity",
-                                  "write_affinity_node_count": 3},
-                    POLICIES[1]: expected_default}
+                            "write_affinity_node_count_fn": 3}
+        exp_options = {None: expected_default,
+                       POLICIES[0]: {"read_affinity": "r1=100",
+                                     "sorting_method": "affinity",
+                                     "write_affinity_node_count_fn": 3},
+                       POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
                         POLICIES[1]: None}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, exp_is_local)
+        self._check_policy_options(app, exp_options, exp_is_local)
 
     def test_per_policy_conf_overrides_default_affinity(self):
         conf_sections = """
@@ -1440,22 +1446,22 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         write_affinity = r3
         write_affinity_node_count = 4
         """
-        exp_conf = {None: {"read_affinity": "r2=10",
-                           "sorting_method": "affinity",
-                           "write_affinity_node_count": 3},
-                    POLICIES[0]: {"read_affinity": "r1=100",
-                                  "sorting_method": "affinity",
-                                  "write_affinity_node_count": 5},
-                    POLICIES[1]: {"read_affinity": "r1=1",
-                                  "sorting_method": "affinity",
-                                  "write_affinity_node_count": 4}}
+        exp_options = {None: {"read_affinity": "r2=10",
+                              "sorting_method": "affinity",
+                              "write_affinity_node_count_fn": 3},
+                       POLICIES[0]: {"read_affinity": "r1=100",
+                                     "sorting_method": "affinity",
+                                     "write_affinity_node_count_fn": 5},
+                       POLICIES[1]: {"read_affinity": "r1=1",
+                                     "sorting_method": "affinity",
+                                     "write_affinity_node_count_fn": 4}}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
                         POLICIES[1]: [({'region': 3, 'zone': 2}, True),
                                       ({'region': 1, 'zone': 1}, False),
                                       ({'region': 2, 'zone': 1}, False)]}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, exp_is_local)
+        self._check_policy_options(app, exp_options, exp_is_local)
 
     def test_per_policy_conf_overrides_default_sorting_method(self):
         conf_sections = """
@@ -1471,14 +1477,14 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         sorting_method = affinity
         read_affinity = r1=1
         """
-        exp_conf = {None: {"read_affinity": "",
-                           "sorting_method": "timing"},
-                    POLICIES[0]: {"read_affinity": "r1=100",
-                                  "sorting_method": "affinity"},
-                    POLICIES[1]: {"read_affinity": "r1=1",
-                                  "sorting_method": "affinity"}}
+        exp_options = {None: {"read_affinity": "",
+                              "sorting_method": "timing"},
+                       POLICIES[0]: {"read_affinity": "r1=100",
+                                     "sorting_method": "affinity"},
+                       POLICIES[1]: {"read_affinity": "r1=1",
+                                     "sorting_method": "affinity"}}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, {})
+        self._check_policy_options(app, exp_options, {})
 
     def test_per_policy_conf_with_DEFAULT_options(self):
         conf_body = """
@@ -1507,25 +1513,27 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         sorting_method = affinity
         """ % self.tempdir
 
+        # Don't just use _write_conf_and_load_app, as we don't want to have
+        # duplicate DEFAULT sections
         conf_path = self._write_conf(conf_body)
         with mock.patch('swift.proxy.server.get_logger',
                         return_value=FakeLogger()):
             app = loadapp(conf_path, allow_modify_pipeline=False)
 
-        exp_conf = {
+        exp_options = {
             # default read_affinity is r1, set in proxy-server section
             None: {"read_affinity": "r1=100",
                    "sorting_method": "shuffle",
-                   "write_affinity_node_count": 6},
+                   "write_affinity_node_count_fn": 6},
             # policy 0 read affinity is r2, dictated by policy 0 section
             POLICIES[0]: {"read_affinity": "r2=100",
                           "sorting_method": "affinity",
-                          "write_affinity_node_count": 6},
+                          "write_affinity_node_count_fn": 6},
             # policy 1 read_affinity is r0, dictated by DEFAULT section,
             # overrides proxy server section
             POLICIES[1]: {"read_affinity": "r0=100",
                           "sorting_method": "affinity",
-                          "write_affinity_node_count": 6}}
+                          "write_affinity_node_count_fn": 6}}
         exp_is_local = {
             # default write_affinity is r0, dictated by DEFAULT section
             None: [({'region': 0, 'zone': 2}, True),
@@ -1536,7 +1544,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             # policy 1 write_affinity is r0, inherited from default
             POLICIES[1]: [({'region': 0, 'zone': 2}, True),
                           ({'region': 1, 'zone': 1}, False)]}
-        self._check_policy_conf(app, exp_conf, exp_is_local)
+        self._check_policy_options(app, exp_options, exp_is_local)
 
     def test_per_policy_conf_warns_about_sorting_method_mismatch(self):
         # verify that policy specific warnings are emitted when read_affinity
@@ -1554,14 +1562,14 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         sorting_method = affinity
         read_affinity = r1=1
         """
-        exp_conf = {None: {"read_affinity": "r2=10",
-                           "sorting_method": "timing"},
-                    POLICIES[0]: {"read_affinity": "r1=100",
-                                  "sorting_method": "timing"},
-                    POLICIES[1]: {"read_affinity": "r1=1",
-                                  "sorting_method": "affinity"}}
+        exp_options = {None: {"read_affinity": "r2=10",
+                              "sorting_method": "timing"},
+                       POLICIES[0]: {"read_affinity": "r1=100",
+                                     "sorting_method": "timing"},
+                       POLICIES[1]: {"read_affinity": "r1=1",
+                                     "sorting_method": "affinity"}}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, {})
+        self._check_policy_options(app, exp_options, {})
         lines = app.logger.get_lines_for_level('warning')
         scopes = {'default', 'policy 0 (nulo)'}
         for line in lines[:2]:
@@ -1574,6 +1582,25 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             else:
                 self.fail("None of %s found in warning: %r" % (scopes, line))
         self.assertFalse(scopes)
+
+    def test_per_policy_conf_section_name_inherits_from_app_section_name(self):
+        conf_sections = """
+        [app:proxy-srv]
+        use = egg:swift#proxy
+        sorting_method = affinity
+
+        [proxy-server:policy:0]
+        sorting_method = timing
+        # ignored!
+
+        [proxy-srv:policy:1]
+        sorting_method = shuffle
+        """
+        exp_options = {None: {'sorting_method': 'affinity'},
+                       POLICIES[0]: {'sorting_method': 'affinity'},
+                       POLICIES[1]: {'sorting_method': 'shuffle'}}
+        app = self._write_conf_and_load_app(conf_sections, 'proxy-srv')
+        self._check_policy_options(app, exp_options, {})
 
     def test_per_policy_conf_with_unknown_policy(self):
         # verify that unknown policy section is warned about but doesn't break
@@ -1604,14 +1631,14 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         [proxy-server:policy:1]
         read_affinity = r1=1
         """
-        exp_conf = {None: {"read_affinity": "",
-                           "sorting_method": "affinity"},
-                    POLICIES[0]: {"read_affinity": "",
-                                  "sorting_method": "timing"},
-                    POLICIES[1]: {"read_affinity": "r1=1",
-                                  "sorting_method": "affinity"}}
+        exp_options = {None: {"read_affinity": "",
+                              "sorting_method": "affinity"},
+                       POLICIES[0]: {"read_affinity": "",
+                                     "sorting_method": "timing"},
+                       POLICIES[1]: {"read_affinity": "r1=1",
+                                     "sorting_method": "affinity"}}
         app = self._write_conf_and_load_app(conf_sections)
-        self._check_policy_conf(app, exp_conf, {})
+        self._check_policy_options(app, exp_options, {})
 
     def test_per_policy_conf_invalid_read_affinity_value(self):
         def do_test(conf_sections, scope):
@@ -1707,28 +1734,22 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         do_test(conf_sections, '(default)')
 
     def test_per_policy_conf_bad_section_name(self):
-        conf_sections = """
-        [app:proxy-server]
-        use = egg:swift#proxy
+        def do_test(policy):
+            conf_sections = """
+                [app:proxy-server]
+                use = egg:swift#proxy
 
-        [proxy-server:policy:]
-        """
-        with self.assertRaises(ValueError) as cm:
-            self._write_conf_and_load_app(conf_sections)
-        self.assertIn("Override config must refer to policy index: ''",
-                      cm.exception.message)
+                [proxy-server:policy:%s]
+            """ % policy
+            with self.assertRaises(ValueError) as cm:
+                self._write_conf_and_load_app(conf_sections)
+            self.assertEqual(
+                "Override config must refer to policy index: %r" % policy,
+                cm.exception.message)
 
-    def test_per_policy_conf_section_name_not_index(self):
-        conf_sections = """
-        [app:proxy-server]
-        use = egg:swift#proxy
-
-        [proxy-server:policy:uno]
-        """
-        with self.assertRaises(ValueError) as cm:
-            self._write_conf_and_load_app(conf_sections)
-        self.assertIn("Override config must refer to policy index: 'uno'",
-                      cm.exception.message)
+        do_test('')
+        do_test('uno')
+        do_test('0.0')
 
 
 class TestProxyServerConfigStringLoading(TestProxyServerConfigLoading):
@@ -2635,9 +2656,9 @@ class TestReplicatedObjectController(
 
             object_ring = self.app.get_object_ring(0)
             object_ring.max_more_nodes = 100
-            policy_conf = self.app.get_policy_options(POLICIES[0])
-            policy_conf.write_affinity_is_local_fn = is_r0
-            policy_conf.write_affinity_node_count = lambda r: 3
+            policy_options = self.app.get_policy_options(POLICIES[0])
+            policy_options.write_affinity_is_local_fn = is_r0
+            policy_options.write_affinity_node_count_fn = lambda r: 3
 
             controller = \
                 ReplicatedObjectController(
@@ -2654,13 +2675,13 @@ class TestReplicatedObjectController(
             res = controller.PUT(req)
             self.assertTrue(res.status.startswith('201 '))
 
-        self.assertEqual(3, len(written_to))
         # this is kind of a hokey test, but in FakeRing, the port is even when
         # the region is 0, and odd when the region is 1, so this test asserts
         # that we wrote to 2 nodes in region 0, then went to 1 non-r0 node.
-        self.assertEqual(0, written_to[0][1] % 2)   # it's (ip, port, device)
-        self.assertEqual(0, written_to[1][1] % 2)
-        self.assertNotEqual(0, written_to[2][1] % 2)
+        def get_region(x):
+            return x[1] % 2  # it's (ip, port, device)
+
+        self.assertEqual([0, 0, 1], [get_region(x) for x in written_to])
 
     @unpatch_policies
     def test_PUT_no_etag_fallocate(self):

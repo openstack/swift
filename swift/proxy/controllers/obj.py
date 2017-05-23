@@ -24,7 +24,6 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-import six
 from six.moves.urllib.parse import unquote
 
 import collections
@@ -143,26 +142,26 @@ class BaseObjectController(Controller):
         :param ring: ring to get nodes from
         :param partition: ring partition to yield nodes for
         """
-        policy_conf = self.app.get_policy_options(policy)
-        is_local = policy_conf.write_affinity_is_local_fn
+        policy_options = self.app.get_policy_options(policy)
+        is_local = policy_options.write_affinity_is_local_fn
         if is_local is None:
             return self.app.iter_nodes(ring, partition, policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
-        num_locals = policy_conf.write_affinity_node_count(len(primary_nodes))
+        num_locals = policy_options.write_affinity_node_count_fn(
+            len(primary_nodes))
 
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
         first_n_local_nodes = list(itertools.islice(
-            six.moves.filter(is_local, all_nodes), num_locals))
+            (node for node in all_nodes if is_local(node)), num_locals))
 
         # refresh it; it moved when we computed first_n_local_nodes
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
         local_first_node_iter = itertools.chain(
             first_n_local_nodes,
-            six.moves.filter(lambda node: node not in first_n_local_nodes,
-                             all_nodes))
+            (node for node in all_nodes if node not in first_n_local_nodes))
 
         return self.app.iter_nodes(
             ring, partition, node_iter=local_first_node_iter, policy=policy)

@@ -218,7 +218,7 @@ class BaseObjectControllerMixin(object):
         policy_conf.write_affinity_is_local_fn = (
             lambda node: node['region'] == 1)
         # we'll write to one more than replica count local nodes
-        policy_conf.write_affinity_node_count = lambda r: r + 1
+        policy_conf.write_affinity_node_count_fn = lambda r: r + 1
 
         object_ring = self.policy.object_ring
         # make our fake ring have plenty of nodes, and not get limited
