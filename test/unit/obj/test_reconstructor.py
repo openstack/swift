@@ -728,7 +728,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         jobs = []
         for part_info in self.reconstructor.collect_parts():
             jobs += self.reconstructor.build_reconstruction_jobs(part_info)
-        self.assertEqual(len(jobs), 0)
+        self.assertFalse(jobs)
 
     def test_check_ring(self):
         testring = tempfile.mkdtemp()
@@ -871,7 +871,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             for part_info in self.reconstructor.collect_parts():
                 parts.append(part_info['partition'])
             error_lines = self.logger.get_lines_for_level('error')
-            self.assertEqual(len(error_lines), 1)
+            self.assertEqual(len(error_lines), 1,
+                             'Expected only one error, got %r' % error_lines)
             log_args, log_kwargs = self.logger.log_dict['error'][0]
             self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
 
@@ -1046,19 +1047,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.reconstructor.reconstruct()
         self.assertFalse(request_log.unexpected_requests)
 
-        # global setup has two handoff parts
+        # global setup has four revert jobs
         self.assertEqual(len(captured_ssync), 2)
-        expected_ssync_calls = set([
-            # device, part, frag_index
-            ('sda1', 2, 2),
-            ('sda1', 2, 0),
-        ])
-        self.assertEqual(expected_ssync_calls, set([
+        expected_ssync_calls = {
+            # device, part, frag_index: expected_occurrences
+            ('sda1', 2, 2): 1,
+            ('sda1', 2, 0): 1,
+        }
+        self.assertEqual(expected_ssync_calls, dict(collections.Counter(
             (context['job']['device'],
              context['job']['partition'],
              context['job']['frag_index'])
             for context in captured_ssync
-        ]))
+        )))
 
         # failed jobs don't sync suffixes
         self.assertFalse(
@@ -1212,12 +1213,20 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                                 self.logger, 'update_stats', 'suffix.hashes'))
                             self.assertEqual(node_count, count_stats(
                                 self.logger, 'update_stats', 'suffix.syncs'))
-                        self.assertFalse('error' in
-                                         self.logger.all_log_lines())
+                        self.assertNotIn('error', self.logger.all_log_lines())
+        self.assertEqual(
+            dict(collections.Counter(
+                (job['device'], job['partition'], job['frag_index'])
+                for job in found_jobs)),
+            {('sda1', 0, 1): 1,
+             ('sda1', 0, 2): 1,
+             ('sda1', 1, 0): 1,
+             ('sda1', 1, 1): 1,
+             ('sda1', 2, 0): 1,
+             ('sda1', 2, 2): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 8)
         self.assertEqual(self.reconstructor.suffix_count, 8)
         self.assertEqual(self.reconstructor.reconstruction_count, 6)
-        self.assertEqual(len(found_jobs), 6)
 
     def test_process_job_all_insufficient_storage(self):
         self.reconstructor._reset_stats()
@@ -1237,10 +1246,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                             self.logger, 'update_stats', 'suffix.hashes'))
                         self.assertEqual(0, count_stats(
                             self.logger, 'update_stats', 'suffix.syncs'))
+        self.assertEqual(
+            dict(collections.Counter(
+                (job['device'], job['partition'], job['frag_index'])
+                for job in found_jobs)),
+            {('sda1', 0, 1): 1,
+             ('sda1', 0, 2): 1,
+             ('sda1', 1, 0): 1,
+             ('sda1', 1, 1): 1,
+             ('sda1', 2, 0): 1,
+             ('sda1', 2, 2): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
         self.assertEqual(self.reconstructor.reconstruction_count, 6)
-        self.assertEqual(len(found_jobs), 6)
 
     def test_process_job_all_client_error(self):
         self.reconstructor._reset_stats()
@@ -1260,10 +1278,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                             self.logger, 'update_stats', 'suffix.hashes'))
                         self.assertEqual(0, count_stats(
                             self.logger, 'update_stats', 'suffix.syncs'))
+        self.assertEqual(
+            dict(collections.Counter(
+                (job['device'], job['partition'], job['frag_index'])
+                for job in found_jobs)),
+            {('sda1', 0, 1): 1,
+             ('sda1', 0, 2): 1,
+             ('sda1', 1, 0): 1,
+             ('sda1', 1, 1): 1,
+             ('sda1', 2, 0): 1,
+             ('sda1', 2, 2): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
         self.assertEqual(self.reconstructor.reconstruction_count, 6)
-        self.assertEqual(len(found_jobs), 6)
 
     def test_process_job_all_timeout(self):
         self.reconstructor._reset_stats()
@@ -1282,9 +1309,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                         'update_stats', 'suffix.hashes', 0)
                     self.assertStatCount(
                         'update_stats', 'suffix.syncs', 0)
+        self.assertEqual(
+            dict(collections.Counter(
+                (job['device'], job['partition'], job['frag_index'])
+                for job in found_jobs)),
+            {('sda1', 0, 1): 1,
+             ('sda1', 0, 2): 1,
+             ('sda1', 1, 0): 1,
+             ('sda1', 1, 1): 1,
+             ('sda1', 2, 0): 1,
+             ('sda1', 2, 2): 1})
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
-        self.assertEqual(len(found_jobs), 6)
+        self.assertEqual(self.reconstructor.reconstruction_count, 6)
 
     def test_reconstructor_skipped_partpower_increase(self):
         self.reconstructor._reset_stats()
@@ -1451,7 +1488,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             self.conf, logger=self.logger)
         self.assertFalse(self.reconstructor.handoffs_only)
         warnings = self.logger.get_lines_for_level('warning')
-        self.assertEqual(len(warnings), 0)
+        self.assertFalse(warnings)
 
     def test_handoffs_only_true_and_first_false(self):
         self.conf['handoffs_first'] = "False"
@@ -1789,7 +1826,8 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                            side_effect=OSError('kaboom!')):
             self.assertEqual([], list(self.reconstructor.collect_parts()))
         error_lines = self.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
+        self.assertEqual(len(error_lines), 1,
+                         'Expected only one error, got %r' % error_lines)
         line = error_lines[0]
         self.assertIn('Unable to create', line)
         self.assertIn(datadir_path, line)
@@ -1805,7 +1843,8 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             self.assertEqual([], list(self.reconstructor.collect_parts()))
         self.assertTrue(os.path.exists(datadir_path))
         error_lines = self.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
+        self.assertEqual(len(error_lines), 1,
+                         'Expected only one error, got %r' % error_lines)
         line = error_lines[0]
         self.assertIn('Unable to list partitions', line)
         self.assertIn(datadir_path, line)
@@ -2051,7 +2090,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
                         return_value=(None, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
-        self.assertEqual(1, len(jobs))
+        self.assertEqual(1, len(jobs), 'Expected only one job, got %r' % jobs)
         job = jobs[0]
         self.assertEqual(job['job_type'], object_reconstructor.REVERT)
         self.assertEqual(job['frag_index'], frag_index)
@@ -2163,7 +2202,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         with mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
                         return_value=(None, stub_hashes)):
             jobs = self.reconstructor.build_reconstruction_jobs(part_info)
-        self.assertEqual(len(jobs), 1)
+        self.assertEqual(len(jobs), 1, 'Expected only one job, got %r' % jobs)
         job = jobs[0]
         expected = {
             'job_type': object_reconstructor.REVERT,
@@ -2281,7 +2320,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                          set((r['ip'], r['path'])
                              for r in request_log.requests))
 
-        self.assertEqual(len(ssync_calls), 0)
+        self.assertFalse(ssync_calls)
 
     def test_process_job_primary_not_in_sync(self):
         replicas = self.policy.object_ring.replicas
@@ -2473,16 +2512,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                          set((r['ip'], r['path'])
                              for r in request_log.requests))
 
-        self.assertEqual(len(ssync_calls), 2)
-        self.assertEqual(set(c['node']['index'] for c in ssync_calls),
-                         set([left_index, right_index]))
-        for call in ssync_calls:
-            if call['node']['index'] == left_index:
-                self.assertEqual(call['suffixes'], ['123'])
-            elif call['node']['index'] == right_index:
-                self.assertEqual(call['suffixes'], ['abc'])
-            else:
-                self.fail('unexpected call %r' % call)
+        self.assertEqual(
+            dict(collections.Counter(
+                (c['node']['index'], tuple(c['suffixes']))
+                for c in ssync_calls)),
+            {(left_index, ('123', )): 1,
+             (right_index, ('abc', )): 1})
 
     def test_process_job_primary_down(self):
         partition = 0
@@ -2643,10 +2678,13 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                                  for r in request_log.requests)
         self.assertEqual(expected_suffix_calls, found_suffix_calls)
 
-        self.assertEqual(len(ssync_calls), 1)
-        call = ssync_calls[0]
-        self.assertEqual(call['node'], sync_to[0])
-        self.assertEqual(set(call['suffixes']), set(['123', 'abc']))
+        self.assertEqual(
+            sorted(collections.Counter(
+                (c['node']['ip'], c['node']['port'], c['node']['device'],
+                 tuple(sorted(c['suffixes'])))
+                for c in ssync_calls).items()),
+            [((sync_to[0]['ip'], sync_to[0]['port'], sync_to[0]['device'],
+               ('123', 'abc')), 1)])
 
     def test_process_job_will_not_revert_to_handoff(self):
         frag_index = random.randint(
@@ -2684,11 +2722,6 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             non_local['called'] += 1
             return False, {}
 
-        expected_suffix_calls = set([
-            (node['replication_ip'], '/%s/0/123-abc' % node['device'])
-            for node in (sync_to[0],)
-        ])
-
         ssync_calls = []
         with mock_ssync_sender(ssync_calls,
                                response_callback=ssync_response_callback), \
@@ -2698,10 +2731,13 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         # failed ssync job should not generate a suffix rehash
         self.assertEqual([], request_log.requests)
 
-        self.assertEqual(len(ssync_calls), len(expected_suffix_calls))
-        call = ssync_calls[0]
-        self.assertEqual(call['node'], sync_to[0])
-        self.assertEqual(set(call['suffixes']), set(['123', 'abc']))
+        self.assertEqual(
+            sorted(collections.Counter(
+                (c['node']['ip'], c['node']['port'], c['node']['device'],
+                 tuple(sorted(c['suffixes'])))
+                for c in ssync_calls).items()),
+            [((sync_to[0]['ip'], sync_to[0]['port'], sync_to[0]['device'],
+               ('123', 'abc')), 1)])
 
     def test_process_job_revert_is_handoff_fails(self):
         frag_index = random.randint(
@@ -2747,10 +2783,13 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         self.assertEqual([], request_log.requests)
 
         # this is ssync call to primary (which fails) and nothing else!
-        self.assertEqual(len(ssync_calls), 1)
-        call = ssync_calls[0]
-        self.assertEqual(call['node'], sync_to[0])
-        self.assertEqual(set(call['suffixes']), set(['123', 'abc']))
+        self.assertEqual(
+            sorted(collections.Counter(
+                (c['node']['ip'], c['node']['port'], c['node']['device'],
+                 tuple(sorted(c['suffixes'])))
+                for c in ssync_calls).items()),
+            [((sync_to[0]['ip'], sync_to[0]['port'], sync_to[0]['device'],
+               ('123', 'abc')), 1)])
         self.assertEqual(self.reconstructor.handoffs_remaining, 1)
 
     def test_process_job_revert_cleanup(self):
@@ -2926,7 +2965,9 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         self.assertEqual(len(fixed_body), len(broken_body))
         self.assertEqual(md5(fixed_body).hexdigest(),
                          md5(broken_body).hexdigest())
-        self.assertEqual(len(part_nodes) - 1, len(called_headers))
+        self.assertEqual(len(part_nodes) - 1, len(called_headers),
+                         'Expected %d calls, got %r' % (len(part_nodes) - 1,
+                                                        called_headers))
         for called_header in called_headers:
             called_header = HeaderKeyDict(called_header)
             self.assertIn('Content-Length', called_header)
