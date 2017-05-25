@@ -92,7 +92,7 @@ advantage of many well-known C libraries such as:
 * Or write your own!
 
 PyECLib uses a C based library called liberasurecode to implement the plug in
-infrastructure; liberasure code is available at:
+infrastructure; liberasurecode is available at:
 
 * liberasurecode: https://github.com/openstack/liberasurecode
 
@@ -179,7 +179,7 @@ Performance Considerations
 
 In general, EC has different performance characteristics than replicated data.
 EC requires substantially more CPU to read and write data, and is more suited
-for larger objects that are not frequently accessed (eg backups).
+for larger objects that are not frequently accessed (e.g. backups).
 
 Operators are encouraged to characterize the performance of various EC schemes
 and share their observations with the developer community.
@@ -266,22 +266,26 @@ container that was created with the target durability policy.
 Global EC
 *********
 
-Since the initial release of EC, it has not been recommended that an EC scheme
-span beyond a single region.  Initial performance and functional validation has
-shown that using sufficiently large parity schemas to ensure availability
-across regions is inefficient, and rebalance is unoptimized across high latency
-bandwidth constrained WANs.
+The following recommendations are made when deploying an EC policy that spans
+multiple regions in a :doc:`Global Cluster <overview_global_cluster>`:
 
-Region support for EC polices is under development! `EC Duplication` provides
-a foundation for this.
+* The global EC policy should use :ref:`ec_duplication` in conjunction with a
+  :ref:`Composite Ring <composite_rings>`, as described below.
+* Proxy servers should be :ref:`configured to use read affinity
+  <configuring_global_clusters>` to prefer reading from their local region for
+  the global EC policy. :ref:`proxy_server_per_policy_config` allows this to be
+  configured for individual policies.
+
+.. note::
+
+    Before deploying a Global EC policy, consideration should be given to the
+    :ref:`global_ec_known_issues`, in particular the relatively poor
+    performance anticipated from the object-reconstructor.
+
+.. _ec_duplication:
 
 EC Duplication
 ==============
-
-.. warning::
-
-    EC Duplication is an experimental feature that has some serious known
-    issues which make it currently unsuitable for use in production.
 
 EC Duplication enables Swift to make duplicated copies of fragments of erasure
 coded objects.  If an EC storage policy is configured with a non-default
@@ -289,18 +293,18 @@ coded objects.  If an EC storage policy is configured with a non-default
 duplicates of each unique fragment that is returned from the configured EC
 engine.
 
-Duplication of EC fragments is optimal for EC storage policies which require
-dispersion of fragment data across failure domains. Without duplication, common
-EC parameters will not distribute enough unique fragments between large failure
-domains to allow for a rebuild using fragments from any one domain.  For
-example a uniformly distributed ``10+4`` EC policy schema would place 7
-fragments in each of two failure domains, which is less in each failure domain
-than the 10 fragments needed to rebuild a missing fragment.
+Duplication of EC fragments is optimal for Global EC storage policies, which
+require dispersion of fragment data across failure domains. Without fragment
+duplication, common EC parameters will not distribute enough unique fragments
+between large failure domains to allow for a rebuild using fragments from any
+one domain.  For example a uniformly distributed ``10+4`` EC policy schema
+would place 7 fragments in each of two failure domains, which is less in each
+failure domain than the 10 fragments needed to rebuild a missing fragment.
 
-Without duplication support, an EC policy schema must be adjusted to include
+Without fragment duplication, an EC policy schema must be adjusted to include
 additional parity fragments in order to guarantee the number of fragments in
 each failure domain is greater than the number required to rebuild. For
-example, a uniformally distributed ``10+18`` EC policy schema would place 14
+example, a uniformly distributed ``10+18`` EC policy schema would place 14
 fragments in each of two failure domains, which is more than sufficient in each
 failure domain to rebuild a missing fragment. However, empirical testing has
 shown encoding a schema with ``num_parity > num_data`` (such as ``10+18``) is
@@ -323,10 +327,10 @@ The ``ec_duplication_factor`` option may be configured in `swift.conf` in each
 
 .. warning::
 
-    The ``ec_duplication_factor`` option should only be set for experimental
-    and development purposes. EC Duplication is an experimental feature that
-    has some serious known issues which make it currently unsuitable for use in
-    production.
+    EC duplication is intended for use with Global EC policies. To ensure
+    independent availability of data in all regions, the
+    ``ec_duplication_factor`` option should only be used in conjunction with
+    :ref:`composite_rings`, as described in this document.
 
 In this example, a ``10+4`` schema and a duplication factor of ``2`` will
 result in ``(10+4)x2 = 28`` fragments being stored (we will use the shorthand
@@ -339,25 +343,46 @@ respect to a ``10+18`` configuration not only because reads from data fragments
 will be more common and more efficient, but also because a ``10+4x2`` can grow
 into a ``10+4x3`` to expand into another region.
 
-Known Issues
-============
+EC duplication with composite rings
+-----------------------------------
 
-Unique Fragment Dispersion
---------------------------
+It is recommended that EC Duplication is used with :ref:`composite_rings` in
+order to disperse duplicate fragments across regions.
 
-Currently, Swift's ring placement does **not** guarantee the dispersion of
-fragments' locations being robust to disaster recovery in the case
-of Global EC.  While the goal is to have one duplicate of each
-fragment placed in each region, it is currently possible for duplicates of
-the same fragment to be placed in the same region (and consequently for
-another region to have no duplicates of that fragment).  Since a set of
-``ec_num_data_fragments`` unique fragments is required to reconstruct an
-object, a suboptimal distribution of duplicates across regions may, in some
-cases, make it impossible to assemble such a set from a single region.
+When EC duplication is used, it is highly desirable to have one duplicate of
+each fragment placed in each region. This ensures that a set of
+``ec_num_data_fragments`` unique fragments (the minimum needed to reconstruct
+an object) can always be assembled from a single region. This in turn means
+that objects are robust in the event of an entire region becoming unavailable.
 
-For example, if we have a Swift cluster with two regions, ``r1`` and ``r2``,
-the 12 fragments for an object in a ``4+2x2`` EC policy schema could have
-pathologically sub-optimal placement::
+This can be achieved by using a :ref:`composite ring <composite_rings>` with
+the following properties:
+
+* The number of component rings in the composite ring is equal to the
+  ``ec_duplication_factor`` for the policy.
+* Each *component* ring has a number of ``replicas`` that is equal to the sum
+  of ``ec_num_data_fragments`` and ``ec_num_parity_fragments``.
+* Each component ring is populated with devices in a unique region.
+
+This arrangement results in each component ring in the composite ring, and
+therefore each region, having one copy of each fragment.
+
+For example, consider a Swift cluster with two regions, ``region1`` and
+``region2`` and a ``4+2x2`` EC policy schema. This policy should use a
+composite ring with two component rings, ``ring1`` and ``ring2``, having
+devices exclusively in regions ``region1`` and ``region2`` respectively. Each
+component ring should have ``replicas = 6``. As a result, the first 6
+fragments for an object will always be placed in ``ring1`` (i.e. in
+``region1``) and the second 6 duplicate fragments will always be placed in
+``ring2`` (i.e. in ``region2``).
+
+Conversely, a conventional ring spanning the two regions may give a suboptimal
+distribution of duplicates across the regions; it is possible for duplicates of
+the same fragment to be placed in the same region, and consequently for another
+region to have no copies of that fragment. This may make it impossible to
+assemble a set of ``ec_num_data_fragments`` unique fragments from a single
+region. For example, the conventional ring could have a pathologically
+sub-optimal placement such as::
 
   r1
     <timestamp>#0#d.data
@@ -374,43 +399,64 @@ pathologically sub-optimal placement::
     <timestamp>#5#d.data
     <timestamp>#5#d.data
 
-In this case, ``r1`` has only the fragments with index ``0, 2, 4`` and ``r2``
-has the other 3 indexes, but we need 4 unique indexes to be able to rebuild an
-object in a single region. To resolve this issue, a composite ring feature is
-being developed which will provide the operator with greater control over
-duplicate fragment placement::
+In this case, the object cannot be reconstructed  from a single region;
+``region1`` has only the fragments with index ``0, 2, 4`` and ``region2`` has
+the other 3 indexes, but we need 4 unique indexes to be able to rebuild an
+object.
 
-    https://review.openstack.org/#/c/271920/
+.. _global_ec_known_issues:
+
+Known Issues
+============
 
 Efficient Node Selection for Read
 ---------------------------------
 
-Since EC policies requires a set of unique fragment indexes to decode the
-original object, it is increasingly likely with EC duplication that some
-responses from backend storage nodes will include fragments which the proxy has
-already received from another node.  Currently Swift iterates over the nodes
-ordered by a sorting method defined in the proxy server config (i.e. either
-shuffle, node_timing, or read_affinity) - but these configurations will
-not offer optimal request patterns for EC policies with duplicated
-fragments.  In this case Swift may frequently issue more than the optimal
-``ec_num_data_fragments`` backend requests in order to gather
-``ec_num_data_fragments`` **unique** fragments, even if there are no failures
-amongst the object-servers.
+Proxy servers require a set of *unique* fragment indexes to decode the original
+object when handling a GET request to an EC policy. With a conventional EC
+policy, this is very likely to be the outcome of reading fragments from a
+random selection of backend nodes. With an EC Duplication policy it is
+significantly more likely that responses from a random selection of backend
+nodes might include some duplicated fragments.
 
-In addition to better placement and read affinity support, ideally node
-iteration for EC duplication policies could predict which nodes are likely
-to hold duplicates and prioritize requests to the most suitable nodes.
+The recommended use of EC Duplication in combination with Composite Rings and
+proxy server read affinity is designed to mitigate for this; a proxy server
+will first attempt to read fragments from nodes in its local region, which
+are guaranteed to be unique with respect to each other. However, should enough
+of those local reads fail to return a fragment, the proxy server may proceed to
+read fragments from other regions. This can be relatively inefficient because
+it is possible that nodes in other regions return fragments that are duplicates
+of those the proxy server has already received. The proxy server will ignore
+those responses and issue yet more requests to nodes in other regions.
+
+Work is in progress to improve the proxy server node selection strategy such
+that when it is necessary to read from other regions, nodes that are likely to
+have useful fragments are preferred over those that are likely to return a
+duplicate.
 
 Efficient Cross Region Rebuild
 ------------------------------
 
-Since fragments are duplicated between regions it may in some cases be more
-attractive to restore failed fragments from their duplicates in another region
-instead of rebuilding them from other fragments in the local region.
-Conversely to avoid WAN transfer it may be more attractive to rebuild fragments
-from local parity.  During rebalance it will always be more attractive to
-revert a fragment from it's old-primary to it's new primary rather than
-rebuilding or transferring a duplicate from the remote region.
+Work is also in progress to improve the object-reconstructor efficiency for
+Global EC policies. Unlike the proxy server, the reconstructor does not apply
+any read affinity settings when gathering fragments. It is therefore likely to
+receive duplicated fragments (i.e. make wasted backend GET requests) while
+performing *every* fragment reconstruction.
+
+Additionally, other reconstructor optimisations for Global EC are under
+investigation:
+
+* Since fragments are duplicated between regions it may in some cases be more
+  attractive to restore failed fragments from their duplicates in another
+  region instead of rebuilding them from other fragments in the local region.
+
+* Conversely, to avoid WAN transfer it may be more attractive to rebuild
+  fragments from local parity.
+
+* During rebalance it will always be more attractive to revert a fragment from
+  it's old-primary to it's new primary rather than rebuilding or transferring a
+  duplicate from the remote region.
+
 
 **************
 Under the Hood

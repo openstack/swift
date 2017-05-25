@@ -17,9 +17,19 @@ cluster: region 1 in San Francisco (SF), and region 2 in New York
 (NY). Each region shall contain within it 3 zones, numbered 1, 2, and
 3, for a total of 6 zones.
 
+.. _configuring_global_clusters:
+
 ---------------------------
 Configuring Global Clusters
 ---------------------------
+
+.. note::
+
+    The proxy-server configuration options described below can be given generic
+    settings in the ``[app:proxy-server]`` configuration section and/or given
+    specific settings for individual policies using
+    :ref:`proxy_server_per_policy_config`.
+
 ~~~~~~~~~~~~~
 read_affinity
 ~~~~~~~~~~~~~
