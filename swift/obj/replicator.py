@@ -81,6 +81,12 @@ class ObjectReplicator(Daemon):
         self.partition_times = []
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
+        if 'run_pause' in conf and 'interval' not in conf:
+            self.logger.warning('Option object-replicator/run_pause '
+                                'is deprecated and will be removed in a '
+                                'future version. Update your configuration'
+                                ' to use option object-replicator/'
+                                'interval.')
         self.rsync_timeout = int(conf.get('rsync_timeout',
                                           DEFAULT_RSYNC_TIMEOUT))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')

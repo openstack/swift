@@ -175,6 +175,13 @@ class Replicator(Daemon):
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
+        if 'run_pause' in conf and 'interval' not in conf:
+            self.logger.warning('Option %(type)s-replicator/run_pause '
+                                'is deprecated and will be removed in a '
+                                'future version. Update your configuration'
+                                ' to use option %(type)s-replicator/'
+                                'interval.'
+                                % {'type': self.server_type})
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.rsync_compress = config_true_value(
