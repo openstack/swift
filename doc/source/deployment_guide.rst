@@ -1836,16 +1836,19 @@ write_affinity_node_count     2 * replicas     The number of local (as governed 
                                                configuration section.
 ============================  ===============  =====================================
 
+.. _proxy_server_per_policy_config:
+
 Per policy configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Some proxy-server configuration options may be overridden on a per-policy
-basis by including per-policy config section(s). These options are:
+Some proxy-server configuration options may be overridden for individual
+:doc:`overview_policies` by including per-policy config section(s). These
+options are:
 
-- sorting_method
-- read_affinity
-- write_affinity
-- write_affinity_node_count
+- ``sorting_method``
+- ``read_affinity``
+- ``write_affinity``
+- ``write_affinity_node_count``
 
 The per-policy config section name must be of the form::
 
@@ -1868,7 +1871,7 @@ value given in the proxy-server section for that policy only. Otherwise the
 value of these options will be that specified in the proxy-server section.
 
 For example, the following section provides policy-specific options for a
-policy with index 3::
+policy with index ``3``::
 
     [proxy-server:policy:3]
     sorting_method = affinity
@@ -1881,9 +1884,9 @@ policy with index 3::
     It is recommended that per-policy config options are *not* included in the
     ``[DEFAULT]`` section. If they are then the following behavior applies.
 
-    Per-policy config sections will inherit options in the DEFAULT section of
-    the config file, and any such inheritance will take precedence over
-    inheriting options from the proxy-server config section.
+    Per-policy config sections will inherit options in the ``[DEFAULT]``
+    section of the config file, and any such inheritance will take precedence
+    over inheriting options from the proxy-server config section.
 
     Per-policy config section options will override options in the
     ``[DEFAULT]`` section. Unlike the behavior described under `General Server
