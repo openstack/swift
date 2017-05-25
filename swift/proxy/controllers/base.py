@@ -1306,9 +1306,11 @@ class NodeIter(object):
     :param partition: ring partition to yield nodes for
     :param node_iter: optional iterable of nodes to try. Useful if you
         want to filter or reorder the nodes.
+    :param policy: an instance of :class:`BaseStoragePolicy`. This should be
+        None for an account or container ring.
     """
 
-    def __init__(self, app, ring, partition, node_iter=None):
+    def __init__(self, app, ring, partition, node_iter=None, policy=None):
         self.app = app
         self.ring = ring
         self.partition = partition
@@ -1324,7 +1326,8 @@ class NodeIter(object):
         # Use of list() here forcibly yanks the first N nodes (the primary
         # nodes) from node_iter, so the rest of its values are handoffs.
         self.primary_nodes = self.app.sort_nodes(
-            list(itertools.islice(node_iter, num_primary_nodes)))
+            list(itertools.islice(node_iter, num_primary_nodes)),
+            policy=policy)
         self.handoff_iter = node_iter
         self._node_provider = None
 

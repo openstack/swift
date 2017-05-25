@@ -1751,7 +1751,9 @@ sorting_method                shuffle          Storage nodes can be chosen at
                                                control. In both the timing and
                                                affinity cases, equally-sorting nodes
                                                are still randomly chosen to spread
-                                               load.
+                                               load. This option may be overridden
+                                               in a per-policy configuration
+                                               section.
 timing_expiry                 300              If the "timing" sorting_method is
                                                used, the timings will only be valid
                                                for the number of seconds configured
@@ -1809,14 +1811,18 @@ read_affinity                 None             Specifies which backend servers t
                                                be given to the selection; lower
                                                numbers are higher priority.
                                                Default is empty, meaning no
-                                               preference.
+                                               preference. This option may be
+                                               overridden in a per-policy
+                                               configuration section.
 write_affinity                None             Specifies which backend servers to
                                                prefer on writes. Format is a comma
                                                separated list of affinity
                                                descriptors of the form r<N> for
                                                region N or r<N>z<M> for region N,
                                                zone M. Default is empty, meaning no
-                                               preference.
+                                               preference. This option may be
+                                               overridden in a per-policy
+                                               configuration section.
 write_affinity_node_count     2 * replicas     The number of local (as governed by
                                                the write_affinity setting) nodes to
                                                attempt to contact first on writes,
@@ -1825,8 +1831,98 @@ write_affinity_node_count     2 * replicas     The number of local (as governed 
                                                '* replicas' at the end to have it
                                                use the number given times the number
                                                of replicas for the ring being used
-                                               for the request.
+                                               for the request. This option may be
+                                               overridden in a per-policy
+                                               configuration section.
 ============================  ===============  =====================================
+
+Per policy configuration
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Some proxy-server configuration options may be overridden on a per-policy
+basis by including per-policy config section(s). These options are:
+
+- sorting_method
+- read_affinity
+- write_affinity
+- write_affinity_node_count
+
+The per-policy config section name must be of the form::
+
+    [proxy-server:policy:<policy index>]
+
+.. note::
+
+    The per-policy config section name should refer to the policy index, not
+    the policy name.
+
+.. note::
+
+    The first part of proxy-server config section name must match the name of
+    the proxy-server config section. This is typically ``proxy-server`` as
+    shown above, but if different then the names of any per-policy config
+    sections must be changed accordingly.
+
+The value of an option specified in a per-policy section will override any
+value given in the proxy-server section for that policy only. Otherwise the
+value of these options will be that specified in the proxy-server section.
+
+For example, the following section provides policy-specific options for a
+policy with index 3::
+
+    [proxy-server:policy:3]
+    sorting_method = affinity
+    read_affinity = r2=1
+    write_affinity = r2
+    write_affinity_node_count = 1 * replicas
+
+.. note::
+
+    It is recommended that per-policy config options are *not* included in the
+    ``[DEFAULT]`` section. If they are then the following behavior applies.
+
+    Per-policy config sections will inherit options in the DEFAULT section of
+    the config file, and any such inheritance will take precedence over
+    inheriting options from the proxy-server config section.
+
+    Per-policy config section options will override options in the
+    ``[DEFAULT]`` section. Unlike the behavior described under `General Server
+    Configuration`_ for paste-deploy ``filter`` and ``app`` sections, the
+    ``set`` keyword is not required for options to override in per-policy
+    config sections.
+
+    For example, given the following settings in a config file::
+
+        [DEFAULT]
+        sorting_method = affinity
+        read_affinity = r0=100
+        write_affinity = r0
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        # use of set keyword here overrides [DEFAULT] option
+        set read_affinity = r1=100
+        # without set keyword, [DEFAULT] option overrides in a paste-deploy section
+        write_affinity = r1
+
+        [proxy-server:policy:0]
+        sorting_method = affinity
+        # set keyword not required here to override [DEFAULT] option
+        write_affinity = r1
+
+    would result in policy with index ``0`` having settings:
+
+    * ``read_affinity = r0=100`` (inherited from the ``[DEFAULT]`` section)
+    * ``write_affinity = r1`` (specified in the policy 0 section)
+
+    and any other policy would have the default settings of:
+
+    * ``read_affinity = r1=100`` (set in the proxy-server section)
+    * ``write_affinity = r0`` (inherited from the ``[DEFAULT]`` section)
+
+
+Tempauth
+^^^^^^^^
 
 [tempauth]
 

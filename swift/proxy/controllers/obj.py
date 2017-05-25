@@ -129,7 +129,7 @@ class BaseObjectController(Controller):
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
 
-    def iter_nodes_local_first(self, ring, partition):
+    def iter_nodes_local_first(self, ring, partition, policy=None):
         """
         Yields nodes for a ring partition.
 
@@ -143,13 +143,13 @@ class BaseObjectController(Controller):
         :param ring: ring to get nodes from
         :param partition: ring partition to yield nodes for
         """
-
-        is_local = self.app.write_affinity_is_local_fn
+        policy_conf = self.app.get_policy_options(policy)
+        is_local = policy_conf.write_affinity_is_local_fn
         if is_local is None:
-            return self.app.iter_nodes(ring, partition)
+            return self.app.iter_nodes(ring, partition, policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
-        num_locals = self.app.write_affinity_node_count(len(primary_nodes))
+        num_locals = policy_conf.write_affinity_node_count(len(primary_nodes))
 
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
@@ -165,7 +165,7 @@ class BaseObjectController(Controller):
                              all_nodes))
 
         return self.app.iter_nodes(
-            ring, partition, node_iter=local_first_node_iter)
+            ring, partition, node_iter=local_first_node_iter, policy=policy)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -184,7 +184,7 @@ class BaseObjectController(Controller):
                 return aresp
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        node_iter = self.app.iter_nodes(obj_ring, partition)
+        node_iter = self.app.iter_nodes(obj_ring, partition, policy=policy)
 
         resp = self._get_or_head_response(req, node_iter, partition, policy)
 
@@ -541,7 +541,7 @@ class BaseObjectController(Controller):
         """
         obj_ring = policy.object_ring
         node_iter = GreenthreadSafeIterator(
-            self.iter_nodes_local_first(obj_ring, partition))
+            self.iter_nodes_local_first(obj_ring, partition, policy=policy))
         pile = GreenPile(len(nodes))
 
         for nheaders in outgoing_headers:

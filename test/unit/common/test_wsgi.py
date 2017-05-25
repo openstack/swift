@@ -169,6 +169,7 @@ class TestWSGI(unittest.TestCase):
             'here': os.path.dirname(conf_file),
             'conn_timeout': '0.2',
             'swift_dir': t,
+            '__name__': 'proxy-server'
         }
         self.assertEqual(expected, conf)
         # logger works
@@ -234,6 +235,7 @@ class TestWSGI(unittest.TestCase):
             'here': conf_dir,
             'conn_timeout': '0.2',
             'swift_dir': conf_root,
+            '__name__': 'proxy-server'
         }
         self.assertEqual(expected, conf)
         # logger works
@@ -571,7 +573,7 @@ class TestWSGI(unittest.TestCase):
         expected = {
             '__file__': os.path.join(path, 'server.conf.d'),
             'here': os.path.join(path, 'server.conf.d'),
-            'port': '8080',
+            'port': '8080', '__name__': 'main'
         }
         self.assertEqual(conf, expected)
 

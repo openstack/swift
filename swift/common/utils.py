@@ -2443,6 +2443,8 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
     else:
         c = ConfigParser(defaults)
     if hasattr(conf_path, 'readline'):
+        if hasattr(conf_path, 'seek'):
+            conf_path.seek(0)
         c.readfp(conf_path)
     else:
         if os.path.isdir(conf_path):
