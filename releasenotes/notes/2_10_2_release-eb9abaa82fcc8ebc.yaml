@@ -1,0 +1,61 @@
+---
+fixes:
+  - >
+    Improvements in key parts of the consistency engine
+
+    - Optimized the common case for hashing filesystem trees, thus
+      eliminating a lot of extraneous disk I/O.
+
+    - Updated the `hashes.pkl` file format to include timestamp information
+      for race detection. Also simplified hashing logic to prevent race
+      conditions and optimize for the common case.
+
+    Upgrade Impact: If you upgrade and roll back, you must delete all
+    `hashes.pkl` files.
+
+  - >
+    If using erasure coding with ISA-L in rs_vand mode and 5 or more parity
+    fragments, Swift will emit a warning. This is a configuration that is
+    known to harm data durability. In a future release, this warning will be
+    upgraded to an error unless the policy is marked as deprecated. All data
+    in an erasure code storage policy using isa_l_rs_vand with 5 or more
+    parity should be migrated as soon as possible. Please see
+    https://bugs.launchpad.net/swift/+bug/1639691 for more information.
+
+  - >
+    Fixed a bug where the ring builder would not allow removal of a device
+    when min_part_seconds_left was greater than zero.
+
+  - >
+    PUT subrequests generated from a client-side COPY will now properly log
+    the SSC (server-side copy) Swift source field. See
+    https://docs.openstack.org/developer/swift/logs.html#swift-source for
+    more information.
+
+  - >
+    Rings with min_part_hours set to zero will now only move one partition
+    replica per rebalance, thus matching behavior when min_part_hours is
+    greater than zero.
+
+  - >
+    Correctly send 412 Precondition Failed if a user sends an
+    invalid copy destination. Previously Swift would send a 500
+    Internal Server Error.
+
+  - >
+    Fixed error where a container drive error resulted in double space
+    usage on rest drives. When drive with container or account database
+    is unmounted, the bug would create handoff replicas on all remaining
+    drives, increasing the drive space used and filling the cluster.
+
+  - >
+    Account and container databases will now be quarantined if the
+    database schema has been corrupted.
+
+  - >
+    Ensure update of the container by object-updater, removing a rare
+    possibility that objects would never be added to a container listing.
+
+  - Fixed some minor test compatibility issues.
+
+  - Updated docs to reference appropriate ports.
