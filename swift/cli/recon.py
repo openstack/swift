@@ -227,7 +227,7 @@ class SwiftRecon(object):
         if self.server_type == 'object':
             for ring_name in os.listdir(swift_dir):
                 if ring_name.startswith('object') and \
-                        ring_name.endswith('ring.gz'):
+                        ring_name.endswith('.ring.gz'):
                     ring_names.add(ring_name)
         else:
             ring_name = '%s.ring.gz' % self.server_type
