@@ -267,31 +267,70 @@ for configuring policies.  Configuring a policy is a three-step process:
 Defining a policy
 -----------------
 
-Each policy is defined by a section in the ``/etc/swift/swift.conf`` file
-starting with ``[storage-policy:N]`` where N is the policy index. There's no
-reason other than readability that these be sequential but there are a number
-of rules enforced by Swift when parsing this file:
+Each policy is defined by a section in the ``/etc/swift/swift.conf`` file. The
+section name must be of the form ``[storage-policy:<N>]`` where ``<N>`` is the
+policy index. There's no reason other than readability that policy indexes be
+sequential but the following rules are enforced:
 
-    * If a policy with index 0 is not declared and no other policies defined,
-      Swift will create one
-    * The policy index must be a non-negative integer
-    * If no policy is declared as the default and no other policies are
-      defined, the policy with index 0 is set as the default
-    * Policy indexes must be unique
-    * Policy names are required
-    * Policy names are case insensitive
-    * Policy names must contain only letters, digits or a dash
-    * Policy names must be unique
-    * The policy name 'Policy-0' can only be used for the policy with index 0
-    * Multiple names can be assigned to one policy using aliases. All names
-      must follow the Swift naming rules.
-    * If any policies are defined, exactly one policy must be declared default
-    * Deprecated policies cannot be declared the default
-    * If no ``policy_type`` is provided, ``replication`` is the default value.
+    * If a policy with index ``0`` is not declared and no other policies are
+      defined, Swift will create a default policy with index ``0``.
+    * The policy index must be a non-negative integer.
+    * Policy indexes must be unique.
+
+.. warning::
+
+    The index of a policy should never be changed once a policy has been
+    created and used. Changing a policy index may cause loss of access to data.
+
+Each policy section contains the following options:
+
+    * ``name = <policy_name>`` (required)
+        - The primary name of the policy.
+        - Policy names are case insensitive.
+        - Policy names must contain only letters, digits or a dash.
+        - Policy names must be unique.
+        - Policy names can be changed.
+        - The name ``Policy-0`` can only be used for the policy with
+          index ``0``.
+    * ``alias = <policy_name>[, <policy_name>, ...]`` (optional)
+        - A comma-separated list of alternative names for the policy.
+        - The default value is an empty list (i.e. no aliases).
+        - All alias names must follow the rules for the ``name`` option.
+        - Aliases can be added to and removed from the list.
+        - Aliases can be useful to retain support for old primary names if the
+          primary name is changed.
+    * ``default = [true|false]`` (optional)
+        - If ``true`` then this policy will be used when the client does not
+          specify a policy.
+        - The default value is ``false``.
+        - The default policy can be changed at any time, by setting
+          ``default = true`` in the desired policy section.
+        - If no policy is declared as the default and no other policies are
+          defined, the policy with index ``0`` is set as the default;
+        - Otherwise, exactly one policy must be declared default.
+        - Deprecated policies cannot be declared the default.
+        - See :ref:`default-policy` for more information.
+    * ``deprecated = [true|false]`` (optional)
+        - If ``true`` then new containers cannot be created using this policy.
+        - The default value is ``false``.
+        - Any policy may be deprecated by adding the ``deprecated`` option to
+          the desired policy section. However, a deprecated policy may not also
+          be declared the default. Therefore, since there must always be a
+          default policy, there must also always be at least one policy which
+          is not deprecated.
+        - See :ref:`deprecate-policy` for more information.
+    * ``policy_type = [replication|erasure_coding]`` (optional)
+        - The option ``policy_type`` is used to distinguish between different
+          policy types.
+        - The default value is ``replication``.
+        - When defining an EC policy use the value ``erasure_coding``.
+
+The EC policy type has additional required options. See
+:ref:`using_ec_policy` for details.
 
 The following is an example of a properly configured ``swift.conf`` file. See
-:doc:`policies_saio` for full instructions on setting up an all-in-one with this
-example configuration.::
+:doc:`policies_saio` for full instructions on setting up an all-in-one with
+this example configuration.::
 
         [swift-hash]
         # random unique strings that can never change (DO NOT LOSE)
@@ -310,43 +349,23 @@ example configuration.::
         policy_type = replication
         deprecated = yes
 
-Review :ref:`default-policy` and :ref:`deprecate-policy` for more
-information about the ``default`` and ``deprecated`` options.
-
-There are some other considerations when managing policies:
-
-    * Policy names can be changed.
-    * Aliases are supported and can be added and removed. If the primary name
-      of a policy is removed the next available alias will be adopted as the
-      primary name. A policy must always have at least one name.
-    * You cannot change the index of a policy once it has been created
-    * The default policy can be changed at any time, by adding the
-      default directive to the desired policy section
-    * Any policy may be deprecated by adding the deprecated directive to
-      the desired policy section, but a deprecated policy may not also
-      be declared the default, and you must specify a default - so you
-      must have policy which is not deprecated at all times.
-    * The option ``policy_type`` is used to distinguish between different
-      policy types. The default value is ``replication``. When defining an EC
-      policy use the value ``erasure_coding``.
-    * The EC policy has additional required parameters. See
-      :doc:`overview_erasure_code` for details.
-
 
 Creating a ring
 ---------------
 
 Once ``swift.conf`` is configured for a new policy, a new ring must be created.
-The ring tools are not policy name aware so it's critical that the
-correct policy index be used when creating the new policy's ring file.
-Additional object rings are created in the same manner as the legacy ring
-except that '-N' is appended after the word ``object`` where N matches the
-policy index used in ``swift.conf``.  This naming convention follows the pattern
-for per-policy storage node data directories as well.  So, to create the ring
-for policy 1::
+The ring tools are not policy name aware so it's critical that the correct
+policy index be used when creating the new policy's ring file. Additional
+object rings are created using ``swift-ring-builder`` in the same manner as the
+legacy ring except that ``-N`` is appended after the word ``object`` in the
+builder file name, where ``N`` matches the policy index used in ``swift.conf``.
+So, to create the ring for policy index ``1``::
 
         swift-ring-builder object-1.builder create 10 3 1
-        <and add devices, rebalance using the same naming convention>
+
+Continue to use the same naming convention when using ``swift-ring-builder`` to
+add devices, rebalance etc. This naming convention is also used in the pattern
+for per-policy storage node data directories.
 
 .. note::
 
