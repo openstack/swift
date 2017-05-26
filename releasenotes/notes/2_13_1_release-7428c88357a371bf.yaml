@@ -1,0 +1,22 @@
+---
+fixes:
+  - >
+    Fixed a bug in the EC reconstructor where an unsuccessful sync
+    would cause extra disk I/O load on the remote server. Now the extra
+    checking work is only requested if the sync request was successful.
+
+  - >
+    PUT subrequests generated from a client-side COPY will now properly log
+    the SSC (server-side copy) Swift source field. See
+    https://docs.openstack.org/developer/swift/logs.html#swift-source for
+    more information.
+
+  - >
+    Fixed error where a container drive error resulted in double space
+    usage on rest drives. When drive with container or account database
+    is unmounted, the bug would create handoff replicas on all remaining
+    drives, increasing the drive space used and filling the cluster.
+
+  - Fixed some minor test compatibility issues.
+
+  - Updated docs to reference appropriate ports.
