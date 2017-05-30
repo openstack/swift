@@ -85,6 +85,9 @@ def _label_for_policy(policy):
     return '(default)'
 
 
+VALID_SORTING_METHODS = ('shuffle', 'timing', 'affinity')
+
+
 class ProxyOverrideOptions(object):
     """
     Encapsulates proxy server options that may be overridden e.g. for
@@ -98,6 +101,11 @@ class ProxyOverrideOptions(object):
             return override_conf.get(key, base_conf.get(key, default))
 
         self.sorting_method = get('sorting_method', 'shuffle').lower()
+        if self.sorting_method not in VALID_SORTING_METHODS:
+            raise ValueError(
+                'Invalid sorting_method value; must be one of %s, not %r' % (
+                    ', '.join(VALID_SORTING_METHODS), self.sorting_method))
+
         self.read_affinity = get('read_affinity', '')
         try:
             self.read_affinity_sort_key = affinity_key_function(
