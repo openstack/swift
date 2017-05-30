@@ -34,6 +34,10 @@ There are many reasons why this might be desirable:
   together a set of nodes that use a different Diskfile (e.g., Kinetic,
   GlusterFS) and use a policy to direct traffic just to those nodes.
 
+* Different read and write affinity settings: proxy-servers can be configured
+  to use different read and write affinity options for each policy. See
+  :ref:`proxy_server_per_policy_config` for more details.
+
 .. note::
 
     Today, Swift supports two different policy types: Replication and Erasure
@@ -248,19 +252,25 @@ not mark the policy as deprecated to all nodes.
 Configuring Policies
 --------------------
 
-Policies are configured in ``swift.conf`` and it is important that the deployer
-have a solid understanding of the semantics for configuring policies.  Recall
-that a policy must have a corresponding ring file, so configuring a policy is a
-two-step process.  First, edit your ``/etc/swift/swift.conf`` file to add your
-new policy and, second, create the corresponding policy object ring file.
+.. note::
 
-See :doc:`policies_saio` for a step by step guide on adding a policy to the SAIO
-setup.
+    See :doc:`policies_saio` for a step by step guide on adding a policy to the
+    SAIO setup.
 
-Note that each policy has a section starting with ``[storage-policy:N]`` where N
-is the policy index.  There's no reason other than readability that these be
-sequential but there are a number of rules enforced by Swift when parsing this
-file:
+It is important that the deployer have a solid understanding of the semantics
+for configuring policies.  Configuring a policy is a three-step process:
+
+#. Edit your ``/etc/swift/swift.conf`` file to define your new policy.
+#. Create the corresponding policy object ring file.
+#. (Optional) Create policy-specific proxy-server configuration settings.
+
+Defining a policy
+-----------------
+
+Each policy is defined by a section in the ``/etc/swift/swift.conf`` file
+starting with ``[storage-policy:N]`` where N is the policy index. There's no
+reason other than readability that these be sequential but there are a number
+of rules enforced by Swift when parsing this file:
 
     * If a policy with index 0 is not declared and no other policies defined,
       Swift will create one
@@ -322,6 +332,10 @@ There are some other considerations when managing policies:
     * The EC policy has additional required parameters. See
       :doc:`overview_erasure_code` for details.
 
+
+Creating a ring
+---------------
+
 Once ``swift.conf`` is configured for a new policy, a new ring must be created.
 The ring tools are not policy name aware so it's critical that the
 correct policy index be used when creating the new policy's ring file.
@@ -341,6 +355,15 @@ for policy 1::
     important to understand the implications of such a configuration before
     setting one up.  Make sure it's really what you want to do, in many cases
     it will be, but in others maybe not.
+
+
+Proxy server configuration (optional)
+-------------------------------------
+
+The :ref:`proxy-server` configuration options related to read and write
+affinity may optionally be overridden for individual storage policies. See
+:ref:`proxy_server_per_policy_config` for more details.
+
 
 --------------
 Using Policies

@@ -1576,8 +1576,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertFalse(scopes)
 
     def test_per_policy_conf_with_unknown_policy(self):
-        # verify that unknown policy section is warned about but doesn't break
-        # other policy configs
+        # verify that unknown policy section raises an error
         conf_sections = """
         [app:proxy-server]
         use = egg:swift#proxy
