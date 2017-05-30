@@ -154,7 +154,7 @@ def pre_validate_all_builders(builders):
         if inter:
             raise ValueError('Same region found in different rings')
 
-    # check device uniquness
+    # check device uniqueness
     check_for_dev_uniqueness(builders)
 
 

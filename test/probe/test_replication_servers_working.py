@@ -55,7 +55,7 @@ def find_max_occupancy_node(dir_list):
     """
     Find node with maximum occupancy.
 
-    :param list_dir: list of directories for each node.
+    :param dir_list: list of directories for each node.
     :return: number number node in list_dir
     """
     count = 0

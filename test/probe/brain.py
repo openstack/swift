@@ -96,7 +96,7 @@ class BrainSplitter(object):
             policy.load_ring('/etc/swift')
             self.ring = policy.object_ring
         else:
-            raise ValueError('Unkonwn server_type: %r' % server_type)
+            raise ValueError('Unknown server_type: %r' % server_type)
         self.server_type = server_type
 
         part, nodes = self.ring.get_nodes(self.account, c, o)
