@@ -184,6 +184,9 @@ for larger objects that are not frequently accessed (eg backups).
 Operators are encouraged to characterize the performance of various EC schemes
 and share their observations with the developer community.
 
+
+.. _using_ec_policy:
+
 ****************************
 Using an Erasure Code Policy
 ****************************
