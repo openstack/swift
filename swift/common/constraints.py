@@ -320,7 +320,8 @@ def check_delete_headers(request):
             raise HTTPBadRequest(request=request, content_type='text/plain',
                                  body='Non-integer X-Delete-At')
 
-        if x_delete_at < time.time():
+        if x_delete_at < time.time() and not utils.config_true_value(
+                request.headers.get('x-backend-replication', 'f')):
             raise HTTPBadRequest(request=request, content_type='text/plain',
                                  body='X-Delete-At in past')
     return request

@@ -516,7 +516,8 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy)
+                policy=policy, open_expired=config_true_value(
+                    request.headers.get('x-backend-replication', 'false')))
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -653,9 +654,6 @@ class ObjectController(BaseStorageServer):
         if error_response:
             return error_response
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
-        if new_delete_at and new_delete_at < time.time():
-            return HTTPBadRequest(body='X-Delete-At in past', request=request,
-                                  content_type='text/plain')
         try:
             fsize = request.message_length()
         except ValueError as e:
