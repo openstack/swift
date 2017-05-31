@@ -175,7 +175,7 @@ class Test(ReplProbeTest):
                              'Inconsistent suffix hashes found: %s' % results)
 
     def test_object_delete_is_replicated(self):
-        self.brain.put_container(policy_index=int(self.policy))
+        self.brain.put_container()
         # put object
         self._put_object()
 
@@ -229,7 +229,7 @@ class Test(ReplProbeTest):
         self._get_object()
 
     def test_object_after_replication_with_subsequent_post(self):
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
 
         # put object
         self._put_object(headers={'Content-Type': 'foo'}, body=u'older')
@@ -267,7 +267,7 @@ class Test(ReplProbeTest):
         sysmeta = {'x-object-sysmeta-foo': 'older'}
         sysmeta2 = {'x-object-sysmeta-foo': 'newer'}
         usermeta = {'x-object-meta-bar': 'meta-bar'}
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
 
         # put object with sysmeta to first server subset
         self.brain.stop_primary_half()
@@ -338,7 +338,7 @@ class Test(ReplProbeTest):
         usermeta = {'x-object-meta-bar': 'meta-bar'}
         transient_sysmeta = {
             'x-object-transient-sysmeta-bar': 'transient-sysmeta-bar'}
-        self.brain.put_container(policy_index=int(self.policy))
+        self.brain.put_container()
         # put object
         self._put_object()
         # put newer object with sysmeta to first server subset
@@ -403,7 +403,7 @@ class Test(ReplProbeTest):
         usermeta = {'x-object-meta-bar': 'meta-bar'}
         transient_sysmeta = {
             'x-object-transient-sysmeta-bar': 'transient-sysmeta-bar'}
-        self.brain.put_container(policy_index=int(self.policy))
+        self.brain.put_container()
         # put object
         self._put_object()
 
@@ -475,7 +475,7 @@ class Test(ReplProbeTest):
         #
         #               t1.data:
         #               t2.meta: ctype = baz
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
 
         # incomplete write to primary half
         self.brain.stop_handoff_half()
@@ -530,7 +530,7 @@ class Test(ReplProbeTest):
         #
         #               t1.data: ctype = bar
         #               t2.meta:
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
 
         # incomplete write
         self.brain.stop_handoff_half()
@@ -590,7 +590,7 @@ class Test(ReplProbeTest):
         #
         #               t1.data:
         #               t4-delta.meta: ctype = baz, color = Blue
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
 
         # incomplete write
         self.brain.stop_handoff_half()
@@ -661,7 +661,7 @@ class Test(ReplProbeTest):
         #
         #               t1.data: ctype = bar
         #               t3.meta
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
 
         self._put_object(headers={'Content-Type': 'foo',
                                   'X-Object-Sysmeta-Test': 'older'})
@@ -715,7 +715,7 @@ class Test(ReplProbeTest):
         # newer metadata posted to subset of nodes should persist after an
         # earlier put on other nodes, but older content-type on that subset
         # should not persist
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
         # incomplete put to handoff
         self.brain.stop_primary_half()
         self.container_brain.stop_primary_half()
@@ -787,7 +787,7 @@ class Test(ReplProbeTest):
         # new metadata and content-type posted to subset of nodes should not
         # cause object to persist after replication of an earlier delete on
         # other nodes.
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container()
         # incomplete put
         self.brain.stop_primary_half()
         self.container_brain.stop_primary_half()
