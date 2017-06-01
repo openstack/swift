@@ -1,6 +1,6 @@
 ---
 fixes:
-  - >
+  - |
     Improvements in key parts of the consistency engine
 
     - Optimized the common case for hashing filesystem trees, thus
