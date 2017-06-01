@@ -17,9 +17,11 @@
 Why our own memcache client?
 By Michael Barton
 
-python-memcached doesn't use consistent hashing, so adding or
-removing a memcache server from the pool invalidates a huge
-percentage of cached items.
+python-memcached doesn't use consistent hashing, it uses a different
+algorithm for ensuring that a server which is down only has its keys
+redistributed, without invalidating much of the rest of the key-space.
+However, the authors of this module thought it did, so they implemented
+the Consistent Hashing algorithm instead.
 
 If you keep a pool of python-memcached client objects, each client
 object has its own connection to every memcached server, only one of
@@ -198,7 +200,7 @@ class MemcacheRing(object):
         Retrieves a server conn from the pool, or connects a new one.
         Chooses the server based on a consistent hash of "key".
         """
-        pos = bisect(self._sorted, key)
+        pos = bisect(self._sorted, md5hash(key))
         served = []
         while len(served) < self._tries:
             pos = (pos + 1) % len(self._sorted)
