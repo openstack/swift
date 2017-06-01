@@ -1319,6 +1319,9 @@ class BaseDiskFileManager(object):
         :returns: a dictionary that maps suffix directories
         """
         dev_path = self.get_dev_path(device)
+        """
+        Returns hash of the path calculated .
+        """
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         partition_path = get_part_path(dev_path, policy, partition)
