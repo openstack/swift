@@ -67,6 +67,7 @@ class ReconMiddleware(object):
                                            policy.ring_name + '.ring.gz'))
 
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
+        self.page_size = getpagesize()
 
     def _from_recon_cache(self, cache_keys, cache_file, openr=open):
         """retrieve values from a recon cache file
@@ -311,7 +312,7 @@ class ReconMiddleware(object):
                         sockstat['orphan'] = int(tcpstats[4])
                         sockstat['time_wait'] = int(tcpstats[6])
                         sockstat['tcp_mem_allocated_bytes'] = \
-                            int(tcpstats[10]) * getpagesize()
+                            int(tcpstats[10]) * self.page_size
         except IOError as e:
             if e.errno != errno.ENOENT:
                 raise
