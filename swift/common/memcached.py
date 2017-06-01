@@ -280,7 +280,10 @@ class MemcacheRing(object):
             try:
                 with Timeout(self._io_timeout):
                     sock.sendall('get %s\r\n' % key)
-                    line = fp.readline().strip().split()
+                    s = fp.readline()
+                    if s == '':
+                        raise MemcacheConnectionError("Connection may be closed")
+                    line = s.strip().split()
                     while line[0].upper() != 'END':
                         if line[0].upper() == 'VALUE' and line[1] == key:
                             size = int(line[3])
