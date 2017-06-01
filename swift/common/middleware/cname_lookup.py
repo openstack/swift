@@ -41,6 +41,7 @@ except ImportError:
 else:  # executed if the try block finishes with no errors
     MODULE_DEPENDENCY_MET = True
 
+from swift.common.middleware import RewriteContext
 from swift.common.swob import Request, HTTPBadRequest
 from swift.common.utils import cache_from_env, get_logger, list_from_csv, \
     register_swift_info
@@ -80,6 +81,10 @@ def is_ip(domain):
             return False
 
 
+class _CnameLookupContext(RewriteContext):
+    base_re = r'^(https?://)%s(/.*)?$'
+
+
 class CNAMELookupMiddleware(object):
     """
     CNAME Lookup Middleware
@@ -117,9 +122,9 @@ class CNAMELookupMiddleware(object):
         if not self.storage_domain:
             return self.app(env, start_response)
         if 'HTTP_HOST' in env:
-            given_domain = env['HTTP_HOST']
+            requested_host = given_domain = env['HTTP_HOST']
         else:
-            given_domain = env['SERVER_NAME']
+            requested_host = given_domain = env['SERVER_NAME']
         port = ''
         if ':' in given_domain:
             given_domain, port = given_domain.rsplit(':', 1)
@@ -175,6 +180,11 @@ class CNAMELookupMiddleware(object):
                 resp = HTTPBadRequest(request=Request(env), body=msg,
                                       content_type='text/plain')
                 return resp(env, start_response)
+            else:
+                context = _CnameLookupContext(self.app, requested_host,
+                                              env['HTTP_HOST'])
+                return context.handle_request(env, start_response)
+
         return self.app(env, start_response)
 
 
