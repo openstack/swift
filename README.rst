@@ -55,9 +55,9 @@ Tests
 
 There are three types of tests included in Swift's source tree.
 
- #. Unit tests
- #. Functional tests
- #. Probe tests
+#. Unit tests
+#. Functional tests
+#. Probe tests
 
 Unit tests check that small sections of the code behave properly. For example,
 a unit test may test a single function to ensure that various input gives the
