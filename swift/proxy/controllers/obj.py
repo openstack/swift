@@ -128,7 +128,8 @@ class BaseObjectController(Controller):
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
 
-    def iter_nodes_local_first(self, ring, partition, policy=None):
+    def iter_nodes_local_first(self, ring, partition, policy=None,
+                               local_handoffs_first=False):
         """
         Yields nodes for a ring partition.
 
@@ -141,6 +142,9 @@ class BaseObjectController(Controller):
 
         :param ring: ring to get nodes from
         :param partition: ring partition to yield nodes for
+        :param policy: optional, an instance of :class:`BaseStoragePolicy
+        :param local_handoffs_first: optional, if True prefer primaries and
+            local handoff nodes first before looking elsewhere.
         """
         policy_options = self.app.get_policy_options(policy)
         is_local = policy_options.write_affinity_is_local_fn
@@ -148,23 +152,38 @@ class BaseObjectController(Controller):
             return self.app.iter_nodes(ring, partition, policy=policy)
 
         primary_nodes = ring.get_part_nodes(partition)
-        num_locals = policy_options.write_affinity_node_count_fn(
-            len(primary_nodes))
+        handoff_nodes = ring.get_more_nodes(partition)
+        all_nodes = itertools.chain(primary_nodes, handoff_nodes)
 
-        all_nodes = itertools.chain(primary_nodes,
-                                    ring.get_more_nodes(partition))
-        first_n_local_nodes = list(itertools.islice(
-            (node for node in all_nodes if is_local(node)), num_locals))
+        if local_handoffs_first:
+            num_locals = policy_options.write_affinity_handoff_delete_count
+            if num_locals is None:
+                local_primaries = [node for node in primary_nodes
+                                   if is_local(node)]
+                num_locals = len(primary_nodes) - len(local_primaries)
 
-        # refresh it; it moved when we computed first_n_local_nodes
-        all_nodes = itertools.chain(primary_nodes,
-                                    ring.get_more_nodes(partition))
-        local_first_node_iter = itertools.chain(
-            first_n_local_nodes,
-            (node for node in all_nodes if node not in first_n_local_nodes))
+            first_local_handoffs = list(itertools.islice(
+                (node for node in handoff_nodes if is_local(node)), num_locals)
+            )
+            preferred_nodes = primary_nodes + first_local_handoffs
+        else:
+            num_locals = policy_options.write_affinity_node_count_fn(
+                len(primary_nodes)
+            )
+            preferred_nodes = list(itertools.islice(
+                (node for node in all_nodes if is_local(node)), num_locals)
+            )
+            # refresh it; it moved when we computed preferred_nodes
+            handoff_nodes = ring.get_more_nodes(partition)
+            all_nodes = itertools.chain(primary_nodes, handoff_nodes)
 
-        return self.app.iter_nodes(
-            ring, partition, node_iter=local_first_node_iter, policy=policy)
+        node_iter = itertools.chain(
+            preferred_nodes,
+            (node for node in all_nodes if node not in preferred_nodes)
+        )
+
+        return self.app.iter_nodes(ring, partition, node_iter=node_iter,
+                                   policy=policy)
 
     def GETorHEAD(self, req):
         """Handle HTTP GET or HEAD requests."""
@@ -589,10 +608,12 @@ class BaseObjectController(Controller):
         raise NotImplementedError()
 
     def _delete_object(self, req, obj_ring, partition, headers):
-        """
-        send object DELETE request to storage nodes. Subclasses of
-        the BaseObjectController can provide their own implementation
-        of this method.
+        """Delete object considering write-affinity.
+
+        When deleting object in write affinity deployment, also take configured
+        handoff nodes number into consideration, instead of just sending
+        requests to primary nodes. Otherwise (write-affinity is disabled),
+        go with the same way as before.
 
         :param req: the DELETE Request
         :param obj_ring: the object ring
@@ -600,11 +621,37 @@ class BaseObjectController(Controller):
         :param headers: system headers to storage nodes
         :return: Response object
         """
-        # When deleting objects treat a 404 status as 204.
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+
+        node_count = None
+        node_iterator = None
+
+        policy_options = self.app.get_policy_options(policy)
+        is_local = policy_options.write_affinity_is_local_fn
+        if is_local is not None:
+            primaries = obj_ring.get_part_nodes(partition)
+            node_count = len(primaries)
+
+            local_handoffs = policy_options.write_affinity_handoff_delete_count
+            if local_handoffs is None:
+                local_primaries = [node for node in primaries
+                                   if is_local(node)]
+                local_handoffs = len(primaries) - len(local_primaries)
+
+            node_count += local_handoffs
+
+            node_iterator = self.iter_nodes_local_first(
+                obj_ring, partition, policy=policy, local_handoffs_first=True
+            )
+
         status_overrides = {404: 204}
         resp = self.make_requests(req, obj_ring,
                                   partition, 'DELETE', req.swift_entity_path,
-                                  headers, overrides=status_overrides)
+                                  headers, overrides=status_overrides,
+                                  node_count=node_count,
+                                  node_iterator=node_iterator)
+
         return resp
 
     def _post_object(self, req, obj_ring, partition, headers):
@@ -725,8 +772,20 @@ class BaseObjectController(Controller):
         else:
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
+        # Include local handoff nodes if write-affinity is enabled.
+        node_count = len(nodes)
+        policy = POLICIES.get_by_index(policy_index)
+        policy_options = self.app.get_policy_options(policy)
+        is_local = policy_options.write_affinity_is_local_fn
+        if is_local is not None:
+            local_handoffs = policy_options.write_affinity_handoff_delete_count
+            if local_handoffs is None:
+                local_primaries = [node for node in nodes if is_local(node)]
+                local_handoffs = len(nodes) - len(local_primaries)
+            node_count += local_handoffs
+
         headers = self._backend_requests(
-            req, len(nodes), container_partition, container_nodes)
+            req, node_count, container_partition, container_nodes)
         return self._delete_object(req, obj_ring, partition, headers)
 
 

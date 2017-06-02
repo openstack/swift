@@ -236,6 +236,20 @@ use = egg:swift#proxy
 # This option may be overridden in a per-policy configuration section.
 # write_affinity_node_count = 2 * replicas
 #
+# The number of local (as governed by the write_affinity setting) handoff nodes
+# to attempt to contact on deletion, in addition to primary nodes.
+#
+# Example: in geographically distributed deployment of 2 regions, If
+# replicas=3, sometimes there may be 1 primary node and 2 local handoff nodes
+# in one region holding the object after uploading but before object replicated
+# to the appropriate locations in other regions. In this case, include these
+# handoff nodes to send request when deleting object could help make correct
+# decision for the response. The default value 'auto' means Swift will
+# calculate the number automatically, the default value is
+# (replicas - len(local_primary_nodes)). This option may be overridden in a
+# per-policy configuration section.
+# write_affinity_handoff_delete_count = auto
+#
 # These are the headers whose values will only be shown to swift_owners. The
 # exact definition of a swift_owner is up to the auth system in use, but
 # usually indicates administrative responsibilities.
@@ -264,6 +278,7 @@ use = egg:swift#proxy
 # read_affinity =
 # write_affinity =
 # write_affinity_node_count =
+# write_affinity_handoff_delete_count =
 
 [filter:tempauth]
 use = egg:swift#tempauth

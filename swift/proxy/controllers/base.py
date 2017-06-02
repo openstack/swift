@@ -1596,7 +1596,8 @@ class Controller(object):
                     {'method': method, 'path': path})
 
     def make_requests(self, req, ring, part, method, path, headers,
-                      query_string='', overrides=None):
+                      query_string='', overrides=None, node_count=None,
+                      node_iterator=None):
         """
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
@@ -1613,11 +1614,16 @@ class Controller(object):
         :param query_string: optional query string to send to the backend
         :param overrides: optional return status override map used to override
                           the returned status of a request.
+        :param node_count: optional number of nodes to send request to.
+        :param node_iterator: optional node iterator.
         :returns: a swob.Response object
         """
-        start_nodes = ring.get_part_nodes(part)
-        nodes = GreenthreadSafeIterator(self.app.iter_nodes(ring, part))
-        pile = GreenAsyncPile(len(start_nodes))
+        nodes = GreenthreadSafeIterator(
+            node_iterator or self.app.iter_nodes(ring, part)
+        )
+        node_number = node_count or len(ring.get_part_nodes(part))
+        pile = GreenAsyncPile(node_number)
+
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, self.app.logger.thread_locals)
@@ -1628,7 +1634,7 @@ class Controller(object):
                 continue
             response.append(resp)
             statuses.append(resp[0])
-            if self.have_quorum(statuses, len(start_nodes)):
+            if self.have_quorum(statuses, node_number):
                 break
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
@@ -1637,7 +1643,7 @@ class Controller(object):
                 continue
             response.append(resp)
             statuses.append(resp[0])
-        while len(response) < len(start_nodes):
+        while len(response) < node_number:
             response.append((HTTP_SERVICE_UNAVAILABLE, '', '', ''))
         statuses, reasons, resp_headers, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
