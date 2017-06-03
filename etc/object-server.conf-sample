@@ -314,6 +314,13 @@ use = egg:swift#recon
 # run_pause is deprecated, use interval instead
 # run_pause = 30
 #
+# Maximum number of worker processes to spawn.  Each worker will handle a
+# subset of devices.  Devices will be assigned evenly among the workers so that
+# workers cycle at similar intervals (which can lead to fewer workers than
+# requested).  You can not have more workers than devices.  If you have no
+# devices only a single worker is spawned.
+# reconstructor_workers = 0
+#
 # concurrency = 1
 # stats_interval = 300
 # node_timeout = 10

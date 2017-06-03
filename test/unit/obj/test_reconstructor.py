@@ -26,7 +26,7 @@ import re
 import random
 import struct
 import collections
-from eventlet import Timeout, sleep
+from eventlet import Timeout, sleep, spawn
 
 from contextlib import closing, contextmanager
 from gzip import GzipFile
@@ -35,6 +35,7 @@ from six.moves.urllib.parse import unquote
 from swift.common import utils
 from swift.common.exceptions import DiskFileError
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.utils import dump_recon_cache
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -43,7 +44,8 @@ from swift.obj.reconstructor import REVERT
 
 from test.unit import (patch_policies, debug_logger, mocked_http_conn,
                        FabricatedRing, make_timestamp_iter,
-                       DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies)
+                       DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies,
+                       quiet_eventlet_exceptions)
 from test.unit.obj.common import write_diskfile
 
 
@@ -1341,6 +1343,931 @@ class TestGlobalSetupObjectReconstructorLegacyDurable(
         TestGlobalSetupObjectReconstructor):
     # Tests for reconstructor using real objects in test partition directories.
     legacy_durable = True
+
+
+@patch_policies(with_ec_default=True)
+class TestWorkerReconstructor(unittest.TestCase):
+
+    maxDiff = None
+
+    def setUp(self):
+        super(TestWorkerReconstructor, self).setUp()
+        self.logger = debug_logger()
+        self.testdir = tempfile.mkdtemp()
+        self.recon_cache_path = os.path.join(self.testdir, 'recon')
+        self.rcache = os.path.join(self.recon_cache_path, 'object.recon')
+        # dump_recon_cache expects recon_cache_path to exist
+        os.mkdir(self.recon_cache_path)
+
+    def tearDown(self):
+        super(TestWorkerReconstructor, self).tearDown()
+        shutil.rmtree(self.testdir)
+
+    def test_no_workers_by_default(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {}, logger=self.logger)
+        self.assertEqual(0, reconstructor.reconstructor_workers)
+        self.assertEqual(0, len(list(reconstructor.get_worker_args())))
+
+    def test_bad_value_workers(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '-1'}, logger=self.logger)
+        self.assertEqual(-1, reconstructor.reconstructor_workers)
+        self.assertEqual(0, len(list(reconstructor.get_worker_args())))
+
+    def test_workers_with_no_devices(self):
+        def do_test(num_workers):
+            reconstructor = object_reconstructor.ObjectReconstructor(
+                {'reconstructor_workers': num_workers}, logger=self.logger)
+            self.assertEqual(num_workers, reconstructor.reconstructor_workers)
+            self.assertEqual(1, len(list(reconstructor.get_worker_args())))
+            self.assertEqual([
+                {'override_partitions': [], 'override_devices': []},
+            ], list(reconstructor.get_worker_args()))
+        do_test(1)
+        do_test(10)
+
+    def test_workers_with_devices_and_no_valid_overrides(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '2'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: ['sdb', 'sdc']
+        self.assertEqual(2, reconstructor.reconstructor_workers)
+        # N.B. sdz is not in local_devices so there are no devices to process
+        # but still expect a single worker process
+        worker_args = list(reconstructor.get_worker_args(
+            once=True, devices='sdz'))
+        self.assertEqual(1, len(worker_args))
+        self.assertEqual([{'override_partitions': [],
+                           'override_devices': ['sdz']}],
+                         worker_args)
+        # overrides are ignored in forever mode
+        worker_args = list(reconstructor.get_worker_args(
+            once=False, devices='sdz'))
+        self.assertEqual(2, len(worker_args))
+        self.assertEqual([
+            {'override_partitions': [], 'override_devices': ['sdb']},
+            {'override_partitions': [], 'override_devices': ['sdc']}
+        ], worker_args)
+
+    def test_workers_with_devices(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '2'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: ['sdb', 'sdc']
+        self.assertEqual(2, reconstructor.reconstructor_workers)
+        self.assertEqual(2, len(list(reconstructor.get_worker_args())))
+        expected = [
+            {'override_partitions': [], 'override_devices': ['sdb']},
+            {'override_partitions': [], 'override_devices': ['sdc']},
+        ]
+        worker_args = list(reconstructor.get_worker_args(once=False))
+        self.assertEqual(2, len(worker_args))
+        self.assertEqual(expected, worker_args)
+        worker_args = list(reconstructor.get_worker_args(once=True))
+        self.assertEqual(2, len(worker_args))
+        self.assertEqual(expected, worker_args)
+
+    def test_workers_with_devices_and_overrides(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '2'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: ['sdb', 'sdc']
+        self.assertEqual(2, reconstructor.reconstructor_workers)
+        # check we don't get more workers than override devices...
+        # N.B. sdz is not in local_devices so should be ignored for the
+        # purposes of generating workers
+        worker_args = list(reconstructor.get_worker_args(
+            once=True, devices='sdb,sdz', partitions='99,333'))
+        self.assertEqual(1, len(worker_args))
+        self.assertEqual(
+            [{'override_partitions': [99, 333], 'override_devices': ['sdb']}],
+            worker_args)
+        # overrides are ignored in forever mode
+        worker_args = list(reconstructor.get_worker_args(
+            once=False, devices='sdb,sdz', partitions='99,333'))
+        self.assertEqual(2, len(worker_args))
+        self.assertEqual([
+            {'override_partitions': [], 'override_devices': ['sdb']},
+            {'override_partitions': [], 'override_devices': ['sdc']}
+        ], worker_args)
+
+    def test_workers_with_lots_of_devices(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '2'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: [
+            'sdb', 'sdc', 'sdd', 'sde', 'sdf']
+        self.assertEqual(2, reconstructor.reconstructor_workers)
+        self.assertEqual(2, len(list(reconstructor.get_worker_args())))
+        self.assertEqual([
+            {'override_partitions': [], 'override_devices': [
+                'sdb', 'sdd', 'sdf']},
+            {'override_partitions': [], 'override_devices': [
+                'sdc', 'sde']},
+        ], list(reconstructor.get_worker_args()))
+
+    def test_workers_with_lots_of_devices_and_overrides(self):
+        # check that override devices get distributed across workers
+        # in similar fashion to all devices
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '2'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: [
+            'sdb', 'sdc', 'sdd', 'sde', 'sdf']
+        self.assertEqual(2, reconstructor.reconstructor_workers)
+        worker_args = list(reconstructor.get_worker_args(
+            once=True, devices='sdb,sdd,sdf', partitions='99,333'))
+        self.assertEqual(1, len(worker_args))
+        # 5 devices in total, 2 workers -> up to 3 devices per worker so a
+        # single worker should handle the requested override devices
+        self.assertEqual([
+            {'override_partitions': [99, 333], 'override_devices': [
+                'sdb', 'sdd', 'sdf']},
+        ], worker_args)
+
+        # with 4 override devices, expect 2 per worker
+        worker_args = list(reconstructor.get_worker_args(
+            once=True, devices='sdb,sdc,sdd,sdf', partitions='99,333'))
+        self.assertEqual(2, len(worker_args))
+        self.assertEqual([
+            {'override_partitions': [99, 333], 'override_devices': [
+                'sdb', 'sdd']},
+            {'override_partitions': [99, 333], 'override_devices': [
+                'sdc', 'sdf']},
+        ], worker_args)
+
+    def test_workers_with_lots_of_workers(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '10'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: ['sdb', 'sdc']
+        self.assertEqual(10, reconstructor.reconstructor_workers)
+        self.assertEqual(2, len(list(reconstructor.get_worker_args())))
+        self.assertEqual([
+            {'override_partitions': [], 'override_devices': ['sdb']},
+            {'override_partitions': [], 'override_devices': ['sdc']},
+        ], list(reconstructor.get_worker_args()))
+
+    def test_workers_with_lots_of_workers_and_devices(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'reconstructor_workers': '10'}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: [
+            'sdb', 'sdc', 'sdd', 'sde', 'sdf']
+        self.assertEqual(10, reconstructor.reconstructor_workers)
+        self.assertEqual(5, len(list(reconstructor.get_worker_args())))
+        self.assertEqual([
+            {'override_partitions': [], 'override_devices': ['sdb']},
+            {'override_partitions': [], 'override_devices': ['sdc']},
+            {'override_partitions': [], 'override_devices': ['sdd']},
+            {'override_partitions': [], 'override_devices': ['sde']},
+            {'override_partitions': [], 'override_devices': ['sdf']},
+        ], list(reconstructor.get_worker_args()))
+
+    def test_workers_with_some_workers_and_devices(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {}, logger=self.logger)
+        reconstructor.get_local_devices = lambda: [
+            'd%s' % (i + 1) for i in range(21)]
+        # ... with many devices per worker, worker count is pretty granular
+        for i in range(1, 8):
+            reconstructor.reconstructor_workers = i
+            self.assertEqual(i, len(list(reconstructor.get_worker_args())))
+        # ... then it gets sorta stair step
+        for i in range(9, 10):
+            reconstructor.reconstructor_workers = i
+            self.assertEqual(7, len(list(reconstructor.get_worker_args())))
+            # 2-3 devices per worker
+            for args in reconstructor.get_worker_args():
+                self.assertIn(len(args['override_devices']), (2, 3))
+        for i in range(11, 20):
+            reconstructor.reconstructor_workers = i
+            self.assertEqual(11, len(list(reconstructor.get_worker_args())))
+            # 1, 2 devices per worker
+            for args in reconstructor.get_worker_args():
+                self.assertIn(len(args['override_devices']), (1, 2))
+        # this is debatable, but maybe I'll argue if you're going to have
+        # *some* workers with > 1 device, it's better to have fewer workers
+        # with devices spread out evenly than a couple outliers?
+        self.assertEqual([
+            {'override_partitions': [], 'override_devices': ['d1', 'd12']},
+            {'override_partitions': [], 'override_devices': ['d2', 'd13']},
+            {'override_partitions': [], 'override_devices': ['d3', 'd14']},
+            {'override_partitions': [], 'override_devices': ['d4', 'd15']},
+            {'override_partitions': [], 'override_devices': ['d5', 'd16']},
+            {'override_partitions': [], 'override_devices': ['d6', 'd17']},
+            {'override_partitions': [], 'override_devices': ['d7', 'd18']},
+            {'override_partitions': [], 'override_devices': ['d8', 'd19']},
+            {'override_partitions': [], 'override_devices': ['d9', 'd20']},
+            {'override_partitions': [], 'override_devices': ['d10', 'd21']},
+            {'override_partitions': [], 'override_devices': ['d11']},
+        ], list(reconstructor.get_worker_args()))
+        # you can't get < than 1 device per worker
+        for i in range(21, 52):
+            reconstructor.reconstructor_workers = i
+            self.assertEqual(21, len(list(reconstructor.get_worker_args())))
+            for args in reconstructor.get_worker_args():
+                self.assertEqual(1, len(args['override_devices']))
+
+    def test_next_rcache_update_configured_with_stats_interval(self):
+        now = time.time()
+        with mock.patch('swift.obj.reconstructor.time.time', return_value=now):
+            reconstructor = object_reconstructor.ObjectReconstructor(
+                {}, logger=self.logger)
+            self.assertEqual(now + 300, reconstructor._next_rcache_update)
+            reconstructor = object_reconstructor.ObjectReconstructor(
+                {'stats_interval': '30'}, logger=self.logger)
+            self.assertEqual(now + 30, reconstructor._next_rcache_update)
+
+    def test_is_healthy_rcache_update_waits_for_next_update(self):
+        now = time.time()
+        with mock.patch('swift.obj.reconstructor.time.time', return_value=now):
+            reconstructor = object_reconstructor.ObjectReconstructor(
+                {'recon_cache_path': self.recon_cache_path},
+                logger=self.logger)
+        # file does not exist to start
+        self.assertFalse(os.path.exists(self.rcache))
+        self.assertTrue(reconstructor.is_healthy())
+        # ... and isn't created until _next_rcache_update
+        self.assertFalse(os.path.exists(self.rcache))
+        # ... but if we wait 5 mins (by default)
+        orig_next_update = reconstructor._next_rcache_update
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        return_value=now + 301):
+            self.assertTrue(reconstructor.is_healthy())
+        self.assertGreater(reconstructor._next_rcache_update, orig_next_update)
+        # ... it will be created
+        self.assertTrue(os.path.exists(self.rcache))
+        with open(self.rcache) as f:
+            data = json.load(f)
+        # and empty
+        self.assertEqual({}, data)
+
+    def test_is_healthy_ring_update_next_check(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'recon_cache_path': self.recon_cache_path},
+            logger=self.logger)
+        self.assertTrue(reconstructor.is_healthy())
+        reconstructor.get_local_devices = lambda: {
+            'sdb%d' % p for p in reconstructor.policies}
+        self.assertFalse(reconstructor.is_healthy())
+        reconstructor.all_local_devices = {
+            'sdb%d' % p for p in reconstructor.policies}
+        self.assertTrue(reconstructor.is_healthy())
+
+    def test_final_recon_dump(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'recon_cache_path': self.recon_cache_path},
+            logger=self.logger)
+        reconstructor.all_local_devices = ['sda', 'sdc']
+        total = 12.0
+        now = time.time()
+        with mock.patch('swift.obj.reconstructor.time.time', return_value=now):
+            reconstructor.final_recon_dump(total)
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': now,
+            'object_reconstruction_time': total,
+        }, data)
+        total = 14.0
+        now += total * 60
+        with mock.patch('swift.obj.reconstructor.time.time', return_value=now):
+            reconstructor.final_recon_dump(total)
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': now,
+            'object_reconstruction_time': total,
+        }, data)
+        # per_disk_stats with workers
+        reconstructor.reconstructor_workers = 1
+        old_total = total
+        total = 16.0
+        before = now
+        now += total * 60
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        return_value=now), \
+                mock.patch('swift.obj.reconstructor.os.getpid',
+                           return_value='pid-1'):
+                reconstructor.final_recon_dump(total, override_devices=[
+                    'sda', 'sdc'])
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': before,
+            'object_reconstruction_time': old_total,
+            'object_reconstruction_per_disk': {
+                'sda': {
+                    'object_reconstruction_last': now,
+                    'object_reconstruction_time': total,
+                    'pid': 'pid-1',
+                },
+                'sdc': {
+                    'object_reconstruction_last': now,
+                    'object_reconstruction_time': total,
+                    'pid': 'pid-1',
+                },
+
+            },
+        }, data)
+        # and without workers we clear it out
+        reconstructor.reconstructor_workers = 0
+        total = 18.0
+        now += total * 60
+        with mock.patch('swift.obj.reconstructor.time.time', return_value=now):
+            reconstructor.final_recon_dump(total)
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': now,
+            'object_reconstruction_time': total,
+        }, data)
+
+    def test_dump_recon_run_once_inline(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'recon_cache_path': self.recon_cache_path},
+            logger=self.logger)
+        reconstructor.reconstruct = mock.MagicMock()
+        now = time.time()
+        later = now + 300  # 5 mins
+        with mock.patch('swift.obj.reconstructor.time.time', side_effect=[
+                now, later, later]):
+            reconstructor.run_once()
+        # no override args passed to reconstruct
+        self.assertEqual([mock.call(
+            override_devices=[],
+            override_partitions=[]
+        )], reconstructor.reconstruct.call_args_list)
+        # script mode with no override args, we expect recon dumps
+        self.assertTrue(os.path.exists(self.rcache))
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': later,
+            'object_reconstruction_time': 5.0,
+        }, data)
+        total = 10.0
+        later += total * 60
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        return_value=later):
+            reconstructor.final_recon_dump(total)
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': later,
+            'object_reconstruction_time': 10.0,
+        }, data)
+
+    def test_dump_recon_run_once_in_worker(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'recon_cache_path': self.recon_cache_path,
+             'reconstructor_workers': 1},
+            logger=self.logger)
+        reconstructor.get_local_devices = lambda: {'sda'}
+        now = time.time()
+        later = now + 300  # 5 mins
+
+        def do_test(run_kwargs, expected_device):
+            # get the actual kwargs that would be passed to run_once in a
+            # worker
+            run_once_kwargs = list(
+                reconstructor.get_worker_args(once=True, **run_kwargs))[0]
+            reconstructor.reconstruct = mock.MagicMock()
+            with mock.patch('swift.obj.reconstructor.time.time',
+                            side_effect=[now, later, later]):
+                reconstructor.run_once(**run_once_kwargs)
+            self.assertEqual([mock.call(
+                override_devices=[expected_device],
+                override_partitions=[]
+            )], reconstructor.reconstruct.call_args_list)
+            self.assertTrue(os.path.exists(self.rcache))
+            with open(self.rcache) as f:
+                data = json.load(f)
+            self.assertEqual({
+                # no aggregate is written but perhaps it should be, in which
+                # case this assertion will need to change
+                'object_reconstruction_per_disk': {
+                    expected_device: {
+                        'object_reconstruction_last': later,
+                        'object_reconstruction_time': 5.0,
+                        'pid': mock.ANY
+                    }
+                }
+            }, data)
+
+        # script mode with no CLI override args, we expect recon dumps
+        do_test({}, 'sda')
+        # script mode *with* CLI override devices, we expect recon dumps
+        os.unlink(self.rcache)
+        do_test(dict(devices='sda'), 'sda')
+        # if the override device is not in local devices we still get
+        # a recon dump, but it'll get cleaned up in the next aggregation
+        os.unlink(self.rcache)
+        do_test(dict(devices='sdz'), 'sdz')
+
+        # now disable workers and check that inline run_once updates rcache
+        # and clears out per disk stats
+        now = time.time()
+        later = now + 600  # 10 mins
+        reconstructor.reconstructor_workers = 0
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        side_effect=[now, later, later]):
+            reconstructor.run_once()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': later,
+            'object_reconstruction_time': 10.0,
+        }, data)
+
+    def test_no_dump_recon_run_once(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'recon_cache_path': self.recon_cache_path},
+            logger=self.logger)
+        reconstructor.get_local_devices = lambda: {'sda', 'sdb', 'sdc'}
+
+        def do_test(run_once_kwargs, expected_devices, expected_partitions):
+            reconstructor.reconstruct = mock.MagicMock()
+            now = time.time()
+            later = now + 300  # 5 mins
+            with mock.patch('swift.obj.reconstructor.time.time', side_effect=[
+                    now, later, later]):
+                reconstructor.run_once(**run_once_kwargs)
+            # override args passed to reconstruct
+            actual_calls = reconstructor.reconstruct.call_args_list
+            self.assertEqual({'override_devices', 'override_partitions'},
+                             set(actual_calls[0][1]))
+            self.assertEqual(sorted(expected_devices),
+                             sorted(actual_calls[0][1]['override_devices']))
+            self.assertEqual(sorted(expected_partitions),
+                             sorted(actual_calls[0][1]['override_partitions']))
+            self.assertFalse(actual_calls[1:])
+            self.assertEqual(False, os.path.exists(self.rcache))
+
+        # inline mode with overrides never does recon dump
+        reconstructor.reconstructor_workers = 0
+        kwargs = {'devices': 'sda,sdb'}
+        do_test(kwargs, ['sda', 'sdb'], [])
+
+        # Have partition override, so no recon dump
+        kwargs = {'partitions': '1,2,3'}
+        do_test(kwargs, [], [1, 2, 3])
+        reconstructor.reconstructor_workers = 1
+        worker_kwargs = list(
+            reconstructor.get_worker_args(once=True, **kwargs))[0]
+        do_test(worker_kwargs, ['sda', 'sdb', 'sdc'], [1, 2, 3])
+
+        reconstructor.reconstructor_workers = 0
+        kwargs = {'devices': 'sda,sdb', 'partitions': '1,2,3'}
+        do_test(kwargs, ['sda', 'sdb'], [1, 2, 3])
+        reconstructor.reconstructor_workers = 1
+        worker_kwargs = list(
+            reconstructor.get_worker_args(once=True, **kwargs))[0]
+        do_test(worker_kwargs, ['sda', 'sdb'], [1, 2, 3])
+
+        # 'sdz' is not in local devices
+        reconstructor.reconstructor_workers = 0
+        kwargs = {'devices': 'sdz'}
+        do_test(kwargs, ['sdz'], [])
+
+    def test_run_forever_recon_aggregation(self):
+
+        class StopForever(Exception):
+            pass
+
+        reconstructor = object_reconstructor.ObjectReconstructor({
+            'reconstructor_workers': 2,
+            'recon_cache_path': self.recon_cache_path
+        }, logger=self.logger)
+        reconstructor.get_local_devices = lambda: ['sda', 'sdb', 'sdc', 'sdd']
+        reconstructor.reconstruct = mock.MagicMock()
+        now = time.time()
+        later = now + 300  # 5 mins
+        worker_args = list(
+            # include 'devices' kwarg as a sanity check - it should be ignored
+            # in run_forever mode
+            reconstructor.get_worker_args(once=False, devices='sda'))
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        side_effect=[now, later, later]), \
+                mock.patch('swift.obj.reconstructor.os.getpid',
+                           return_value='pid-1'), \
+                mock.patch('swift.obj.reconstructor.sleep',
+                           side_effect=[StopForever]), \
+                Timeout(.3), quiet_eventlet_exceptions(), \
+                self.assertRaises(StopForever):
+            gt = spawn(reconstructor.run_forever, **worker_args[0])
+            gt.wait()
+        # override args are passed to reconstruct
+        self.assertEqual([mock.call(
+            override_devices=['sda', 'sdc'],
+            override_partitions=[]
+        )], reconstructor.reconstruct.call_args_list)
+        # forever mode with override args, we expect per-disk recon dumps
+        self.assertTrue(os.path.exists(self.rcache))
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_per_disk': {
+                'sda': {
+                    'object_reconstruction_last': later,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-1',
+                },
+                'sdc': {
+                    'object_reconstruction_last': later,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-1',
+                },
+            }
+        }, data)
+        reconstructor.reconstruct.reset_mock()
+        # another worker would get *different* disks
+        before = now = later
+        later = now + 300  # 5 more minutes
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        side_effect=[now, later, later]), \
+                mock.patch('swift.obj.reconstructor.os.getpid',
+                           return_value='pid-2'), \
+                mock.patch('swift.obj.reconstructor.sleep',
+                           side_effect=[StopForever]), \
+                Timeout(.3), quiet_eventlet_exceptions(), \
+                self.assertRaises(StopForever):
+            gt = spawn(reconstructor.run_forever, **worker_args[1])
+            gt.wait()
+        # override args are parsed
+        self.assertEqual([mock.call(
+            override_devices=['sdb', 'sdd'],
+            override_partitions=[]
+        )], reconstructor.reconstruct.call_args_list)
+        # forever mode with override args, we expect per-disk recon dumps
+        self.assertTrue(os.path.exists(self.rcache))
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_per_disk': {
+                'sda': {
+                    'object_reconstruction_last': before,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-1',
+                },
+                'sdb': {
+                    'object_reconstruction_last': later,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-2',
+                },
+                'sdc': {
+                    'object_reconstruction_last': before,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-1',
+                },
+                'sdd': {
+                    'object_reconstruction_last': later,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-2',
+                },
+            }
+        }, data)
+
+        # aggregation is done in the parent thread even later
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': later,
+            'object_reconstruction_time': 10.0,
+            'object_reconstruction_per_disk': {
+                'sda': {
+                    'object_reconstruction_last': before,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-1',
+                },
+                'sdb': {
+                    'object_reconstruction_last': later,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-2',
+                },
+                'sdc': {
+                    'object_reconstruction_last': before,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-1',
+                },
+                'sdd': {
+                    'object_reconstruction_last': later,
+                    'object_reconstruction_time': 5.0,
+                    'pid': 'pid-2',
+                },
+            }
+        }, data)
+
+    def test_recon_aggregation_waits_for_all_devices(self):
+        reconstructor = object_reconstructor.ObjectReconstructor({
+            'reconstructor_workers': 2,
+            'recon_cache_path': self.recon_cache_path
+        }, logger=self.logger)
+        reconstructor.all_local_devices = set([
+            'd0', 'd1', 'd2', 'd3',
+            # unreported device definitely matters
+            'd4'])
+        start = time.time() - 1000
+        for i in range(4):
+            with mock.patch('swift.obj.reconstructor.time.time',
+                            return_value=start + (300 * i)), \
+                    mock.patch('swift.obj.reconstructor.os.getpid',
+                               return_value='pid-%s' % i):
+                reconstructor.final_recon_dump(
+                    i, override_devices=['d%s' % i])
+        # sanity
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 0.0,
+                    'pid': 'pid-0',
+                },
+                'd1': {
+                    'object_reconstruction_last': start + 300,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-1',
+                },
+                'd2': {
+                    'object_reconstruction_last': start + 600,
+                    'object_reconstruction_time': 2,
+                    'pid': 'pid-2',
+                },
+                'd3': {
+                    'object_reconstruction_last': start + 900,
+                    'object_reconstruction_time': 3,
+                    'pid': 'pid-3',
+                },
+            }
+        }, data)
+
+        # unreported device d4 prevents aggregation
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertNotIn('object_reconstruction_last', data)
+        self.assertNotIn('object_reconstruction_time', data)
+        self.assertEqual(set(['d0', 'd1', 'd2', 'd3']),
+                         set(data['object_reconstruction_per_disk'].keys()))
+
+        # it's idempotent
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertNotIn('object_reconstruction_last', data)
+        self.assertNotIn('object_reconstruction_time', data)
+        self.assertEqual(set(['d0', 'd1', 'd2', 'd3']),
+                         set(data['object_reconstruction_per_disk'].keys()))
+
+        # remove d4, we no longer wait on it for aggregation
+        reconstructor.all_local_devices = set(['d0', 'd1', 'd2', 'd3'])
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual(start + 900, data['object_reconstruction_last'])
+        self.assertEqual(15, data['object_reconstruction_time'])
+        self.assertEqual(set(['d0', 'd1', 'd2', 'd3']),
+                         set(data['object_reconstruction_per_disk'].keys()))
+
+    def test_recon_aggregation_removes_devices(self):
+        reconstructor = object_reconstructor.ObjectReconstructor({
+            'reconstructor_workers': 2,
+            'recon_cache_path': self.recon_cache_path
+        }, logger=self.logger)
+        reconstructor.all_local_devices = set(['d0', 'd1', 'd2', 'd3'])
+        start = time.time() - 1000
+        for i in range(4):
+            with mock.patch('swift.obj.reconstructor.time.time',
+                            return_value=start + (300 * i)), \
+                    mock.patch('swift.obj.reconstructor.os.getpid',
+                               return_value='pid-%s' % i):
+                reconstructor.final_recon_dump(
+                    i, override_devices=['d%s' % i])
+        # sanity
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 0.0,
+                    'pid': 'pid-0',
+                },
+                'd1': {
+                    'object_reconstruction_last': start + 300,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-1',
+                },
+                'd2': {
+                    'object_reconstruction_last': start + 600,
+                    'object_reconstruction_time': 2,
+                    'pid': 'pid-2',
+                },
+                'd3': {
+                    'object_reconstruction_last': start + 900,
+                    'object_reconstruction_time': 3,
+                    'pid': 'pid-3',
+                },
+            }
+        }, data)
+
+        reconstructor.all_local_devices = set(['d0', 'd1', 'd2', 'd3'])
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual(start + 900, data['object_reconstruction_last'])
+        self.assertEqual(15, data['object_reconstruction_time'])
+        self.assertEqual(set(['d0', 'd1', 'd2', 'd3']),
+                         set(data['object_reconstruction_per_disk'].keys()))
+
+        # it's idempotent
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': start + 900,
+            'object_reconstruction_time': 15,
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 0.0,
+                    'pid': 'pid-0',
+                },
+                'd1': {
+                    'object_reconstruction_last': start + 300,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-1',
+                },
+                'd2': {
+                    'object_reconstruction_last': start + 600,
+                    'object_reconstruction_time': 2,
+                    'pid': 'pid-2',
+                },
+                'd3': {
+                    'object_reconstruction_last': start + 900,
+                    'object_reconstruction_time': 3,
+                    'pid': 'pid-3',
+                },
+            }
+        }, data)
+
+        # if a device is removed from the ring
+        reconstructor.all_local_devices = set(['d1', 'd2', 'd3'])
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        # ... it's per-disk stats are removed (d0)
+        self.assertEqual({
+            'object_reconstruction_last': start + 900,
+            'object_reconstruction_time': 11,
+            'object_reconstruction_per_disk': {
+                'd1': {
+                    'object_reconstruction_last': start + 300,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-1',
+                },
+                'd2': {
+                    'object_reconstruction_last': start + 600,
+                    'object_reconstruction_time': 2,
+                    'pid': 'pid-2',
+                },
+                'd3': {
+                    'object_reconstruction_last': start + 900,
+                    'object_reconstruction_time': 3,
+                    'pid': 'pid-3',
+                },
+            }
+        }, data)
+
+        # which can affect the aggregates!
+        reconstructor.all_local_devices = set(['d1', 'd2'])
+        reconstructor.aggregate_recon_update()
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': start + 600,
+            'object_reconstruction_time': 6,
+            'object_reconstruction_per_disk': {
+                'd1': {
+                    'object_reconstruction_last': start + 300,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-1',
+                },
+                'd2': {
+                    'object_reconstruction_last': start + 600,
+                    'object_reconstruction_time': 2,
+                    'pid': 'pid-2',
+                },
+            }
+        }, data)
+
+    def test_recon_aggregation_races_with_final_recon_dump(self):
+        reconstructor = object_reconstructor.ObjectReconstructor({
+            'reconstructor_workers': 2,
+            'recon_cache_path': self.recon_cache_path
+        }, logger=self.logger)
+        reconstructor.all_local_devices = set(['d0', 'd1'])
+        start = time.time() - 1000
+        # first worker dumps to recon cache
+        with mock.patch('swift.obj.reconstructor.time.time',
+                        return_value=start), \
+                mock.patch('swift.obj.reconstructor.os.getpid',
+                           return_value='pid-0'):
+            reconstructor.final_recon_dump(
+                1, override_devices=['d0'])
+        # sanity
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-0',
+                },
+            }
+        }, data)
+
+        # simulate a second worker concurrently dumping to recon cache while
+        # parent is aggregatng existing results; mock dump_recon_cache as a
+        # convenient way to interrupt parent aggregate_recon_update and 'pass
+        # control' to second worker
+        updated_data = []  # state of recon cache just after second worker dump
+
+        def simulate_other_process_final_recon_dump():
+            with mock.patch('swift.obj.reconstructor.time.time',
+                            return_value=start + 999), \
+                    mock.patch('swift.obj.reconstructor.os.getpid',
+                               return_value='pid-1'):
+                reconstructor.final_recon_dump(
+                    1000, override_devices=['d1'])
+                with open(self.rcache) as f:
+                    updated_data.append(json.load(f))
+
+        def fake_dump_recon_cache(*args, **kwargs):
+            # temporarily put back real dump_recon_cache
+            with mock.patch('swift.obj.reconstructor.dump_recon_cache',
+                            dump_recon_cache):
+                simulate_other_process_final_recon_dump()
+            # and now proceed with parent dump_recon_cache
+            dump_recon_cache(*args, **kwargs)
+
+        reconstructor.dump_recon_cache = fake_dump_recon_cache
+        with mock.patch('swift.obj.reconstructor.dump_recon_cache',
+                        fake_dump_recon_cache):
+            reconstructor.aggregate_recon_update()
+
+        self.assertEqual([{  # sanity check - second process did dump its data
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-0',
+                },
+                'd1': {
+                    'object_reconstruction_last': start + 999,
+                    'object_reconstruction_time': 1000,
+                    'pid': 'pid-1',
+                },
+            }
+        }], updated_data)
+
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-0',
+                },
+                'd1': {
+                    'object_reconstruction_last': start + 999,
+                    'object_reconstruction_time': 1000,
+                    'pid': 'pid-1',
+                },
+            }
+        }, data)
+
+        # next aggregation will find d1 stats
+        reconstructor.aggregate_recon_update()
+
+        with open(self.rcache) as f:
+            data = json.load(f)
+        self.assertEqual({
+            'object_reconstruction_last': start + 999,
+            'object_reconstruction_time': 1000,
+            'object_reconstruction_per_disk': {
+                'd0': {
+                    'object_reconstruction_last': start,
+                    'object_reconstruction_time': 1,
+                    'pid': 'pid-0',
+                },
+                'd1': {
+                    'object_reconstruction_last': start + 999,
+                    'object_reconstruction_time': 1000,
+                    'pid': 'pid-1',
+                },
+            }
+        }, data)
 
 
 @patch_policies(with_ec_default=True)

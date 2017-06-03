@@ -15,6 +15,7 @@
 
 import json
 import errno
+import math
 import os
 from os.path import join
 import random
@@ -93,6 +94,30 @@ def _full_path(node, part, relative_path, policy):
         }
 
 
+def parse_override_options(**kwargs):
+    """
+    Return a dict with keys `override_devices` and `override_partitions` whose
+    values have been parsed from `kwargs`. If either key is found in `kwargs`
+    then copy its value from kwargs. Otherwise, if `once` is set in `kwargs`
+    then parse `devices` and `partitions` keys for the value of
+    `override_devices` and `override_partitions` respectively.
+
+    :return: a dict with keys `override_devices` and `override_partitions`
+    """
+    if kwargs.get('once', False):
+        devices = list_from_csv(kwargs.get('devices'))
+        partitions = [
+            int(p) for p in list_from_csv(kwargs.get('partitions'))]
+    else:
+        devices = []
+        partitions = []
+
+    return {
+        'override_devices': kwargs.get('override_devices', devices),
+        'override_partitions': kwargs.get('override_partitions', partitions),
+    }
+
+
 class RebuildingECDiskFileStream(object):
     """
     This class wraps the reconstructed fragment archive data and
@@ -155,6 +180,12 @@ class ObjectReconstructor(Daemon):
         self.port = None if self.servers_per_port else \
             int(conf.get('bind_port', 6200))
         self.concurrency = int(conf.get('concurrency', 1))
+        # N.B. to maintain compatibility with legacy configs this option can
+        # not be named 'workers' because the object-server uses that option
+        # name in the DEFAULT section
+        self.reconstructor_workers = int(conf.get('reconstructor_workers', 0))
+        self.policies = [policy for policy in POLICIES
+                         if policy.policy_type == EC_POLICY]
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
@@ -166,6 +197,7 @@ class ObjectReconstructor(Daemon):
         self.recon_cache_path = conf.get('recon_cache_path',
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self._next_rcache_update = time.time() + self.stats_interval
         # defaults subject to change after beta
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.node_timeout = float(conf.get('node_timeout', 10))
@@ -193,6 +225,102 @@ class ObjectReconstructor(Daemon):
             self.logger.warning('Ignored handoffs_first option in favor '
                                 'of handoffs_only.')
         self._df_router = DiskFileRouter(conf, self.logger)
+        self.all_local_devices = self.get_local_devices()
+
+    def get_worker_args(self, once=False, **kwargs):
+        """
+        Take the set of all local devices for this node from all the EC
+        policies rings, and distribute them evenly into the number of workers
+        to be spawned according to the configured worker count. If `devices` is
+        given in `kwargs` then distribute only those devices.
+
+        :param once: False if the worker(s) will be daemonized, True if the
+            worker(s) will be run once
+        :param kwargs: optional overrides from the command line
+        """
+        if self.reconstructor_workers < 1:
+            return
+        override_options = parse_override_options(once=once, **kwargs)
+
+        # Note that this get re-used when dumping stats and in is_healthy
+        self.all_local_devices = self.get_local_devices()
+
+        if override_options['override_devices']:
+            devices = [d for d in override_options['override_devices']
+                       if d in self.all_local_devices]
+        else:
+            devices = list(self.all_local_devices)
+        if not devices:
+            # we only need a single worker to do nothing until a ring change
+            yield dict(override_options)
+            return
+        # for somewhat uniform load per worker use same max_devices_per_worker
+        # when handling all devices or just override devices...
+        max_devices_per_worker = int(math.ceil(
+            1.0 * len(self.all_local_devices) / self.reconstructor_workers))
+        # ...but only use enough workers for the actual devices being handled
+        n = int(math.ceil(1.0 * len(devices) / max_devices_per_worker))
+        override_devices_per_worker = [devices[i::n] for i in range(n)]
+        for override_devices in override_devices_per_worker:
+            yield dict(override_options, override_devices=override_devices)
+
+    def is_healthy(self):
+        """
+        Check whether rings have changed, and maybe do a recon update.
+
+        :returns: False if any ec ring has changed
+        """
+        now = time.time()
+        if now > self._next_rcache_update:
+            self._next_rcache_update = now + self.stats_interval
+            self.aggregate_recon_update()
+        return self.get_local_devices() == self.all_local_devices
+
+    def aggregate_recon_update(self):
+        """
+        Aggregate per-disk rcache updates from child workers.
+        """
+        try:
+            with open(self.rcache) as f:
+                existing_data = json.load(f)
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                raise
+            # dump_recon_cache will create new file and dirs
+            existing_data = {}
+        first_start = time.time()
+        last_finish = 0
+        all_devices_reporting = True
+        for device in self.all_local_devices:
+            per_disk_stats = existing_data.get(
+                'object_reconstruction_per_disk', {}).get(device, {})
+            try:
+                start_time = per_disk_stats['object_reconstruction_last'] - \
+                    (per_disk_stats['object_reconstruction_time'] * 60)
+                finish_time = per_disk_stats['object_reconstruction_last']
+            except KeyError:
+                all_devices_reporting = False
+                break
+            first_start = min(first_start, start_time)
+            last_finish = max(last_finish, finish_time)
+        if all_devices_reporting and last_finish > 0:
+            duration = last_finish - first_start
+            recon_update = {
+                'object_reconstruction_time': duration / 60.0,
+                'object_reconstruction_last': last_finish
+            }
+        else:
+            # if any current devices have not yet dropped stats, or the rcache
+            # file does not yet exist, we may still clear out per device stats
+            # for any devices that have been removed from local devices
+            recon_update = {}
+        found_devices = set(existing_data.get(
+            'object_reconstruction_per_disk', {}).keys())
+        clear_update = {d: {} for d in found_devices
+                        if d not in self.all_local_devices}
+        if clear_update:
+            recon_update['object_reconstruction_per_disk'] = clear_update
+        dump_recon_cache(recon_update, self.rcache, self.logger)
 
     def load_object_ring(self, policy):
         """
@@ -888,38 +1016,37 @@ class ObjectReconstructor(Daemon):
         # return a list of jobs for this part
         return jobs
 
-    def collect_parts(self, override_devices=None,
-                      override_partitions=None):
-        """
-        Helper for getting partitions in the top level reconstructor
-
-        In handoffs_only mode no primary partitions will not be included in the
-        returned (possibly empty) list.
-        """
-        override_devices = override_devices or []
-        override_partitions = override_partitions or []
+    def get_policy2devices(self):
         ips = whataremyips(self.bind_ip)
-        ec_policies = (policy for policy in POLICIES
-                       if policy.policy_type == EC_POLICY)
-
         policy2devices = {}
-
-        for policy in ec_policies:
+        for policy in self.policies:
             self.load_object_ring(policy)
             local_devices = list(six.moves.filter(
                 lambda dev: dev and is_local_device(
                     ips, self.port,
                     dev['replication_ip'], dev['replication_port']),
                 policy.object_ring.devs))
-
-            if override_devices:
-                local_devices = list(six.moves.filter(
-                    lambda dev_info: dev_info['device'] in override_devices,
-                    local_devices))
-
             policy2devices[policy] = local_devices
-            self.device_count += len(local_devices)
+        return policy2devices
 
+    def get_local_devices(self):
+        """Returns a set of all local devices in all EC policies."""
+        policy2devices = self.get_policy2devices()
+        return reduce(set.union, (
+            set(d['device'] for d in devices)
+            for devices in policy2devices.values()))
+
+    def collect_parts(self, override_devices=None, override_partitions=None):
+        """
+        Helper for getting partitions in the top level reconstructor
+
+        In handoffs_only mode primary partitions will not be included in the
+        returned (possibly empty) list.
+        """
+        override_devices = override_devices or []
+        override_partitions = override_partitions or []
+
+        policy2devices = self.get_policy2devices()
         all_parts = []
 
         for policy, local_devices in policy2devices.items():
@@ -938,6 +1065,10 @@ class ObjectReconstructor(Daemon):
 
             df_mgr = self._df_router[policy]
             for local_dev in local_devices:
+                if override_devices and (
+                        local_dev['device'] not in override_devices):
+                    continue
+                self.device_count += 1
                 dev_path = df_mgr.get_dev_path(local_dev['device'])
                 if not dev_path:
                     self.logger.warning(_('%s is not mounted'),
@@ -1088,22 +1219,48 @@ class ObjectReconstructor(Daemon):
                     "You should disable handoffs_only once all nodes "
                     "are reporting no handoffs remaining."))
 
+    def final_recon_dump(self, total, override_devices=None, **kwargs):
+        """
+        Add stats for this worker's run to recon cache.
+
+        When in worker mode (per_disk_stats == True) this worker's stats are
+        added per device instead of in the top level keys (aggregation is
+        serialized in the parent process).
+
+        :param total: the runtime of cycle in minutes
+        :param override_devices: (optional) list of device that are being
+            reconstructed
+        """
+        recon_update = {
+            'object_reconstruction_time': total,
+            'object_reconstruction_last': time.time(),
+        }
+
+        if self.reconstructor_workers > 0:
+            devices = override_devices or self.all_local_devices
+            recon_update['pid'] = os.getpid()
+            recon_update = {'object_reconstruction_per_disk': {
+                d: recon_update for d in devices}}
+        else:
+            # if not running in worker mode, kill any per_disk stats
+            recon_update['object_reconstruction_per_disk'] = {}
+        dump_recon_cache(recon_update, self.rcache, self.logger)
+
     def run_once(self, *args, **kwargs):
         start = time.time()
         self.logger.info(_("Running object reconstructor in script mode."))
-        override_devices = list_from_csv(kwargs.get('devices'))
-        override_partitions = [int(p) for p in
-                               list_from_csv(kwargs.get('partitions'))]
-        self.reconstruct(
-            override_devices=override_devices,
-            override_partitions=override_partitions)
+        override_options = parse_override_options(once=True, **kwargs)
+        self.reconstruct(**override_options)
         total = (time.time() - start) / 60
         self.logger.info(
             _("Object reconstruction complete (once). (%.02f minutes)"), total)
-        if not (override_partitions or override_devices):
-            dump_recon_cache({'object_reconstruction_time': total,
-                              'object_reconstruction_last': time.time()},
-                             self.rcache, self.logger)
+        # Only dump stats if they would actually be meaningful -- i.e. we're
+        # collecting per-disk stats and covering all partitions, or we're
+        # covering all partitions, all disks.
+        if not override_options['override_partitions'] and (
+                self.reconstructor_workers > 0 or
+                not override_options['override_devices']):
+            self.final_recon_dump(total, **override_options)
 
     def run_forever(self, *args, **kwargs):
         self.logger.info(_("Starting object reconstructor in daemon mode."))
@@ -1111,14 +1268,13 @@ class ObjectReconstructor(Daemon):
         while True:
             start = time.time()
             self.logger.info(_("Starting object reconstruction pass."))
+            override_options = parse_override_options(**kwargs)
             # Run the reconstructor
-            self.reconstruct()
+            self.reconstruct(**override_options)
             total = (time.time() - start) / 60
             self.logger.info(
                 _("Object reconstruction complete. (%.02f minutes)"), total)
-            dump_recon_cache({'object_reconstruction_time': total,
-                              'object_reconstruction_last': time.time()},
-                             self.rcache, self.logger)
+            self.final_recon_dump(total, **override_options)
             self.logger.debug('reconstruction sleeping for %s seconds.',
                               self.interval)
             sleep(self.interval)
