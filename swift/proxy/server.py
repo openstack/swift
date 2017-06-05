@@ -85,20 +85,20 @@ def _label_for_policy(policy):
     return '(default)'
 
 
-class OverrideConf(object):
+class ProxyOverrideOptions(object):
     """
-    Encapsulates proxy server properties that may be overridden e.g. for
+    Encapsulates proxy server options that may be overridden e.g. for
     policy specific configurations.
 
     :param conf: the proxy-server config dict.
     :param override_conf: a dict of overriding configuration options.
     """
     def __init__(self, base_conf, override_conf):
-        self.conf = base_conf
-        self.override_conf = override_conf
+        def get(key, default):
+            return override_conf.get(key, base_conf.get(key, default))
 
-        self.sorting_method = self._get('sorting_method', 'shuffle').lower()
-        self.read_affinity = self._get('read_affinity', '')
+        self.sorting_method = get('sorting_method', 'shuffle').lower()
+        self.read_affinity = get('read_affinity', '')
         try:
             self.read_affinity_sort_key = affinity_key_function(
                 self.read_affinity)
@@ -107,7 +107,7 @@ class OverrideConf(object):
             raise ValueError("Invalid read_affinity value: %r (%s)" %
                              (self.read_affinity, err.message))
 
-        self.write_affinity = self._get('write_affinity', '')
+        self.write_affinity = get('write_affinity', '')
         try:
             self.write_affinity_is_local_fn \
                 = affinity_locality_predicate(self.write_affinity)
@@ -115,15 +115,15 @@ class OverrideConf(object):
             # make the message a little more useful
             raise ValueError("Invalid write_affinity value: %r (%s)" %
                              (self.write_affinity, err.message))
-        self.write_affinity_node_value = self._get(
+        self.write_affinity_node_count = get(
             'write_affinity_node_count', '2 * replicas').lower()
-        value = self.write_affinity_node_value.split()
+        value = self.write_affinity_node_count.split()
         if len(value) == 1:
             wanc_value = int(value[0])
-            self.write_affinity_node_count = lambda replicas: wanc_value
+            self.write_affinity_node_count_fn = lambda replicas: wanc_value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
             wanc_value = int(value[0])
-            self.write_affinity_node_count = \
+            self.write_affinity_node_count_fn = \
                 lambda replicas: wanc_value * replicas
         else:
             raise ValueError(
@@ -131,13 +131,21 @@ class OverrideConf(object):
                 (' '.join(value)))
 
     def __repr__(self):
-        return ('sorting_method: %s, read_affinity: %s, write_affinity: %s, '
-                'write_affinity_node_count: %s' %
-                (self.sorting_method, self.read_affinity, self.write_affinity,
-                 self.write_affinity_node_value))
+        return '%s({}, {%s})' % (self.__class__.__name__, ', '.join(
+            '%r: %r' % (k, getattr(self, k)) for k in (
+                'sorting_method',
+                'read_affinity',
+                'write_affinity',
+                'write_affinity_node_count')))
 
-    def _get(self, key, default):
-        return self.override_conf.get(key, self.conf.get(key, default))
+    def __eq__(self, other):
+        if not isinstance(other, ProxyOverrideOptions):
+            return False
+        return all(getattr(self, k) == getattr(other, k) for k in (
+            'sorting_method',
+            'read_affinity',
+            'write_affinity',
+            'write_affinity_node_count'))
 
 
 class Application(object):
@@ -151,9 +159,9 @@ class Application(object):
             self.logger = get_logger(conf, log_route='proxy-server')
         else:
             self.logger = logger
-        self._override_confs = self._load_per_policy_config(conf)
+        self._override_options = self._load_per_policy_config(conf)
         self.sorts_by_timing = any(pc.sorting_method == 'timing'
-                                   for pc in self._override_confs.values())
+                                   for pc in self._override_options.values())
 
         self._error_limiting = {}
 
@@ -277,7 +285,7 @@ class Application(object):
     def _make_policy_override(self, policy, conf, override_conf):
         label_for_policy = _label_for_policy(policy)
         try:
-            override = OverrideConf(conf, override_conf)
+            override = ProxyOverrideOptions(conf, override_conf)
             self.logger.debug("Loaded override config for %s: %r" %
                               (label_for_policy, override))
             return override
@@ -290,15 +298,16 @@ class Application(object):
 
         :param conf: the proxy server local conf dict
         :return: a dict mapping :class:`BaseStoragePolicy` to an instance of
-            :class:`OverrideConf` that has policy specific config attributes
+            :class:`ProxyOverrideOptions` that has policy-specific config
+            attributes
         """
-        # the default conf will be used when looking up a policy that had no
-        # override conf
-        default_conf = self._make_policy_override(None, conf, {})
-        override_confs = defaultdict(lambda: default_conf)
+        # the default options will be used when looking up a policy that had no
+        # override options
+        default_options = self._make_policy_override(None, conf, {})
+        overrides = defaultdict(lambda: default_options)
         # force None key to be set in the defaultdict so that it is found when
         # iterating over items in check_config
-        override_confs[None] = default_conf
+        overrides[None] = default_options
         for index, override_conf in conf.get('policy_config', {}).items():
             try:
                 index = int(index)
@@ -313,29 +322,29 @@ class Application(object):
                 raise ValueError(
                     "No policy found for override config, index: %s" % index)
             override = self._make_policy_override(policy, conf, override_conf)
-            override_confs[policy] = override
-        return override_confs
+            overrides[policy] = override
+        return overrides
 
     def get_policy_options(self, policy):
         """
         Return policy specific options.
 
         :param policy: an instance of :class:`BaseStoragePolicy`
-        :return: an instance of :class:`OverrideConf`
+        :return: an instance of :class:`ProxyOverrideOptions`
         """
-        return self._override_confs[policy]
+        return self._override_options[policy]
 
     def check_config(self):
         """
         Check the configuration for possible errors
         """
-        for policy, conf in self._override_confs.items():
-            if conf.read_affinity and conf.sorting_method != 'affinity':
+        for policy, options in self._override_options.items():
+            if options.read_affinity and options.sorting_method != 'affinity':
                 self.logger.warning(
                     _("sorting_method is set to '%(method)s', not 'affinity'; "
                       "%(label)s read_affinity setting will have no effect."),
                     {'label': _label_for_policy(policy),
-                     'method': conf.sorting_method})
+                     'method': options.sorting_method})
 
     def get_object_ring(self, policy_idx):
         """
@@ -531,16 +540,16 @@ class Application(object):
         # (ie within the rounding resolution) won't prefer one over another.
         # Python's sort is stable (http://wiki.python.org/moin/HowTo/Sorting/)
         shuffle(nodes)
-        policy_conf = self.get_policy_options(policy)
-        if policy_conf.sorting_method == 'timing':
+        policy_options = self.get_policy_options(policy)
+        if policy_options.sorting_method == 'timing':
             now = time()
 
             def key_func(node):
                 timing, expires = self.node_timings.get(node['ip'], (-1.0, 0))
                 return timing if expires > now else -1.0
             nodes.sort(key=key_func)
-        elif policy_conf.sorting_method == 'affinity':
-            nodes.sort(key=policy_conf.read_affinity_sort_key)
+        elif policy_options.sorting_method == 'affinity':
+            nodes.sort(key=policy_options.read_affinity_sort_key)
         return nodes
 
     def set_node_timing(self, node, timing):
@@ -683,14 +692,7 @@ def parse_per_policy_config(conf):
     :raises ValueError: if a policy config section has an invalid name
     """
     policy_config = {}
-    try:
-        all_conf = readconf(conf['__file__'])
-    except KeyError:
-        get_logger(conf).warning(
-            "Unable to load policy specific configuration options: "
-            "cannot access proxy server conf file")
-        return policy_config
-
+    all_conf = readconf(conf['__file__'])
     policy_section_prefix = conf['__name__'] + ':policy:'
     for section, options in all_conf.items():
         if not section.startswith(policy_section_prefix):
