@@ -892,12 +892,6 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     else:
         strategy = WorkersStrategy(conf, logger)
 
-    error_msg = strategy.bind_ports()
-    if error_msg:
-        logger.error(error_msg)
-        print(error_msg)
-        return 1
-
     # Ensure the configuration and application can be loaded before proceeding.
     global_conf = {'log_name': log_name}
     if 'global_conf_callback' in kwargs:
@@ -910,6 +904,13 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     # redirect errors to logger and close stdio
     capture_stdio(logger)
+
+    # Start listening on bind_addr/port
+    error_msg = strategy.bind_ports()
+    if error_msg:
+        logger.error(error_msg)
+        print(error_msg)
+        return 1
 
     no_fork_sock = strategy.no_fork_sock()
     if no_fork_sock:
