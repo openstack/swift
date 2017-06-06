@@ -48,7 +48,7 @@ lock file = /var/lock/object.lock
 #lock file = /var/lock/object_sdc.lock
 
 
-# To emulate the deprecated option vm_test_mode = yes, set:
+# On a swift-all-in-one VM, you might tune rsync by replication port instead:
 # rsync_module = {replication_ip}::object{replication_port}
 #
 # So, on your SAIO, you have to set the following rsyncd configuration:

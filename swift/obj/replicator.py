@@ -90,13 +90,6 @@ class ObjectReplicator(Daemon):
         self.rsync_module = conf.get('rsync_module', '').rstrip('/')
         if not self.rsync_module:
             self.rsync_module = '{replication_ip}::object'
-            if config_true_value(conf.get('vm_test_mode', 'no')):
-                self.logger.warning('Option object-replicator/vm_test_mode '
-                                    'is deprecated and will be removed in a '
-                                    'future version. Update your '
-                                    'configuration to use option '
-                                    'object-replicator/rsync_module.')
-                self.rsync_module += '{replication_port}'
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',

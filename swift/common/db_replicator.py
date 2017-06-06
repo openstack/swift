@@ -182,14 +182,6 @@ class Replicator(Daemon):
         self.rsync_module = conf.get('rsync_module', '').rstrip('/')
         if not self.rsync_module:
             self.rsync_module = '{replication_ip}::%s' % self.server_type
-            if config_true_value(conf.get('vm_test_mode', 'no')):
-                self.logger.warning('Option %(type)s-replicator/vm_test_mode '
-                                    'is deprecated and will be removed in a '
-                                    'future version. Update your configuration'
-                                    ' to use option %(type)s-replicator/'
-                                    'rsync_module.'
-                                    % {'type': self.server_type})
-                self.rsync_module += '{replication_port}'
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
