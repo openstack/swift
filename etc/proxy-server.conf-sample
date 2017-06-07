@@ -529,6 +529,8 @@ use = egg:swift#domain_remap
 # can be specified separated by a comma
 # storage_domain = example.com
 
+# Specify a root path part that will be added to the start of paths if not
+# already present.
 # path_root = v1
 
 # Browsers can convert a host header to lowercase, so check that reseller

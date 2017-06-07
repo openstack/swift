@@ -17,37 +17,85 @@
 """
 Domain Remap Middleware
 
-Middleware that translates container and account parts of a domain to
-path parameters that the proxy server understands.
+Middleware that translates container and account parts of a domain to path
+parameters that the proxy server understands.
 
-container.account.storageurl/object gets translated to
-container.account.storageurl/path_root/account/container/object
+Translation is only performed when the request URL's host domain matches one of
+a list of domains. This list may be configured by the option
+``storage_domain``, and defaults to the single domain ``example.com``.
 
-account.storageurl/path_root/container/object gets translated to
-account.storageurl/path_root/account/container/object
+If not already present, a configurable ``path_root``, which defaults to ``v1``,
+will be added to the start of the translated path.
 
-Browsers can convert a host header to lowercase, so check that reseller
-prefix on the account is the correct case. This is done by comparing the
-items in the reseller_prefixes config option to the found prefix. If they
-match except for case, the item from reseller_prefixes will be used
-instead of the found reseller prefix. When none match, the default reseller
-prefix is used. When no default reseller prefix is configured, any request with
-an account prefix not in that list will be ignored by this middleware.
-reseller_prefixes defaults to 'AUTH'.
+For example, with the default configuration::
+
+    container.AUTH-account.example.com/object
+    container.AUTH-account.example.com/v1/object
+
+would both be translated to::
+
+    container.AUTH-account.example.com/v1/AUTH_account/container/object
+
+and::
+
+    AUTH-account.example.com/container/object
+    AUTH-account.example.com/v1/container/object
+
+would both be translated to::
+
+    AUTH-account.example.com/v1/AUTH_account/container/object
+
+Additionally, translation is only performed when the account name in the
+translated path starts with a reseller prefix matching one of a list configured
+by the option ``reseller_prefixes``, or when no match is found but a
+``default_reseller_prefix`` has been configured.
+
+The ``reseller_prefixes`` list defaults to the single prefix ``AUTH``. The
+``default_reseller_prefix`` is not configured by default.
+
+Browsers can convert a host header to lowercase, so the middleware checks that
+the reseller prefix on the account name is the correct case. This is done by
+comparing the items in the ``reseller_prefixes`` config option to the found
+prefix. If they match except for case, the item from ``reseller_prefixes`` will
+be used instead of the found reseller prefix. The middleware will also replace
+any hyphen ('-') in the account name with an underscore ('_').
+
+For example, with the default configuration::
+
+    auth-account.example.com/container/object
+    AUTH-account.example.com/container/object
+    auth_account.example.com/container/object
+    AUTH_account.example.com/container/object
+
+would all be translated to::
+
+    <unchanged>.example.com/v1/AUTH_account/container/object
+
+When no match is found in ``reseller_prefixes``, the
+``default_reseller_prefix`` config option is used. When no
+``default_reseller_prefix`` is configured, any request with an account prefix
+not in the ``reseller_prefixes`` list will be ignored by this middleware.
+
+For example, with ``default_reseller_prefix = AUTH``::
+
+    account.example.com/container/object
+
+would be translated to::
+
+    account.example.com/v1/AUTH_account/container/object
 
 Note that this middleware requires that container names and account names
-(except as described above) must be DNS-compatible. This means that the
-account name created in the system and the containers created by users
-cannot exceed 63 characters or have UTF-8 characters. These are
-restrictions over and above what swift requires and are not explicitly
-checked. Simply put, the this middleware will do a best-effort attempt to
-derive account and container names from elements in the domain name and
-put those derived values into the URL path (leaving the Host header
-unchanged).
+(except as described above) must be DNS-compatible. This means that the account
+name created in the system and the containers created by users cannot exceed 63
+characters or have UTF-8 characters. These are restrictions over and above what
+Swift requires and are not explicitly checked. Simply put, this middleware
+will do a best-effort attempt to derive account and container names from
+elements in the domain name and put those derived values into the URL path
+(leaving the ``Host`` header unchanged).
 
-Also note that using container sync with remapped domain names is not
-advised. With container sync, you should use the true storage end points as
-sync destinations.
+Also note that using :doc:`overview_container_sync` with remapped domain names
+is not advised. With :doc:`overview_container_sync`, you should use the true
+storage end points as sync destinations.
 """
 
 from swift.common.middleware import RewriteContext
