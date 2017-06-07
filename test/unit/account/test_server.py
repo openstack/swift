@@ -1713,7 +1713,7 @@ class TestAccountController(unittest.TestCase):
     def test_serv_reserv(self):
         # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEqual(AccountController(conf).replication_server, None)
+        self.assertIsNone(AccountController(conf).replication_server)
         for val in [True, '1', 'True', 'true']:
             conf['replication_server'] = val
             self.assertTrue(AccountController(conf).replication_server)
