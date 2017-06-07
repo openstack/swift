@@ -888,6 +888,9 @@ class ObjectReconstructor(Daemon):
                       override_partitions=None):
         """
         Helper for getting partitions in the top level reconstructor
+
+        In handoffs_only mode no primary partitions will not be included in the
+        returned (possibly empty) list.
         """
         override_devices = override_devices or []
         override_partitions = override_partitions or []
@@ -957,6 +960,14 @@ class ObjectReconstructor(Daemon):
                     partition = int(partition)
                     if override_partitions and (partition not in
                                                 override_partitions):
+                        continue
+                    if self.handoffs_only and any(
+                            local_dev['id'] == n['id']
+                            for n in policy.object_ring.get_part_nodes(
+                            partition)):
+                        self.logger.debug('Skipping %s job for %s '
+                                          'while in handoffs_only mode.',
+                                          SYNC, part_path)
                         continue
                     part_info = {
                         'local_dev': local_dev,
@@ -1031,11 +1042,6 @@ class ObjectReconstructor(Daemon):
                     self.run_pool.spawn(self.delete_partition,
                                         part_info['part_path'])
                 for job in jobs:
-                    if (self.handoffs_only and job['job_type'] != REVERT):
-                        self.logger.debug('Skipping %s job for %s '
-                                          'while in handoffs_only mode.',
-                                          job['job_type'], job['path'])
-                        continue
                     self.run_pool.spawn(self.process_job, job)
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
