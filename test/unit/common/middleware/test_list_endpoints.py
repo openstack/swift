@@ -191,7 +191,7 @@ class TestListEndpoints(unittest.TestCase):
             self.assertEqual(version, guessed_version)
             self.assertEqual(account, 'c')
             self.assertEqual(container, 'o')
-            self.assertEqual(obj, None)
+            self.assertIsNone(obj)
 
     def test_get_object_ring(self):
         self.assertEqual(isinstance(self.list_endpoints.get_object_ring(0),

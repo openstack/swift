@@ -314,7 +314,7 @@ class TestDBReplicator(unittest.TestCase):
         def other_req(method, path, body, headers):
             raise Exception('blah')
         conn.request = other_req
-        self.assertEqual(conn.replicate(1, 2, 3), None)
+        self.assertIsNone(conn.replicate(1, 2, 3))
 
     def test_rsync_file(self):
         replicator = TestReplicator({})

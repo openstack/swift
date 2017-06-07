@@ -166,7 +166,7 @@ class TestReceiver(unittest.TestCase):
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
-        self.assertEqual(rcvr.frag_index, None)
+        self.assertIsNone(rcvr.frag_index)
 
     def test_Receiver_with_bad_storage_policy_index_header(self):
         valid_indices = sorted([int(policy) for policy in POLICIES])
@@ -208,7 +208,7 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
         self.assertEqual(rcvr.frag_index, 7)
-        self.assertEqual(rcvr.node_index, None)
+        self.assertIsNone(rcvr.node_index)
 
     @unit.patch_policies()
     def test_Receiver_with_only_node_index_header(self):
@@ -1517,7 +1517,7 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(self.controller.logger.error.called)
             req = _POST_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
-            self.assertEqual(req.content_length, None)
+            self.assertIsNone(req.content_length)
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.12344',
                 'X-Object-Meta-Test1': 'one',
@@ -1703,7 +1703,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger.exception.assert_called_once_with(
             'None/device/partition EXCEPTION in ssync.Receiver')
         self.assertEqual(len(_BONK_request), 1)  # sanity
-        self.assertEqual(_BONK_request[0], None)
+        self.assertIsNone(_BONK_request[0])
 
     def test_UPDATES_multiple(self):
         _requests = []
@@ -1865,7 +1865,7 @@ class TestReceiver(unittest.TestCase):
             req = _requests.pop(0)
             self.assertEqual(req.method, 'POST')
             self.assertEqual(req.path, '/device/partition/a/c/o7')
-            self.assertEqual(req.content_length, None)
+            self.assertIsNone(req.content_length)
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00008',
                 'X-Object-Meta-Test-User': 'user_meta',

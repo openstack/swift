@@ -463,7 +463,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertTrue('x-timestamp' in conn.req_headers)
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
 
-        self.assertEqual(rv, None)
+        self.assertIsNone(rv)
 
     def test_direct_put_container_object_error(self):
         with mocked_http_conn(500) as conn:
@@ -493,7 +493,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
 
-        self.assertEqual(rv, None)
+        self.assertIsNone(rv)
 
     def test_direct_delete_container_obj_error(self):
         with mocked_http_conn(500) as conn:
@@ -670,7 +670,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
-        self.assertEqual(resp, None)
+        self.assertIsNone(resp)
 
     def test_direct_delete_object_with_timestamp(self):
         # ensure timestamp is different from any that might be auto-generated

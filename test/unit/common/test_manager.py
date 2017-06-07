@@ -1122,8 +1122,8 @@ class TestServer(unittest.TestCase):
                     expected_args = ['swift-test-server', conf2, 'verbose']
                     self.assertEqual(proc.args, expected_args)
                     # assert stdout is not changed
-                    self.assertEqual(proc.stdout, None)
-                    self.assertEqual(proc.stderr, None)
+                    self.assertIsNone(proc.stdout)
+                    self.assertIsNone(proc.stderr)
                     # test server wait
                     server.spawn(conf3, wait=False)
                     self.assertTrue(server.procs)
@@ -1147,8 +1147,8 @@ class TestServer(unittest.TestCase):
                                      'verbose']
                     self.assertEqual(proc.args, expected_args)
                     # daemon behavior should trump wait, once shouldn't matter
-                    self.assertEqual(proc.stdout, None)
-                    self.assertEqual(proc.stderr, None)
+                    self.assertIsNone(proc.stdout)
+                    self.assertIsNone(proc.stderr)
                     # assert pids
                     for i, proc in enumerate(server.procs):
                         pid_file = self.join_run_dir('test-server/%d.pid' %

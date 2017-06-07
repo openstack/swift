@@ -4154,7 +4154,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', method='GET')
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertEqual(resp.headers['X-Timestamp'], None)
+        self.assertIsNone(resp.headers['X-Timestamp'])
         self.assertEqual(resp.headers['X-Backend-Timestamp'], offset_delete)
         # and one more delete with a newer timestamp
         delete_timestamp = next(self.ts).internal
@@ -4185,7 +4185,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', method='GET')
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertEqual(resp.headers['X-Timestamp'], None)
+        self.assertIsNone(resp.headers['X-Timestamp'])
         self.assertEqual(resp.headers['X-Backend-Timestamp'], delete_timestamp)
 
     def test_call_bad_request(self):

@@ -330,7 +330,7 @@ class TestAuth(unittest.TestCase):
     def test_authorize_account_access(self):
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act,AUTH_cfa'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
@@ -346,11 +346,11 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act:usr'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act2'
@@ -374,7 +374,7 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr'
         req.acl = '.r:*,act:usr'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
 
     def test_authorize_acl_referrer_access(self):
         self.test_auth = auth.filter_factory({})(
@@ -386,7 +386,7 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:*,.rlistings'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:*'  # No listings allowed
@@ -401,7 +401,7 @@ class TestAuth(unittest.TestCase):
         req.remote_user = 'act:usr,act'
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com,.rlistings'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
         req = self._make_request('/v1/AUTH_cfa/c')
         resp = self.test_auth.authorize(req)
         self.assertEqual(resp.status_int, 401)
@@ -409,7 +409,7 @@ class TestAuth(unittest.TestCase):
                          'Swift realm="AUTH_cfa"')
         req = self._make_request('/v1/AUTH_cfa/c')
         req.acl = '.r:*,.rlistings'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
         req = self._make_request('/v1/AUTH_cfa/c')
         req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
@@ -425,7 +425,7 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa/c')
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com,.rlistings'
-        self.assertEqual(self.test_auth.authorize(req), None)
+        self.assertIsNone(self.test_auth.authorize(req))
 
     def test_detect_reseller_request(self):
         req = self._make_request('/v1/AUTH_admin',
@@ -462,7 +462,7 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
-        self.assertEqual(resp, None)
+        self.assertIsNone(resp)
 
         # .super_admin is not something the middleware should ever see or care
         # about
@@ -498,7 +498,7 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
-        self.assertEqual(resp, None)
+        self.assertIsNone(resp)
 
         # .super_admin is not something the middleware should ever see or care
         # about
@@ -854,7 +854,7 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa/c/o',
                                  environ={'REQUEST_METHOD': 'OPTIONS'})
         resp = self.test_auth.authorize(req)
-        self.assertEqual(resp, None)
+        self.assertIsNone(resp)
 
     def test_get_user_group(self):
         # More tests in TestGetUserGroups class

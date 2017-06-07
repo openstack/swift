@@ -2428,11 +2428,11 @@ log_name = %(yarr)s'''
             file_name = os.path.join(t, 'blah.pid')
             # assert no raise
             self.assertEqual(os.path.exists(file_name), False)
-            self.assertEqual(utils.remove_file(file_name), None)
+            self.assertIsNone(utils.remove_file(file_name))
             with open(file_name, 'w') as f:
                 f.write('1')
             self.assertTrue(os.path.exists(file_name))
-            self.assertEqual(utils.remove_file(file_name), None)
+            self.assertIsNone(utils.remove_file(file_name))
             self.assertFalse(os.path.exists(file_name))
 
     def test_human_readable(self):
@@ -2977,7 +2977,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     def test_get_trans_id_time(self):
         ts = utils.get_trans_id_time('tx8c8bc884cdaf499bb29429aa9c46946e')
-        self.assertEqual(ts, None)
+        self.assertIsNone(ts)
         ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-0051720c06')
         self.assertEqual(ts, 1366428678)
         self.assertEqual(
@@ -2990,11 +2990,11 @@ cluster_dfw1 = http://dfw1.host/v1/
             time.asctime(time.gmtime(ts)) + ' UTC',
             'Sat Apr 20 03:31:18 2013 UTC')
         ts = utils.get_trans_id_time('')
-        self.assertEqual(ts, None)
+        self.assertIsNone(ts)
         ts = utils.get_trans_id_time('garbage')
-        self.assertEqual(ts, None)
+        self.assertIsNone(ts)
         ts = utils.get_trans_id_time('tx1df4ff4f55ea45f7b2ec2-almostright')
-        self.assertEqual(ts, None)
+        self.assertIsNone(ts)
 
     def test_config_fallocate_value(self):
         fallocate_value, is_percent = utils.config_fallocate_value('10%')
@@ -5438,7 +5438,7 @@ class TestGreenAsyncPile(unittest.TestCase):
             pass
         pile = utils.GreenAsyncPile(3)
         pile.spawn(run_test)
-        self.assertEqual(next(pile), None)
+        self.assertIsNone(next(pile))
         self.assertRaises(StopIteration, lambda: next(pile))
 
     def test_waitall_timeout_timesout(self):

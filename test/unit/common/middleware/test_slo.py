@@ -2034,10 +2034,10 @@ class TestSloGetManifest(SloTestCase):
 
         headers = [c[2] for c in self.app.calls_with_headers]
         self.assertEqual(headers[0].get('Range'), 'bytes=5-29')
-        self.assertEqual(headers[1].get('Range'), None)
-        self.assertEqual(headers[2].get('Range'), None)
-        self.assertEqual(headers[3].get('Range'), None)
-        self.assertEqual(headers[4].get('Range'), None)
+        self.assertIsNone(headers[1].get('Range'))
+        self.assertIsNone(headers[2].get('Range'))
+        self.assertIsNone(headers[3].get('Range'))
+        self.assertIsNone(headers[4].get('Range'))
 
     def test_range_get_manifest_first_byte(self):
         req = Request.blank(

@@ -702,9 +702,9 @@ class TestTempURL(unittest.TestCase):
         # Requests for other objects happen if, for example, you're
         # downloading a large object or creating a large-object manifest.
         oo_resp = authorize(req_other_object)
-        self.assertEqual(oo_resp, None)
+        self.assertIsNone(oo_resp)
         oc_resp = authorize(req_other_container)
-        self.assertEqual(oc_resp, None)
+        self.assertIsNone(oc_resp)
         oa_resp = authorize(req_other_account)
         self.assertEqual(oa_resp.status_int, 401)
 
@@ -721,7 +721,7 @@ class TestTempURL(unittest.TestCase):
 
         authorize = req.environ['swift.authorize']
         oo_resp = authorize(req_other_object)
-        self.assertEqual(oo_resp, None)
+        self.assertIsNone(oo_resp)
         oc_resp = authorize(req_other_container)
         self.assertEqual(oc_resp.status_int, 401)
         oa_resp = authorize(req_other_account)
@@ -742,9 +742,9 @@ class TestTempURL(unittest.TestCase):
 
         authorize = req.environ['swift.authorize']
         oo_resp = authorize(req_other_object)
-        self.assertEqual(oo_resp, None)
+        self.assertIsNone(oo_resp)
         oc_resp = authorize(req_other_container)
-        self.assertEqual(oc_resp, None)
+        self.assertIsNone(oc_resp)
         oa_resp = authorize(req_other_account)
         self.assertEqual(oa_resp.status_int, 401)
 
