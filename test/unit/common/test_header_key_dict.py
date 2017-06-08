@@ -98,7 +98,7 @@ class TestHeaderKeyDict(unittest.TestCase):
         headers = HeaderKeyDict()
         headers['content-length'] = 20
         self.assertEqual(headers.get('CONTENT-LENGTH'), '20')
-        self.assertEqual(headers.get('something-else'), None)
+        self.assertIsNone(headers.get('something-else'))
         self.assertEqual(headers.get('something-else', True), True)
 
     def test_keys(self):

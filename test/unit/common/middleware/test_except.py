@@ -70,7 +70,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEqual(list(resp), ['An error occurred'])
 
     def test_trans_id_header_pass(self):
-        self.assertEqual(self.logger.txn_id, None)
+        self.assertIsNone(self.logger.txn_id)
 
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o')
@@ -78,7 +78,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEqual(len(self.logger.txn_id), 34)  # 32 hex + 'tx'
 
     def test_trans_id_header_fail(self):
-        self.assertEqual(self.logger.txn_id, None)
+        self.assertIsNone(self.logger.txn_id)
 
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/v1/a/c/o')
@@ -93,7 +93,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEqual(list(resp), ['An error occurred'])
 
     def test_trans_id_header_suffix(self):
-        self.assertEqual(self.logger.txn_id, None)
+        self.assertIsNone(self.logger.txn_id)
 
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(), {'trans_id_suffix': '-stuff'})
@@ -102,7 +102,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertTrue(self.logger.txn_id.endswith('-stuff'))
 
     def test_trans_id_header_extra(self):
-        self.assertEqual(self.logger.txn_id, None)
+        self.assertIsNone(self.logger.txn_id)
 
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(), {'trans_id_suffix': '-fromconf'})
@@ -112,7 +112,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertTrue(self.logger.txn_id.endswith('-fromconf-fromuser'))
 
     def test_trans_id_header_extra_length_limit(self):
-        self.assertEqual(self.logger.txn_id, None)
+        self.assertIsNone(self.logger.txn_id)
 
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(), {'trans_id_suffix': '-fromconf'})
@@ -123,7 +123,7 @@ class TestCatchErrors(unittest.TestCase):
             '-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'))
 
     def test_trans_id_header_extra_quoted(self):
-        self.assertEqual(self.logger.txn_id, None)
+        self.assertIsNone(self.logger.txn_id)
 
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o',

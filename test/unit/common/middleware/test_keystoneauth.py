@@ -868,7 +868,7 @@ class TestAuthorize(BaseTestAuthorize):
             self._get_identity(tenant_id='test', roles=['got_erased']))
 
         authorize_resp = the_env['swift.authorize'](subreq)
-        self.assertEqual(authorize_resp, None)
+        self.assertIsNone(authorize_resp)
 
     def test_names_disallowed_in_acls_outside_default_domain(self):
         id = self._get_identity_for_v2(user_domain_id='non-default',

@@ -359,7 +359,7 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(mock.cache, {cache_key: ('0', '55', '5')})
 
         memcache_client.delete('some_key')
-        self.assertEqual(memcache_client.get('some_key'), None)
+        self.assertIsNone(memcache_client.get('some_key'))
 
         fiftydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fiftydays
@@ -369,7 +369,7 @@ class TestMemcached(unittest.TestCase):
         self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
 
         memcache_client.delete('some_key')
-        self.assertEqual(memcache_client.get('some_key'), None)
+        self.assertIsNone(memcache_client.get('some_key'))
 
         memcache_client.incr('some_key', delta=5)
         self.assertEqual(memcache_client.get('some_key'), '5')
@@ -418,7 +418,7 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client.delete('some_key')
-        self.assertEqual(memcache_client.get('some_key'), None)
+        self.assertIsNone(memcache_client.get('some_key'))
 
     def test_multi(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -470,7 +470,7 @@ class TestMemcached(unittest.TestCase):
         memcache_client._allow_unpickle = True
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_unpickle = False
-        self.assertEqual(memcache_client.get('some_key'), None)
+        self.assertIsNone(memcache_client.get('some_key'))
         memcache_client.set('some_key', [1, 2, 3])
         self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_unpickle = True

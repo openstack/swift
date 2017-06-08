@@ -543,7 +543,7 @@ class TestContainerSync(unittest.TestCase):
             # Succeeds because no rows match
             self.assertEqual(cs.container_failures, 1)
             self.assertEqual(cs.container_skips, 0)
-            self.assertEqual(fcb.sync_point1, None)
+            self.assertIsNone(fcb.sync_point1)
             self.assertEqual(fcb.sync_point2, -1)
 
         def fake_hash_path(account, container, obj, raw_digest=False):
@@ -591,7 +591,7 @@ class TestContainerSync(unittest.TestCase):
             # 'deleted' key
             self.assertEqual(cs.container_failures, 2)
             self.assertEqual(cs.container_skips, 0)
-            self.assertEqual(fcb.sync_point1, None)
+            self.assertIsNone(fcb.sync_point1)
             self.assertEqual(fcb.sync_point2, -1)
 
         def fake_delete_object(*args, **kwargs):
@@ -617,7 +617,7 @@ class TestContainerSync(unittest.TestCase):
             # Fails because delete_object fails
             self.assertEqual(cs.container_failures, 3)
             self.assertEqual(cs.container_skips, 0)
-            self.assertEqual(fcb.sync_point1, None)
+            self.assertIsNone(fcb.sync_point1)
             self.assertEqual(fcb.sync_point2, -1)
 
         fcb = FakeContainerBroker(
@@ -641,7 +641,7 @@ class TestContainerSync(unittest.TestCase):
             # Succeeds because delete_object succeeds
             self.assertEqual(cs.container_failures, 3)
             self.assertEqual(cs.container_skips, 0)
-            self.assertEqual(fcb.sync_point1, None)
+            self.assertIsNone(fcb.sync_point1)
             self.assertEqual(fcb.sync_point2, 1)
 
     def test_container_second_loop(self):
@@ -680,7 +680,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(cs.container_failures, 0)
             self.assertEqual(cs.container_skips, 0)
             self.assertEqual(fcb.sync_point1, 1)
-            self.assertEqual(fcb.sync_point2, None)
+            self.assertIsNone(fcb.sync_point2)
 
             def fake_hash_path(account, container, obj, raw_digest=False):
                 # Ensures that all rows match for second loop, ordinal is 0 and
@@ -711,7 +711,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(cs.container_failures, 1)
             self.assertEqual(cs.container_skips, 0)
             self.assertEqual(fcb.sync_point1, 1)
-            self.assertEqual(fcb.sync_point2, None)
+            self.assertIsNone(fcb.sync_point2)
 
             fcb = FakeContainerBroker(
                 'path',
@@ -733,7 +733,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(cs.container_failures, 1)
             self.assertEqual(cs.container_skips, 0)
             self.assertEqual(fcb.sync_point1, 1)
-            self.assertEqual(fcb.sync_point2, None)
+            self.assertIsNone(fcb.sync_point2)
         finally:
             sync.ContainerBroker = orig_ContainerBroker
             sync.hash_path = orig_hash_path
@@ -1319,7 +1319,7 @@ class TestContainerSync(unittest.TestCase):
         with mock.patch('swift.container.sync.InternalClient'):
             cs = sync.ContainerSync(
                 {'sync_proxy': ''}, container_ring=FakeRing())
-        self.assertEqual(cs.select_http_proxy(), None)
+        self.assertIsNone(cs.select_http_proxy())
 
     def test_select_http_proxy_one(self):
 

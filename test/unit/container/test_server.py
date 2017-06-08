@@ -260,7 +260,7 @@ class TestContainerController(unittest.TestCase):
 
         for header in ('x-container-object-count', 'x-container-bytes-used',
                        'x-timestamp', 'x-put-timestamp'):
-            self.assertEqual(resp.headers[header], None)
+            self.assertIsNone(resp.headers[header])
 
     def test_deleted_headers(self):
         ts = (Timestamp(t).internal for t in
@@ -297,7 +297,7 @@ class TestContainerController(unittest.TestCase):
             for header in ('x-container-object-count',
                            'x-container-bytes-used', 'x-timestamp',
                            'x-put-timestamp'):
-                self.assertEqual(resp.headers[header], None)
+                self.assertIsNone(resp.headers[header])
 
     def test_HEAD_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'HEAD',
@@ -2931,7 +2931,7 @@ class TestContainerController(unittest.TestCase):
         # Test replication_server flag was set from configuration file.
         container_controller = container_server.ContainerController
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEqual(container_controller(conf).replication_server, None)
+        self.assertIsNone(container_controller(conf).replication_server)
         for val in [True, '1', 'True', 'true']:
             conf['replication_server'] = val
             self.assertTrue(container_controller(conf).replication_server)

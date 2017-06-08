@@ -362,7 +362,7 @@ class TestReconcilerUtils(unittest.TestCase):
             direct_head.side_effect = stub_resp_headers
             oldest_spi = reconciler.direct_get_container_policy_index(
                 self.fake_ring, 'a', 'con')
-        self.assertEqual(oldest_spi, None)
+        self.assertIsNone(oldest_spi)
 
     def test_get_container_policy_index_for_deleted(self):
         mock_path = 'swift.container.reconciler.direct_head_container'
@@ -551,7 +551,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 oldest_spi = reconciler.direct_get_container_policy_index(
                     self.fake_ring, 'a', 'con')
         # expired
-        self.assertEqual(oldest_spi, None)
+        self.assertIsNone(oldest_spi)
 
     def test_direct_delete_container_entry(self):
         mock_path = 'swift.common.direct_client.http_connect'
@@ -597,7 +597,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 mock.patch('eventlet.greenpool.DEBUG', False):
             rv = reconciler.direct_delete_container_entry(
                 self.fake_ring, 'a', 'c', 'o')
-        self.assertEqual(rv, None)
+        self.assertIsNone(rv)
         self.assertEqual(len(mock_direct_delete.mock_calls), 3)
 
     def test_add_to_reconciler_queue(self):

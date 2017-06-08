@@ -147,7 +147,7 @@ class TestCacheMiddleware(unittest.TestCase):
             exc = err
         finally:
             memcache.ConfigParser = orig_parser
-        self.assertEqual(exc, None)
+        self.assertIsNone(exc)
 
     def test_conf_default(self):
         orig_parser = memcache.ConfigParser

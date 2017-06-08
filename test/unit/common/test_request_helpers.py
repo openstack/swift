@@ -156,7 +156,7 @@ class TestRequestHelpers(unittest.TestCase):
             get_name_and_placement(req, 2, 3, True)
         self.assertEqual(device, 'device')
         self.assertEqual(partition, 'part')
-        self.assertEqual(suffix_parts, None)  # false-y
+        self.assertIsNone(suffix_parts)  # false-y
         self.assertEqual(policy, POLICIES[1])
         self.assertEqual(policy.policy_type, REPL_POLICY)
 

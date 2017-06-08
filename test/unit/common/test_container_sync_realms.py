@@ -101,7 +101,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(csr.mtime_check_interval, 300)
             self.assertEqual(csr.realms(), ['US'])
             self.assertEqual(csr.key('US'), '9ff3b71c849749dbaec4ccdd3cbab62b')
-            self.assertEqual(csr.key2('US'), None)
+            self.assertIsNone(csr.key2('US'))
             self.assertEqual(csr.clusters('US'), ['DFW1'])
             self.assertEqual(
                 csr.endpoint('US', 'DFW1'), 'http://dfw1.host/v1/')
@@ -129,7 +129,7 @@ cluster_lon3 = http://lon3.host/v1/
             self.assertEqual(csr.mtime_check_interval, 60)
             self.assertEqual(sorted(csr.realms()), ['UK', 'US'])
             self.assertEqual(csr.key('US'), '9ff3b71c849749dbaec4ccdd3cbab62b')
-            self.assertEqual(csr.key2('US'), None)
+            self.assertIsNone(csr.key2('US'))
             self.assertEqual(csr.clusters('US'), ['DFW1'])
             self.assertEqual(
                 csr.endpoint('US', 'DFW1'), 'http://dfw1.host/v1/')
@@ -152,10 +152,10 @@ cluster_lon3 = http://lon3.host/v1/
             self.assertEqual(logger.all_log_lines(), {})
             self.assertEqual(csr.mtime_check_interval, 300)
             self.assertEqual(csr.realms(), ['US'])
-            self.assertEqual(csr.key('US'), None)
-            self.assertEqual(csr.key2('US'), None)
+            self.assertIsNone(csr.key('US'))
+            self.assertIsNone(csr.key2('US'))
             self.assertEqual(csr.clusters('US'), [])
-            self.assertEqual(csr.endpoint('US', 'JUST_TESTING'), None)
+            self.assertIsNone(csr.endpoint('US', 'JUST_TESTING'))
 
     def test_bad_mtime_check_interval(self):
         fname = 'container-sync-realms.conf'

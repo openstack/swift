@@ -117,7 +117,7 @@ class TestRange(unittest.TestCase):
         swob_range = swift.common.swob.Range('bytes=1-7')
         self.assertEqual(swob_range.ranges_for_length(10), [(1, 8)])
         self.assertEqual(swob_range.ranges_for_length(5), [(1, 5)])
-        self.assertEqual(swob_range.ranges_for_length(None), None)
+        self.assertIsNone(swob_range.ranges_for_length(None))
 
     def test_ranges_for_large_length(self):
         swob_range = swift.common.swob.Range('bytes=-100000000000000000000000')
@@ -127,11 +127,11 @@ class TestRange(unittest.TestCase):
         swob_range = swift.common.swob.Range('bytes=1-')
         self.assertEqual(swob_range.ranges_for_length(10), [(1, 10)])
         self.assertEqual(swob_range.ranges_for_length(5), [(1, 5)])
-        self.assertEqual(swob_range.ranges_for_length(None), None)
+        self.assertIsNone(swob_range.ranges_for_length(None))
         # This used to freak out:
         swob_range = swift.common.swob.Range('bytes=100-')
         self.assertEqual(swob_range.ranges_for_length(5), [])
-        self.assertEqual(swob_range.ranges_for_length(None), None)
+        self.assertIsNone(swob_range.ranges_for_length(None))
 
         swob_range = swift.common.swob.Range('bytes=4-6,100-')
         self.assertEqual(swob_range.ranges_for_length(5), [(4, 5)])
@@ -140,7 +140,7 @@ class TestRange(unittest.TestCase):
         swob_range = swift.common.swob.Range('bytes=-7')
         self.assertEqual(swob_range.ranges_for_length(10), [(3, 10)])
         self.assertEqual(swob_range.ranges_for_length(5), [(0, 5)])
-        self.assertEqual(swob_range.ranges_for_length(None), None)
+        self.assertIsNone(swob_range.ranges_for_length(None))
 
         swob_range = swift.common.swob.Range('bytes=4-6,-100')
         self.assertEqual(swob_range.ranges_for_length(5), [(4, 5), (0, 5)])
@@ -164,7 +164,7 @@ class TestRange(unittest.TestCase):
         self.assertEqual(swob_range.ranges_for_length(200),
                          [(30, 151), (190, 200)])
 
-        self.assertEqual(swob_range.ranges_for_length(None), None)
+        self.assertIsNone(swob_range.ranges_for_length(None))
 
     def test_ranges_for_length_edges(self):
         swob_range = swift.common.swob.Range('bytes=0-1, -7')
@@ -362,7 +362,7 @@ class TestAccept(unittest.TestCase):
             acc = swift.common.swob.Accept(accept)
             match = acc.best_match(['text/plain', 'application/xml',
                                    'text/xml'])
-            self.assertEqual(match, None)
+            self.assertIsNone(match)
 
     def test_repr(self):
         acc = swift.common.swob.Accept("application/json")
@@ -578,7 +578,7 @@ class TestRequest(unittest.TestCase):
 
     def test_bad_path_info_pop(self):
         req = swift.common.swob.Request.blank('blahblah')
-        self.assertEqual(req.path_info_pop(), None)
+        self.assertIsNone(req.path_info_pop())
 
     def test_path_info_pop_last(self):
         req = swift.common.swob.Request.blank('/last')
@@ -757,7 +757,7 @@ class TestRequest(unittest.TestCase):
 
         req.if_unmodified_since = 'something'
         self.assertEqual(req.headers['If-Unmodified-Since'], 'something')
-        self.assertEqual(req.if_unmodified_since, None)
+        self.assertIsNone(req.if_unmodified_since)
 
         self.assertTrue('If-Unmodified-Since' in req.headers)
         req.if_unmodified_since = None
@@ -769,12 +769,12 @@ class TestRequest(unittest.TestCase):
             "%a, %d %b %Y %H:%M:%S UTC", time.struct_time(too_big_date_list))
 
         req.if_unmodified_since = too_big_date
-        self.assertEqual(req.if_unmodified_since, None)
+        self.assertIsNone(req.if_unmodified_since)
 
     def test_bad_range(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')
         req.range = 'bad range'
-        self.assertEqual(req.range, None)
+        self.assertIsNone(req.range)
 
     def test_accept_header(self):
         req = swift.common.swob.Request({'REQUEST_METHOD': 'GET',
@@ -798,7 +798,7 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(req.swift_entity_path, '/a')
 
         req = swift.common.swob.Request.blank('/v1')
-        self.assertEqual(req.swift_entity_path, None)
+        self.assertIsNone(req.swift_entity_path)
 
     def test_path_qs(self):
         req = swift.common.swob.Request.blank('/hi/there?hello=equal&acl')
@@ -946,7 +946,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank(
             u'/',
             environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'})
-        self.assertEqual(req.message_length(), None)
+        self.assertIsNone(req.message_length())
 
         req = swift.common.swob.Request.blank(
             u'/',
@@ -968,7 +968,7 @@ class TestRequest(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/'},
             headers={'transfer-encoding': 'chunked'},
             body='x' * 42)
-        self.assertEqual(req.message_length(), None)
+        self.assertIsNone(req.message_length())
 
         req.headers['Transfer-Encoding'] = 'gzip,chunked'
         try:
@@ -1486,7 +1486,7 @@ class TestResponse(unittest.TestCase):
 
         # app_iter exists but no body and headers
         resp = swift.common.swob.Response(app_iter=iter([]))
-        self.assertEqual(resp.content_length, None)
+        self.assertIsNone(resp.content_length)
         self.assertEqual(resp.body, '')
 
 

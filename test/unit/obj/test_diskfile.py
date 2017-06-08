@@ -202,18 +202,18 @@ class TestDiskFileModuleMethods(unittest.TestCase):
 
         # well formatted but, unknown policy index
         pn = 'objects-2/0/606/198427efcff042c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy(pn), None)
+        self.assertIsNone(diskfile.extract_policy(pn))
 
         # malformed path
-        self.assertEqual(diskfile.extract_policy(''), None)
+        self.assertIsNone(diskfile.extract_policy(''))
         bad_path = '/srv/node/sda1/objects-t/1/abc/def/1234.data'
-        self.assertEqual(diskfile.extract_policy(bad_path), None)
+        self.assertIsNone(diskfile.extract_policy(bad_path))
         pn = 'XXXX/0/606/1984527ed42b6ef6247c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy(pn), None)
+        self.assertIsNone(diskfile.extract_policy(pn))
         bad_path = '/srv/node/sda1/foo-1/1/abc/def/1234.data'
-        self.assertEqual(diskfile.extract_policy(bad_path), None)
+        self.assertIsNone(diskfile.extract_policy(bad_path))
         bad_path = '/srv/node/sda1/obj1/1/abc/def/1234.data'
-        self.assertEqual(diskfile.extract_policy(bad_path), None)
+        self.assertIsNone(diskfile.extract_policy(bad_path))
 
     def test_quarantine_renamer(self):
         for policy in POLICIES:
@@ -4093,7 +4093,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         for chunk in reader:
             pass
         # close is called at the end of the iterator
-        self.assertEqual(reader._fp, None)
+        self.assertIsNone(reader._fp)
         error_lines = df._logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
         self.assertIn('close failure', error_lines[0])
@@ -4716,7 +4716,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertTrue(_m_mkc.called)
         flags = O_TMPFILE | os.O_WRONLY
         _m_os_open.assert_called_once_with(df._datadir, flags)
-        self.assertEqual(tmppath, None)
+        self.assertIsNone(tmppath)
         self.assertEqual(fd, 12345)
         self.assertFalse(_m_mkstemp.called)
 

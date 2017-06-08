@@ -226,8 +226,8 @@ class TestUntarMetadata(unittest.TestCase):
         put2_headers = HeaderKeyDict(self.app.calls_with_headers[2][2])
         self.assertEqual(put2_headers.get('X-Object-Meta-Muppet'), 'bert')
         self.assertEqual(put2_headers.get('X-Object-Meta-Cat'), 'fluffy')
-        self.assertEqual(put2_headers.get('Content-Type'), None)
-        self.assertEqual(put2_headers.get('X-Object-Meta-Blah'), None)
+        self.assertIsNone(put2_headers.get('Content-Type'))
+        self.assertIsNone(put2_headers.get('X-Object-Meta-Blah'))
 
 
 class TestUntar(unittest.TestCase):
