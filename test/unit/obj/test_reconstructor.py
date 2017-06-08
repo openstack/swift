@@ -2086,7 +2086,12 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             'local_dev': self.local_dev,
             'device': self.local_dev['device'],
         }
-        self.assertEqual(ring.replica_count, len(job['sync_to']))
+        self.assertEqual(ring.replica_count, len(part_nodes))
+        expected_samples = (
+            (self.policy.ec_n_unique_fragments *
+             self.policy.ec_duplication_factor) -
+            self.policy.ec_ndata + 1)
+        self.assertEqual(len(job['sync_to']), expected_samples)
         for k, v in expected.items():
             msg = 'expected %s != %s for %s' % (
                 v, job[k], k)
