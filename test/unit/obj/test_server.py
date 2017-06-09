@@ -5711,7 +5711,8 @@ class TestObjectController(unittest.TestCase):
                 given_args[5], 'sda1', policy])
 
     def test_GET_but_expired(self):
-        test_time = time() + 10000
+        now = time()
+        test_time = now + 10000
         delete_at_timestamp = int(test_time + 100)
         delete_at_container = str(
             delete_at_timestamp /
@@ -5734,50 +5735,52 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
-        orig_time = object_server.time.time
-        try:
-            t = time()
-            object_server.time.time = lambda: t
-            delete_at_timestamp = int(t + 1)
-            delete_at_container = str(
-                delete_at_timestamp /
-                self.object_controller.expiring_objects_container_divisor *
-                self.object_controller.expiring_objects_container_divisor)
-            put_timestamp = normalize_timestamp(test_time - 1000)
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': put_timestamp,
-                         'X-Delete-At': str(delete_at_timestamp),
-                         'X-Delete-At-Container': delete_at_container,
-                         'Content-Length': '4',
-                         'Content-Type': 'application/octet-stream'})
-            req.body = 'TEST'
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 201)
+        delete_at_timestamp = int(now + 1)
+        delete_at_container = str(
+            delete_at_timestamp /
+            self.object_controller.expiring_objects_container_divisor *
+            self.object_controller.expiring_objects_container_divisor)
+        put_timestamp = normalize_timestamp(test_time - 1000)
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': put_timestamp,
+                     'X-Delete-At': str(delete_at_timestamp),
+                     'X-Delete-At-Container': delete_at_container,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'})
+        req.body = 'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # fix server time to now: delete-at is in future, verify GET is ok
+        with mock.patch('swift.obj.server.time.time', return_value=now):
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Timestamp': normalize_timestamp(test_time)})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-        finally:
-            object_server.time.time = orig_time
 
-        orig_time = object_server.time.time
-        try:
-            t = time() + 2
-            object_server.time.time = lambda: t
+        # fix server time to now + 2: delete-at is in past, verify GET fails...
+        with mock.patch('swift.obj.server.time.time', return_value=now + 2):
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Timestamp': normalize_timestamp(t)})
+                headers={'X-Timestamp': normalize_timestamp(now + 2)})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 404)
             self.assertEqual(resp.headers['X-Backend-Timestamp'],
                              utils.Timestamp(put_timestamp))
-        finally:
-            object_server.time.time = orig_time
+            # ...unless X-Backend-Replication is sent
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'X-Timestamp': normalize_timestamp(now + 2),
+                         'X-Backend-Replication': 'True'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual('TEST', resp.body)
 
     def test_HEAD_but_expired(self):
         test_time = time() + 10000

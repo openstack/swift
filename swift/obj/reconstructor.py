@@ -407,6 +407,7 @@ class ObjectReconstructor(Daemon):
         # need to be durable.
         headers = self.headers.copy()
         headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+        headers['X-Backend-Replication'] = 'True'
         frag_prefs = [{'timestamp': datafile_metadata['X-Timestamp'],
                        'exclude': []}]
         headers['X-Backend-Fragment-Preferences'] = json.dumps(frag_prefs)
