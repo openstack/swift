@@ -20,7 +20,7 @@ from swiftclient import client, ClientException
 
 from test.probe.common import kill_server, ReplProbeTest, start_server
 from swift.common import direct_client, utils
-from swift.common.manager import Server
+from swift.common.manager import Manager
 
 
 class TestDbUsyncReplicator(ReplProbeTest):
@@ -85,10 +85,8 @@ class TestDbUsyncReplicator(ReplProbeTest):
         # runs in first, db file may be replicated by rsync to other
         # containers. In that case, the db file does not information about
         # metadata, so metadata should be synced before replication
-        crepl = Server('container-replicator')
-        crepl.spawn(self.configs['container-replicator'][cnode['id'] + 1],
-                    once=True)
-        crepl.interact()
+        Manager(['container-replicator']).once(
+            number=self.config_number(cnode))
 
         expected_meta = {
             'x-container-meta-a': '2',
@@ -116,6 +114,21 @@ class TestDbUsyncReplicator(ReplProbeTest):
 
         # other nodes still have the meta, as well as objects
         for node in cnodes:
+            resp_headers = direct_client.direct_head_container(
+                node, cpart, self.account, container)
+            for header, value in expected_meta.items():
+                self.assertIn(header, resp_headers)
+                self.assertEqual(value, resp_headers[header])
+            self.assertNotIn(resp_headers.get('x-container-object-count'),
+                             (None, '0', 0))
+
+        # and after full pass on remaining nodes
+        for node in cnodes:
+            Manager(['container-replicator']).once(
+                number=self.config_number(node))
+
+        # ... all is right
+        for node in cnodes + [cnode]:
             resp_headers = direct_client.direct_head_container(
                 node, cpart, self.account, container)
             for header, value in expected_meta.items():
