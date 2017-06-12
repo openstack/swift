@@ -68,7 +68,7 @@ class TestCNAMELookup(unittest.TestCase):
         self.assertEqual(resp, ['FAKE APP'])
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, d))
+                new=lambda d, r: (0, d))
     def test_passthrough(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'foo.example.com'})
@@ -85,7 +85,7 @@ class TestCNAMELookup(unittest.TestCase):
         self.assertEqual(resp, ['FAKE APP'])
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, '%s.example.com' % d))
+                new=lambda d, r: (0, '%s.example.com' % d))
     def test_good_lookup(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
@@ -105,7 +105,7 @@ class TestCNAMELookup(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
 
-        def my_lookup(d):
+        def my_lookup(d, r):
             if d == 'mysite.com':
                 site = 'level1.foo.com'
             elif d == 'level1.foo.com':
@@ -120,7 +120,7 @@ class TestCNAMELookup(unittest.TestCase):
             self.assertEqual(resp, ['CNAME lookup failed after 2 tries'])
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, 'some.invalid.site.com'))
+                new=lambda d, r: (0, 'some.invalid.site.com'))
     def test_lookup_chain_bad_target(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
@@ -129,7 +129,7 @@ class TestCNAMELookup(unittest.TestCase):
                          ['CNAME lookup failed to resolve to a valid domain'])
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, None))
+                new=lambda d, r: (0, None))
     def test_something_weird(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
@@ -138,7 +138,7 @@ class TestCNAMELookup(unittest.TestCase):
                          ['CNAME lookup failed to resolve to a valid domain'])
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, '%s.example.com' % d))
+                new=lambda d, r: (0, '%s.example.com' % d))
     def test_with_memcache(self):
         class memcache_stub(object):
             def __init__(self):
@@ -175,7 +175,7 @@ class TestCNAMELookup(unittest.TestCase):
                 self.cache[key] = value
 
         module = 'swift.common.middleware.cname_lookup.lookup_cname'
-        dns_module = 'dns.resolver.query'
+        dns_module = 'dns.resolver.Resolver.query'
         memcache = memcache_stub()
 
         with mock.patch(module) as m:
@@ -236,7 +236,7 @@ class TestCNAMELookup(unittest.TestCase):
             self.assertFalse('cname-mysite5.com' in memcache.cache)
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, 'c.aexample.com'))
+                new=lambda d, r: (0, 'c.aexample.com'))
     def test_cname_matching_ending_not_domain(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'foo.com'})
@@ -245,7 +245,7 @@ class TestCNAMELookup(unittest.TestCase):
                          ['CNAME lookup failed to resolve to a valid domain'])
 
     @mock.patch('swift.common.middleware.cname_lookup.lookup_cname',
-                new=lambda d: (0, None))
+                new=lambda d, r: (0, None))
     def test_cname_configured_with_empty_storage_domain(self):
         app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
                                                  {'storage_domain': '',
@@ -285,7 +285,7 @@ class TestCNAMELookup(unittest.TestCase):
             req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                                 headers={'Host': 'c.a.example.com'})
             module = 'swift.common.middleware.cname_lookup.lookup_cname'
-            with mock.patch(module, lambda x: (0, lookup_back)):
+            with mock.patch(module, lambda d, r: (0, lookup_back)):
                 return app(req.environ, start_response)
 
         resp = do_test('c.storage1.com')
@@ -323,7 +323,7 @@ class TestCNAMELookup(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com'})
         module = 'swift.common.middleware.cname_lookup.lookup_cname'
-        with mock.patch(module, lambda x: (0, 'example.com')):
+        with mock.patch(module, lambda d, r: (0, 'example.com')):
             resp = app(req.environ, start_response)
             self.assertEqual(resp, ['FAKE APP'])
 
@@ -331,13 +331,96 @@ class TestCNAMELookup(unittest.TestCase):
         app = cname_lookup.CNAMELookupMiddleware(RedirectSlashApp(), {})
 
         module = 'swift.common.middleware.cname_lookup.lookup_cname'
-        with mock.patch(module, lambda x: (0, 'cont.acct.example.com')):
+        with mock.patch(module, lambda d, r: (0, 'cont.acct.example.com')):
             req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
                                 headers={'Host': 'mysite.com'})
             resp = req.get_response(app)
             self.assertEqual(resp.status_int, 301)
             self.assertEqual(resp.headers.get('Location'),
                              'http://mysite.com/test/')
+
+    def test_configured_nameservers(self):
+        class MockedResolver(object):
+            def __init__(self):
+                self.nameservers = None
+                self.nameserver_ports = None
+
+            def query(self, *args, **kwargs):
+                raise Exception('Stop processing')
+
+            def reset(self):
+                self.nameservers = None
+                self.nameserver_ports = None
+
+        mocked_resolver = MockedResolver()
+        dns_module = 'dns.resolver.Resolver'
+
+        # If no nameservers provided in conf, resolver nameservers is unset
+        for conf in [{}, {'nameservers': ''}]:
+            mocked_resolver.reset()
+            with mock.patch(dns_module, return_value=mocked_resolver):
+                app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+            self.assertIs(app.resolver, mocked_resolver)
+            self.assertIsNone(mocked_resolver.nameservers)
+
+        # If invalid nameservers provided, resolver nameservers is unset
+        mocked_resolver.reset()
+        conf = {'nameservers': '127.0.0.1, 127.0.0.2, a.b.c.d'}
+        with mock.patch(dns_module, return_value=mocked_resolver):
+            with self.assertRaises(ValueError) as exc_mgr:
+                app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+            self.assertIn('Invalid cname_lookup/nameservers configuration',
+                          str(exc_mgr.exception))
+
+        # If nameservers provided in conf, resolver nameservers is set
+        mocked_resolver.reset()
+        conf = {'nameservers': '127.0.0.1'}
+        with mock.patch(dns_module, return_value=mocked_resolver):
+            app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+        self.assertIs(app.resolver, mocked_resolver)
+        self.assertEqual(mocked_resolver.nameservers, ['127.0.0.1'])
+        self.assertEqual(mocked_resolver.nameserver_ports, {})
+
+        # IPv6 is OK
+        mocked_resolver.reset()
+        conf = {'nameservers': '[::1]'}
+        with mock.patch(dns_module, return_value=mocked_resolver):
+            app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+        self.assertIs(app.resolver, mocked_resolver)
+        self.assertEqual(mocked_resolver.nameservers, ['::1'])
+        self.assertEqual(mocked_resolver.nameserver_ports, {})
+
+        # As are port overrides
+        mocked_resolver.reset()
+        conf = {'nameservers': '127.0.0.1:5354'}
+        with mock.patch(dns_module, return_value=mocked_resolver):
+            app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+        self.assertIs(app.resolver, mocked_resolver)
+        self.assertEqual(mocked_resolver.nameservers, ['127.0.0.1'])
+        self.assertEqual(mocked_resolver.nameserver_ports, {'127.0.0.1': 5354})
+
+        # And IPv6 with port overrides
+        mocked_resolver.reset()
+        conf = {'nameservers': '[2001:db8::ff00:42:8329]:1234'}
+        with mock.patch(dns_module, return_value=mocked_resolver):
+            app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+        self.assertIs(app.resolver, mocked_resolver)
+        self.assertEqual(mocked_resolver.nameservers, [
+            '2001:db8::ff00:42:8329'])
+        self.assertEqual(mocked_resolver.nameserver_ports, {
+            '2001:db8::ff00:42:8329': 1234})
+
+        # Also accept lists, and bring it all together
+        mocked_resolver.reset()
+        conf = {'nameservers': '[::1], 127.0.0.1:5354, '
+                               '[2001:db8::ff00:42:8329]:1234'}
+        with mock.patch(dns_module, return_value=mocked_resolver):
+            app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+        self.assertIs(app.resolver, mocked_resolver)
+        self.assertEqual(mocked_resolver.nameservers, [
+            '::1', '127.0.0.1', '2001:db8::ff00:42:8329'])
+        self.assertEqual(mocked_resolver.nameserver_ports, {
+            '127.0.0.1': 5354, '2001:db8::ff00:42:8329': 1234})
 
 
 class TestSwiftInfo(unittest.TestCase):
