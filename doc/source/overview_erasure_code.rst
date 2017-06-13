@@ -407,35 +407,48 @@ In this case, the object cannot be reconstructed  from a single region;
 the other 3 indexes, but we need 4 unique indexes to be able to rebuild an
 object.
 
-.. _global_ec_known_issues:
-
-Known Issues
-============
-
-Efficient Node Selection for Read
+Node Selection Strategy for Reads
 ---------------------------------
 
 Proxy servers require a set of *unique* fragment indexes to decode the original
 object when handling a GET request to an EC policy. With a conventional EC
 policy, this is very likely to be the outcome of reading fragments from a
 random selection of backend nodes. With an EC Duplication policy it is
-significantly more likely that responses from a random selection of backend
+significantly more likely that responses from a *random* selection of backend
 nodes might include some duplicated fragments.
 
-The recommended use of EC Duplication in combination with Composite Rings and
-proxy server read affinity is designed to mitigate for this; a proxy server
-will first attempt to read fragments from nodes in its local region, which
-are guaranteed to be unique with respect to each other. However, should enough
-of those local reads fail to return a fragment, the proxy server may proceed to
-read fragments from other regions. This can be relatively inefficient because
-it is possible that nodes in other regions return fragments that are duplicates
-of those the proxy server has already received. The proxy server will ignore
-those responses and issue yet more requests to nodes in other regions.
+For this reason it is strongly recommended that EC Duplication always be
+deployed in combination with :ref:`composite_rings` and :ref:`proxy server read
+affinity <configuring_global_clusters>`.
 
+Under normal conditions with the recommended deployment, read affinity will
+cause a proxy server to first attempt to read fragments from nodes in its local
+region. These fragments are guaranteed to be unique with respect to each other.
+Even if there are a small number of local failures, unique local parity
+fragments will make up the difference.  However, should enough local primary
+storage nodes fail, such that sufficient unique fragments are not available in
+the local region, a global EC cluster will proceed to read fragments from the
+other region(s). Random reads from the remote region are not guaranteed to
+return unique fragments; with EC Duplication there is a significantly high
+probability that the proxy sever will encounter a fragment that is a duplicate
+of one it has already found in the local region. The proxy server will ignore
+these and make additional requests until it accumulates the required set of
+unique fragments, potentially searching all the primary and handoff locations
+in the local and remote regions before ultimately failing the read.
+
+A global EC deployment configured as recommended is therefore extremely
+resilient. However, under extreme failure conditions read handling can be
+inefficient because nodes in other regions are guaranteed to have some
+fragments which are duplicates of those the proxy server has already received.
 Work is in progress to improve the proxy server node selection strategy such
 that when it is necessary to read from other regions, nodes that are likely to
 have useful fragments are preferred over those that are likely to return a
 duplicate.
+
+.. _global_ec_known_issues:
+
+Known Issues
+============
 
 Efficient Cross Region Rebuild
 ------------------------------
