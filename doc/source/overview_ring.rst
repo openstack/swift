@@ -350,6 +350,9 @@ Ring Builder Analyzer
 ---------------------
 .. automodule:: swift.cli.ring_builder_analyzer
 
+
+.. _composite_rings:
+
 ---------------
 Composite Rings
 ---------------
