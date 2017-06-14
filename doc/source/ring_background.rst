@@ -6,7 +6,7 @@ Building a Consistent Hashing Ring
 Authored by Greg Holt
 ---------------------
 
-This is compilation of five posts I made earlier discussing how to build
+This is a compilation of five posts I made earlier discussing how to build
 a consistent hashing ring. The posts seemed to be accessed quite frequently,
 so I've gathered them all here on one page for easier reading.
 
@@ -227,7 +227,7 @@ be done by creating “virtual nodes” for each node. So 100 nodes might have
   90423 ids moved, 0.90%
 
 There we go, we added 1% capacity and only moved 0.9% of existing data.
-The vnode_range_starts list seems a bit out of place though. It’s values
+The vnode_range_starts list seems a bit out of place though. Its values
 are calculated and never change for the lifetime of the cluster, so let’s
 optimize that out.
 
