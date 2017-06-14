@@ -3300,6 +3300,16 @@ cluster_dfw1 = http://dfw1.host/v1/
         finally:
             shutil.rmtree(tmpdir)
 
+    def test_ismount_successes_stubfile(self):
+        tmpdir = mkdtemp()
+        fname = os.path.join(tmpdir, ".ismount")
+        try:
+            with open(fname, "w") as stubfile:
+                stubfile.write("")
+            self.assertTrue(utils.ismount(tmpdir))
+        finally:
+            shutil.rmtree(tmpdir)
+
     def test_parse_content_type(self):
         self.assertEqual(utils.parse_content_type('text/plain'),
                          ('text/plain', []))
