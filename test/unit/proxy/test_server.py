@@ -1346,6 +1346,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
+                            "write_affinity": "",
                             "write_affinity_node_count_fn": 6}
         exp_options = {None: expected_default,
                        POLICIES[0]: expected_default,
@@ -1368,10 +1369,12 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
+                            "write_affinity": "",
                             "write_affinity_node_count_fn": 6}
         exp_options = {None: expected_default,
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
+                                     "write_affinity": "r1",
                                      "write_affinity_node_count_fn": 3},
                        POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
@@ -1415,10 +1418,12 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "affinity",
+                            "write_affinity": "",
                             "write_affinity_node_count_fn": 3}
         exp_options = {None: expected_default,
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
+                                     "write_affinity": "r1",
                                      "write_affinity_node_count_fn": 3},
                        POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
@@ -1448,12 +1453,15 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         """
         exp_options = {None: {"read_affinity": "r2=10",
                               "sorting_method": "affinity",
+                              "write_affinity": "r2",
                               "write_affinity_node_count_fn": 3},
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
+                                     "write_affinity": "r1",
                                      "write_affinity_node_count_fn": 5},
                        POLICIES[1]: {"read_affinity": "r1=1",
                                      "sorting_method": "affinity",
+                                     "write_affinity": "r3",
                                      "write_affinity_node_count_fn": 4}}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
@@ -1524,15 +1532,18 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             # default read_affinity is r1, set in proxy-server section
             None: {"read_affinity": "r1=100",
                    "sorting_method": "shuffle",
+                   "write_affinity": "r0",
                    "write_affinity_node_count_fn": 6},
             # policy 0 read affinity is r2, dictated by policy 0 section
             POLICIES[0]: {"read_affinity": "r2=100",
                           "sorting_method": "affinity",
+                          "write_affinity": "r2",
                           "write_affinity_node_count_fn": 6},
             # policy 1 read_affinity is r0, dictated by DEFAULT section,
             # overrides proxy server section
             POLICIES[1]: {"read_affinity": "r0=100",
                           "sorting_method": "affinity",
+                          "write_affinity": "r0",
                           "write_affinity_node_count_fn": 6}}
         exp_is_local = {
             # default write_affinity is r0, dictated by DEFAULT section
@@ -1571,17 +1582,47 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         app = self._write_conf_and_load_app(conf_sections)
         self._check_policy_options(app, exp_options, {})
         lines = app.logger.get_lines_for_level('warning')
-        scopes = {'default', 'policy 0 (nulo)'}
+        labels = {'default', 'policy 0 (nulo)'}
         for line in lines[:2]:
             self.assertIn(
                 "sorting_method is set to 'timing', not 'affinity'", line)
-            for scope in scopes:
-                if scope in line:
-                    scopes.remove(scope)
+            for label in labels:
+                if label in line:
+                    labels.remove(label)
                     break
             else:
-                self.fail("None of %s found in warning: %r" % (scopes, line))
-        self.assertFalse(scopes)
+                self.fail("None of %s found in warning: %r" % (labels, line))
+        self.assertFalse(labels)
+
+    def test_per_policy_conf_warns_override_sorting_method_mismatch(self):
+        # verify that policy specific warnings are emitted when read_affinity
+        # is set but sorting_method is not affinity in a policy config
+        conf_sections = """
+        [app:proxy-server]
+        use = egg:swift#proxy
+        sorting_method = affinity
+        read_affinity = r2=10
+
+        [proxy-server:policy:0]
+        sorting_method = timing
+        """
+        exp_options = {None: {"read_affinity": "r2=10",
+                              "write_affinity": "",
+                              "sorting_method": "affinity"},
+                       POLICIES[0]: {"read_affinity": "r2=10",
+                                     "write_affinity": "",
+                                     "sorting_method": "timing"}}
+        app = self._write_conf_and_load_app(conf_sections)
+        self._check_policy_options(app, exp_options, {})
+        lines = app.logger.get_lines_for_level('warning')
+        for line in lines:
+            # proxy-server gets instantiated twice during loadapp so expect two
+            # warnings; check that both warnings refer to policy 0 and not the
+            # default config
+            self.assertIn(
+                "sorting_method is set to 'timing', not 'affinity'", line)
+            self.assertIn('policy 0 (nulo)', line)
+        self.assertFalse(lines[2:])
 
     def test_per_policy_conf_section_name_inherits_from_app_section_name(self):
         conf_sections = """
@@ -1640,13 +1681,13 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self._check_policy_options(app, exp_options, {})
 
     def test_per_policy_conf_invalid_read_affinity_value(self):
-        def do_test(conf_sections, scope):
+        def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
                 self._write_conf_and_load_app(conf_sections)
             self.assertIn('broken', cm.exception.message)
             self.assertIn(
                 'Invalid read_affinity value:', cm.exception.message)
-            self.assertIn(scope, cm.exception.message)
+            self.assertIn(label, cm.exception.message)
 
         conf_sections = """
         [app:proxy-server]
@@ -1673,13 +1714,13 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         do_test(conf_sections, '(default)')
 
     def test_per_policy_conf_invalid_write_affinity_value(self):
-        def do_test(conf_sections, scope):
+        def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
                 self._write_conf_and_load_app(conf_sections)
             self.assertIn('broken', cm.exception.message)
             self.assertIn(
                 'Invalid write_affinity value:', cm.exception.message)
-            self.assertIn(scope, cm.exception.message)
+            self.assertIn(label, cm.exception.message)
 
         conf_sections = """
         [app:proxy-server]
@@ -1703,13 +1744,13 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         do_test(conf_sections, '(default)')
 
     def test_per_policy_conf_invalid_write_affinity_node_count_value(self):
-        def do_test(conf_sections, scope):
+        def do_test(conf_sections, label):
             with self.assertRaises(ValueError) as cm:
                 self._write_conf_and_load_app(conf_sections)
             self.assertIn('2* replicas', cm.exception.message)
             self.assertIn('Invalid write_affinity_node_count value:',
                           cm.exception.message)
-            self.assertIn(scope, cm.exception.message)
+            self.assertIn(label, cm.exception.message)
 
         conf_sections = """
         [app:proxy-server]
