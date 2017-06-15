@@ -413,9 +413,11 @@ class ServerSideCopyMiddleware(object):
             # which currently only happens because there are more than
             # CONTAINER_LISTING_LIMIT segments in a segmented object. In
             # this case, we're going to refuse to do the server-side copy.
+            close_if_possible(source_resp.app_iter)
             return HTTPRequestEntityTooLarge(request=req)
 
         if source_resp.content_length > MAX_FILE_SIZE:
+            close_if_possible(source_resp.app_iter)
             return HTTPRequestEntityTooLarge(request=req)
 
         return source_resp
@@ -459,7 +461,6 @@ class ServerSideCopyMiddleware(object):
         ssc_ctx = ServerSideCopyWebContext(self.app, self.logger)
         source_resp = self._get_source_object(ssc_ctx, source_path, req)
         if source_resp.status_int >= HTTP_MULTIPLE_CHOICES:
-            close_if_possible(source_resp.app_iter)
             return source_resp(source_resp.environ, start_response)
 
         # Create a new Request object based on the original request instance.

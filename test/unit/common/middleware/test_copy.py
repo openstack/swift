@@ -27,6 +27,7 @@ from swift.common import swob
 from swift.common.middleware import copy
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPException
+from swift.common.utils import closing_if_possible
 from test.unit import patch_policies, debug_logger, FakeMemcache, FakeRing
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.proxy.controllers.test_obj import set_http_connect, \
@@ -97,6 +98,9 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         })(self.app)
         self.ssc.logger = self.app.logger
 
+    def tearDown(self):
+        self.assertEqual(self.app.unclosed_requests, {})
+
     def call_app(self, req, app=None, expect_exception=False):
         if app is None:
             app = self.app
@@ -122,8 +126,10 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         body = ''
         caught_exc = None
         try:
-            for chunk in body_iter:
-                body += chunk
+            # appease the close-checker
+            with closing_if_possible(body_iter):
+                for chunk in body_iter:
+                    body += chunk
         except Exception as exc:
             if expect_exception:
                 caught_exc = exc
