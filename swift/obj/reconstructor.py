@@ -949,8 +949,9 @@ class ObjectReconstructor(Daemon):
                 self.part_count += len(partitions)
                 for partition in partitions:
                     part_path = join(obj_path, partition)
-                    if partition in ('auditor_status_ALL.json',
-                                     'auditor_status_ZBF.json'):
+                    if (partition.startswith('auditor_status_') and
+                            partition.endswith('.json')):
+                        # ignore auditor status files
                         continue
                     if not partition.isdigit():
                         self.logger.warning(
