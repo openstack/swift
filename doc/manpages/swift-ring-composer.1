@@ -1,0 +1,40 @@
+.TH swift-ring-composer "1" "June 2018" "Linux" "OpenStack Swift"
+.SH NAME
+.B swift-ring-composer
+\- manual page for swift-ring-composer
+
+.SH SYNOPSIS
+.LP
+.B swift-ring-composer
+[\-h] <composite_builder_file> {show,compose} ...
+
+.SH DESCRIPTION
+This is a tool for building a composite ring file from other existing ring
+builder files. The component ring builders must all have the same partition
+power. Each device must only be used in a single component builder. Each
+region must only be used in a single component builder.
+.PP
+.B NOTE:
+This tool is for experimental use and may be removed in future versions of Swift.
+.PP
+.SS "positional arguments:"
+.TP
+<composite_builder_file>
+Name of composite builder file
+.SS "optional arguments:"
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+show this help message and exit
+.SH "COMMANDS"
+.TP
+.SS "\fBshow\fR [-h]"
+show composite ring builder metadata
+.TP
+.SS "\fBcompose\fR [-h] [<builder_file> <builder_file> [<builder_file> ...] --output <ring_file> [--force]"
+compose composite ring
+.PP
+.SH DOCUMENTATION
+.LP
+More in depth documentation about the swift ring and also OpenStack Swift as a
+whole can be found at
+.BI https://swift.openstack.org
