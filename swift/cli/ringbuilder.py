@@ -35,6 +35,7 @@ from six.moves import input
 from swift.common import exceptions
 from swift.common.ring import RingBuilder, Ring, RingData
 from swift.common.ring.builder import MAX_BALANCE
+from swift.common.ring.composite_builder import CompositeRingBuilder
 from swift.common.ring.utils import validate_args, \
     validate_and_normalize_ip, build_dev_from_opts, \
     parse_builder_ring_filename_args, parse_search_value, \
@@ -1483,7 +1484,13 @@ def main(arguments=None):
     try:
         builder = RingBuilder.load(builder_file)
     except exceptions.UnPicklingError as e:
-        print(e)
+        msg = str(e)
+        try:
+            CompositeRingBuilder.load(builder_file)
+            msg += ' (it appears to be a composite ring builder file?)'
+        except Exception:  # noqa
+            pass
+        print(msg)
         exit(EXIT_ERROR)
     except (exceptions.FileNotFoundError, exceptions.PermissionError) as e:
         if len(argv) < 3 or argv[2] not in('create', 'write_builder'):

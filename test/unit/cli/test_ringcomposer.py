@@ -21,7 +21,7 @@ import six
 from mock import mock
 
 from swift.cli import ringcomposer
-from swift.common.ring import RingBuilder
+from test.unit import write_stub_builder
 
 
 class TestCommands(unittest.TestCase):
@@ -35,22 +35,6 @@ class TestCommands(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
-
-    def _write_stub_builder(self, region):
-        replicas = 3
-        builder = RingBuilder(8, replicas, 1)
-        for i in range(replicas):
-            dev = {'weight': 100,
-                   'region': '%d' % region,
-                   'zone': '1',
-                   'ip': '10.0.0.%d' % region,
-                   'port': '3600',
-                   'device': 'sdb%d' % i}
-            builder.add_dev(dev)
-        builder.rebalance()
-        builder_file = os.path.join(self.tmpdir, '%d.builder' % region)
-        builder.save(builder_file)
-        return builder, builder_file
 
     def _run_composer(self, args):
         mock_stdout = six.StringIO()
@@ -92,8 +76,8 @@ class TestCommands(unittest.TestCase):
                 self.fail('Failed testing command %r due to: %s' % (cmd, err))
 
     def test_compose(self):
-        b1, b1_file = self._write_stub_builder(1)
-        b2, b2_file = self._write_stub_builder(2)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
+        b2, b2_file = write_stub_builder(self.tmpdir, 2)
         args = ('', self.composite_builder_file, 'compose', b1_file, b2_file,
                 '--output', self.composite_ring_file)
         exit_code, stdout, stderr = self._run_composer(args)
@@ -102,8 +86,8 @@ class TestCommands(unittest.TestCase):
         self.assertTrue(os.path.exists(self.composite_ring_file))
 
     def test_compose_existing(self):
-        b1, b1_file = self._write_stub_builder(1)
-        b2, b2_file = self._write_stub_builder(2)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
+        b2, b2_file = write_stub_builder(self.tmpdir, 2)
         args = ('', self.composite_builder_file, 'compose', b1_file, b2_file,
                 '--output', self.composite_ring_file)
         exit_code, stdout, stderr = self._run_composer(args)
@@ -123,7 +107,7 @@ class TestCommands(unittest.TestCase):
         self.assertTrue(os.path.exists(self.composite_ring_file))
 
     def test_compose_insufficient_component_builder_files(self):
-        b1, b1_file = self._write_stub_builder(1)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
         args = ('', self.composite_builder_file, 'compose', b1_file,
                 '--output', self.composite_ring_file)
         exit_code, stdout, stderr = self._run_composer(args)
@@ -134,7 +118,7 @@ class TestCommands(unittest.TestCase):
         self.assertFalse(os.path.exists(self.composite_ring_file))
 
     def test_compose_nonexistent_component_builder_file(self):
-        b1, b1_file = self._write_stub_builder(1)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
         bad_file = os.path.join(self.tmpdir, 'non-existent-file')
         args = ('', self.composite_builder_file, 'compose', b1_file, bad_file,
                 '--output', self.composite_ring_file)
@@ -146,8 +130,8 @@ class TestCommands(unittest.TestCase):
         self.assertFalse(os.path.exists(self.composite_ring_file))
 
     def test_compose_fails_to_write_composite_ring_file(self):
-        b1, b1_file = self._write_stub_builder(1)
-        b2, b2_file = self._write_stub_builder(2)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
+        b2, b2_file = write_stub_builder(self.tmpdir, 2)
         args = ('', self.composite_builder_file, 'compose', b1_file, b2_file,
                 '--output', self.composite_ring_file)
         with mock.patch('swift.common.ring.RingData.save',
@@ -161,8 +145,8 @@ class TestCommands(unittest.TestCase):
         self.assertFalse(os.path.exists(self.composite_ring_file))
 
     def test_compose_fails_to_write_composite_builder_file(self):
-        b1, b1_file = self._write_stub_builder(1)
-        b2, b2_file = self._write_stub_builder(2)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
+        b2, b2_file = write_stub_builder(self.tmpdir, 2)
         args = ('', self.composite_builder_file, 'compose', b1_file, b2_file,
                 '--output', self.composite_ring_file)
         func = 'swift.common.ring.composite_builder.CompositeRingBuilder.save'
@@ -177,8 +161,8 @@ class TestCommands(unittest.TestCase):
         self.assertTrue(os.path.exists(self.composite_ring_file))
 
     def test_show(self):
-        b1, b1_file = self._write_stub_builder(1)
-        b2, b2_file = self._write_stub_builder(2)
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
+        b2, b2_file = write_stub_builder(self.tmpdir, 2)
         args = ('', self.composite_builder_file, 'compose', b1_file, b2_file,
                 '--output', self.composite_ring_file)
         exit_code, stdout, stderr = self._run_composer(args)

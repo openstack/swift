@@ -31,8 +31,9 @@ from swift.cli import ringbuilder
 from swift.cli.ringbuilder import EXIT_SUCCESS, EXIT_WARNING, EXIT_ERROR
 from swift.common import exceptions
 from swift.common.ring import RingBuilder
+from swift.common.ring.composite_builder import CompositeRingBuilder
 
-from test.unit import Timeout
+from test.unit import Timeout, write_stub_builder
 
 try:
     from itertools import zip_longest
@@ -1411,10 +1412,31 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "validate"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
+    def test_validate_composite_builder_file(self):
+        b1, b1_file = write_stub_builder(self.tmpdir, 1)
+        b2, b2_file = write_stub_builder(self.tmpdir, 2)
+        cb = CompositeRingBuilder([b1_file, b2_file])
+        cb.compose()
+        cb_file = os.path.join(self.tmpdir, 'composite.builder')
+        cb.save(cb_file)
+        argv = ["", cb_file, "validate"]
+        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+            self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        lines = mock_stdout.getvalue().strip().split('\n')
+        self.assertIn("Ring Builder file is invalid", lines[0])
+        self.assertIn("appears to be a composite ring builder file", lines[0])
+        self.assertFalse(lines[1:])
+
     def test_validate_empty_file(self):
         open(self.tmpfile, 'a').close
         argv = ["", self.tmpfile, "validate"]
-        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+            self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        lines = mock_stdout.getvalue().strip().split('\n')
+        self.assertIn("Ring Builder file is invalid", lines[0])
+        self.assertNotIn("appears to be a composite ring builder file",
+                         lines[0])
+        self.assertFalse(lines[1:])
 
     def test_validate_corrupted_file(self):
         self.create_sample_ring()
@@ -1427,19 +1449,35 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # corrupt the file
         with open(self.tmpfile, 'wb') as f:
             f.write(os.urandom(1024))
-        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+            self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        lines = mock_stdout.getvalue().strip().split('\n')
+        self.assertIn("Ring Builder file is invalid", lines[0])
+        self.assertNotIn("appears to be a composite ring builder file",
+                         lines[0])
+        self.assertFalse(lines[1:])
 
     def test_validate_non_existent_file(self):
         rand_file = '%s/%s' % (tempfile.gettempdir(), str(uuid.uuid4()))
         argv = ["", rand_file, "validate"]
-        self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+            self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        lines = mock_stdout.getvalue().strip().split('\n')
+        self.assertIn("Ring Builder file does not exist", lines[0])
+        self.assertNotIn("appears to be a composite ring builder file",
+                         lines[0])
+        self.assertFalse(lines[1:])
 
     def test_validate_non_accessible_file(self):
         with mock.patch.object(
                 RingBuilder, 'load',
-                mock.Mock(side_effect=exceptions.PermissionError)):
+                mock.Mock(side_effect=exceptions.PermissionError("boom"))):
             argv = ["", self.tmpfile, "validate"]
-            self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+            with mock.patch("sys.stdout", six.StringIO()) as mock_stdout:
+                self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        lines = mock_stdout.getvalue().strip().split('\n')
+        self.assertIn("boom", lines[0])
+        self.assertFalse(lines[1:])
 
     def test_validate_generic_error(self):
         with mock.patch.object(

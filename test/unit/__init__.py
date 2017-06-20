@@ -44,7 +44,7 @@ from swift.common.utils import Timestamp, NOTICE
 from test import get_config
 from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.ring import Ring, RingData
+from swift.common.ring import Ring, RingData, RingBuilder
 from swift.obj import server
 from hashlib import md5
 import logging.handlers
@@ -302,6 +302,31 @@ def write_fake_ring(path, *devs):
     part_shift = 30
     with closing(GzipFile(path, 'wb')) as f:
         pickle.dump(RingData(replica2part2dev_id, devs, part_shift), f)
+
+
+def write_stub_builder(tmpdir, region=1, name=''):
+    """
+    Pretty much just a three node, three replica, 8 part power builder...
+
+    :param tmpdir: a place to write the builder, be sure to clean it up!
+    :param region: an integer, fills in region and ip
+    :param name: the name of the builder (i.e. <name>.builder)
+    """
+    name = name or str(region)
+    replicas = 3
+    builder = RingBuilder(8, replicas, 1)
+    for i in range(replicas):
+        dev = {'weight': 100,
+               'region': '%d' % region,
+               'zone': '1',
+               'ip': '10.0.0.%d' % region,
+               'port': '3600',
+               'device': 'sdb%d' % i}
+        builder.add_dev(dev)
+    builder.rebalance()
+    builder_file = os.path.join(tmpdir, '%s.builder' % name)
+    builder.save(builder_file)
+    return builder, builder_file
 
 
 class FabricatedRing(Ring):
