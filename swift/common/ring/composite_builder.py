@@ -93,6 +93,9 @@ import copy
 import json
 import os
 
+from random import shuffle
+
+from swift.common.exceptions import RingBuilderError
 from swift.common.ring import RingBuilder
 from swift.common.ring import RingData
 from collections import defaultdict
@@ -363,12 +366,15 @@ def check_builder_ids(builders):
 
 class CompositeRingBuilder(object):
     """
-    Provides facility to create, persist, load and update composite rings, for
-    example::
+    Provides facility to create, persist, load, rebalance  and update composite
+    rings, for example::
 
         # create a CompositeRingBuilder instance with a list of
         # component builder files
         crb = CompositeRingBuilder(["region1.builder", "region2.builder"])
+
+        # perform a cooperative rebalance of the component builders
+        crb.rebalance()
 
         # call compose which will make a new RingData instance
         ring_data = crb.compose()
@@ -432,6 +438,7 @@ class CompositeRingBuilder(object):
         self.ring_data = None
         self._builder_files = None
         self._set_builder_files(builder_files or [])
+        self._builders = None  # these are lazy loaded in _load_components
 
     def _set_builder_files(self, builder_files):
         self._builder_files = [os.path.abspath(bf) for bf in builder_files]
@@ -500,10 +507,39 @@ class CompositeRingBuilder(object):
             metadata['serialization_version'] = 1
             json.dump(metadata, fp)
 
-    def compose(self, builder_files=None, force=False):
+    def _load_components(self, builder_files=None, force=False,
+                         require_modified=False):
+        if self._builders:
+            return self._builder_files, self._builders
+
+        builder_files = builder_files or self._builder_files
+        if len(builder_files) < 2:
+            raise ValueError('Two or more component builders are required.')
+
+        builders = []
+        for builder_file in builder_files:
+            # each component builder gets a reference to this composite builder
+            # so that it can delegate part movement decisions to the composite
+            # builder during rebalance
+            builders.append(CooperativeRingBuilder.load(builder_file,
+                                                        parent_builder=self))
+        check_builder_ids(builders)
+        new_metadata = _make_composite_metadata(builders)
+        if self.components and self._builder_files and not force:
+            modified = check_against_existing(self.to_dict(), new_metadata)
+            if require_modified and not modified:
+                raise ValueError(
+                    "None of the component builders has been modified"
+                    " since the existing composite ring was built.")
+        self._set_builder_files(builder_files)
+        self._builders = builders
+        return self._builder_files, self._builders
+
+    def load_components(self, builder_files=None, force=False,
+                        require_modified=False):
         """
-        Builds a composite ring using component ring builders loaded from a
-        list of builder files.
+        Loads component ring builders from builder files. Previously loaded
+        component ring builders will discarded and reloaded.
 
         If a list of component ring builder files is given then that will be
         used to load component ring builders. Otherwise, component ring
@@ -515,6 +551,43 @@ class CompositeRingBuilder(object):
         with the existing composition of builders, unless the optional
         ``force`` flag if set True.
 
+        :param builder_files: Optional list of paths to ring builder
+            files that will be used to load the component ring builders.
+            Typically the list of component builder files will have been set
+            when the instance was constructed, for example when using the
+            load() class method. However, this parameter may be used if the
+            component builder file paths have moved, or, in conjunction with
+            the ``force`` parameter, if a new list of component builders is to
+            be used.
+        :param force: if True then do not verify given builders are
+            consistent with any existing composite ring (default is False).
+        :param require_modified: if True and ``force`` is False, then
+            verify that at least one of the given builders has been modified
+            since the composite ring was last built (default is False).
+        :return: A tuple of (builder files, loaded builders)
+        :raises: ValueError if the component ring builders are not suitable for
+            composing with each other, or are inconsistent with any existing
+            composite ring, or if require_modified is True and there has been
+            no change with respect to the existing ring.
+        """
+        self._builders = None  # force a reload of builders
+        return self._load_components(
+            builder_files, force, require_modified)
+
+    def compose(self, builder_files=None, force=False, require_modified=False):
+        """
+        Builds a composite ring using component ring builders loaded from a
+        list of builder files and updates composite ring metadata.
+
+        If a list of component ring builder files is given then that will be
+        used to load component ring builders. Otherwise, component ring
+        builders will be loaded using the list of builder files that was set
+        when the instance was constructed.
+
+        In either case, if metadata for an existing composite ring has been
+        loaded then the component ring builders are verified for consistency
+        with the existing composition of builders, unless the optional
+        ``force`` flag if set True.
 
         :param builder_files: Optional list of paths to ring builder
             files that will be used to load the component ring builders.
@@ -524,27 +597,139 @@ class CompositeRingBuilder(object):
             component builder file paths have moved, or, in conjunction with
             the ``force`` parameter, if a new list of component builders is to
             be used.
-        :param force: if True then do not verify given builders are consistent
-                      with any existing composite ring.
+        :param force: if True then do not verify given builders are
+            consistent with any existing composite ring (default is False).
+        :param require_modified: if True and ``force`` is False, then
+            verify that at least one of the given builders has been modified
+            since the composite ring was last built (default is False).
         :return: An instance of :class:`swift.common.ring.ring.RingData`
         :raises: ValueError if the component ring builders are not suitable for
             composing with each other, or are inconsistent with any existing
-            composite ring, or if there has been no change with respect to the
-            existing ring.
+            composite ring, or if require_modified is True and there has been
+            no change with respect to the existing ring.
         """
-        builder_files = builder_files or self._builder_files
-        builders = [RingBuilder.load(f) for f in builder_files]
-        check_builder_ids(builders)
-        new_metadata = _make_composite_metadata(builders)
-        if self.components and self._builder_files and not force:
-            modified = check_against_existing(self.to_dict(), new_metadata)
-            if not modified:
-                raise ValueError(
-                    "None of the component builders has been modified"
-                    " since the existing composite ring was built.")
-
-        self.ring_data = compose_rings(builders)
+        self.load_components(builder_files, force=force,
+                             require_modified=require_modified)
+        self.ring_data = compose_rings(self._builders)
         self.version += 1
+        new_metadata = _make_composite_metadata(self._builders)
         self.components = new_metadata['components']
-        self._set_builder_files(builder_files)
         return self.ring_data
+
+    def rebalance(self):
+        """
+        Cooperatively rebalances all component ring builders.
+
+        This method does not change the state of the composite ring; a
+        subsequent call to :meth:`compose` is required to generate updated
+        composite :class:`RingData`.
+
+        :return: A list of dicts, one per component builder, each having the
+            following keys:
+
+            * 'builder_file' maps to the component builder file;
+            * 'builder' maps to the corresponding instance of
+              :class:`swift.common.ring.builder.RingBuilder`;
+            * 'result' maps to the results of the rebalance of that component
+              i.e. a tuple of: `(number_of_partitions_altered,
+              resulting_balance, number_of_removed_devices)`
+
+            The list has the same order as components in the composite ring.
+        :raises RingBuilderError: if there is an error while rebalancing any
+            component builder.
+        """
+        self._load_components()
+        component_builders = zip(self._builder_files, self._builders)
+        # don't let the same builder go first each time
+        shuffle(component_builders)
+        results = {}
+        for builder_file, builder in component_builders:
+            try:
+                results[builder] = {
+                    'builder': builder,
+                    'builder_file': builder_file,
+                    'result': builder.rebalance()
+                }
+                builder.validate()
+            except RingBuilderError as err:
+                self._builders = None
+                raise RingBuilderError(
+                    'An error occurred while rebalancing component %s: %s' %
+                    (builder_file, err))
+
+        for builder_file, builder in component_builders:
+            builder.save(builder_file)
+        # return results in component order
+        return [results[builder] for builder in self._builders]
+
+    def can_part_move(self, part):
+        """
+        Check with all component builders that it is ok to move a partition.
+
+        :param part: The partition to check.
+        :return: True if all component builders agree that the partition can be
+            moved, False otherwise.
+        """
+        # Called by component builders.
+        return all(b.can_part_move(part) for b in self._builders)
+
+    def update_last_part_moves(self):
+        """
+        Updates the record of how many hours ago each partition was moved in
+        all component builders.
+        """
+        # Called by component builders. We need all component builders to be at
+        # same last_part_moves epoch before any builder starts moving parts;
+        # this will effectively be a no-op for builders that have already been
+        # updated in last hour
+        for b in self._builders:
+            b.update_last_part_moves()
+
+
+class CooperativeRingBuilder(RingBuilder):
+    """
+    A subclass of :class:`RingBuilder` that participates in cooperative
+    rebalance.
+
+    During rebalance this subclass will consult with its `parent_builder`
+    before moving a partition. The `parent_builder` may in turn check with
+    co-builders (including this instance) to verify that none have moved that
+    partition in the last `min_part_hours`.
+
+    :param part_power: number of partitions = 2**part_power.
+    :param replicas: number of replicas for each partition.
+    :param min_part_hours: minimum number of hours between partition changes.
+    :param parent_builder: an instance of :class:`CompositeRingBuilder`.
+    """
+    def __init__(self, part_power, replicas, min_part_hours, parent_builder):
+        super(CooperativeRingBuilder, self).__init__(
+            part_power, replicas, min_part_hours)
+        self.parent_builder = parent_builder
+
+    def _can_part_move(self, part):
+        # override superclass method to delegate to the parent builder
+        return self.parent_builder.can_part_move(part)
+
+    def can_part_move(self, part):
+        """
+        Check that in the context of this builder alone it is ok to move a
+        partition.
+
+        :param part: The partition to check.
+        :return: True if the partition can be moved, False otherwise.
+        """
+        # called by parent_builder - now forward to the superclass
+        return (not self._last_part_moves or
+                super(CooperativeRingBuilder, self)._can_part_move(part))
+
+    def _update_last_part_moves(self):
+        # overrides superclass method to delegate to parent builder
+        return self.parent_builder.update_last_part_moves()
+
+    def update_last_part_moves(self):
+        """
+        Updates the record of how many hours ago each partition was moved in
+        in this builder.
+        """
+        # called by parent_builder - now forward to the superclass
+        return super(CooperativeRingBuilder, self)._update_last_part_moves()

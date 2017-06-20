@@ -156,6 +156,9 @@ class RingBuilder(object):
         return bool(self._part_moved_bitmap[byte] & (128 >> bit))
 
     def _can_part_move(self, part):
+        # if min_part_hours is zero then checking _last_part_moves will not
+        # indicate if the part has already moved during the current rebalance,
+        # but _has_part_moved will.
         return (self._last_part_moves[part] >= self.min_part_hours and
                 not self._has_part_moved(part))
 
@@ -457,6 +460,7 @@ class RingBuilder(object):
         below 1% or doesn't change by more than 1% (only happens with a ring
         that can't be balanced no matter what).
 
+        :param seed: a value for the random seed (optional)
         :returns: (number_of_partitions_altered, resulting_balance,
                    number_of_removed_devices)
         """
@@ -484,7 +488,6 @@ class RingBuilder(object):
         if self._last_part_moves is None:
             self.logger.debug("New builder; performing initial balance")
             self._last_part_moves = array('B', itertools.repeat(0, self.parts))
-        self._part_moved_bitmap = bytearray(max(2 ** (self.part_power - 3), 1))
         self._update_last_part_moves()
 
         replica_plan = self._build_replica_plan()
@@ -896,8 +899,9 @@ class RingBuilder(object):
         current time. The builder won't move a partition that has been moved
         more recently than min_part_hours.
         """
+        self._part_moved_bitmap = bytearray(max(2 ** (self.part_power - 3), 1))
         elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
-        if elapsed_hours <= 0:
+        if elapsed_hours <= 0 or not self._last_part_moves:
             return
         for part in range(self.parts):
             # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"
@@ -1651,7 +1655,7 @@ class RingBuilder(object):
                 yield (part, replica)
 
     @classmethod
-    def load(cls, builder_file, open=open):
+    def load(cls, builder_file, open=open, **kwargs):
         """
         Obtain RingBuilder instance of the provided builder file
 
@@ -1680,7 +1684,7 @@ class RingBuilder(object):
 
         if not hasattr(builder, 'devs'):
             builder_dict = builder
-            builder = RingBuilder(1, 1, 1)
+            builder = cls(1, 1, 1, **kwargs)
             builder.copy_from(builder_dict)
 
         if not hasattr(builder, '_id'):
