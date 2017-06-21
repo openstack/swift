@@ -440,8 +440,7 @@ class TestRequest(unittest.TestCase):
             self.assertEqual("got unexpected keyword argument 'host_url'",
                              str(e))
         else:
-            self.assertTrue(False, "invalid req_environ_property "
-                            "didn't raise error!")
+            self.fail("invalid req_environ_property didn't raise error!")
         # regular attribute
         try:
             swift.common.swob.Request.blank('/', _params_cache={'a': 'b'})
@@ -449,8 +448,7 @@ class TestRequest(unittest.TestCase):
             self.assertEqual("got unexpected keyword "
                              "argument '_params_cache'", str(e))
         else:
-            self.assertTrue(False, "invalid req_environ_property "
-                            "didn't raise error!")
+            self.fail("invalid req_environ_property didn't raise error!")
         # non-existent attribute
         try:
             swift.common.swob.Request.blank('/', params_cache={'a': 'b'})
@@ -458,8 +456,7 @@ class TestRequest(unittest.TestCase):
             self.assertEqual("got unexpected keyword "
                              "argument 'params_cache'", str(e))
         else:
-            self.assertTrue(False, "invalid req_environ_property "
-                            "didn't raise error!")
+            self.fail("invalid req_environ_property didn't raise error!")
         # method
         try:
             swift.common.swob.Request.blank(
@@ -468,8 +465,7 @@ class TestRequest(unittest.TestCase):
             self.assertEqual("got unexpected keyword "
                              "argument 'as_referer'", str(e))
         else:
-            self.assertTrue(False, "invalid req_environ_property "
-                            "didn't raise error!")
+            self.fail("invalid req_environ_property didn't raise error!")
 
     def test_blank_path_info_precedence(self):
         blank = swift.common.swob.Request.blank
