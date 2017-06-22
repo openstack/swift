@@ -1062,7 +1062,7 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
                 conn.execute('SELECT metadata FROM account_stat')
             except BaseException as err:
                 exc = err
-        self.assertTrue('no such column: metadata' in str(exc))
+        self.assertIn('no such column: metadata', str(exc))
 
     def tearDown(self):
         AccountBroker.create_account_stat_table = \
@@ -1149,12 +1149,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                 conn.execute('SELECT storage_policy_index FROM container')
             except BaseException as err:
                 exc = err
-        self.assertTrue('no such column: storage_policy_index' in str(exc))
+        self.assertIn('no such column: storage_policy_index', str(exc))
         with broker.get() as conn:
             try:
                 conn.execute('SELECT * FROM policy_stat')
             except sqlite3.OperationalError as err:
-                self.assertTrue('no such table: policy_stat' in str(err))
+                self.assertIn('no such table: policy_stat', str(err))
             else:
                 self.fail('database created with policy_stat table')
 
@@ -1181,7 +1181,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table really isn't there
-                self.assertTrue('no such table: policy_stat' in str(err))
+                self.assertIn('no such table: policy_stat', str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from policy_stat table!')
@@ -1330,7 +1330,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
             self.fail('mock exception was not raised')
 
         self.assertEqual(len(called), 1)
-        self.assertTrue('CREATE TABLE policy_stat' in called[0])
+        self.assertIn('CREATE TABLE policy_stat', called[0])
 
         # nothing was committed
         broker = AccountBroker(db_path, account='a')
@@ -1338,7 +1338,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
             try:
                 conn.execute('SELECT * FROM policy_stat')
             except sqlite3.OperationalError as err:
-                self.assertTrue('no such table: policy_stat' in str(err))
+                self.assertIn('no such table: policy_stat', str(err))
             else:
                 self.fail('half upgraded database!')
             container_count = conn.execute(
@@ -1503,7 +1503,7 @@ class AccountBrokerPreTrackContainerCountSetup(object):
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the column really isn't there
-                self.assertTrue('no such column: container_count' in str(err))
+                self.assertIn('no such column: container_count', str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select container_count from policy_stat!')

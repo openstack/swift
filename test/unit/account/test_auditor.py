@@ -252,9 +252,9 @@ class TestAuditorRealBroker(unittest.TestCase):
         error_lines = test_auditor.logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
         error_message = error_lines[0]
-        self.assertTrue(broker.db_file in error_message)
-        self.assertTrue('container_count' in error_message)
-        self.assertTrue('does not match' in error_message)
+        self.assertIn(broker.db_file, error_message)
+        self.assertIn('container_count', error_message)
+        self.assertIn('does not match', error_message)
         self.assertEqual(test_auditor.logger.get_increment_counts(),
                          {'failures': 1})
 

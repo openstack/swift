@@ -2046,7 +2046,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(resp.status_int // 100, 2)
             for key in resp.headers:
                 if 'storage-policy' in key.lower():
-                    self.assertTrue(policy.name.lower() in key.lower())
+                    self.assertIn(policy.name.lower(), key.lower())
 
     def test_multiple_policies_in_use(self):
         ts = itertools.count()
