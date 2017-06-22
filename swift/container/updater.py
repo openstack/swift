@@ -31,7 +31,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, ismount, \
-    dump_recon_cache, majority_size, Timestamp
+    dump_recon_cache, majority_size, Timestamp, ratelimit_sleep
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -48,7 +48,19 @@ class ContainerUpdater(Daemon):
         self.interval = int(conf.get('interval', 300))
         self.account_ring = None
         self.concurrency = int(conf.get('concurrency', 4))
-        self.slowdown = float(conf.get('slowdown', 0.01))
+        if 'slowdown' in conf:
+            self.logger.warning(
+                'The slowdown option is deprecated in favor of '
+                'containers_per_second. This option may be ignored in a '
+                'future release.')
+            containers_per_second = 1 / (
+                float(conf.get('slowdown', '0.01')) + 0.01)
+        else:
+            containers_per_second = 50
+        self.containers_running_time = 0
+        self.max_containers_per_second = \
+            float(conf.get('containers_per_second',
+                           containers_per_second))
         self.node_timeout = float(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.no_changes = 0
@@ -206,7 +218,10 @@ class ContainerUpdater(Daemon):
             for file in files:
                 if file.endswith('.db'):
                     self.process_container(os.path.join(root, file))
-                    time.sleep(self.slowdown)
+
+                    self.containers_running_time = ratelimit_sleep(
+                        self.containers_running_time,
+                        self.max_containers_per_second)
 
     def process_container(self, dbfile):
         """

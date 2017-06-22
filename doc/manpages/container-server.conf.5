@@ -358,8 +358,10 @@ Number of reaper workers to spawn. The default is 4.
 Request timeout to external services. The default is 3 seconds.
 .IP \fBconn_timeout\fR
 Connection timeout to external services. The default is 0.5 seconds.
+.IP \fBcontainers_per_second\fR
+Maximum containers updated per second. Should be tuned according to individual system specs. 0 is unlimited. The default is 50.
 .IP \fBslowdown\fR
-Slowdown will sleep that amount between containers. The default is 0.01 seconds.
+Slowdown will sleep that amount between containers. The default is 0.01 seconds. Deprecated in favor of containers_per_second
 .IP \fBaccount_suppression_time\fR
 Seconds to suppress updating an account that has generated an error. The default is 60 seconds.
 .IP \fBrecon_cache_path\fR

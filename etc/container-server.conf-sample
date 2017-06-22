@@ -185,7 +185,11 @@ use = egg:swift#recon
 # node_timeout = 3
 # conn_timeout = 0.5
 #
-# slowdown will sleep that amount between containers
+# Send at most this many container updates per second
+# containers_per_second = 50
+#
+# slowdown will sleep that amount between containers. Deprecated; use
+# containers_per_second instead.
 # slowdown = 0.01
 #
 # Seconds to suppress updating an account that has generated an error

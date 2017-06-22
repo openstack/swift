@@ -772,9 +772,9 @@ ionice_priority              None                      I/O scheduling priority o
 
 [object-updater]
 
-==================  =================== ==========================================
+=================== =================== ==========================================
 Option              Default             Description
-------------------  ------------------- ------------------------------------------
+------------------- ------------------- ------------------------------------------
 log_name            object-updater      Label used when logging
 log_facility        LOG_LOCAL0          Syslog log facility
 log_level           INFO                Logging level
@@ -785,7 +785,11 @@ node_timeout        DEFAULT or 10       Request timeout to external services. Th
                                         uses what's set here, or what's set in the
                                         DEFAULT section, or 10 (though other
                                         sections use 3 as the final default).
-slowdown            0.01                Time in seconds to wait between objects
+objects_per_second  50                  Maximum objects updated per second.
+                                        Should be tuned according to individual
+                                        system specs. 0 is unlimited.
+slowdown            0.01                Time in seconds to wait between objects.
+                                        Deprecated in favor of objects_per_second.
 recon_cache_path    /var/cache/swift    Path to recon cache
 nice_priority       None                Scheduling priority of server processes.
                                         Niceness values range from -20 (most
@@ -808,7 +812,7 @@ ionice_priority     None                I/O scheduling priority of server
                                         priority of the process. Work only with
                                         ionice_class.
                                         Ignored if IOPRIO_CLASS_IDLE is set.
-==================  =================== ==========================================
+=================== =================== ==========================================
 
 [object-auditor]
 
@@ -1122,8 +1126,13 @@ node_timeout              3                  Request timeout to external
                                              services
 conn_timeout              0.5                Connection timeout to external
                                              services
+containers_per_second     50                 Maximum containers updated per second.
+                                             Should be tuned according to individual
+                                             system specs. 0 is unlimited.
+
 slowdown                  0.01               Time in seconds to wait between
-                                             containers
+                                             containers. Deprecated in favor of
+                                             containers_per_second.
 account_suppression_time  60                 Seconds to suppress updating an
                                              account that has generated an
                                              error (timeout, not yet found,

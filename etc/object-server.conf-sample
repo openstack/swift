@@ -333,7 +333,12 @@ use = egg:swift#recon
 # interval = 300
 # concurrency = 1
 # node_timeout = <whatever's in the DEFAULT section or 10>
-# slowdown will sleep that amount between objects
+#
+# Send at most this many object updates per second
+# objects_per_second = 50
+#
+# slowdown will sleep that amount between objects. Deprecated; use
+# objects_per_second instead.
 # slowdown = 0.01
 #
 # recon_cache_path = /var/cache/swift
