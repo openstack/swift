@@ -255,6 +255,15 @@ with the specified policy name and interacting as usual.
     case a change in the configuration is desired, you must create a new policy
     and migrate the data to a new container.
 
+.. warning::
+
+    Using ``isa_l_rs_vand`` with more than 4 parity fragments creates fragments
+    which may in some circumstances fail to reconstruct properly or (with
+    liberasurecode < 1.3.1) reconstruct corrupted data. New policies that need
+    large numbers of parity fragments should consider using ``isa_l_rs_cauchy``.
+    Any existing affected policies must be marked deprecated, and data in
+    containers with that policy should be migrated to a new policy.
+
 Migrating Between Policies
 ==========================
 

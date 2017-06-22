@@ -468,14 +468,10 @@ class ECStoragePolicy(BaseStoragePolicy):
                 'See https://bugs.launchpad.net/swift/+bug/1639691 for '
                 'more information.' % self.name)
             if not is_deprecated:
-                # TODO: To fully close bug 1639691, uncomment the raise and
-                # removing the warning below. This will be in the Pike release
-                # at the earliest.
-                logger.warning(
-                    'In a future release, this will prevent services from '
-                    'starting unless the policy is marked as deprecated.')
-                # raise PolicyError('Storage policy %s MUST be deprecated' %
-                #                   self.name)
+                raise PolicyError(
+                    'Storage policy %s uses an EC configuration known to harm '
+                    'data durability. This policy MUST be deprecated.'
+                    % self.name)
 
         # Initialize PyECLib EC backend
         try:

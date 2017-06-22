@@ -676,18 +676,21 @@ class TestStoragePolicies(unittest.TestCase):
         ec_num_parity_fragments = 5
         """)
 
-        with capture_logging('swift.common.storage_policy') as records:
+        with capture_logging('swift.common.storage_policy') as records, \
+                self.assertRaises(PolicyError) as exc_mgr:
             parse_storage_policies(bad_conf)
-        mock_driver.assert_called_once()
+        self.assertEqual(exc_mgr.exception.message,
+                         'Storage policy bad-policy uses an EC '
+                         'configuration known to harm data durability. This '
+                         'policy MUST be deprecated.')
+        mock_driver.assert_not_called()
         mock_driver.reset_mock()
         self.assertEqual([r.levelname for r in records],
-                         ['WARNING', 'WARNING'])
+                         ['WARNING'])
         for msg in ('known to harm data durability',
                     'Any data in this policy should be migrated',
                     'https://bugs.launchpad.net/swift/+bug/1639691'):
             self.assertIn(msg, records[0].msg)
-        self.assertIn('In a future release, this will prevent services from '
-                      'starting', records[1].msg)
 
         slightly_less_bad_conf = self._conf("""
         [storage-policy:0]
