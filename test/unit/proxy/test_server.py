@@ -2584,9 +2584,12 @@ class TestReplicatedObjectController(
         def test_connect(ipaddr, port, device, partition, method, path,
                          headers=None, query_string=None):
             if path == '/a/c/o.jpg':
-                if 'expect' in headers or 'Expect' in headers:
-                    test_errors.append('Expect was in headers for object '
-                                       'server!')
+                if headers.get('Transfer-Encoding') != 'chunked':
+                    test_errors.append('"Transfer-Encoding: chunked" should '
+                                       'be in headers for object server!')
+                if 'Expect' not in headers:
+                    test_errors.append('Expect should be in headers for '
+                                       'object server!')
 
         with save_globals():
             controller = ReplicatedObjectController(

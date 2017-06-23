@@ -633,9 +633,12 @@ class BaseObjectController(Controller):
         pile = GreenPile(len(nodes))
 
         for nheaders in outgoing_headers:
-            # RFC2616:8.2.3 disallows 100-continue without a body
-            if (req.content_length > 0) or req.is_chunked:
-                nheaders['Expect'] = '100-continue'
+            # RFC2616:8.2.3 disallows 100-continue without a body,
+            # so switch to chunked request
+            if nheaders.get('Content-Length') == '0':
+                nheaders['Transfer-Encoding'] = 'chunked'
+                del nheaders['Content-Length']
+            nheaders['Expect'] = '100-continue'
             pile.spawn(self._connect_put_node, node_iter, partition,
                        req, nheaders, self.app.logger.thread_locals)
 
@@ -875,12 +878,13 @@ class ReplicatedObjectController(BaseObjectController):
                 logger=self.app.logger,
                 need_multiphase=False)
         else:
+            te = ',' + headers.get('Transfer-Encoding', '')
             putter = Putter.connect(
                 node, part, req.swift_entity_path, headers,
                 conn_timeout=self.app.conn_timeout,
                 node_timeout=self.app.node_timeout,
                 logger=self.app.logger,
-                chunked=req.is_chunked)
+                chunked=te.endswith(',chunked'))
         return putter
 
     def _transfer_data(self, req, data_source, putters, nodes):
