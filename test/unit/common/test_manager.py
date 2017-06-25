@@ -128,7 +128,7 @@ class TestManagerModule(unittest.TestCase):
             manager.resource = MockResource(error=OSError())
             manager.os.environ = {}
             self.assertRaises(OSError, manager.setup_env)
-            self.assertEqual(manager.os.environ.get('PYTHON_EGG_CACHE'), None)
+            self.assertIsNone(manager.os.environ.get('PYTHON_EGG_CACHE'))
         finally:
             manager.resource = _orig_resource
             os.environ = _orig_environ

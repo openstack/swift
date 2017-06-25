@@ -169,10 +169,10 @@ class TestRateLimit(unittest.TestCase):
                      'container_ratelimit_75': 30}
         test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         test_ratelimit.logger = FakeLogger()
-        self.assertEqual(ratelimit.get_maxrate(
-            test_ratelimit.container_ratelimits, 0), None)
-        self.assertEqual(ratelimit.get_maxrate(
-            test_ratelimit.container_ratelimits, 5), None)
+        self.assertIsNone(ratelimit.get_maxrate(
+            test_ratelimit.container_ratelimits, 0))
+        self.assertIsNone(ratelimit.get_maxrate(
+            test_ratelimit.container_ratelimits, 5))
         self.assertEqual(ratelimit.get_maxrate(
             test_ratelimit.container_ratelimits, 10), 200)
         self.assertEqual(ratelimit.get_maxrate(
@@ -487,9 +487,8 @@ class TestRateLimit(unittest.TestCase):
             mc = self.test_ratelimit.memcache_client
             try:
                 self.test_ratelimit.memcache_client = None
-                self.assertEqual(
-                    self.test_ratelimit.handle_ratelimit(req, 'n', 'c', None),
-                    None)
+                self.assertIsNone(
+                    self.test_ratelimit.handle_ratelimit(req, 'n', 'c', None))
             finally:
                 self.test_ratelimit.memcache_client = mc
 

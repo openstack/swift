@@ -40,13 +40,13 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_empty(self):
         headers = {}
-        self.assertEqual(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), None)
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
     def test_check_metadata_good(self):
         headers = {'X-Object-Meta-Name': 'Value'}
-        self.assertEqual(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), None)
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
     def test_check_metadata_empty_name(self):
         headers = {'X-Object-Meta-': 'Value'}
@@ -75,8 +75,8 @@ class TestConstraints(unittest.TestCase):
     def test_check_metadata_name_length(self):
         name = 'a' * constraints.MAX_META_NAME_LENGTH
         headers = {'X-Object-Meta-%s' % name: 'v'}
-        self.assertEqual(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), None)
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
         name = 'a' * (constraints.MAX_META_NAME_LENGTH + 1)
         headers = {'X-Object-Meta-%s' % name: 'v'}
@@ -90,8 +90,8 @@ class TestConstraints(unittest.TestCase):
     def test_check_metadata_value_length(self):
         value = 'a' * constraints.MAX_META_VALUE_LENGTH
         headers = {'X-Object-Meta-Name': value}
-        self.assertEqual(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), None)
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
         value = 'a' * (constraints.MAX_META_VALUE_LENGTH + 1)
         headers = {'X-Object-Meta-Name': value}
@@ -107,8 +107,8 @@ class TestConstraints(unittest.TestCase):
         headers = {}
         for x in range(constraints.MAX_META_COUNT):
             headers['X-Object-Meta-%d' % x] = 'v'
-        self.assertEqual(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), None)
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
 
         headers['X-Object-Meta-Too-Many'] = 'v'
         resp = constraints.check_metadata(Request.blank(
@@ -128,8 +128,8 @@ class TestConstraints(unittest.TestCase):
                 'v' * constraints.MAX_META_VALUE_LENGTH
             size += chunk
             x += 1
-        self.assertEqual(constraints.check_metadata(Request.blank(
-            '/', headers=headers), 'object'), None)
+        self.assertIsNone(constraints.check_metadata(Request.blank(
+            '/', headers=headers), 'object'))
         # add two more headers in case adding just one falls exactly on the
         # limit (eg one header adds 1024 and the limit is 2048)
         headers['X-Object-Meta-%04d%s' %
@@ -146,8 +146,8 @@ class TestConstraints(unittest.TestCase):
     def test_check_object_creation_content_length(self):
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE),
                    'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name'), None)
+        self.assertIsNone(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name'))
 
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE + 1),
                    'Content-Type': 'text/plain'}
@@ -157,8 +157,8 @@ class TestConstraints(unittest.TestCase):
 
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name'), None)
+        self.assertIsNone(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name'))
 
         headers = {'Transfer-Encoding': 'gzip',
                    'Content-Type': 'text/plain'}
@@ -189,8 +189,8 @@ class TestConstraints(unittest.TestCase):
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
         name = 'o' * constraints.MAX_OBJECT_NAME_LENGTH
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), name), None)
+        self.assertIsNone(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), name))
 
         name = 'o' * (MAX_OBJECT_NAME_LENGTH + 1)
         resp = constraints.check_object_creation(
@@ -203,8 +203,8 @@ class TestConstraints(unittest.TestCase):
     def test_check_object_creation_content_type(self):
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
-        self.assertEqual(constraints.check_object_creation(Request.blank(
-            '/', headers=headers), 'object_name'), None)
+        self.assertIsNone(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name'))
 
         headers = {'Transfer-Encoding': 'chunked'}
         resp = constraints.check_object_creation(
