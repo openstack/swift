@@ -111,7 +111,7 @@ def get_policy_string(base, policy_or_index):
                             storage Policy-0 is assumed.
 
     :returns: base name with policy index added
-    :raises: PolicyError if no policy exists with the given policy_index
+    :raises PolicyError: if no policy exists with the given policy_index
     """
     if isinstance(policy_or_index, BaseStoragePolicy):
         policy = policy_or_index
@@ -130,7 +130,7 @@ def split_policy_string(policy_string):
 
     :param policy_string: base name with policy index added
 
-    :raises: PolicyError if given index does not map to a valid policy
+    :raises PolicyError: if given index does not map to a valid policy
     :returns: a tuple, in the form (base, policy) where base is the base
               string and policy is the StoragePolicy instance for the
               index encoded in the policy_string.
@@ -288,7 +288,7 @@ class BaseStoragePolicy(object):
         to check policy names before setting them.
 
         :param name: a name string for a single policy name.
-        :raises: PolicyError if the policy name is invalid.
+        :raises PolicyError: if the policy name is invalid.
         """
         if not name:
             raise PolicyError('Invalid name %r' % name, self.idx)

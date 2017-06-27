@@ -303,7 +303,7 @@ def print_obj_metadata(metadata):
 
     :param metadata: dict of object metadata
 
-    :raises: ValueError
+    :raises ValueError:
     """
     user_metadata = {}
     sys_metadata = {}

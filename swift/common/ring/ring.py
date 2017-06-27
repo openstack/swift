@@ -167,7 +167,7 @@ class Ring(object):
     :param ring_name: ring name string (basically specified from policy)
     :param validation_hook: hook point to validate ring configuration ontime
 
-    :raises: RingLoadError if the loaded ring data violates its constraint
+    :raises RingLoadError: if the loaded ring data violates its constraint
     """
 
     def __init__(self, serialized_path, reload_time=15, ring_name=None,

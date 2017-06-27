@@ -363,7 +363,7 @@ class Application(object):
         :param req: the request
         :returns: tuple of (controller class, path dictionary)
 
-        :raises: ValueError (thrown by split_path) if given invalid path
+        :raises ValueError: (thrown by split_path) if given invalid path
         """
         if req.path == '/info':
             d = dict(version=None,

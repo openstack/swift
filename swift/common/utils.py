@@ -1276,7 +1276,7 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
                            trailing data, raises ValueError.
     :returns: list of segments with a length of maxsegs (non-existent
               segments will return as None)
-    :raises: ValueError if given an invalid path
+    :raises ValueError: if given an invalid path
     """
     if not maxsegs:
         maxsegs = minsegs
@@ -1311,7 +1311,7 @@ def validate_device_partition(device, partition):
 
     :param device: device to validate
     :param partition: partition to validate
-    :raises: ValueError if given an invalid device or partition
+    :raises ValueError: if given an invalid device or partition
     """
     if not device or '/' in device or device in ['.', '..']:
         raise ValueError('Invalid device: %s' % quote(device or ''))
@@ -2943,7 +2943,7 @@ def affinity_key_function(affinity_str):
     :param affinity_str: affinity config value, e.g. "r1z2=3"
                          or "r1=1, r2z1=2, r2z2=2"
     :returns: single-argument function
-    :raises: ValueError if argument invalid
+    :raises ValueError: if argument invalid
     """
     affinity_str = affinity_str.strip()
 
@@ -2996,7 +2996,7 @@ def affinity_locality_predicate(write_affinity_str):
     :param write_affinity_str: affinity config value, e.g. "r1z2"
         or "r1, r2z1, r2z2"
     :returns: single-argument function, or None if affinity_str is empty
-    :raises: ValueError if argument invalid
+    :raises ValueError: if argument invalid
     """
     affinity_str = write_affinity_str.strip()
 
@@ -3634,7 +3634,7 @@ def parse_content_range(content_range):
     :param content_range: Content-Range header value to parse,
         e.g. "bytes 100-1249/49004"
     :returns: 3-tuple (start, end, total)
-    :raises: ValueError if malformed
+    :raises ValueError: if malformed
     """
     found = re.search(_content_range_pattern, content_range)
     if not found:
@@ -3816,7 +3816,7 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     :param boundary: The mime boundary to separate new file-like
                      objects on.
     :returns: A generator of file-like objects for each part.
-    :raises: MimeInvalid if the document is malformed
+    :raises MimeInvalid: if the document is malformed
     """
     boundary = '--' + boundary
     blen = len(boundary) + 2  # \r\n

@@ -140,7 +140,7 @@ class ContainerController(BaseStorageServer):
         Validate that the index supplied maps to a policy.
 
         :returns: policy index from request, or None if not present
-        :raises: HTTPBadRequest if the supplied index is bogus
+        :raises HTTPBadRequest: if the supplied index is bogus
         """
 
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index', None)

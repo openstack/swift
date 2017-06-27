@@ -426,7 +426,7 @@ def parse_add_value(add_value):
 
     :returns: dictionary with keys 'region', 'zone', 'ip', 'port', 'device',
         'replication_ip', 'replication_port', 'meta'
-    :raises: ValueError if add_value is malformed
+    :raises ValueError: if add_value is malformed
     """
     region = None
     rest = add_value

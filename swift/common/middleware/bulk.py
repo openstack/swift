@@ -296,7 +296,7 @@ class Bulk(object):
         Checks if the container exists and if not try to create it.
         :params container_path: an unquoted path to a container to be created
         :returns: True if created container, False if container exists
-        :raises: CreateContainerError when unable to create container
+        :raises CreateContainerError: when unable to create container
         """
         new_env = req.environ.copy()
         new_env['PATH_INFO'] = container_path
@@ -324,7 +324,7 @@ class Bulk(object):
         Will populate objs_to_delete with data from request input.
         :params req: a Swob request
         :returns: a list of the contents of req.body when separated by newline.
-        :raises: HTTPException on failures
+        :raises HTTPException: on failures
         """
         line = ''
         data_remaining = True

@@ -738,7 +738,7 @@ class DatabaseBroker(object):
         Validates that metadata falls within acceptable limits.
 
         :param metadata: to be validated
-        :raises: HTTPBadRequest if MAX_META_COUNT or MAX_META_OVERALL_SIZE
+        :raises HTTPBadRequest: if MAX_META_COUNT or MAX_META_OVERALL_SIZE
                  is exceeded, or if metadata contains non-UTF-8 data
         """
         meta_count = 0

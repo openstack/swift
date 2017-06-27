@@ -1029,7 +1029,7 @@ class Request(object):
                                trailing data, raises ValueError.
         :returns: list of segments with a length of maxsegs (non-existent
                   segments will return as None)
-        :raises: ValueError if given an invalid path
+        :raises ValueError: if given an invalid path
         """
         return split_path(
             self.environ.get('SCRIPT_NAME', '') + self.environ['PATH_INFO'],
