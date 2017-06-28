@@ -660,3 +660,10 @@ def validate_device_name(device_name):
         device_name.startswith(' ') or
         device_name.endswith(' ') or
         len(device_name) == 0)
+
+
+def pretty_dev(device):
+    return "r%sz%s-%s/%s" % (device.get('region'),
+                             device.get('zone'),
+                             device.get('ip'),
+                             device.get('id'))

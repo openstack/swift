@@ -34,7 +34,7 @@ from time import time
 from swift.common import exceptions
 from swift.common.ring import RingData
 from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
-    validate_and_normalize_address
+    validate_and_normalize_address, pretty_dev
 
 # we can't store None's in the replica2part2dev array, so we high-jack
 # the max value for magic to represent the part is not currently
@@ -1048,8 +1048,8 @@ class RingBuilder(object):
                 dev['parts'] -= 1
                 assign_parts[part].append(replica)
                 self.logger.debug(
-                    "Gathered %d/%d from dev %d [dispersion]",
-                    part, replica, dev['id'])
+                    "Gathered %d/%d from dev %s [dispersion]",
+                    part, replica, pretty_dev(dev))
                 self._replica2part2dev[replica][part] = NONE_DEV
                 for tier in dev['tiers']:
                     replicas_at_tier[tier] -= 1
@@ -1105,8 +1105,8 @@ class RingBuilder(object):
                 dev['parts'] -= 1
                 assign_parts[part].append(replica)
                 self.logger.debug(
-                    "Gathered %d/%d from dev %d [weight disperse]",
-                    part, replica, dev['id'])
+                    "Gathered %d/%d from dev %s [weight disperse]",
+                    part, replica, pretty_dev(dev))
                 self._replica2part2dev[replica][part] = NONE_DEV
                 for tier in dev['tiers']:
                     replicas_at_tier[tier] -= 1
@@ -1177,8 +1177,8 @@ class RingBuilder(object):
             dev['parts'] -= 1
             assign_parts[part].append(replica)
             self.logger.debug(
-                "Gathered %d/%d from dev %d [weight forced]",
-                part, replica, dev['id'])
+                "Gathered %d/%d from dev %s [weight forced]",
+                part, replica, pretty_dev(dev))
             self._replica2part2dev[replica][part] = NONE_DEV
             self._set_part_moved(part)
 
@@ -1299,7 +1299,7 @@ class RingBuilder(object):
 
                 self._replica2part2dev[replica][part] = dev['id']
                 self.logger.debug(
-                    "Placed %d/%d onto dev %d", part, replica, dev['id'])
+                    "Placed %d/%d onto dev %s", part, replica, pretty_dev(dev))
 
         # Just to save memory and keep from accidental reuse.
         for dev in self._iter_devs():
