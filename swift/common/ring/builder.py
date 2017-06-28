@@ -772,7 +772,7 @@ class RingBuilder(object):
             required = (wanted[tier] - weighted[tier]) / weighted[tier]
             self.logger.debug('%(tier)s wants %(wanted)s and is weighted for '
                               '%(weight)s so therefore requires %(required)s '
-                              'overload', {'tier': tier,
+                              'overload', {'tier': pretty_dev(dev),
                                            'wanted': wanted[tier],
                                            'weight': weighted[tier],
                                            'required': required})

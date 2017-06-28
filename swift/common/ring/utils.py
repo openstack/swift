@@ -642,6 +642,15 @@ def dispersion_report(builder, search_filter=None, verbose=False):
     }
 
 
+def format_device(region=None, zone=None, ip=None, device=None, **kwargs):
+    """
+    Convert device dict or tier attributes to a representative string.
+
+    :returns: a string, the normalized format of a device tier
+    """
+    return "r%sz%s-%s/%s" % (region, zone, ip, device)
+
+
 def get_tier_name(tier, builder):
     if len(tier) == 1:
         return "r%s" % (tier[0], )
@@ -651,8 +660,8 @@ def get_tier_name(tier, builder):
         return "r%sz%s-%s" % (tier[0], tier[1], tier[2])
     if len(tier) == 4:
         device = builder.devs[tier[3]] or {}
-        return "r%sz%s-%s/%s" % (tier[0], tier[1], tier[2],
-                                 device.get('device', 'IDd%s' % tier[3]))
+        return format_device(tier[0], tier[1], tier[2], device.get(
+            'device', 'IDd%s' % tier[3]))
 
 
 def validate_device_name(device_name):
@@ -663,7 +672,4 @@ def validate_device_name(device_name):
 
 
 def pretty_dev(device):
-    return "r%sz%s-%s/%s" % (device.get('region'),
-                             device.get('zone'),
-                             device.get('ip'),
-                             device.get('id'))
+    return format_device(**device)

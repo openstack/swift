@@ -26,7 +26,7 @@ from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      validate_args, parse_args,
                                      parse_builder_ring_filename_args,
                                      build_dev_from_opts, dispersion_report,
-                                     parse_address)
+                                     parse_address, get_tier_name, pretty_dev)
 
 
 class TestUtils(unittest.TestCase):
@@ -689,6 +689,21 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(ip, '127.0.0.1')
         self.assertEqual(port, 6200)
         self.assertEqual(rest, 'R127.0.0.1:6200/sda1_some meta data')
+
+    def test_normalized_device_tier_names(self):
+        rb = ring.RingBuilder(8, 3, 0)
+        rb.add_dev({
+            'region': 1,
+            'zone': 1,
+            'ip': '127.0.0.1',
+            'port': 6011,
+            'device': 'd1',
+            'weight': 0.0,
+        })
+        dev = rb.devs[0]
+        expected = 'r1z1-127.0.0.1/d1'
+        self.assertEqual(expected, get_tier_name(tiers_for_dev(dev)[-1], rb))
+        self.assertEqual(expected, pretty_dev(dev))
 
 
 if __name__ == '__main__':
