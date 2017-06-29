@@ -262,7 +262,7 @@ class TestDloHeadManifest(DloTestCase):
 
         # etag is manifest's etag
         self.assertEqual(headers["Etag"], "etag-manyseg")
-        self.assertEqual(headers.get("Content-Length"), None)
+        self.assertIsNone(headers.get("Content-Length"))
 
     def test_head_large_object_no_segments(self):
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-no-segments',
@@ -459,7 +459,7 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(status, "200 OK")
         # this requires multiple pages of container listing, so we can't send
         # a Content-Length header
-        self.assertEqual(headers.get("Content-Length"), None)
+        self.assertIsNone(headers.get("Content-Length"))
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
     def test_get_suffix_range(self):
@@ -480,8 +480,8 @@ class TestDloGetManifest(DloTestCase):
             status, headers, body = self.call_dlo(req)
         headers = HeaderKeyDict(headers)
         self.assertEqual(status, "200 OK")
-        self.assertEqual(headers.get("Content-Length"), None)
-        self.assertEqual(headers.get("Content-Range"), None)
+        self.assertIsNone(headers.get("Content-Length"))
+        self.assertIsNone(headers.get("Content-Range"))
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
     def test_get_multi_range(self):
@@ -494,8 +494,8 @@ class TestDloGetManifest(DloTestCase):
             status, headers, body = self.call_dlo(req)
         headers = HeaderKeyDict(headers)
         self.assertEqual(status, "200 OK")
-        self.assertEqual(headers.get("Content-Length"), None)
-        self.assertEqual(headers.get("Content-Range"), None)
+        self.assertIsNone(headers.get("Content-Length"))
+        self.assertIsNone(headers.get("Content-Range"))
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
     def test_if_match_matches(self):

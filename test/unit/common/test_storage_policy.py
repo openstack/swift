@@ -572,7 +572,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         # remove name
         policies.remove_policy_alias('tahi')
-        self.assertEqual(policies.get_by_name('tahi'), None)
+        self.assertIsNone(policies.get_by_name('tahi'))
 
         # remove only name
         self.assertRaisesWithMessage(PolicyError,
@@ -586,7 +586,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         # remove default name
         policies.remove_policy_alias('two')
-        self.assertEqual(policies.get_by_name('two'), None)
+        self.assertIsNone(policies.get_by_name('two'))
         self.assertEqual(policies.get_by_index(2).name, 'rua')
 
         # change default name to a new name

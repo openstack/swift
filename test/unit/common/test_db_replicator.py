@@ -1432,8 +1432,8 @@ class TestReplToNode(unittest.TestCase):
     def test_repl_to_node_300_status(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=300)
 
-        self.assertEqual(self.replicator._repl_to_node(
-            self.fake_node, FakeBroker(), '0', self.fake_info), None)
+        self.assertIsNone(self.replicator._repl_to_node(
+            self.fake_node, FakeBroker(), '0', self.fake_info))
 
     def test_repl_to_node_not_response(self):
         self.http = mock.Mock(replicate=mock.Mock(return_value=None))

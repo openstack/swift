@@ -1367,16 +1367,14 @@ class PrefixAccount(unittest.TestCase):
         test_auth = auth.filter_factory(conf)(FakeApp())
         self.assertEqual(test_auth._get_account_prefix(
                          'AUTH_1234'), 'AUTH_')
-        self.assertEqual(test_auth._get_account_prefix(
-                         'JUNK_1234'), None)
+        self.assertIsNone(test_auth._get_account_prefix('JUNK_1234'))
 
     def test_same_as_default(self):
         conf = {'reseller_prefix': 'AUTH'}
         test_auth = auth.filter_factory(conf)(FakeApp())
         self.assertEqual(test_auth._get_account_prefix(
                          'AUTH_1234'), 'AUTH_')
-        self.assertEqual(test_auth._get_account_prefix(
-                         'JUNK_1234'), None)
+        self.assertIsNone(test_auth._get_account_prefix('JUNK_1234'))
 
     def test_blank_reseller(self):
         conf = {'reseller_prefix': ''}
@@ -1391,8 +1389,7 @@ class PrefixAccount(unittest.TestCase):
         test_auth = auth.filter_factory(conf)(FakeApp())
         self.assertEqual(test_auth._get_account_prefix(
                          'AUTH_1234'), 'AUTH_')
-        self.assertEqual(test_auth._get_account_prefix(
-                         'JUNK_1234'), None)
+        self.assertIsNone(test_auth._get_account_prefix('JUNK_1234'))
 
 
 class ServiceTokenFunctionality(unittest.TestCase):

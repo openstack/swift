@@ -604,7 +604,7 @@ class TestWSGI(unittest.TestCase):
                     environ = {}
                 if headers is None:
                     headers = {}
-                self.assertEqual(environ['swift.authorize']('test'), None)
+                self.assertIsNone(environ['swift.authorize']('test'))
                 self.assertFalse('HTTP_X_TRANS_ID' in environ)
         was_blank = Request.blank
         Request.blank = FakeReq.fake_blank
