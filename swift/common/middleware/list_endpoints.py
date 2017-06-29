@@ -151,7 +151,7 @@ class ListEndpointsMiddleware(object):
 
         :returns: parsed path parts as a tuple with version filled in as
                   configured default response version if not specified.
-        :raises: ValueError if path is invalid, message will say why.
+        :raises ValueError: if path is invalid, message will say why.
         """
         clean_path = request.path[len(self.endpoints_path) - 1:]
         # try to peel off version

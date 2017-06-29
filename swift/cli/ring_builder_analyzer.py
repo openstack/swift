@@ -195,7 +195,7 @@ def parse_scenario(scenario_data):
     for feeding to run_scenario().
 
     :returns: scenario
-    :raises: ValueError on invalid scenario
+    :raises ValueError: on invalid scenario
     """
 
     parsed_scenario = {}

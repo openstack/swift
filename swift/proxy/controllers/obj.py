@@ -950,7 +950,7 @@ class ECAppIter(object):
         can also use it in the body.
 
         :returns: None
-        :raises: HTTPException on error
+        :raises HTTPException: on error
         """
         self.mime_boundary = resp.boundary
 
@@ -1468,7 +1468,7 @@ class Putter(object):
         :param informational: if True then try to get a 100-continue response,
                               otherwise try to get a final response.
         :returns: HTTPResponse
-        :raises: Timeout if the response took too long
+        :raises Timeout: if the response took too long
         """
         # don't do this update of self.resp if the Expect response during
         # connect() was actually a final response
@@ -1587,10 +1587,10 @@ class Putter(object):
 
         :returns: Putter instance
 
-        :raises: ConnectionTimeout if initial connection timed out
-        :raises: ResponseTimeout if header retrieval timed out
-        :raises: InsufficientStorage on 507 response from node
-        :raises: PutterConnectError on non-507 server error response from node
+        :raises ConnectionTimeout: if initial connection timed out
+        :raises ResponseTimeout: if header retrieval timed out
+        :raises InsufficientStorage: on 507 response from node
+        :raises PutterConnectError: on non-507 server error response from node
         """
         conn, expect_resp, final_resp, connect_duration = cls._make_connection(
             node, part, path, headers, conn_timeout, node_timeout)
@@ -1700,9 +1700,9 @@ class MIMEPutter(Putter):
 
         :param need_multiphase: if True then multiphase support is required of
                                 the object server
-        :raises: FooterNotSupported if need_metadata_footer is set but
+        :raises FooterNotSupported: if need_metadata_footer is set but
                  backend node can't process footers
-        :raises: MultiphasePUTNotSupported if need_multiphase is set but
+        :raises MultiphasePUTNotSupported: if need_multiphase is set but
                  backend node can't handle multiphase PUT
         """
         mime_boundary = "%.64x" % random.randint(0, 16 ** 64)

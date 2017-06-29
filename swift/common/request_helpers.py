@@ -57,7 +57,7 @@ def get_param(req, name, default=None):
     :param default: result to return if the parameter is not found
     :returns: HTTP request parameter value
               (as UTF-8 encoded str, not unicode object)
-    :raises: HTTPBadRequest if param not valid UTF-8 byte sequence
+    :raises HTTPBadRequest: if param not valid UTF-8 byte sequence
     """
     value = req.params.get(name, default)
     if value and not isinstance(value, six.text_type):
@@ -77,8 +77,8 @@ def get_listing_content_type(req):
 
     :param req: request object
     :returns: content type as a string (e.g. text/plain, application/json)
-    :raises: HTTPNotAcceptable if the requested content type is not acceptable
-    :raises: HTTPBadRequest if the 'format' query param is provided and
+    :raises HTTPNotAcceptable: if the requested content type is not acceptable
+    :raises HTTPBadRequest: if the 'format' query param is provided and
              not valid UTF-8
     """
     query_format = get_param(req, 'format')
@@ -103,7 +103,7 @@ def get_name_and_placement(request, minsegs=1, maxsegs=None,
 
     :returns: a list, result of :meth:`split_and_validate_path` with
               the BaseStoragePolicy instance appended on the end
-    :raises: HTTPServiceUnavailable if the path is invalid or no policy exists
+    :raises HTTPServiceUnavailable: if the path is invalid or no policy exists
              with the extracted policy_index.
     """
     policy_index = request.headers.get('X-Backend-Storage-Policy-Index')
@@ -126,7 +126,7 @@ def split_and_validate_path(request, minsegs=1, maxsegs=None,
 
     :returns: result of :meth:`~swift.common.utils.split_path` if
               everything's okay
-    :raises: HTTPBadRequest if something's not okay
+    :raises HTTPBadRequest: if something's not okay
     """
     try:
         segs = split_path(unquote(request.path),

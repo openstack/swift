@@ -277,7 +277,7 @@ def valid_timestamp(request):
     :param request: the swob request object
 
     :returns: a valid Timestamp instance
-    :raises: HTTPBadRequest on missing or invalid X-Timestamp
+    :raises HTTPBadRequest: on missing or invalid X-Timestamp
     """
     try:
         return request.timestamp
@@ -364,7 +364,7 @@ def check_name_format(req, name, target_type):
     :param name: header value to validate
     :param target_type: which header is being validated (Account or Container)
     :returns: A properly encoded account name or container name
-    :raise: HTTPPreconditionFailed if account header
+    :raise HTTPPreconditionFailed: if account header
             is not well formatted.
     """
     if not name:

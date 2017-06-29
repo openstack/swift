@@ -189,7 +189,7 @@ class RateLimitMiddleware(object):
 
         :param key: a memcache key
         :param max_rate: maximum rate allowed in requests per second
-        :raises: MaxSleepTimeHitError if max sleep time is exceeded.
+        :raises MaxSleepTimeHitError: if max sleep time is exceeded.
         """
         try:
             now_m = int(round(time.time() * self.clock_accuracy))

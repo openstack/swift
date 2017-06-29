@@ -311,7 +311,7 @@ def parse_and_validate_input(req_body, req_path):
         corresponding swob.Range object. If d_in does not have a key
         'range', neither will d_out.
 
-    :raises: HTTPException on parse errors or semantic errors (e.g. bogus
+    :raises HTTPException: on parse errors or semantic errors (e.g. bogus
         JSON structure, syntactically invalid ranges)
 
     :returns: a list of dictionaries on success
@@ -899,7 +899,7 @@ class StaticLargeObject(object):
         concatenation of the segments.
 
         :params req: a swob.Request with a path referencing an object
-        :raises: HttpException on errors
+        :raises HttpException: on errors
         """
         return SloGetContext(self).handle_slo_get_or_head(req, start_response)
 
@@ -911,7 +911,7 @@ class StaticLargeObject(object):
         call self and start_response and returns a WSGI iterator.
 
         :params req: a swob.Request with an obj in path
-        :raises: HttpException on errors
+        :raises HttpException: on errors
         """
         try:
             vrs, account, container, obj = req.split_path(1, 4, True)

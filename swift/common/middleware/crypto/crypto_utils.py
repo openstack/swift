@@ -53,7 +53,7 @@ class Crypto(object):
 
         :param key: 256-bit key
         :param iv: 128-bit iv or nonce used for encryption
-        :raises: ValueError on invalid key or iv
+        :raises ValueError: on invalid key or iv
         :returns: an instance of an encryptor
         """
         self.check_key(key)

@@ -156,7 +156,7 @@ def _check_path_header(req, name, length, error_msg):
     :param length: length of path segment check
     :param error_msg: error message for client
     :returns: A tuple with path parts according to length
-    :raise: HTTPPreconditionFailed if header value
+    :raise HTTPPreconditionFailed: if header value
             is not well formatted.
     """
     src_header = unquote(req.headers.get(name))
@@ -178,7 +178,7 @@ def _check_copy_from_header(req):
 
     :param req: HTTP request object
     :returns: A tuple with container name and object name
-    :raise: HTTPPreconditionFailed if x-copy-from value
+    :raise HTTPPreconditionFailed: if x-copy-from value
             is not well formatted.
     """
     return _check_path_header(req, 'X-Copy-From', 2,
@@ -194,7 +194,7 @@ def _check_destination_header(req):
 
     :param req: HTTP request object
     :returns: A tuple with container name and object name
-    :raise: HTTPPreconditionFailed if destination value
+    :raise HTTPPreconditionFailed: if destination value
             is not well formatted.
     """
     return _check_path_header(req, 'Destination', 2,
