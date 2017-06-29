@@ -1,0 +1,10 @@
+__RINGFILE__, build version 9, id __BUILDER_ID__
+64 partitions, 3.000000 replicas, 2 regions, 4 zones, 4 devices, 100.00 balance, 0.00 dispersion
+The minimum number of hours before a partition can be reassigned is 1 (1:00:00 remaining)
+The overload factor is 0.00% (0.000000)
+Ring file __RINGFILE__.ring.gz is obsolete
+Devices:   id region zone ip address:port replication ip:port  name weight partitions balance flags meta
+            1      1    1  127.0.0.2:6201      127.0.0.2:6201  sda2 100.00         64   33.33       
+            4      1    2  127.0.0.5:6004      127.0.0.5:6004  sda5 100.00         64   33.33       
+            0      2    1  127.0.0.6:6005      127.0.0.6:6005  sdb6 100.00          0 -100.00       
+            2      2    2  127.0.0.3:6202      127.0.0.3:6202  sdc3 100.00         64   33.33       

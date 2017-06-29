@@ -517,7 +517,10 @@ swift-ring-builder <builder_file>
             balance_per_dev = builder._build_balance_per_dev()
             header_line, print_dev_f = _make_display_device_table(builder)
             print(header_line)
-            for dev in builder._iter_devs():
+            for dev in sorted(
+                builder._iter_devs(),
+                key=lambda x: (x['region'], x['zone'], x['ip'], x['device'])
+            ):
                 flags = 'DEL' if dev in builder._remove_devs else ''
                 print_dev_f(dev, balance_per_dev[dev['id']], flags)
         exit(EXIT_SUCCESS)
