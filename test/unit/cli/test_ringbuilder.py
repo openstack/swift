@@ -1759,6 +1759,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         mock_stderr = six.StringIO()
 
         # Create a sample ring and remove/add some devices.
+        now = time.time()
         ring = self.create_sample_ring()
         argv = ["", self.tmpfile, "add",
                 "--region", "1", "--zone", "2",
@@ -1784,9 +1785,10 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
         # Check the order of the devices listed the output.
         argv = ["", self.tmpfile]
-        with mock.patch("sys.stdout", mock_stdout):
-            with mock.patch("sys.stderr", mock_stderr):
-                self.assertRaises(SystemExit, ringbuilder.main, argv)
+        with mock.patch("sys.stdout", mock_stdout), mock.patch(
+                "sys.stderr", mock_stderr), mock.patch(
+                    'swift.common.ring.builder.time', return_value=now):
+            self.assertRaises(SystemExit, ringbuilder.main, argv)
         self.assertOutputStub(mock_stdout.getvalue(), builder_id=ring.id)
 
     def test_default_ringfile_check(self):
