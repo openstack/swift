@@ -52,7 +52,7 @@ from six.moves import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
-    close_if_possible
+    close_if_possible, closing_if_possible
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -308,7 +308,8 @@ def _resp_body_property():
         if not self._body:
             if not self._app_iter:
                 return ''
-            self._body = ''.join(self._app_iter)
+            with closing_if_possible(self._app_iter):
+                self._body = ''.join(self._app_iter)
             self._app_iter = None
         return self._body
 

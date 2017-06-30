@@ -338,6 +338,7 @@ class VersionedWritesContext(WSGIContext):
                 lreq.environ['QUERY_STRING'] += '&reverse=on'
             lresp = lreq.get_response(self.app)
             if not is_success(lresp.status_int):
+                close_if_possible(lresp.app_iter)
                 if lresp.status_int == HTTP_NOT_FOUND:
                     raise ListingIterNotFound()
                 elif is_client_error(lresp.status_int):
@@ -378,6 +379,7 @@ class VersionedWritesContext(WSGIContext):
 
         if source_resp.content_length is None or \
                 source_resp.content_length > MAX_FILE_SIZE:
+            close_if_possible(source_resp.app_iter)
             return HTTPRequestEntityTooLarge(request=req)
 
         return source_resp
@@ -391,7 +393,9 @@ class VersionedWritesContext(WSGIContext):
         copy_header_subset(source_resp, put_req,
                            lambda k: k.lower() != 'x-timestamp')
         put_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
-        return put_req.get_response(self.app)
+        put_resp = put_req.get_response(self.app)
+        close_if_possible(source_resp.app_iter)
+        return put_resp
 
     def _check_response_error(self, req, resp):
         """
@@ -399,6 +403,7 @@ class VersionedWritesContext(WSGIContext):
         """
         if is_success(resp.status_int):
             return
+        close_if_possible(resp.app_iter)
         if is_client_error(resp.status_int):
             # missing container or bad permissions
             raise HTTPPreconditionFailed(request=req)
@@ -456,6 +461,7 @@ class VersionedWritesContext(WSGIContext):
         put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
 
         self._check_response_error(req, put_resp)
+        close_if_possible(put_resp.app_iter)
 
     def handle_obj_versions_put(self, req, versions_cont, api_version,
                                 account_name, object_name):
@@ -514,6 +520,7 @@ class VersionedWritesContext(WSGIContext):
         marker_req.environ['swift.content_type_overridden'] = True
         marker_resp = marker_req.get_response(self.app)
         self._check_response_error(req, marker_resp)
+        close_if_possible(marker_resp.app_iter)
 
         # successfully copied and created delete marker; safe to delete
         return self.app
@@ -527,6 +534,7 @@ class VersionedWritesContext(WSGIContext):
 
         # if the version isn't there, keep trying with previous version
         if get_resp.status_int == HTTP_NOT_FOUND:
+            close_if_possible(get_resp.app_iter)
             return False
 
         self._check_response_error(req, get_resp)
@@ -537,6 +545,7 @@ class VersionedWritesContext(WSGIContext):
             req, put_path_info, get_resp)
 
         self._check_response_error(req, put_resp)
+        close_if_possible(put_resp.app_iter)
         return get_path
 
     def handle_obj_versions_delete_pop(self, req, versions_cont, api_version,
@@ -582,6 +591,7 @@ class VersionedWritesContext(WSGIContext):
                     req.environ, path=req.path_info, method='HEAD',
                     headers=obj_head_headers, swift_source='VW')
                 hresp = head_req.get_response(self.app)
+                close_if_possible(hresp.app_iter)
 
                 if hresp.status_int != HTTP_NOT_FOUND:
                     self._check_response_error(req, hresp)
@@ -606,6 +616,7 @@ class VersionedWritesContext(WSGIContext):
                         req.environ, path=restored_path, method='DELETE',
                         headers=auth_token_header, swift_source='VW')
                     del_resp = old_del_req.get_response(self.app)
+                    close_if_possible(del_resp.app_iter)
                     if del_resp.status_int != HTTP_NOT_FOUND:
                         self._check_response_error(req, del_resp)
                         # else, well, it existed long enough to do the

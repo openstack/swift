@@ -62,7 +62,10 @@ class VersionedWritesBaseTestCase(unittest.TestCase):
         conf = {'allow_versioned_writes': 'true'}
         self.vw = versioned_writes.filter_factory(conf)(self.app)
 
-    def call_app(self, req, app=None, expect_exception=False):
+    def tearDown(self):
+        self.assertEqual(self.app.unclosed_requests, {})
+
+    def call_app(self, req, app=None):
         if app is None:
             app = self.app
 
@@ -84,24 +87,13 @@ class VersionedWritesBaseTestCase(unittest.TestCase):
             headers[0] = h
 
         body_iter = app(req.environ, start_response)
-        body = ''
-        caught_exc = None
-        try:
-            for chunk in body_iter:
-                body += chunk
-        except Exception as exc:
-            if expect_exception:
-                caught_exc = exc
-            else:
-                raise
+        with utils.closing_if_possible(body_iter):
+            body = b''.join(body_iter)
 
-        if expect_exception:
-            return status[0], headers[0], body, caught_exc
-        else:
-            return status[0], headers[0], body
+        return status[0], headers[0], body
 
-    def call_vw(self, req, **kwargs):
-        return self.call_app(req, app=self.vw, **kwargs)
+    def call_vw(self, req):
+        return self.call_app(req, app=self.vw)
 
     def assertRequestEqual(self, req, other):
         self.assertEqual(req.method, other.method)
