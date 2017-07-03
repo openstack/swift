@@ -365,7 +365,20 @@ class TestObjectVersioning(Base):
         versioned_obj.delete()
         self.assertRaises(ResponseError, versioned_obj.read)
 
-    def test_versioning_dlo(self):
+    def assert_most_recent_version(self, obj_name, content,
+                                   should_be_dlo=False):
+        archive_versions = self.env.versions_container.files(parms={
+            'prefix': '%03x%s/' % (len(obj_name), obj_name),
+            'reverse': 'yes'})
+        archive_file = self.env.versions_container.file(archive_versions[0])
+        self.assertEqual(content, archive_file.read())
+        resp_headers = dict(archive_file.conn.response.getheaders())
+        if should_be_dlo:
+            self.assertIn('x-object-manifest', resp_headers)
+        else:
+            self.assertNotIn('x-object-manifest', resp_headers)
+
+    def _test_versioning_dlo_setup(self):
         container = self.env.container
         versions_container = self.env.versions_container
         obj_name = Utils.create_name()
@@ -375,23 +388,51 @@ class TestObjectVersioning(Base):
             obj_name_seg = obj_name + '/' + i
             versioned_obj = container.file(obj_name_seg)
             versioned_obj.write(i)
+            # immediately overwrite
             versioned_obj.write(i + i)
 
         self.assertEqual(3, versions_container.info()['object_count'])
 
         man_file = container.file(obj_name)
-        man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
-                       (self.env.container.name, obj_name)})
+
+        # write a normal file first
+        man_file.write('old content')
 
         # guarantee that the timestamp changes
         time.sleep(.01)
 
-        # write manifest file again
+        # overwrite with a dlo manifest
         man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
                        (self.env.container.name, obj_name)})
 
-        self.assertEqual(3, versions_container.info()['object_count'])
+        self.assertEqual(4, versions_container.info()['object_count'])
         self.assertEqual("112233", man_file.read())
+        self.assert_most_recent_version(obj_name, 'old content')
+
+        # overwrite the manifest with a normal file
+        man_file.write('new content')
+        self.assertEqual(5, versions_container.info()['object_count'])
+
+        # new most-recent archive is the dlo
+        self.assert_most_recent_version(obj_name, '112233', should_be_dlo=True)
+
+        return obj_name, man_file
+
+    def test_versioning_dlo(self):
+        obj_name, man_file = self._test_versioning_dlo_setup()
+
+        # verify that restore works properly
+        man_file.delete()
+        self.assertEqual(4, self.env.versions_container.info()['object_count'])
+        self.assertEqual("112233", man_file.read())
+        resp_headers = dict(man_file.conn.response.getheaders())
+        self.assertIn('x-object-manifest', resp_headers)
+
+        self.assert_most_recent_version(obj_name, 'old content')
+
+        man_file.delete()
+        self.assertEqual(3, self.env.versions_container.info()['object_count'])
+        self.assertEqual("old content", man_file.read())
 
     def test_versioning_container_acl(self):
         # create versions container and DO NOT give write access to account2
@@ -591,6 +632,24 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
             versioned_obj.read()
         self.assertEqual(404, cm.exception.status)
         self.assertEqual(11, versions_container.info()['object_count'])
+
+    def test_versioning_dlo(self):
+        obj_name, man_file = \
+            self._test_versioning_dlo_setup()
+
+        man_file.delete()
+        with self.assertRaises(ResponseError) as cm:
+            man_file.read()
+        self.assertEqual(404, cm.exception.status)
+        self.assertEqual(7, self.env.versions_container.info()['object_count'])
+
+        expected = ['old content', '112233', 'new content', '']
+
+        bodies = [
+            self.env.versions_container.file(f).read()
+            for f in self.env.versions_container.files(parms={
+                'prefix': '%03x%s/' % (len(obj_name), obj_name)})]
+        self.assertEqual(expected, bodies)
 
     def test_versioning_check_acl(self):
         versioned_obj = self._test_versioning_check_acl_setup()

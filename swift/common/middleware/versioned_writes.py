@@ -434,10 +434,6 @@ class VersionedWritesContext(WSGIContext):
 
         get_resp = self._get_source_object(req, req.path_info)
 
-        if 'X-Object-Manifest' in get_resp.headers:
-            # do not version DLO manifest, proceed with original request
-            close_if_possible(get_resp.app_iter)
-            return
         if get_resp.status_int == HTTP_NOT_FOUND:
             # nothing to version, proceed with original request
             close_if_possible(get_resp.app_iter)
@@ -476,10 +472,6 @@ class VersionedWritesContext(WSGIContext):
         :param account_name: account name.
         :param object_name: name of object of original request
         """
-        if 'X-Object-Manifest' in req.headers:
-            # do not version DLO manifest, proceed with original request
-            return self.app
-
         self._copy_current(req, versions_cont, api_version, account_name,
                            object_name)
         return self.app

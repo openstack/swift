@@ -9837,8 +9837,8 @@ class TestSocketObjectVersions(unittest.TestCase):
         exp = 'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
 
-        # make sure manifest files will be ignored
-        for _junk in range(1, versions_to_create):
+        # make sure manifest files are also versioned
+        for _junk in range(0, versions_to_create):
             sleep(.01)  # guarantee that the timestamp changes
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
@@ -9860,8 +9860,11 @@ class TestSocketObjectVersions(unittest.TestCase):
                  % (vc, pre, o))
         fd.flush()
         headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 204 No Content'
+        exp = 'HTTP/1.1 200 OK'
         self.assertEqual(headers[:len(exp)], exp)
+        body = fd.read()
+        versions = [x for x in body.split('\n') if x]
+        self.assertEqual(versions_to_create - 1, len(versions))
 
         # DELETE v1/a/c/obj shouldn't delete v1/a/c/obj/sub versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
