@@ -124,6 +124,29 @@ use = egg:swift#object
 #
 # auto_create_account_prefix = .
 #
+
+# The number of threads in eventlet's thread pool. Most IO will occur
+# in the object server's main thread, but certain "heavy" IO
+# operations will occur in separate IO threads, managed by eventlet.
+#
+# The default value is auto, whose actual value is dependant on the
+# servers_per_port value:
+#
+#  - When servers_per_port is zero, the default value of
+#    eventlet_tpool_num_threads is empty, which uses eventlet's default
+#    (currently 20 threads).
+#
+#  - When servers_per_port is nonzero, the default value of
+#    eventlet_tpool_num_threads is 1.
+#
+# But you may override this value to any integer value.
+#
+# Note that this value is threads per object-server process, so to
+# compute the total number of IO threads on a node, you must multiply
+# this by the number of object-server processes on the node.
+#
+# eventlet_tpool_num_threads = auto
+
 # Configure parameter for creating specific server
 # To handle all verbs, including replication verbs, do not specify
 # "replication_server" (this is the default). To only handle replication,

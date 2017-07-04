@@ -651,6 +651,19 @@ ionice_priority                None                   I/O scheduling priority of
                                                       priority of the process. Work only with
                                                       ionice_class.
                                                       Ignored if IOPRIO_CLASS_IDLE is set.
+eventlet_tpool_num_threads     auto                   The number of threads in eventlet's thread pool.
+                                                      Most IO will occur in the object server's main
+                                                      thread, but certain "heavy" IO operations will
+                                                      occur in separate IO threads, managed by
+                                                      eventlet.
+                                                      The default value is auto, whose actual value
+                                                      is dependant on the servers_per_port value.
+                                                      If servers_per_port is zero then it uses
+                                                      eventlet's default (currently 20 threads).
+                                                      If the servers_per_port is nonzero then it'll
+                                                      only use 1 thread per process.
+                                                      This value can be overridden with an integer
+                                                      value.
 =============================  ====================== ===============================================
 
 [object-replicator]

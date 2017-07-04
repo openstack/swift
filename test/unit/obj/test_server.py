@@ -101,6 +101,39 @@ def fake_spawn():
                 gt.wait()
 
 
+class TestTpoolSize(unittest.TestCase):
+    def test_default_config(self):
+        with mock.patch('eventlet.tpool.set_num_threads') as mock_snt:
+            object_server.ObjectController({})
+        self.assertEqual([], mock_snt.mock_calls)
+
+    def test_explicit_setting(self):
+        conf = {'eventlet_tpool_num_threads': '17'}
+        with mock.patch('eventlet.tpool.set_num_threads') as mock_snt:
+            object_server.ObjectController(conf)
+        self.assertEqual([mock.call(17)], mock_snt.mock_calls)
+
+    def test_servers_per_port_no_explicit_setting(self):
+        conf = {'servers_per_port': '3'}
+        with mock.patch('eventlet.tpool.set_num_threads') as mock_snt:
+            object_server.ObjectController(conf)
+        self.assertEqual([mock.call(1)], mock_snt.mock_calls)
+
+    def test_servers_per_port_with_explicit_setting(self):
+        conf = {'eventlet_tpool_num_threads': '17',
+                'servers_per_port': '3'}
+        with mock.patch('eventlet.tpool.set_num_threads') as mock_snt:
+            object_server.ObjectController(conf)
+        self.assertEqual([mock.call(17)], mock_snt.mock_calls)
+
+    def test_servers_per_port_empty(self):
+        # run_wsgi is robust to this, so we should be too
+        conf = {'servers_per_port': ''}
+        with mock.patch('eventlet.tpool.set_num_threads') as mock_snt:
+            object_server.ObjectController(conf)
+        self.assertEqual([], mock_snt.mock_calls)
+
+
 @patch_policies(test_policies)
 class TestObjectController(unittest.TestCase):
     """Test swift.obj.server.ObjectController"""
