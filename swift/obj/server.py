@@ -542,11 +542,13 @@ class ObjectController(BaseStorageServer):
         if new_delete_at and new_delete_at < time.time():
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
                                   content_type='text/plain')
+        next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
                 policy=policy, open_expired=config_true_value(
-                    request.headers.get('x-backend-replication', 'false')))
+                    request.headers.get('x-backend-replication', 'false')),
+                next_part_power=next_part_power)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -704,10 +706,12 @@ class ObjectController(BaseStorageServer):
         # nodes; handoff nodes should 409 subrequests to over-write an
         # existing data fragment until they offloaded the existing fragment
         frag_index = request.headers.get('X-Backend-Ssync-Frag-Index')
+        next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy, frag_index=frag_index)
+                policy=policy, frag_index=frag_index,
+                next_part_power=next_part_power)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -1016,10 +1020,11 @@ class ObjectController(BaseStorageServer):
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
+        next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy)
+                policy=policy, next_part_power=next_part_power)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:

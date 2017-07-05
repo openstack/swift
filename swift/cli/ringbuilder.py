@@ -497,12 +497,14 @@ swift-ring-builder <builder_file>
         print('The overload factor is %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
 
+        ring_dict = None
+        builder_dict = builder.get_ring().to_dict()
+
         # compare ring file against builder file
         if not exists(ring_file):
             print('Ring file %s not found, '
                   'probably it hasn\'t been written yet' % ring_file)
         else:
-            builder_dict = builder.get_ring().to_dict()
             try:
                 ring_dict = RingData.load(ring_file).to_dict()
             except Exception as exc:
@@ -523,6 +525,24 @@ swift-ring-builder <builder_file>
             ):
                 flags = 'DEL' if dev in builder._remove_devs else ''
                 print_dev_f(dev, balance_per_dev[dev['id']], flags)
+
+        # Print some helpful info if partition power increase in progress
+        if (builder.next_part_power and
+                builder.next_part_power == (builder.part_power + 1)):
+            print('\nPreparing increase of partition power (%d -> %d)' % (
+                  builder.part_power, builder.next_part_power))
+            print('Run "swift-object-relinker relink" on all nodes before '
+                  'moving on to increase_partition_power.')
+        if (builder.next_part_power and
+                builder.part_power == builder.next_part_power):
+            print('\nIncreased partition power (%d -> %d)' % (
+                  builder.part_power, builder.next_part_power))
+            if builder_dict != ring_dict:
+                print('First run "swift-ring-builder <builderfile> write_ring"'
+                      ' now and copy the updated .ring.gz file to all nodes.')
+            print('Run "swift-object-relinker cleanup" on all nodes before '
+                  'moving on to finish_increase_partition_power.')
+
         exit(EXIT_SUCCESS)
 
     @staticmethod
@@ -652,6 +672,11 @@ swift-ring-builder <builder_file> add
         if len(argv) < 5:
             print(Commands.add.__doc__.strip())
             exit(EXIT_ERROR)
+
+        if builder.next_part_power:
+            print('Partition power increase in progress. You need ')
+            print('to finish the increase first before adding devices.')
+            exit(EXIT_WARNING)
 
         try:
             for new_dev in _parse_add_values(argv[3:]):
@@ -798,6 +823,11 @@ swift-ring-builder <builder_file> remove
             print(parse_search_value.__doc__.strip())
             exit(EXIT_ERROR)
 
+        if builder.next_part_power:
+            print('Partition power increase in progress. You need ')
+            print('to finish the increase first before removing devices.')
+            exit(EXIT_WARNING)
+
         devs, opts = _parse_remove_values(argv[3:])
 
         input_question = 'Are you sure you want to remove these ' \
@@ -859,6 +889,11 @@ swift-ring-builder <builder_file> rebalance [options]
             formatter = logging.Formatter("%(levelname)s: %(message)s")
             handler.setFormatter(formatter)
             logger.addHandler(handler)
+
+        if builder.next_part_power:
+            print('Partition power increase in progress.')
+            print('You need to finish the increase first before rebalancing.')
+            exit(EXIT_WARNING)
 
         devs_changed = builder.devs_changed
         min_part_seconds_left = builder.min_part_seconds_left
@@ -1223,6 +1258,159 @@ swift-ring-builder <builder_file> set_overload <overload>[%]
         print('The change will take effect after the next rebalance.')
         builder.save(builder_file)
         exit(status)
+
+    @staticmethod
+    def prepare_increase_partition_power():
+        """
+swift-ring-builder <builder_file> prepare_increase_partition_power
+    Prepare the ring to increase the partition power by one.
+
+    A write_ring command is needed to make the change take effect.
+
+    Once the updated rings have been deployed to all servers you need to run
+    the swift-object-relinker tool to relink existing data.
+
+    *****************************
+    USE THIS WITH EXTREME CAUTION
+    *****************************
+
+    If you increase the partition power and deploy changed rings, you may
+    introduce unavailability in your cluster. This has an end-user impact. Make
+    sure you execute required operations to increase the partition power
+    accurately.
+
+    """
+        if len(argv) < 3:
+            print(Commands.prepare_increase_partition_power.__doc__.strip())
+            exit(EXIT_ERROR)
+
+        if "object" not in basename(builder_file):
+            print(
+                'Partition power increase is only supported for object rings.')
+            exit(EXIT_ERROR)
+
+        if not builder.prepare_increase_partition_power():
+            print('Ring is already prepared for partition power increase.')
+            exit(EXIT_ERROR)
+
+        builder.save(builder_file)
+
+        print('The next partition power is now %d.' % builder.next_part_power)
+        print('The change will take effect after the next write_ring.')
+        print('Ensure your proxy-servers, object-replicators and ')
+        print('reconstructors are using the changed rings and relink ')
+        print('(using swift-object-relinker) your existing data')
+        print('before the partition power increase')
+        exit(EXIT_SUCCESS)
+
+    @staticmethod
+    def increase_partition_power():
+        """
+swift-ring-builder <builder_file> increase_partition_power
+    Increases the partition power by one. Needs to be run after
+    prepare_increase_partition_power has been run and all existing data has
+    been relinked using the swift-object-relinker tool.
+
+    A write_ring command is needed to make the change take effect.
+
+    Once the updated rings have been deployed to all servers you need to run
+    the swift-object-relinker tool to cleanup old data.
+
+    *****************************
+    USE THIS WITH EXTREME CAUTION
+    *****************************
+
+    If you increase the partition power and deploy changed rings, you may
+    introduce unavailability in your cluster. This has an end-user impact. Make
+    sure you execute required operations to increase the partition power
+    accurately.
+
+    """
+        if len(argv) < 3:
+            print(Commands.increase_partition_power.__doc__.strip())
+            exit(EXIT_ERROR)
+
+        if builder.increase_partition_power():
+            print('The partition power is now %d.' % builder.part_power)
+            print('The change will take effect after the next write_ring.')
+
+            builder._update_last_part_moves()
+            builder.save(builder_file)
+
+            exit(EXIT_SUCCESS)
+        else:
+            print('Ring partition power cannot be increased. Either the ring')
+            print('was not prepared yet, or this operation has already run.')
+            exit(EXIT_ERROR)
+
+    @staticmethod
+    def cancel_increase_partition_power():
+        """
+swift-ring-builder <builder_file> cancel_increase_partition_power
+    Cancel the increase of the partition power.
+
+    A write_ring command is needed to make the change take effect.
+
+    Once the updated rings have been deployed to all servers you need to run
+    the swift-object-relinker tool to cleanup unneeded links.
+
+    *****************************
+    USE THIS WITH EXTREME CAUTION
+    *****************************
+
+    If you increase the partition power and deploy changed rings, you may
+    introduce unavailability in your cluster. This has an end-user impact. Make
+    sure you execute required operations to increase the partition power
+    accurately.
+
+    """
+        if len(argv) < 3:
+            print(Commands.cancel_increase_partition_power.__doc__.strip())
+            exit(EXIT_ERROR)
+
+        if not builder.cancel_increase_partition_power():
+            print('Ring partition power increase cannot be canceled.')
+            exit(EXIT_ERROR)
+
+        builder.save(builder_file)
+
+        print('The next partition power is now %d.' % builder.next_part_power)
+        print('The change will take effect after the next write_ring.')
+        print('Ensure your object-servers are using the changed rings and')
+        print('cleanup (using swift-object-relinker) the hard links')
+        exit(EXIT_SUCCESS)
+
+    @staticmethod
+    def finish_increase_partition_power():
+        """
+swift-ring-builder <builder_file> finish_increase_partition_power
+    Finally removes the next_part_power flag. Has to be run after the
+    swift-object-relinker tool has been used to cleanup old existing data.
+
+    A write_ring command is needed to make the change take effect.
+
+    *****************************
+    USE THIS WITH EXTREME CAUTION
+    *****************************
+
+    If you increase the partition power and deploy changed rings, you may
+    introduce unavailability in your cluster. This has an end-user impact. Make
+    sure you execute required operations to increase the partition power
+    accurately.
+
+    """
+        if len(argv) < 3:
+            print(Commands.finish_increase_partition_power.__doc__.strip())
+            exit(EXIT_ERROR)
+
+        if not builder.finish_increase_partition_power():
+            print('Ring partition power increase cannot be finished.')
+            exit(EXIT_ERROR)
+
+        print('The change will take effect after the next write_ring.')
+        builder.save(builder_file)
+
+        exit(EXIT_SUCCESS)
 
 
 def main(arguments=None):

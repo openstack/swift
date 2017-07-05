@@ -28,6 +28,7 @@ import uuid
 import xattr
 import re
 import six
+import struct
 from collections import defaultdict
 from random import shuffle, randint
 from shutil import rmtree
@@ -3839,16 +3840,25 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 DiskFileNoSpace,
                 diskfile.write_metadata, 'n/a', metadata)
 
-    def _create_diskfile_dir(self, timestamp, policy, legacy_durable=False):
+    def _create_diskfile_dir(self, timestamp, policy, legacy_durable=False,
+                             partition=0, next_part_power=None,
+                             expect_error=False):
         timestamp = Timestamp(timestamp)
         df = self._simple_get_diskfile(account='a', container='c',
                                        obj='o_%s' % policy,
-                                       policy=policy)
+                                       policy=policy,
+                                       partition=partition,
+                                       next_part_power=next_part_power)
         frag_index = None
         if policy.policy_type == EC_POLICY:
             frag_index = df._frag_index or 7
-        write_diskfile(df, timestamp, frag_index=frag_index,
-                       legacy_durable=legacy_durable)
+        if expect_error:
+            with self.assertRaises(Exception):
+                write_diskfile(df, timestamp, frag_index=frag_index,
+                               legacy_durable=legacy_durable)
+        else:
+            write_diskfile(df, timestamp, frag_index=frag_index,
+                           legacy_durable=legacy_durable)
         return df._datadir
 
     def test_commit(self):
@@ -3892,7 +3902,77 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         for policy in POLICIES:
             self._do_test_write_cleanup(policy, legacy_durable=True)
 
-    def test_commit_no_extra_fsync(self):
+    @mock.patch("swift.obj.diskfile.BaseDiskFileManager.cleanup_ondisk_files")
+    def test_write_cleanup_part_power_increase(self, mock_cleanup):
+        # Without next_part_power set we expect only one cleanup per DiskFile
+        # and no linking
+        for policy in POLICIES:
+            timestamp = Timestamp(time()).internal
+            df_dir = self._create_diskfile_dir(timestamp, policy)
+            self.assertEqual(1, mock_cleanup.call_count)
+            mock_cleanup.assert_called_once_with(df_dir)
+            mock_cleanup.reset_mock()
+
+        # With next_part_power set to part_power + 1 we expect two cleanups per
+        # DiskFile: first cleanup the current directory, but also cleanup the
+        # future directory where hardlinks are created
+        for policy in POLICIES:
+            timestamp = Timestamp(time()).internal
+            df_dir = self._create_diskfile_dir(
+                timestamp, policy, next_part_power=11)
+
+            self.assertEqual(2, mock_cleanup.call_count)
+            mock_cleanup.assert_any_call(df_dir)
+
+            # Make sure the translated path is also cleaned up
+            expected_fname = utils.replace_partition_in_path(
+                os.path.join(df_dir, "dummy"), 11)
+            expected_dir = os.path.dirname(expected_fname)
+            mock_cleanup.assert_any_call(expected_dir)
+
+            mock_cleanup.reset_mock()
+
+        # With next_part_power set to part_power we expect two cleanups per
+        # DiskFile: first cleanup the current directory, but also cleanup the
+        # previous old directory
+        for policy in POLICIES:
+            digest = utils.hash_path(
+                'a', 'c', 'o_%s' % policy, raw_digest=True)
+            partition = struct.unpack_from('>I', digest)[0] >> (32 - 10)
+            timestamp = Timestamp(time()).internal
+            df_dir = self._create_diskfile_dir(
+                timestamp, policy, partition=partition, next_part_power=10)
+
+            self.assertEqual(2, mock_cleanup.call_count)
+            mock_cleanup.assert_any_call(df_dir)
+
+            # Make sure the path using the old part power is also cleaned up
+            expected_fname = utils.replace_partition_in_path(
+                os.path.join(df_dir, "dummy"), 9)
+            expected_dir = os.path.dirname(expected_fname)
+            mock_cleanup.assert_any_call(expected_dir)
+
+            mock_cleanup.reset_mock()
+
+    @mock.patch.object(diskfile.BaseDiskFileManager, 'cleanup_ondisk_files',
+                       side_effect=Exception)
+    def test_killed_before_cleanup(self, mock_cleanup):
+        for policy in POLICIES:
+            timestamp = Timestamp(time()).internal
+            digest = utils.hash_path(
+                'a', 'c', 'o_%s' % policy, raw_digest=True)
+            partition = struct.unpack_from('>I', digest)[0] >> (32 - 10)
+            df_dir = self._create_diskfile_dir(timestamp, policy,
+                                               partition=partition,
+                                               next_part_power=11,
+                                               expect_error=True)
+            expected_fname = utils.replace_partition_in_path(
+                os.path.join(df_dir, "dummy"), 11)
+            expected_dir = os.path.dirname(expected_fname)
+
+            self.assertEqual(os.listdir(df_dir), os.listdir(expected_dir))
+
+    def test_commit_fsync(self):
         for policy in POLICIES:
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o', policy=policy)

@@ -234,6 +234,9 @@ class BaseObjectController(Controller):
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        next_part_power = getattr(obj_ring, 'next_part_power', None)
+        if next_part_power:
+            req.headers['X-Backend-Next-Part-Power'] = next_part_power
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
@@ -642,6 +645,9 @@ class BaseObjectController(Controller):
 
         # pass the policy index to storage nodes via req header
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        next_part_power = getattr(obj_ring, 'next_part_power', None)
+        if next_part_power:
+            req.headers['X-Backend-Next-Part-Power'] = next_part_power
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
 
@@ -700,6 +706,9 @@ class BaseObjectController(Controller):
         obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
+        next_part_power = getattr(obj_ring, 'next_part_power', None)
+        if next_part_power:
+            req.headers['X-Backend-Next-Part-Power'] = next_part_power
         container_partition = container_info['partition']
         container_nodes = container_info['nodes']
         req.acl = container_info['write_acl']

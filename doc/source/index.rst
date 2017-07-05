@@ -62,6 +62,7 @@ Overview and Concepts
     overview_encryption
     overview_backing_store
     ring_background
+    ring_partpower
     associated_projects
 
 Developer Documentation

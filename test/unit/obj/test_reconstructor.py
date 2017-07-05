@@ -65,7 +65,26 @@ def mock_ssync_sender(ssync_calls=None, response_callback=None, **kwargs):
         yield fake_ssync
 
 
-def _create_test_rings(path):
+def make_ec_archive_bodies(policy, test_body):
+    segment_size = policy.ec_segment_size
+    # split up the body into buffers
+    chunks = [test_body[x:x + segment_size]
+              for x in range(0, len(test_body), segment_size)]
+    # encode the buffers into fragment payloads
+    fragment_payloads = []
+    for chunk in chunks:
+        fragments = \
+            policy.pyeclib_driver.encode(chunk) * policy.ec_duplication_factor
+        if not fragments:
+            break
+        fragment_payloads.append(fragments)
+
+    # join up the fragment payloads per node
+    ec_archive_bodies = [''.join(frags) for frags in zip(*fragment_payloads)]
+    return ec_archive_bodies
+
+
+def _create_test_rings(path, next_part_power=None):
     testgz = os.path.join(path, 'object.ring.gz')
     intended_replica2part2dev_id = [
         [0, 1, 2],
@@ -87,14 +106,16 @@ def _create_test_rings(path):
     with closing(GzipFile(testgz, 'wb')) as f:
         pickle.dump(
             ring.RingData(intended_replica2part2dev_id,
-                          intended_devs, intended_part_shift),
+                          intended_devs, intended_part_shift,
+                          next_part_power),
             f)
 
     testgz = os.path.join(path, 'object-1.ring.gz')
     with closing(GzipFile(testgz, 'wb')) as f:
         pickle.dump(
             ring.RingData(intended_replica2part2dev_id,
-                          intended_devs, intended_part_shift),
+                          intended_devs, intended_part_shift,
+                          next_part_power),
             f)
 
 
@@ -1217,6 +1238,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual(self.reconstructor.suffix_sync, 0)
         self.assertEqual(self.reconstructor.suffix_count, 0)
         self.assertEqual(len(found_jobs), 6)
+
+    def test_reconstructor_skipped_partpower_increase(self):
+        self.reconstructor._reset_stats()
+        _create_test_rings(self.testdir, 10)
+        # Enforce re-reading the EC ring
+        POLICIES[1].object_ring = ring.Ring(self.testdir, ring_name='object-1')
+
+        self.reconstructor.reconstruct()
+
+        self.assertEqual(0, self.reconstructor.reconstruction_count)
+        warnings = self.reconstructor.logger.get_lines_for_level('warning')
+        self.assertIn(
+            "next_part_power set in policy 'one'. Skipping", warnings)
 
 
 class TestGlobalSetupObjectReconstructorLegacyDurable(

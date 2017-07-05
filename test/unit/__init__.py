@@ -300,8 +300,7 @@ class FabricatedRing(Ring):
         self.nodes = nodes
         self.port = port
         self.replicas = replicas
-        self.part_power = part_power
-        self._part_shift = 32 - self.part_power
+        self._part_shift = 32 - part_power
         self._reload()
 
     def _reload(self, *args, **kwargs):

@@ -2604,6 +2604,40 @@ class TestRingBuilder(unittest.TestCase):
         except exceptions.DuplicateDeviceError:
             self.fail("device hole not reused")
 
+    def test_prepare_increase_partition_power(self):
+        ring_file = os.path.join(self.testdir, 'test_partpower.ring.gz')
+
+        rb = ring.RingBuilder(8, 3.0, 1)
+        self.assertEqual(rb.part_power, 8)
+
+        # add more devices than replicas to the ring
+        for i in range(10):
+            dev = "sdx%s" % i
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 1,
+                        'ip': '127.0.0.1', 'port': 10000, 'device': dev})
+        rb.rebalance(seed=1)
+
+        self.assertFalse(rb.cancel_increase_partition_power())
+        self.assertEqual(rb.part_power, 8)
+        self.assertIsNone(rb.next_part_power)
+
+        self.assertFalse(rb.finish_increase_partition_power())
+        self.assertEqual(rb.part_power, 8)
+        self.assertIsNone(rb.next_part_power)
+
+        self.assertTrue(rb.prepare_increase_partition_power())
+        self.assertEqual(rb.part_power, 8)
+        self.assertEqual(rb.next_part_power, 9)
+
+        # Save .ring.gz, and load ring from it to ensure prev/next is set
+        rd = rb.get_ring()
+        rd.save(ring_file)
+
+        r = ring.Ring(ring_file)
+        expected_part_shift = 32 - 8
+        self.assertEqual(expected_part_shift, r._part_shift)
+        self.assertEqual(9, r.next_part_power)
+
     def test_increase_partition_power(self):
         rb = ring.RingBuilder(8, 3.0, 1)
         self.assertEqual(rb.part_power, 8)
@@ -2623,12 +2657,17 @@ class TestRingBuilder(unittest.TestCase):
         old_part, old_nodes = r.get_nodes("acc", "cont", "obj")
         old_version = rb.version
 
-        rb.increase_partition_power()
+        self.assertTrue(rb.prepare_increase_partition_power())
+        self.assertTrue(rb.increase_partition_power())
         rb.validate()
         changed_parts, _balance, removed_devs = rb.rebalance()
 
         self.assertEqual(changed_parts, 0)
         self.assertEqual(removed_devs, 0)
+
+        # Make sure cancellation is not possible
+        # after increasing the partition power
+        self.assertFalse(rb.cancel_increase_partition_power())
 
         old_ring = r
         rd = rb.get_ring()
@@ -2637,8 +2676,9 @@ class TestRingBuilder(unittest.TestCase):
         new_part, new_nodes = r.get_nodes("acc", "cont", "obj")
 
         # sanity checks
-        self.assertEqual(rb.part_power, 9)
-        self.assertEqual(rb.version, old_version + 2)
+        self.assertEqual(9, rb.part_power)
+        self.assertEqual(9, rb.next_part_power)
+        self.assertEqual(rb.version, old_version + 3)
 
         # make sure there is always the same device assigned to every pair of
         # partitions
@@ -2669,6 +2709,107 @@ class TestRingBuilder(unittest.TestCase):
             # Importantly, we expect the objects to be placed on the same
             # nodes after increasing the partition power
             self.assertEqual(old_nodes, new_nodes)
+
+    def test_finalize_increase_partition_power(self):
+        ring_file = os.path.join(self.testdir, 'test_partpower.ring.gz')
+
+        rb = ring.RingBuilder(8, 3.0, 1)
+        self.assertEqual(rb.part_power, 8)
+
+        # add more devices than replicas to the ring
+        for i in range(10):
+            dev = "sdx%s" % i
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 1,
+                        'ip': '127.0.0.1', 'port': 10000, 'device': dev})
+        rb.rebalance(seed=1)
+
+        self.assertTrue(rb.prepare_increase_partition_power())
+
+        # Make sure this doesn't do any harm before actually increasing the
+        # partition power
+        self.assertFalse(rb.finish_increase_partition_power())
+        self.assertEqual(rb.next_part_power, 9)
+
+        self.assertTrue(rb.increase_partition_power())
+
+        self.assertFalse(rb.prepare_increase_partition_power())
+        self.assertEqual(rb.part_power, 9)
+        self.assertEqual(rb.next_part_power, 9)
+
+        self.assertTrue(rb.finish_increase_partition_power())
+
+        self.assertEqual(rb.part_power, 9)
+        self.assertIsNone(rb.next_part_power)
+
+        # Save .ring.gz, and load ring from it to ensure prev/next is set
+        rd = rb.get_ring()
+        rd.save(ring_file)
+
+        r = ring.Ring(ring_file)
+        expected_part_shift = 32 - 9
+        self.assertEqual(expected_part_shift, r._part_shift)
+        self.assertIsNone(r.next_part_power)
+
+    def test_prepare_increase_partition_power_failed(self):
+        rb = ring.RingBuilder(8, 3.0, 1)
+        self.assertEqual(rb.part_power, 8)
+
+        self.assertTrue(rb.prepare_increase_partition_power())
+        self.assertEqual(rb.next_part_power, 9)
+
+        # next_part_power is still set, do not increase again
+        self.assertFalse(rb.prepare_increase_partition_power())
+        self.assertEqual(rb.next_part_power, 9)
+
+    def test_increase_partition_power_failed(self):
+        rb = ring.RingBuilder(8, 3.0, 1)
+        self.assertEqual(rb.part_power, 8)
+
+        # add more devices than replicas to the ring
+        for i in range(10):
+            dev = "sdx%s" % i
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 1,
+                        'ip': '127.0.0.1', 'port': 10000, 'device': dev})
+        rb.rebalance(seed=1)
+
+        # next_part_power not set, can't increase the part power
+        self.assertFalse(rb.increase_partition_power())
+        self.assertEqual(rb.part_power, 8)
+
+        self.assertTrue(rb.prepare_increase_partition_power())
+
+        self.assertTrue(rb.increase_partition_power())
+        self.assertEqual(rb.part_power, 9)
+
+        # part_power already increased
+        self.assertFalse(rb.increase_partition_power())
+        self.assertEqual(rb.part_power, 9)
+
+    def test_cancel_increase_partition_power(self):
+        rb = ring.RingBuilder(8, 3.0, 1)
+        self.assertEqual(rb.part_power, 8)
+
+        # add more devices than replicas to the ring
+        for i in range(10):
+            dev = "sdx%s" % i
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 1,
+                        'ip': '127.0.0.1', 'port': 10000, 'device': dev})
+        rb.rebalance(seed=1)
+
+        old_version = rb.version
+        self.assertTrue(rb.prepare_increase_partition_power())
+
+        # sanity checks
+        self.assertEqual(8, rb.part_power)
+        self.assertEqual(9, rb.next_part_power)
+        self.assertEqual(rb.version, old_version + 1)
+
+        self.assertTrue(rb.cancel_increase_partition_power())
+        rb.validate()
+
+        self.assertEqual(8, rb.part_power)
+        self.assertEqual(8, rb.next_part_power)
+        self.assertEqual(rb.version, old_version + 2)
 
 
 class TestGetRequiredOverload(unittest.TestCase):
