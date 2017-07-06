@@ -8,9 +8,8 @@ coverage>=3.6 # Apache-2.0
 nose # LGPL
 nosexcover # BSD
 nosehtmloutput>=0.0.3 # Apache-2.0
-openstackdocstheme>=1.5.0 # Apache-2.0
-oslosphinx>=4.7.0 # Apache-2.0
-sphinx>=1.5.1  # BSD
+sphinx>=1.6.2 # BSD
+openstackdocstheme>=1.11.0 # Apache-2.0
 os-api-ref>=1.0.0 # Apache-2.0
 os-testr>=0.8.0 # Apache-2.0
 mock>=2.0 # BSD
