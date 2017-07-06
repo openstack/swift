@@ -93,6 +93,7 @@ Administrator Documentation
     replication_network
     logs
     ops_runbook/index
+    admin/index
 
 Object Storage v1 REST API Documentation
 ========================================
