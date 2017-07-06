@@ -1366,16 +1366,19 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         read_affinity = r1=100
         write_affinity = r1
         write_affinity_node_count = 1 * replicas
+        write_affinity_handoff_delete_count = 4
         """
         expected_default = {"read_affinity": "",
                             "sorting_method": "shuffle",
                             "write_affinity": "",
-                            "write_affinity_node_count_fn": 6}
+                            "write_affinity_node_count_fn": 6,
+                            "write_affinity_handoff_delete_count": None}
         exp_options = {None: expected_default,
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r1",
-                                     "write_affinity_node_count_fn": 3},
+                                     "write_affinity_node_count_fn": 3,
+                                     "write_affinity_handoff_delete_count": 4},
                        POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
@@ -1387,7 +1390,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertEqual(
             "ProxyOverrideOptions({}, {'sorting_method': 'shuffle', "
             "'read_affinity': '', 'write_affinity': '', "
-            "'write_affinity_node_count': '2 * replicas'})",
+            "'write_affinity_node_count': '2 * replicas', "
+            "'write_affinity_handoff_delete_count': None})",
             repr(default_options))
         self.assertEqual(default_options, eval(repr(default_options), {
             'ProxyOverrideOptions': default_options.__class__}))
@@ -1396,7 +1400,8 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         self.assertEqual(
             "ProxyOverrideOptions({}, {'sorting_method': 'affinity', "
             "'read_affinity': 'r1=100', 'write_affinity': 'r1', "
-            "'write_affinity_node_count': '1 * replicas'})",
+            "'write_affinity_node_count': '1 * replicas', "
+            "'write_affinity_handoff_delete_count': 4})",
             repr(policy_0_options))
         self.assertEqual(policy_0_options, eval(repr(policy_0_options), {
             'ProxyOverrideOptions': policy_0_options.__class__}))
@@ -1411,6 +1416,7 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         use = egg:swift#proxy
         sorting_method = affinity
         write_affinity_node_count = 1 * replicas
+        write_affinity_handoff_delete_count = 3
 
         [proxy-server:policy:0]
         read_affinity = r1=100
@@ -1419,12 +1425,14 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         expected_default = {"read_affinity": "",
                             "sorting_method": "affinity",
                             "write_affinity": "",
-                            "write_affinity_node_count_fn": 3}
+                            "write_affinity_node_count_fn": 3,
+                            "write_affinity_handoff_delete_count": 3}
         exp_options = {None: expected_default,
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r1",
-                                     "write_affinity_node_count_fn": 3},
+                                     "write_affinity_node_count_fn": 3,
+                                     "write_affinity_handoff_delete_count": 3},
                        POLICIES[1]: expected_default}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
@@ -1440,29 +1448,35 @@ class TestProxyServerConfigLoading(unittest.TestCase):
         read_affinity = r2=10
         write_affinity_node_count = 1 * replicas
         write_affinity = r2
+        write_affinity_handoff_delete_count = 2
 
         [proxy-server:policy:0]
         read_affinity = r1=100
         write_affinity = r1
         write_affinity_node_count = 5
+        write_affinity_handoff_delete_count = 3
 
         [proxy-server:policy:1]
         read_affinity = r1=1
         write_affinity = r3
         write_affinity_node_count = 4
+        write_affinity_handoff_delete_count = 4
         """
         exp_options = {None: {"read_affinity": "r2=10",
                               "sorting_method": "affinity",
                               "write_affinity": "r2",
-                              "write_affinity_node_count_fn": 3},
+                              "write_affinity_node_count_fn": 3,
+                              "write_affinity_handoff_delete_count": 2},
                        POLICIES[0]: {"read_affinity": "r1=100",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r1",
-                                     "write_affinity_node_count_fn": 5},
+                                     "write_affinity_node_count_fn": 5,
+                                     "write_affinity_handoff_delete_count": 3},
                        POLICIES[1]: {"read_affinity": "r1=1",
                                      "sorting_method": "affinity",
                                      "write_affinity": "r3",
-                                     "write_affinity_node_count_fn": 4}}
+                                     "write_affinity_node_count_fn": 4,
+                                     "write_affinity_handoff_delete_count": 4}}
         exp_is_local = {POLICIES[0]: [({'region': 1, 'zone': 2}, True),
                                       ({'region': 2, 'zone': 1}, False)],
                         POLICIES[1]: [({'region': 3, 'zone': 2}, True),
@@ -1533,18 +1547,21 @@ class TestProxyServerConfigLoading(unittest.TestCase):
             None: {"read_affinity": "r1=100",
                    "sorting_method": "shuffle",
                    "write_affinity": "r0",
-                   "write_affinity_node_count_fn": 6},
+                   "write_affinity_node_count_fn": 6,
+                   "write_affinity_handoff_delete_count": None},
             # policy 0 read affinity is r2, dictated by policy 0 section
             POLICIES[0]: {"read_affinity": "r2=100",
                           "sorting_method": "affinity",
                           "write_affinity": "r2",
-                          "write_affinity_node_count_fn": 6},
+                          "write_affinity_node_count_fn": 6,
+                          "write_affinity_handoff_delete_count": None},
             # policy 1 read_affinity is r0, dictated by DEFAULT section,
             # overrides proxy server section
             POLICIES[1]: {"read_affinity": "r0=100",
                           "sorting_method": "affinity",
                           "write_affinity": "r0",
-                          "write_affinity_node_count_fn": 6}}
+                          "write_affinity_node_count_fn": 6,
+                          "write_affinity_handoff_delete_count": None}}
         exp_is_local = {
             # default write_affinity is r0, dictated by DEFAULT section
             None: [({'region': 0, 'zone': 2}, True),

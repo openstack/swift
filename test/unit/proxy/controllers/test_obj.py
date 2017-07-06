@@ -279,6 +279,86 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(len(all_nodes), len(local_first_nodes))
         self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
 
+    def test_iter_nodes_local_handoff_first_noops_when_no_affinity(self):
+        # this test needs a stable node order - most don't
+        self.app.sort_nodes = lambda l, *args, **kwargs: l
+        controller = self.controller_cls(
+            self.app, 'a', 'c', 'o')
+        policy = self.policy
+        self.app.get_policy_options(policy).write_affinity_is_local_fn = None
+        object_ring = policy.object_ring
+        all_nodes = object_ring.get_part_nodes(1)
+        all_nodes.extend(object_ring.get_more_nodes(1))
+
+        local_first_nodes = list(controller.iter_nodes_local_first(
+            object_ring, 1, local_handoffs_first=True))
+
+        self.maxDiff = None
+
+        self.assertEqual(all_nodes, local_first_nodes)
+
+    def test_iter_nodes_handoff_local_first_default(self):
+        controller = self.controller_cls(
+            self.app, 'a', 'c', 'o')
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
+
+        object_ring = self.policy.object_ring
+        primary_nodes = object_ring.get_part_nodes(1)
+        handoff_nodes_iter = object_ring.get_more_nodes(1)
+        all_nodes = primary_nodes + list(handoff_nodes_iter)
+        handoff_nodes_iter = object_ring.get_more_nodes(1)
+        local_handoffs = [n for n in handoff_nodes_iter if
+                          policy_conf.write_affinity_is_local_fn(n)]
+
+        prefered_nodes = list(controller.iter_nodes_local_first(
+            object_ring, 1, local_handoffs_first=True))
+
+        self.assertEqual(len(all_nodes), self.replicas() +
+                         POLICIES.default.object_ring.max_more_nodes)
+
+        first_primary_nodes = prefered_nodes[:len(primary_nodes)]
+        self.assertEqual(sorted(primary_nodes), sorted(first_primary_nodes))
+
+        handoff_count = self.replicas() - len(primary_nodes)
+        first_handoffs = prefered_nodes[len(primary_nodes):][:handoff_count]
+        self.assertEqual(first_handoffs, local_handoffs[:handoff_count])
+
+    def test_iter_nodes_handoff_local_first_non_default(self):
+        # Obviously this test doesn't work if we're testing 1 replica.
+        # In that case, we don't have any failovers to check.
+        if self.replicas() == 1:
+            return
+
+        controller = self.controller_cls(
+            self.app, 'a', 'c', 'o')
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
+        policy_conf.write_affinity_handoff_delete_count = 1
+
+        object_ring = self.policy.object_ring
+        primary_nodes = object_ring.get_part_nodes(1)
+        handoff_nodes_iter = object_ring.get_more_nodes(1)
+        all_nodes = primary_nodes + list(handoff_nodes_iter)
+        handoff_nodes_iter = object_ring.get_more_nodes(1)
+        local_handoffs = [n for n in handoff_nodes_iter if
+                          policy_conf.write_affinity_is_local_fn(n)]
+
+        prefered_nodes = list(controller.iter_nodes_local_first(
+            object_ring, 1, local_handoffs_first=True))
+
+        self.assertEqual(len(all_nodes), self.replicas() +
+                         POLICIES.default.object_ring.max_more_nodes)
+
+        first_primary_nodes = prefered_nodes[:len(primary_nodes)]
+        self.assertEqual(sorted(primary_nodes), sorted(first_primary_nodes))
+
+        handoff_count = policy_conf.write_affinity_handoff_delete_count
+        first_handoffs = prefered_nodes[len(primary_nodes):][:handoff_count]
+        self.assertEqual(first_handoffs, local_handoffs[:handoff_count])
+
     def test_connect_put_node_timeout(self):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
@@ -367,6 +447,36 @@ class BaseObjectControllerMixin(object):
         codes = [204] * self.replicas()
         with set_http_connect(507, *codes):
             resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 204)
+
+    def test_DELETE_write_affinity_before_replication(self):
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_handoff_delete_count = self.replicas() / 2
+        policy_conf.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
+        handoff_count = policy_conf.write_affinity_handoff_delete_count
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        codes = [204] * self.replicas() + [404] * handoff_count
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 204)
+
+    def test_DELETE_write_affinity_after_replication(self):
+        policy_conf = self.app.get_policy_options(self.policy)
+        policy_conf.write_affinity_handoff_delete_count = self.replicas() / 2
+        policy_conf.write_affinity_is_local_fn = (
+            lambda node: node['region'] == 1)
+        handoff_count = policy_conf.write_affinity_handoff_delete_count
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        codes = ([204] * (self.replicas() - handoff_count) +
+                 [404] * handoff_count +
+                 [204] * handoff_count)
+        with set_http_connect(*codes):
+            resp = req.get_response(self.app)
+
         self.assertEqual(resp.status_int, 204)
 
     def test_POST_non_int_delete_after(self):

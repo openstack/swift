@@ -82,9 +82,9 @@ Note that read_affinity only affects the ordering of primary nodes
 (see ring docs for definition of primary node), not the ordering of
 handoff nodes.
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-write_affinity and write_affinity_node_count
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~
+write_affinity
+~~~~~~~~~~~~~~
 
 This setting makes the proxy server prefer local backend servers for
 object PUT requests over non-local ones. For example, it may be
@@ -97,9 +97,15 @@ the object won't immediately have any replicas in NY. However,
 replication will move the object's replicas to their proper homes in
 both SF and NY.
 
-Note that only object PUT requests are affected by the write_affinity
-setting; POST, GET, HEAD, DELETE, OPTIONS, and account/container PUT
-requests are not affected.
+One potential issue with write_affinity is, end user may get 404 error when
+deleting objects before replication. The write_affinity_handoff_delete_count
+setting is used together with write_affinity in order to solve that issue.
+With its default configuration, Swift will calculate the proper number of
+handoff nodes to send requests to.
+
+Note that only object PUT/DELETE requests are affected by the write_affinity
+setting; POST, GET, HEAD, OPTIONS, and account/container PUT requests are
+not affected.
 
 This setting lets you trade data distribution for throughput. If
 write_affinity is enabled, then object replicas will initially be

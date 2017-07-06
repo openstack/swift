@@ -35,7 +35,7 @@ from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
-    register_swift_info, readconf
+    register_swift_info, readconf, config_auto_int_value
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
@@ -130,13 +130,18 @@ class ProxyOverrideOptions(object):
                 'Invalid write_affinity_node_count value: %r' %
                 (' '.join(value)))
 
+        self.write_affinity_handoff_delete_count = config_auto_int_value(
+            get('write_affinity_handoff_delete_count', 'auto'), None
+        )
+
     def __repr__(self):
         return '%s({}, {%s})' % (self.__class__.__name__, ', '.join(
             '%r: %r' % (k, getattr(self, k)) for k in (
                 'sorting_method',
                 'read_affinity',
                 'write_affinity',
-                'write_affinity_node_count')))
+                'write_affinity_node_count',
+                'write_affinity_handoff_delete_count')))
 
     def __eq__(self, other):
         if not isinstance(other, ProxyOverrideOptions):
@@ -145,7 +150,8 @@ class ProxyOverrideOptions(object):
             'sorting_method',
             'read_affinity',
             'write_affinity',
-            'write_affinity_node_count'))
+            'write_affinity_node_count',
+            'write_affinity_handoff_delete_count'))
 
 
 class Application(object):
