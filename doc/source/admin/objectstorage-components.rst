@@ -39,13 +39,13 @@ Proxy servers
 Proxy servers are the public face of Object Storage and handle all of
 the incoming API requests. Once a proxy server receives a request, it
 determines the storage node based on the object's URL, for example:
-https://swift.example.com/v1/account/container/object. Proxy servers
+``https://swift.example.com/v1/account/container/object``. Proxy servers
 also coordinate responses, handle failures, and coordinate timestamps.
 
 Proxy servers use a shared-nothing architecture and can be scaled as
 needed based on projected workloads. A minimum of two proxy servers
-should be deployed for redundancy. If one proxy server fails, the others
-take over.
+should be deployed behind a separately-managed load balancer. If one
+proxy server fails, the others take over.
 
 For more information concerning proxy server configuration, see
 `Configuration Reference
@@ -54,23 +54,24 @@ For more information concerning proxy server configuration, see
 Rings
 -----
 
-A ring represents a mapping between the names of entities stored on disks
-and their physical locations. There are separate rings for accounts,
-containers, and objects. When other components need to perform any
-operation on an object, container, or account, they need to interact
-with the appropriate ring to determine their location in the cluster.
+A ring represents a mapping between the names of entities stored in the
+cluster and their physical locations on disks. There are separate rings
+for accounts, containers, and objects. When components of the system need
+to perform an operation on an object, container, or account, they need to
+interact with the corresponding ring to determine the appropriate location
+in the cluster.
 
 The ring maintains this mapping using zones, devices, partitions, and
 replicas. Each partition in the ring is replicated, by default, three
 times across the cluster, and partition locations are stored in the
 mapping maintained by the ring. The ring is also responsible for
-determining which devices are used for handoff in failure scenarios.
+determining which devices are used as handoffs in failure scenarios.
 
-Data can be isolated into zones in the ring. Each partition replica is
-guaranteed to reside in a different zone. A zone could represent a
+Data can be isolated into zones in the ring. Each partition replica
+will try to reside in a different zone. A zone could represent a
 drive, a server, a cabinet, a switch, or even a data center.
 
-The partitions of the ring are equally divided among all of the devices
+The partitions of the ring are distributed among all of the devices
 in the Object Storage installation. When partitions need to be moved
 around (for example, if a device is added to the cluster), the ring
 ensures that a minimum number of partitions are moved at a time, and
@@ -104,7 +105,7 @@ working with each item separately or the entire cluster all at once.
 
 Another configurable value is the replica count, which indicates how
 many of the partition-device assignments make up a single ring. For a
-given partition number, each replica's device will not be in the same
+given partition index, each replica's device will not be in the same
 zone as any other replica's device. Zones can be used to group devices
 based on physical locations, power separations, network separations, or
 any other attribute that would improve the availability of multiple
@@ -167,7 +168,7 @@ System replicators and object uploads/downloads operate on partitions.
 As the system scales up, its behavior continues to be predictable
 because the number of partitions is a fixed number.
 
-Implementing a partition is conceptually simple, a partition is just a
+Implementing a partition is conceptually simple: a partition is just a
 directory sitting on a disk with a corresponding hash table of what it
 contains.
 
@@ -189,19 +190,19 @@ the other zones to see if there are any differences.
 
 The replicator knows if replication needs to take place by examining
 hashes. A hash file is created for each partition, which contains hashes
-of each directory in the partition. Each of the three hash files is
-compared. For a given partition, the hash files for each of the
-partition's copies are compared. If the hashes are different, then it is
-time to replicate, and the directory that needs to be replicated is
-copied over.
+of each directory in the partition. For a given partition, the hash files
+for each of the partition's copies are compared. If the hashes are
+different, then it is time to replicate, and the directory that needs to
+be replicated is copied over.
 
 This is where partitions come in handy. With fewer things in the system,
 larger chunks of data are transferred around (rather than lots of little
 TCP connections, which is inefficient) and there is a consistent number
 of hashes to compare.
 
-The cluster eventually has a consistent behavior where the newest data
-has a priority.
+The cluster has an eventually-consistent behavior where old data may be
+served from partitions that missed updates, but replication will cause
+all partitions to converge toward the newest data.
 
 
 .. _objectstorage-replication-figure:
@@ -252,7 +253,7 @@ Download
 ~~~~~~~~
 
 A request comes in for an account/container/object. Using the same
-consistent hashing, the partition name is generated. A lookup in the
+consistent hashing, the partition index is determined. A lookup in the
 ring reveals which storage nodes contain that partition. A request is
 made to one of the storage nodes to fetch the object and, if that fails,
 requests are made to the other nodes.

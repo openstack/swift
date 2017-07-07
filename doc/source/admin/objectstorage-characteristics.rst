@@ -6,8 +6,12 @@ The key characteristics of Object Storage are that:
 
 -  All objects stored in Object Storage have a URL.
 
--  All objects stored are replicated 3✕ in as-unique-as-possible zones,
-   which can be defined as a group of drives, a node, a rack, and so on.
+-  "Storage Policies" may be used to define different levels of durability
+   for objects stored in the cluster. These policies support not only
+   complete replicas but also erasure-coded fragments.
+
+-  All replicas or fragments for an object are stored in as-unique-as-possible
+   zones to increase durability and availability.
 
 -  All objects have their own metadata.
 

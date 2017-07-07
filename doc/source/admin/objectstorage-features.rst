@@ -50,14 +50,3 @@ Features and benefits
      - Utilize tools that were designed for the popular S3 API.
    * - Restrict containers per account
      - Limit access to control usage by user.
-   * - Support for NetApp, Nexenta, Solidfire
-     - Unified support for block volumes using a variety of storage
-       systems.
-   * - Snapshot and backup API for block volumes.
-     - Data protection and recovery for VM data.
-   * - Standalone volume API available
-     - Separate endpoint and API for integration with other compute
-       systems.
-   * - Integration with Compute
-     -  Fully integrated with Compute for attaching block volumes and
-        reporting on usage.

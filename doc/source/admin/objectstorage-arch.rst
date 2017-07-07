@@ -38,7 +38,7 @@ Typically, the tier consists of a collection of 1U servers. These
 machines use a moderate amount of RAM and are network I/O intensive.
 Since these systems field each incoming API request, you should
 provision them with two high-throughput (10GbE) interfaces - one for the
-incoming ``front-end`` requests and the other for the ``back-end`` access to
+incoming front-end requests and the other for the back-end access to
 the object storage nodes to put and fetch data.
 
 Factors to consider
@@ -59,9 +59,10 @@ amount of storage capacity. Storage nodes use a reasonable amount of
 memory and CPU. Metadata needs to be readily available to return objects
 quickly. The object stores run services not only to field incoming
 requests from the access tier, but to also run replicators, auditors,
-and reapers. You can provision object stores provisioned with single
-gigabit or 10 gigabit network interface depending on the expected
-workload and desired performance.
+and reapers. You can provision storage nodes with single gigabit or
+10 gigabit network interface depending on the expected workload and
+desired performance, although it may be desirable to isolate replication
+traffic with a second interface.
 
 **Object Storage (swift)**
 
