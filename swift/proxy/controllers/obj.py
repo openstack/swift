@@ -142,7 +142,8 @@ class BaseObjectController(Controller):
 
         :param ring: ring to get nodes from
         :param partition: ring partition to yield nodes for
-        :param policy: optional, an instance of :class:`BaseStoragePolicy
+        :param policy: optional, an instance of
+            :class:`~swift.common.storage_policy.BaseStoragePolicy`
         :param local_handoffs_first: optional, if True prefer primaries and
             local handoff nodes first before looking elsewhere.
         """

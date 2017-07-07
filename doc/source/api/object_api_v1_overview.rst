@@ -6,9 +6,7 @@ consistent object/blob store. You create, modify, and get objects and
 metadata by using the Object Storage API, which is implemented as a set
 of Representational State Transfer (REST) web services.
 
-For an introduction to OpenStack Object Storage, see `Object
-Storage <http://docs.openstack.org/admin-guide/objectstorage.html>`
-in the *OpenStack Administrator Guide*.
+For an introduction to OpenStack Object Storage, see the :doc:`/admin/index`.
 
 You use the HTTPS (SSL) protocol to interact with Object Storage, and
 you use standard HTTP calls to perform API operations. You can also use
