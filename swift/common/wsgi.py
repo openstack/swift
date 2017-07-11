@@ -480,7 +480,7 @@ class WorkersStrategy(object):
 
         return 0.5
 
-    def bind_ports(self):
+    def do_bind_ports(self):
         """
         Bind the one listen socket for this strategy and drop privileges
         (since the parent process will never need to bind again).
@@ -731,7 +731,7 @@ class ServersPerPortStrategy(object):
 
         return self.ring_check_interval
 
-    def bind_ports(self):
+    def do_bind_ports(self):
         """
         Bind one listen socket per unique local storage policy ring port.  Then
         do all the work of drop_privileges except the actual dropping of
@@ -906,7 +906,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     capture_stdio(logger)
 
     # Start listening on bind_addr/port
-    error_msg = strategy.bind_ports()
+    error_msg = strategy.do_bind_ports()
     if error_msg:
         logger.error(error_msg)
         print(error_msg)

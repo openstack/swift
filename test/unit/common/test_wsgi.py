@@ -722,8 +722,8 @@ class TestWSGI(unittest.TestCase):
                                           mock_run_server):
         # Make sure the right strategy gets used in a number of different
         # config cases.
-        mock_per_port().bind_ports.return_value = 'stop early'
-        mock_workers().bind_ports.return_value = 'stop early'
+        mock_per_port().do_bind_ports.return_value = 'stop early'
+        mock_workers().do_bind_ports.return_value = 'stop early'
         logger = FakeLogger()
         stub__initrp = [
             {'__file__': 'test', 'workers': 2},  # conf
@@ -745,7 +745,7 @@ class TestWSGI(unittest.TestCase):
                 self.assertEqual([], mock_per_port.mock_calls)
                 self.assertEqual([
                     mock.call(stub__initrp[0], logger),
-                    mock.call().bind_ports(),
+                    mock.call().do_bind_ports(),
                 ], mock_workers.mock_calls)
 
             stub__initrp[0]['servers_per_port'] = 3
@@ -760,7 +760,7 @@ class TestWSGI(unittest.TestCase):
                 self.assertEqual([], mock_per_port.mock_calls)
                 self.assertEqual([
                     mock.call(stub__initrp[0], logger),
-                    mock.call().bind_ports(),
+                    mock.call().do_bind_ports(),
                 ], mock_workers.mock_calls)
 
             mock_per_port.reset_mock()
@@ -772,7 +772,7 @@ class TestWSGI(unittest.TestCase):
             ], logger.get_lines_for_level('error'))
             self.assertEqual([
                 mock.call(stub__initrp[0], logger, servers_per_port=3),
-                mock.call().bind_ports(),
+                mock.call().do_bind_ports(),
             ], mock_per_port.mock_calls)
             self.assertEqual([], mock_workers.mock_calls)
 
@@ -913,7 +913,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         self.assertEqual(15, self.strategy.loop_timeout())
 
     def test_bind_ports(self):
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
 
         self.assertEqual(set((6006, 6007)), self.strategy.bind_ports)
         self.assertEqual([
@@ -940,7 +940,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
 
     def test_bind_ports_ignores_setsid_errors(self):
         self.mock_setsid.side_effect = OSError()
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
 
         self.assertEqual(set((6006, 6007)), self.strategy.bind_ports)
         self.assertEqual([
@@ -969,7 +969,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         self.assertIsNone(self.strategy.no_fork_sock())
 
     def test_new_worker_socks(self):
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
         self.all_bind_ports_for_node.reset_mock()
 
         pid = 88
@@ -1104,7 +1104,7 @@ class TestServersPerPortStrategy(unittest.TestCase):
         ], self.mock_drop_privileges.mock_calls)
 
     def test_shutdown_sockets(self):
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
 
         with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
             self.strategy.shutdown_sockets()
@@ -1144,7 +1144,7 @@ class TestWorkersStrategy(unittest.TestCase):
         self.assertEqual(0.5, self.strategy.loop_timeout())
 
     def test_binding(self):
-        self.assertIsNone(self.strategy.bind_ports())
+        self.assertIsNone(self.strategy.do_bind_ports())
 
         self.assertEqual('abc', self.strategy.sock)
         self.assertEqual([
@@ -1159,20 +1159,20 @@ class TestWorkersStrategy(unittest.TestCase):
         self.assertEqual(
             'bind_port wasn\'t properly set in the config file. '
             'It must be explicitly set to a valid port number.',
-            self.strategy.bind_ports())
+            self.strategy.do_bind_ports())
 
     def test_no_fork_sock(self):
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
         self.assertIsNone(self.strategy.no_fork_sock())
 
         self.conf['workers'] = 0
         self.strategy = wsgi.WorkersStrategy(self.conf, self.logger)
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
 
         self.assertEqual('abc', self.strategy.no_fork_sock())
 
     def test_new_worker_socks(self):
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
         pid = 88
         sock_count = 0
         for s, i in self.strategy.new_worker_socks():
@@ -1217,7 +1217,7 @@ class TestWorkersStrategy(unittest.TestCase):
 
     def test_shutdown_sockets(self):
         self.mock_get_socket.return_value = mock.MagicMock()
-        self.strategy.bind_ports()
+        self.strategy.do_bind_ports()
         with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
             self.strategy.shutdown_sockets()
         self.assertEqual([
