@@ -978,6 +978,12 @@ class ObjectReconstructor(Daemon):
                     if override_partitions and (partition not in
                                                 override_partitions):
                         continue
+                    # N.B. At a primary node in handoffs_only mode may skip to
+                    # sync misplaced (handoff) fragments in the primary
+                    # partition. That may happen while rebalancing several
+                    # times. (e.g. a node holding handoff fragment being a new
+                    # primary) Those fragments will be synced (and revert) once
+                    # handoffs_only mode turned off.
                     if self.handoffs_only and any(
                             local_dev['id'] == n['id']
                             for n in policy.object_ring.get_part_nodes(
