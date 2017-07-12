@@ -9,5 +9,7 @@ for the most up-to-date documentation.
 Current Install Guides
 ----------------------
 
- * `Object Storage installation guide for OpenStack Ocata <https://docs.openstack.org/project-install-guide/object-storage/ocata/>`_
- * `Object Storage installation guide for OpenStack Newton <https://docs.openstack.org/project-install-guide/object-storage/newton/>`_
+* `Object Storage installation guide for OpenStack Ocata
+   <https://docs.openstack.org/project-install-guide/object-storage/ocata/>`__
+* `Object Storage installation guide for OpenStack Newton
+   <https://docs.openstack.org/project-install-guide/object-storage/newton/>`__

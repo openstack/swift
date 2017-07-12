@@ -4,7 +4,7 @@ Object Storage monitoring
 
 .. note::
 
-   This section was excerpted from a blog post by `Darrell
+   This section was excerpted from a `blog post by Darrell
    Bishop <http://swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd>`_ and
    has since been edited.
 
@@ -17,8 +17,7 @@ usage and utilization, and so on is necessary, but not sufficient.
 Swift Recon
 ~~~~~~~~~~~
 
-The Swift Recon middleware (see
-`Defining Storage Policies <https://docs.openstack.org/developer/swift/admin_guide.html#cluster-telemetry-and-monitoring>`_)
+The Swift Recon middleware (see :ref:`cluster_telemetry_and_monitoring`)
 provides general machine statistics, such as load average, socket
 statistics, ``/proc/meminfo`` contents, as well as Swift-specific meters:
 
@@ -127,8 +126,7 @@ after-the-fact log processing, the sending of StatsD meters is
 integrated into Object Storage itself. The submitted change set (see
 `<https://review.openstack.org/#change,6058>`_) currently reports 124 meters
 across 15 Object Storage daemons and the tempauth middleware. Details of
-the meters tracked are in the `Administrator's
-Guide <https://docs.openstack.org/developer/swift/admin_guide.html>`_.
+the meters tracked are in the :doc:`/admin_guide`.
 
 The sending of meters is integrated with the logging framework. To
 enable, configure ``log_statsd_host`` in the relevant config file. You

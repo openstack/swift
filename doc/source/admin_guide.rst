@@ -22,9 +22,9 @@ before planning the upgrade of your existing deployment.
 Following is a high level view of the very few steps it takes to configure
 policies once you have decided what you want to do:
 
-  #. Define your policies in ``/etc/swift/swift.conf``
-  #. Create the corresponding object rings
-  #. Communicate the names of the Storage Policies to cluster users
+#. Define your policies in ``/etc/swift/swift.conf``
+#. Create the corresponding object rings
+#. Communicate the names of the Storage Policies to cluster users
 
 For a specific example that takes you through these steps, please see
 :doc:`policies_saio`
@@ -55,6 +55,8 @@ server, generate new rings, push them out, then continue with the rest
 of the downgrade.
 
 For more information see :doc:`overview_ring`.
+
+.. highlight:: none
 
 Removing a device from the ring::
 
@@ -259,7 +261,7 @@ errors are detected, it will unmount the bad drive, so that Swift can
 work around it.  The script takes a configuration file with the following
 settings:
 
-[drive-audit]
+``[drive-audit]``
 
 ==================  ==============  ===========================================
 Option              Default         Description
@@ -291,6 +293,8 @@ using a different distro or OS, some care should be taken before using in produc
 ------------------------------
 Preventing Disk Full Scenarios
 ------------------------------
+
+.. highlight:: cfg
 
 Prevent disk full scenarios by ensuring that the ``proxy-server`` blocks PUT
 requests and rsync prevents replication to the specific drives.
@@ -373,6 +377,8 @@ included, by specifying ``&include`` in your ``rsync.conf`` file:
 
 Use this in conjunction with a cron job to periodically run the script, for example:
 
+.. highlight:: none
+
 .. code::
 
     # /etc/cron.d/devicecheck
@@ -408,6 +414,8 @@ object names until they fall on distinct partitions. Last, and repeatedly for
 the life of the cluster, we need to run the swift-dispersion-report tool to
 check the health of each of these containers and objects.
 
+.. highlight:: cfg
+
 These tools need direct access to the entire cluster and to the ring files
 (installing them on a proxy server will probably do). Both
 swift-dispersion-populate and swift-dispersion-report use the same
@@ -418,6 +426,8 @@ configuration file, /etc/swift/dispersion.conf. Example conf file::
     auth_user = test:tester
     auth_key = testing
     endpoint_type = internalURL
+
+.. highlight:: none
 
 There are also options for the conf file for specifying the dispersion coverage
 (defaults to 1%), retries, concurrency, etc. though usually the defaults are
@@ -512,51 +522,51 @@ described in their respective documentation. The following points should be
 considered when selecting the feature that is most appropriate for a particular
 use case:
 
-  #. Global Clusters allows the distribution of object replicas across
-     data-centers to be controlled by the cluster operator on per-policy basis,
-     since the distribution is determined by the assignment of devices from
-     each data-center in each policy's ring file. With Container Sync the end
-     user controls the distribution of objects across clusters on a
-     per-container basis.
+#. Global Clusters allows the distribution of object replicas across
+   data-centers to be controlled by the cluster operator on per-policy basis,
+   since the distribution is determined by the assignment of devices from
+   each data-center in each policy's ring file. With Container Sync the end
+   user controls the distribution of objects across clusters on a
+   per-container basis.
 
-  #. Global Clusters requires an operator to coordinate ring deployments across
-     multiple data-centers. Container Sync allows for independent management of
-     separate Swift clusters in each data-center, and for existing Swift
-     clusters to be used as peers in Container Sync relationships without
-     deploying new policies/rings.
+#. Global Clusters requires an operator to coordinate ring deployments across
+   multiple data-centers. Container Sync allows for independent management of
+   separate Swift clusters in each data-center, and for existing Swift
+   clusters to be used as peers in Container Sync relationships without
+   deploying new policies/rings.
 
-  #. Global Clusters seamlessly supports features that may rely on
-     cross-container operations such as large objects and versioned writes.
-     Container Sync requires the end user to ensure that all required
-     containers are sync'd for these features to work in all data-centers.
+#. Global Clusters seamlessly supports features that may rely on
+   cross-container operations such as large objects and versioned writes.
+   Container Sync requires the end user to ensure that all required
+   containers are sync'd for these features to work in all data-centers.
 
-  #. Global Clusters makes objects available for GET or HEAD requests in both
-     data-centers even if a replica of the object has not yet been
-     asynchronously migrated between data-centers, by forwarding requests
-     between data-centers. Container Sync is unable to serve requests for an
-     object in a particular data-center until the asynchronous sync process has
-     copied the object to that data-center.
+#. Global Clusters makes objects available for GET or HEAD requests in both
+   data-centers even if a replica of the object has not yet been
+   asynchronously migrated between data-centers, by forwarding requests
+   between data-centers. Container Sync is unable to serve requests for an
+   object in a particular data-center until the asynchronous sync process has
+   copied the object to that data-center.
 
-  #. Global Clusters may require less storage capacity than Container Sync to
-     achieve equivalent durability of objects in each data-center. Global
-     Clusters can restore replicas that are lost or corrupted in one
-     data-center using replicas from other data-centers. Container Sync
-     requires each data-center to independently manage the durability of
-     objects, which may result in each data-center storing more replicas than
-     with Global Clusters.
+#. Global Clusters may require less storage capacity than Container Sync to
+   achieve equivalent durability of objects in each data-center. Global
+   Clusters can restore replicas that are lost or corrupted in one
+   data-center using replicas from other data-centers. Container Sync
+   requires each data-center to independently manage the durability of
+   objects, which may result in each data-center storing more replicas than
+   with Global Clusters.
 
-  #. Global Clusters execute all account/container metadata updates
-     synchronously to account/container replicas in all data-centers, which may
-     incur delays when making updates across WANs. Container Sync only copies
-     objects between data-centers and all Swift internal traffic is
-     confined to each data-center.
+#. Global Clusters execute all account/container metadata updates
+   synchronously to account/container replicas in all data-centers, which may
+   incur delays when making updates across WANs. Container Sync only copies
+   objects between data-centers and all Swift internal traffic is
+   confined to each data-center.
 
-  #. Global Clusters does not yet guarantee the availability of objects stored
-     in Erasure Coded policies when one data-center is offline. With Container
-     Sync the availability of objects in each data-center is independent of the
-     state of other data-centers once objects have been synced. Container Sync
-     also allows objects to be stored using different policy types in different
-     data-centers.
+#. Global Clusters does not yet guarantee the availability of objects stored
+   in Erasure Coded policies when one data-center is offline. With Container
+   Sync the availability of objects in each data-center is independent of the
+   state of other data-centers once objects have been synced. Container Sync
+   also allows objects to be stored using different policy types in different
+   data-centers.
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Checking handoff partition distribution
@@ -635,6 +645,8 @@ especially :ref:`swift-recon -r <recon-replication>` how to check replication
 stats.
 
 
+.. _cluster_telemetry_and_monitoring:
+
 --------------------------------
 Cluster Telemetry and Monitoring
 --------------------------------
@@ -643,6 +655,8 @@ Various metrics and telemetry can be obtained from the account, container, and
 object servers using the recon server middleware and the swift-recon cli. To do
 so update your account, container, or object servers pipelines to include recon
 and add the associated filter config.
+
+.. highlight:: cfg
 
 object-server.conf sample::
 
@@ -670,6 +684,8 @@ account-server.conf sample::
     [filter:recon]
     use = egg:swift#recon
     recon_cache_path = /var/cache/swift
+
+.. highlight:: none
 
 The recon_cache_path simply sets the directory where stats for a few items will
 be stored. Depending on the method of deployment you may need to create this
@@ -781,6 +797,8 @@ For example, to obtain container replication info from all hosts in zone "3"::
 ---------------------------
 Reporting Metrics to StatsD
 ---------------------------
+
+.. highlight:: cfg
 
 If you have a StatsD_ server running, Swift may be configured to send it
 real-time operational metrics.  To enable this, set the following
@@ -1324,7 +1342,7 @@ found.
 Managing Services
 -----------------
 
-Swift services are generally managed with `swift-init`. the general usage is
+Swift services are generally managed with ``swift-init``. the general usage is
 ``swift-init <service> <command>``, where service is the Swift service to
 manage (for example object, container, account, proxy) and command is one of:
 
@@ -1340,13 +1358,14 @@ reload      Attempt to gracefully restart the service
 
 A graceful shutdown or reload will finish any current requests before
 completely stopping the old service.  There is also a special case of
-`swift-init all <command>`, which will run the command for all swift services.
+``swift-init all <command>``, which will run the command for all swift
+services.
 
 In cases where there are multiple configs for a service, a specific config
 can be managed with ``swift-init <service>.<config> <command>``.
 For example, when a separate replication network is used, there might be
-`/etc/swift/object-server/public.conf` for the object server and
-`/etc/swift/object-server/replication.conf` for the replication services.
+``/etc/swift/object-server/public.conf`` for the object server and
+``/etc/swift/object-server/replication.conf`` for the replication services.
 In this case, the replication services could be restarted with
 ``swift-init object-server.replication restart``.
 
@@ -1358,13 +1377,16 @@ On system failures, the XFS file system can sometimes truncate files it's
 trying to write and produce zero-byte files. The object-auditor will catch
 these problems but in the case of a system crash it would be advisable to run
 an extra, less rate limited sweep to check for these specific files. You can
-run this command as follows:
-`swift-object-auditor /path/to/object-server/config/file.conf once -z 1000`
-"-z" means to only check for zero-byte files at 1000 files per second.
+run this command as follows::
+
+   swift-object-auditor /path/to/object-server/config/file.conf once -z 1000
+
+``-z`` means to only check for zero-byte files at 1000 files per second.
 
 At times it is useful to be able to run the object auditor on a specific
-device or set of devices.  You can run the object-auditor as follows:
-swift-object-auditor /path/to/object-server/config/file.conf once --devices=sda,sdb
+device or set of devices.  You can run the object-auditor as follows::
+
+   swift-object-auditor /path/to/object-server/config/file.conf once --devices=sda,sdb
 
 This will run the object auditor on only the sda and sdb devices. This param
 accepts a comma separated list of values.
@@ -1374,11 +1396,12 @@ Object Replicator
 -----------------
 
 At times it is useful to be able to run the object replicator on a specific
-device or partition.  You can run the object-replicator as follows:
-swift-object-replicator /path/to/object-server/config/file.conf once --devices=sda,sdb
+device or partition.  You can run the object-replicator as follows::
+
+   swift-object-replicator /path/to/object-server/config/file.conf once --devices=sda,sdb
 
 This will run the object replicator on only the sda and sdb devices.  You can
-likewise run that command with --partitions.  Both params accept a comma
+likewise run that command with ``--partitions``.  Both params accept a comma
 separated list of values. If both are specified they will be ANDed together.
 These can only be run in "once" mode.
 
@@ -1389,8 +1412,8 @@ Swift Orphans
 Swift Orphans are processes left over after a reload of a Swift server.
 
 For example, when upgrading a proxy server you would probably finish
-with a `swift-init proxy-server reload` or `/etc/init.d/swift-proxy
-reload`. This kills the parent proxy server process and leaves the
+with a ``swift-init proxy-server reload`` or ``/etc/init.d/swift-proxy
+reload``. This kills the parent proxy server process and leaves the
 child processes running to finish processing whatever requests they
 might be handling at the time. It then starts up a new parent proxy
 server process and its children to handle new incoming requests. This
@@ -1400,16 +1423,16 @@ The orphaned child processes may take a while to exit, depending on
 the length of the requests they were handling. However, sometimes an
 old process can be hung up due to some bug or hardware issue. In these
 cases, these orphaned processes will hang around
-forever. `swift-orphans` can be used to find and kill these orphans.
+forever. ``swift-orphans`` can be used to find and kill these orphans.
 
-`swift-orphans` with no arguments will just list the orphans it finds
+``swift-orphans`` with no arguments will just list the orphans it finds
 that were started more than 24 hours ago. You shouldn't really check
 for orphans until 24 hours after you perform a reload, as some
-requests can take a long time to process. `swift-orphans -k TERM` will
-send the SIG_TERM signal to the orphans processes, or you can `kill
--TERM` the pids yourself if you prefer.
+requests can take a long time to process. ``swift-orphans -k TERM`` will
+send the SIG_TERM signal to the orphans processes, or you can ``kill
+-TERM`` the pids yourself if you prefer.
 
-You can run `swift-orphans --help` for more options.
+You can run ``swift-orphans --help`` for more options.
 
 
 ------------
@@ -1420,11 +1443,11 @@ Swift Oldies are processes that have just been around for a long
 time. There's nothing necessarily wrong with this, but it might
 indicate a hung process if you regularly upgrade and reload/restart
 services. You might have so many servers that you don't notice when a
-reload/restart fails; `swift-oldies` can help with this.
+reload/restart fails; ``swift-oldies`` can help with this.
 
 For example, if you upgraded and reloaded/restarted everything 2 days
-ago, and you've already cleaned up any orphans with `swift-orphans`,
-you can run `swift-oldies -a 48` to find any Swift processes still
+ago, and you've already cleaned up any orphans with ``swift-orphans``,
+you can run ``swift-oldies -a 48`` to find any Swift processes still
 around that were started more than 2 days ago and then investigate
 them accordingly.
 
@@ -1436,7 +1459,7 @@ Custom Log Handlers
 
 Swift supports setting up custom log handlers for services by specifying a
 comma-separated list of functions to invoke when logging is setup. It does so
-via the `log_custom_handlers` configuration option. Logger hooks invoked are
+via the ``log_custom_handlers`` configuration option. Logger hooks invoked are
 passed the same arguments as Swift's get_logger function (as well as the
 getLogger and LogAdapter object):
 
@@ -1470,7 +1493,6 @@ See :ref:`custom-logger-hooks-label` for sample use cases.
 Securing OpenStack Swift
 ------------------------
 
-Please refer to the security guides at:
-
-* http://docs.openstack.org/sec/
-* http://docs.openstack.org/security-guide/content/object-storage.html
+Please refer to the security guide at http://docs.openstack.org/security-guide
+and in particular the `Object Storage
+<http://docs.openstack.org/security-guide/object-storage.html>`__ section.

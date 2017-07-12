@@ -30,6 +30,5 @@ The large object is comprised of two types of objects:
 
 To find out more information on large object support, see `Large objects
 <https://docs.openstack.org/user-guide/cli-swift-large-object-creation.html>`_
-in the OpenStack End User Guide, or `Large Object Support
-<https://docs.openstack.org/developer/swift/overview_large_objects.html>`_
+in the OpenStack End User Guide, or :doc:`/overview_large_objects`
 in the developer documentation.

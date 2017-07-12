@@ -3,30 +3,31 @@
 Associated Projects
 ===================
 
+.. _application-bindings:
 
 Application Bindings
 --------------------
 
 * OpenStack supported binding:
 
-   * `Python-SwiftClient <http://pypi.python.org/pypi/python-swiftclient>`_
+  * `Python-SwiftClient <http://pypi.python.org/pypi/python-swiftclient>`_
 
 * Unofficial libraries and bindings:
 
-    * `PHP-opencloud <http://php-opencloud.com>`_ - Official Rackspace PHP bindings that should work for other Swift deployments too.
-    * `PyRAX <https://github.com/rackspace/pyrax>`_ - Official Rackspace Python bindings for CloudFiles that should work for other Swift deployments too.
-    * `openstack.net <https://github.com/rackspace/openstack.net/>`_ - Official Rackspace .NET bindings that should work for other Swift deployments too.
-    * `RSwift <https://github.com/pandemicsyn/RSwift>`_ - R API bindings.
-    * `Go language bindings <https://github.com/ncw/swift>`_
-    * `supload <https://github.com/selectel/supload>`_ - Bash script to upload file to cloud storage based on OpenStack Swift API.
-    * `libcloud <http://libcloud.apache.org>`_ - Apache Libcloud - a unified interface in Python for different clouds with OpenStack Swift support.
-    * `SwiftBox <https://github.com/suniln/SwiftBox>`_ - C# library using RestSharp
-    * `jclouds <http://jclouds.incubator.apache.org/documentation/quickstart/openstack/>`_ - Java library offering bindings for all OpenStack projects
-    * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
-    * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
-    * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
-    * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple OpenStack Swift storage client.
-    * `javaswift <http://javaswift.org/>`_ - Collection of Java tools for Swift
+  * `PHP-opencloud <http://php-opencloud.com>`_ - Official Rackspace PHP bindings that should work for other Swift deployments too.
+  * `PyRAX <https://github.com/rackspace/pyrax>`_ - Official Rackspace Python bindings for CloudFiles that should work for other Swift deployments too.
+  * `openstack.net <https://github.com/rackspace/openstack.net/>`_ - Official Rackspace .NET bindings that should work for other Swift deployments too.
+  * `RSwift <https://github.com/pandemicsyn/RSwift>`_ - R API bindings.
+  * `Go language bindings <https://github.com/ncw/swift>`_
+  * `supload <https://github.com/selectel/supload>`_ - Bash script to upload file to cloud storage based on OpenStack Swift API.
+  * `libcloud <http://libcloud.apache.org>`_ - Apache Libcloud - a unified interface in Python for different clouds with OpenStack Swift support.
+  * `SwiftBox <https://github.com/suniln/SwiftBox>`_ - C# library using RestSharp
+  * `jclouds <http://jclouds.incubator.apache.org/documentation/quickstart/openstack/>`_ - Java library offering bindings for all OpenStack projects
+  * `java-openstack-swift <https://github.com/dkocher/java-openstack-swift>`_ - Java bindings for OpenStack Swift
+  * `swift_client <https://github.com/mrkamel/swift_client>`_ - Small but powerful Ruby client to interact with OpenStack Swift
+  * `nightcrawler_swift <https://github.com/tulios/nightcrawler_swift>`_ - This Ruby gem teleports your assets to a OpenStack Swift bucket/container
+  * `swift storage <https://rubygems.org/gems/swift-storage>`_ - Simple OpenStack Swift storage client.
+  * `javaswift <http://javaswift.org/>`_ - Collection of Java tools for Swift
 
 Authentication
 --------------

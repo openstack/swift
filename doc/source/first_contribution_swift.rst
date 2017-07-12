@@ -6,10 +6,12 @@ First Contribution to Swift
 Getting Swift
 -------------
 
-Swift's source code is hosted on github and managed with git.  The current
-trunk can be checked out like this:
+.. highlight: none
 
-    ``git clone https://github.com/openstack/swift.git``
+Swift's source code is hosted on github and managed with git.  The current
+trunk can be checked out like this::
+
+    git clone https://github.com/openstack/swift.git
 
 This will clone the Swift repository under your account.
 
@@ -25,7 +27,7 @@ Prebuilt packages for Ubuntu and RHEL variants are available.
 Source Control Setup
 --------------------
 
-Swift uses `git` for source control. The OpenStack
+Swift uses ``git`` for source control. The OpenStack
 `Developer's Guide <http://docs.openstack.org/infra/manual/developers.html>`_
 describes the steps for setting up Git and all the necessary accounts for
 contributing code to Swift.
@@ -41,13 +43,13 @@ changes to Swift.
 Testing
 -------
 
-The :doc:`Development Guidelines <development_guidelines>` describes the testing
+The :doc:`Development Guidelines <development_guidelines>` describe the testing
 requirements before submitting Swift code.
 
 In summary, you can execute tox from the swift home directory (where you
-checked out the source code):
+checked out the source code)::
 
-    ``tox``
+    tox
 
 Tox will present tests results. Notice that in the beginning, it is very common
 to break many coding style guidelines.
@@ -58,65 +60,67 @@ Proposing changes to Swift
 
 The OpenStack
 `Developer's Guide <http://docs.openstack.org/infra/manual/developers.html>`_
-describes the most common `git` commands that you will need.
+describes the most common ``git`` commands that you will need.
 
 Following is a list of the commands that you need to know for your first
 contribution to Swift:
 
-To clone a copy of Swift:
+To clone a copy of Swift::
 
-    ``git clone https://github.com/openstack/swift.git``
+    git clone https://github.com/openstack/swift.git
 
 Under the swift directory, set up the Gerrit repository. The following command
-configures the repository to know about Gerrit and makes the Change-Id commit
-hook get installed. You only need to do this once:
+configures the repository to know about Gerrit and installs the ``Change-Id``
+commit hook. You only need to do this once::
 
-    ``git review -s``
+    git review -s
 
 To create your development branch (substitute branch_name for a name of your
 choice:
 
-    ``git checkout -b <branch_name>``
+    git checkout -b <branch_name>
 
-To check the files that have been updated in your branch:
+To check the files that have been updated in your branch::
 
-    ``git status``
+    git status
 
-To check the differences between your branch and the repository:
+To check the differences between your branch and the repository::
 
-    ``git diff``
+    git diff
 
-Assuming you have not added new files, you commit all your changes using:
+Assuming you have not added new files, you commit all your changes using::
 
-    ``git commit -a``
+    git commit -a
 
 Read the `Summary of Git commit message structure <https://wiki.openstack.org/wiki/GitCommitMessages?%22Summary%20of%20Git%20commit%20message%20structure%22#Summary_of_Git_commit_message_structure>`_
 for best practices on writing the commit message. When you are ready to send
-your changes for review use:
+your changes for review use::
 
-    ``git review``
+    git review
 
 If successful, Git response message will contain a URL you can use to track your
 changes.
 
 If you need to make further changes to the same review, you can commit them
-using:
+using::
 
-    ``git commit -a --amend``
+    git commit -a --amend
 
 This will commit the changes under the same set of changes you issued earlier.
 Notice that in order to send your latest version for review, you will still
-need to call:
+need to call::
 
-    ``git review``
+    git review
 
 ---------------------
 Tracking your changes
 ---------------------
 
-After you proposed your changes to Swift, you can track the review in:
-
-* `<https://review.openstack.org>`_
+After proposing changes to Swift, you can track them at
+https://review.openstack.org. After logging in, you will see a dashboard of
+"Outgoing reviews" for changes you have proposed, "Incoming reviews" for
+changes you are reviewing, and "Recently closed" changes for which you were
+either a reviewer or owner.
 
 .. _post-rebase-instructions:
 
@@ -126,23 +130,22 @@ Post rebase instructions
 
 After rebasing, the following steps should be performed to rebuild the swift
 installation. Note that these commands should be performed from the root of the
-swift repo directory (e.g. $HOME/swift/):
+swift repo directory (e.g. ``$HOME/swift/``)::
 
-    ``sudo python setup.py develop``
-
-    ``sudo pip install -r test-requirements.txt``
+    sudo python setup.py develop
+    sudo pip install -r test-requirements.txt
 
 If using TOX, depending on the changes made during the rebase, you may need to
 rebuild the TOX environment (generally this will be the case if
 test-requirements.txt was updated such that a new version of a package is
-required), this can be accomplished using the '-r' argument to the TOX cli:
+required), this can be accomplished using the ``-r`` argument to the TOX cli::
 
-    ``tox -r``
+    tox -r
 
 You can include any of the other TOX arguments as well, for example, to run the
-pep8 suite and rebuild the TOX environment the following can be used:
+pep8 suite and rebuild the TOX environment the following can be used::
 
-    ``tox -r -e pep8``
+    tox -r -e pep8
 
 The rebuild option only needs to be specified once for a particular build (e.g.
 pep8), that is further invocations of the same build will not require this
@@ -153,9 +156,9 @@ Troubleshooting
 ---------------
 
 You may run into the following errors when starting Swift if you rebase
-your commit using:
+your commit using::
 
-    ``git rebase``
+    git rebase
 
 .. code-block:: python
 
@@ -171,7 +174,8 @@ your commit using:
        File "/usr/lib/python2.7/dist-packages/pkg_resources.py", line 628, in resolve
            raise DistributionNotFound(req)
    pkg_resources.DistributionNotFound: swift==2.3.1.devXXX
-   (where XXX represents a dev version of Swift).
+
+(where XXX represents a dev version of Swift).
 
 .. code-block:: python
 
@@ -198,7 +202,7 @@ your commit using:
          for prot in protocol_options] or '(no entry points)'))))
    LookupError: Entry point 'versioned_writes' not found in egg 'swift' (dir: /home/swift/swift; protocols: paste.filter_factory, paste.filter_app_factory; entry_points: )
 
-This happens because `git rebase` will retrieve code for a different version of
-Swift in the development stream, but the start scripts under `/usr/local/bin` have
-not been updated. The solution is to follow the steps described in the
-:ref:`post-rebase-instructions` section.
+This happens because ``git rebase`` will retrieve code for a different version
+of Swift in the development stream, but the start scripts under
+``/usr/local/bin`` have not been updated. The solution is to follow the steps
+described in the :ref:`post-rebase-instructions` section.

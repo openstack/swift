@@ -35,7 +35,7 @@ following docs will be useful:
 CLI client and SDK library
 --------------------------
 
-There are many clients in the `ecosystem <http://docs.openstack.org/developer/swift/associated_projects.html#application-bindings>`_. The official CLI
+There are many clients in the :ref:`ecosystem <application-bindings>`. The official CLI
 and SDK is python-swiftclient.
 
 * `Source code <https://github.com/openstack/python-swiftclient>`_
