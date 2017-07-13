@@ -453,7 +453,7 @@ class TestObjectReplicator(unittest.TestCase):
             non_local['path'] = path
             raise OSError('Ow!')
 
-        with mock.patch.object(object_replicator, 'mkdirs', blowup_mkdirs):
+        with mock.patch.object(diskfile, 'mkdirs', blowup_mkdirs):
             rmtree(self.objects, ignore_errors=1)
             object_replicator.mkdirs = blowup_mkdirs
             self.replicator.collect_jobs()

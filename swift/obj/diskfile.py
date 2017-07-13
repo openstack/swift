@@ -37,6 +37,7 @@ import errno
 import fcntl
 import json
 import os
+import shutil
 import re
 import time
 import uuid
@@ -44,7 +45,7 @@ from hashlib import md5
 import logging
 import traceback
 import xattr
-from os.path import basename, dirname, exists, join, splitext
+from os.path import basename, dirname, exists, join, splitext, isdir, isfile
 from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
@@ -1510,6 +1511,63 @@ class BaseDiskFileManager(object):
                     'ERROR: Skipping %r due to error with listdir attempt: %s',
                     path, err)
         return []
+
+    def exists(self, path):
+        """
+        :param path: full path to directory
+        """
+        return os.path.exists(path)
+
+    def mkdirs(self, path):
+        """
+        :param path: full path to directory
+        """
+        return mkdirs(path)
+
+    def listdir(self, path):
+        """
+        :param path: full path to directory
+        """
+        return os.listdir(path)
+
+    def rmtree(self, path, ignore_errors=False):
+        """
+        :param path: full path to directory
+        :param ignore_errors: if True, ignore errors from failed removals,
+            else, raise an exception.
+        """
+        return shutil.rmtree(path, ignore_errors)
+
+    def remove_file(self, path):
+        """
+        quiet wrapper around os.unlink. can be merged with remove?
+        :param path: full path to directory
+        """
+        return remove_file(path)
+
+    def remove(self, path):
+        """
+        :param path: full path to directory
+        """
+        return os.remove(path)
+
+    def isdir(self, path):
+        """
+        :param path: full path to directory
+        """
+        return isdir(path)
+
+    def isfile(self, path):
+        """
+        :param path: full path to directory
+        """
+        return isfile(path)
+
+    def rmdir(self, path):
+        """
+        :param path: full path to directory
+        """
+        return os.rmdir(path)
 
     def yield_suffixes(self, device, partition, policy):
         """
