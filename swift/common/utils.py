@@ -115,6 +115,10 @@ FALLOCATE_RESERVE = 0
 # the number of bytes (False).
 FALLOCATE_IS_PERCENT = False
 
+# from /usr/include/linux/falloc.h
+FALLOC_FL_KEEP_SIZE = 1
+FALLOC_FL_PUNCH_HOLE = 2
+
 # from /usr/src/linux-headers-*/include/uapi/linux/resource.h
 PRIO_PROCESS = 0
 
@@ -802,70 +806,163 @@ def fs_has_free_space(fs_path, space_needed, is_percent):
         return free_bytes >= space_needed
 
 
-class FallocateWrapper(object):
+class _LibcWrapper(object):
+    """
+    A callable object that forwards its calls to a C function from libc.
 
-    def __init__(self, noop=False):
-        self.noop = noop
-        if self.noop:
-            self.func_name = 'posix_fallocate'
-            self.fallocate = noop_libc_function
-            return
-        # fallocate is preferred because we need the on-disk size to match
-        # the allocated size. Older versions of sqlite require that the
-        # two sizes match. However, fallocate is Linux only.
-        for func in ('fallocate', 'posix_fallocate'):
-            self.func_name = func
-            self.fallocate = load_libc_function(func, log_error=False)
-            if self.fallocate is not noop_libc_function:
-                break
-        if self.fallocate is noop_libc_function:
-            logging.warning(_("Unable to locate fallocate, posix_fallocate in "
-                            "libc.  Leaving as a no-op."))
+    These objects are lazy. libc will not be checked until someone tries to
+    either call the function or check its availability.
 
-    def __call__(self, fd, mode, offset, length):
-        """The length parameter must be a ctypes.c_uint64."""
-        if not self.noop:
-            if FALLOCATE_RESERVE > 0:
-                st = os.fstatvfs(fd)
-                free = st.f_frsize * st.f_bavail - length.value
-                if FALLOCATE_IS_PERCENT:
-                    free = \
-                        (float(free) / float(st.f_frsize * st.f_blocks)) * 100
-                if float(free) <= float(FALLOCATE_RESERVE):
-                    raise OSError(
-                        errno.ENOSPC,
-                        'FALLOCATE_RESERVE fail %g <= %g' %
-                        (free, FALLOCATE_RESERVE))
-        args = {
-            'fallocate': (fd, mode, offset, length),
-            'posix_fallocate': (fd, offset, length)
-        }
-        return self.fallocate(*args[self.func_name])
+    _LibcWrapper objects have an "available" property; if true, then libc
+    has the function of that name. If false, then calls will fail with a
+    NotImplementedError.
+    """
+    def __init__(self, func_name):
+        self._func_name = func_name
+        self._func_handle = None
+        self._loaded = False
+
+    def _ensure_loaded(self):
+        if not self._loaded:
+            func_name = self._func_name
+            try:
+                # Keep everything in this try-block in local variables so
+                # that a typo in self.some_attribute_name doesn't raise a
+                # spurious AttributeError.
+                func_handle = load_libc_function(
+                    func_name, fail_if_missing=True)
+            except AttributeError:
+                # We pass fail_if_missing=True to load_libc_function and
+                # then ignore the error. It's weird, but otherwise we have
+                # to check if self._func_handle is noop_libc_function, and
+                # that's even weirder.
+                pass
+            else:
+                self._func_handle = func_handle
+            self._loaded = True
+
+    @property
+    def available(self):
+        self._ensure_loaded()
+        return bool(self._func_handle)
+
+    def __call__(self, *args):
+        if self.available:
+            return self._func_handle(*args)
+        else:
+            raise NotImplementedError(
+                "No function %r found in libc" % self._func_name)
+
+
+_fallocate_enabled = True
+_fallocate_warned_about_missing = False
+_sys_fallocate = _LibcWrapper('fallocate')
+_sys_posix_fallocate = _LibcWrapper('posix_fallocate')
 
 
 def disable_fallocate():
-    global _sys_fallocate
-    _sys_fallocate = FallocateWrapper(noop=True)
+    global _fallocate_enabled
+    _fallocate_enabled = False
 
 
-def fallocate(fd, size):
+def fallocate(fd, size, offset=0):
     """
     Pre-allocate disk space for a file.
+
+    This function can be disabled by calling disable_fallocate(). If no
+    suitable C function is available in libc, this function is a no-op.
 
     :param fd: file descriptor
     :param size: size to allocate (in bytes)
     """
-    global _sys_fallocate
-    if _sys_fallocate is None:
-        _sys_fallocate = FallocateWrapper()
+    global _fallocate_enabled
+    if not _fallocate_enabled:
+        return
+
     if size < 0:
-        size = 0
-    # 1 means "FALLOC_FL_KEEP_SIZE", which means it pre-allocates invisibly
-    ret = _sys_fallocate(fd, 1, 0, ctypes.c_uint64(size))
-    err = ctypes.get_errno()
+        size = 0  # Done historically; not really sure why
+    if size >= (1 << 63):
+        raise ValueError('size must be less than 2 ** 63')
+    if offset < 0:
+        raise ValueError('offset must be non-negative')
+    if offset >= (1 << 63):
+        raise ValueError('offset must be less than 2 ** 63')
+
+    # Make sure there's some (configurable) amount of free space in
+    # addition to the number of bytes we're allocating.
+    if FALLOCATE_RESERVE:
+        st = os.fstatvfs(fd)
+        free = st.f_frsize * st.f_bavail - size
+        if FALLOCATE_IS_PERCENT:
+            free = \
+                (float(free) / float(st.f_frsize * st.f_blocks)) * 100
+        if float(free) <= float(FALLOCATE_RESERVE):
+            raise OSError(
+                errno.ENOSPC,
+                'FALLOCATE_RESERVE fail %g <= %g' %
+                (free, FALLOCATE_RESERVE))
+
+    if _sys_fallocate.available:
+        # Parameters are (fd, mode, offset, length).
+        #
+        # mode=FALLOC_FL_KEEP_SIZE pre-allocates invisibly (without
+        # affecting the reported file size).
+        ret = _sys_fallocate(
+            fd, FALLOC_FL_KEEP_SIZE, ctypes.c_uint64(offset),
+            ctypes.c_uint64(size))
+        err = ctypes.get_errno()
+    elif _sys_posix_fallocate.available:
+        # Parameters are (fd, offset, length).
+        ret = _sys_posix_fallocate(fd, ctypes.c_uint64(offset),
+                                   ctypes.c_uint64(size))
+        err = ctypes.get_errno()
+    else:
+        # No suitable fallocate-like function is in our libc. Warn about it,
+        # but just once per process, and then do nothing.
+        global _fallocate_warned_about_missing
+        if not _fallocate_warned_about_missing:
+            logging.warning(_("Unable to locate fallocate, posix_fallocate in "
+                              "libc.  Leaving as a no-op."))
+            _fallocate_warned_about_missing = True
+        return
+
     if ret and err not in (0, errno.ENOSYS, errno.EOPNOTSUPP,
                            errno.EINVAL):
         raise OSError(err, 'Unable to fallocate(%s)' % size)
+
+
+def punch_hole(fd, offset, length):
+    """
+    De-allocate disk space in the middle of a file.
+
+    :param fd: file descriptor
+    :param offset: index of first byte to de-allocate
+    :param length: number of bytes to de-allocate
+    """
+    if offset < 0:
+        raise ValueError('offset must be non-negative')
+    if offset >= (1 << 63):
+        raise ValueError('offset must be less than 2 ** 63')
+    if length <= 0:
+        raise ValueError('length must be positive')
+    if length >= (1 << 63):
+        raise ValueError('length must be less than 2 ** 63')
+
+    if _sys_fallocate.available:
+        # Parameters are (fd, mode, offset, length).
+        ret = _sys_fallocate(
+            fd,
+            FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+            ctypes.c_uint64(offset),
+            ctypes.c_uint64(length))
+        err = ctypes.get_errno()
+        if ret and err:
+            mode_str = "FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE"
+            raise OSError(err, "Unable to fallocate(%d, %s, %d, %d)" % (
+                fd, mode_str, offset, length))
+    else:
+        raise OSError(errno.ENOTSUP,
+                      'No suitable C function found for hole punching')
 
 
 def fsync(fd):
