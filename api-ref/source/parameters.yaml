@@ -683,6 +683,14 @@ X-Copy-From:
   in: header
   required: false
   type: string
+X-Copy-From-Account:
+  description: |
+    Specifies the account name where the object is copied from. If not
+    specified, the object is copied from the account which owns the new
+    object (i.e., the account in the path).
+  in: header
+  required: false
+  type: string
 X-Delete-After:
   description: |
     The number of seconds after which the system

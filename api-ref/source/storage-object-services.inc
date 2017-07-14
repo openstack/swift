@@ -254,6 +254,7 @@ Request
    - Content-Type: Content-Type_obj_cu_req
    - X-Detect-Content-Type: X-Detect-Content-Type
    - X-Copy-From: X-Copy-From
+   - X-Copy-From-Account: X-Copy-From-Account
    - ETag: ETag_obj_req
    - Content-Disposition: Content-Disposition
    - Content-Encoding: Content-Encoding
