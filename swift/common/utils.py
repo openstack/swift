@@ -3060,18 +3060,27 @@ def human_readable(value):
 
 def put_recon_cache_entry(cache_entry, key, item):
     """
-    Function that will check if item is a dict, and if so put it under
-    cache_entry[key].  We use nested recon cache entries when the object
-    auditor runs in parallel or else in 'once' mode with a specified
-    subset of devices.
+    Update a recon cache entry item.
+
+    If ``item`` is an empty dict then any existing ``key`` in ``cache_entry``
+    will be deleted. Similarly if ``item`` is a dict and any of its values are
+    empty dicts then the corrsponsing key will be deleted from the nested dict
+    in ``cache_entry``.
+
+    We use nested recon cache entries when the object auditor
+    runs in parallel or else in 'once' mode with a specified subset of devices.
+
+    :param cache_entry: a dict of existing cache entries
+    :param key: key for item to update
+    :param item: value for item to update
     """
     if isinstance(item, dict):
+        if not item:
+            cache_entry.pop(key, None)
+            return
         if key not in cache_entry or key in cache_entry and not \
                 isinstance(cache_entry[key], dict):
             cache_entry[key] = {}
-        elif key in cache_entry and item == {}:
-            cache_entry.pop(key, None)
-            return
         for k, v in item.items():
             if v == {}:
                 cache_entry[key].pop(k, None)

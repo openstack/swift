@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 
 from test import unit
 import unittest
@@ -615,6 +616,77 @@ class TestAuditor(unittest.TestCase):
         log_lines = logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ZBF - sda'))
+
+    def test_object_run_recon_cache(self):
+        ts = Timestamp(time.time())
+        data = 'test_data'
+
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            metadata = {
+                'ETag': md5(data).hexdigest(),
+                'X-Timestamp': ts.normal,
+                'Content-Length': str(os.fstat(writer._fd).st_size),
+            }
+            writer.put(metadata)
+            writer.commit(ts)
+
+        # all devices
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        auditor_worker.audit_all_objects()
+        with open(self.rcache) as fd:
+            actual_rcache = json.load(fd)
+        expected = {'object_auditor_stats_ALL':
+                    {'passes': 1, 'errors': 0, 'audit_time': mock.ANY,
+                     'start_time': mock.ANY, 'quarantined': 0,
+                     'bytes_processed': 9}}
+        with open(self.rcache) as fd:
+            actual_rcache = json.load(fd)
+        self.assertEqual(expected, actual_rcache)
+
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices,
+                                               zero_byte_only_at_fps=50)
+        auditor_worker.audit_all_objects()
+        self.assertEqual(expected, actual_rcache)
+        with open(self.rcache) as fd:
+            actual_rcache = json.load(fd)
+        expected.update({
+            'object_auditor_stats_ZBF':
+            {'passes': 1, 'errors': 0, 'audit_time': mock.ANY,
+             'start_time': mock.ANY, 'quarantined': 0,
+             'bytes_processed': 0}})
+        self.assertEqual(expected, actual_rcache)
+
+        # specific devices
+        os.unlink(self.rcache)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        auditor_worker.audit_all_objects(device_dirs=['sda'])
+        with open(self.rcache) as fd:
+            actual_rcache = json.load(fd)
+        expected = {'object_auditor_stats_ALL':
+                    {'sda': {'passes': 1, 'errors': 0, 'audit_time': mock.ANY,
+                             'start_time': mock.ANY, 'quarantined': 0,
+                             'bytes_processed': 9}}}
+        with open(self.rcache) as fd:
+            actual_rcache = json.load(fd)
+        self.assertEqual(expected, actual_rcache)
+
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices,
+                                               zero_byte_only_at_fps=50)
+        auditor_worker.audit_all_objects(device_dirs=['sda'])
+        self.assertEqual(expected, actual_rcache)
+        with open(self.rcache) as fd:
+            actual_rcache = json.load(fd)
+        expected.update({
+            'object_auditor_stats_ZBF':
+            {'sda': {'passes': 1, 'errors': 0, 'audit_time': mock.ANY,
+                     'start_time': mock.ANY, 'quarantined': 0,
+                     'bytes_processed': 0}}})
+        self.assertEqual(expected, actual_rcache)
 
     def test_object_run_once_no_sda(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -1236,6 +1308,53 @@ class TestAuditor(unittest.TestCase):
             my_auditor.run_once()
 
         self.assertEqual(sorted(forked_pids), [2, 1001])
+
+    def test_run_audit_once_zbfps(self):
+        my_auditor = auditor.ObjectAuditor(dict(devices=self.devices,
+                                                mount_check='false',
+                                                zero_byte_files_per_second=89,
+                                                concurrency=1,
+                                                recon_cache_path=self.testdir))
+
+        with mock.patch.object(my_auditor, '_sleep', lambda *a: None):
+            my_auditor.run_once(zero_byte_fps=50)
+
+        with open(self.rcache) as fd:
+            # there's no objects to audit so expect no stats; this assertion
+            # may change if https://bugs.launchpad.net/swift/+bug/1704858 is
+            # fixed
+            self.assertEqual({}, json.load(fd))
+
+        # check recon cache stays clean after a second run
+        with mock.patch.object(my_auditor, '_sleep', lambda *a: None):
+            my_auditor.run_once(zero_byte_fps=50)
+
+        with open(self.rcache) as fd:
+            self.assertEqual({}, json.load(fd))
+
+        ts = Timestamp(time.time())
+        with self.disk_file.create() as writer:
+            metadata = {
+                'ETag': md5('').hexdigest(),
+                'X-Timestamp': ts.normal,
+                'Content-Length': str(os.fstat(writer._fd).st_size),
+            }
+            writer.put(metadata)
+            writer.commit(ts)
+
+        # check recon cache stays clean after a second run
+        with mock.patch.object(my_auditor, '_sleep', lambda *a: None):
+            my_auditor.run_once(zero_byte_fps=50)
+        with open(self.rcache) as fd:
+            self.assertEqual({
+                'object_auditor_stats_ZBF': {
+                    'audit_time': 0,
+                    'bytes_processed': 0,
+                    'errors': 0,
+                    'passes': 1,
+                    'quarantined': 0,
+                    'start_time': mock.ANY}},
+                json.load(fd))
 
     def test_run_parallel_audit_once(self):
         my_auditor = auditor.ObjectAuditor(
