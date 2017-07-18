@@ -328,10 +328,9 @@ class TestObjectReplicator(unittest.TestCase):
             while True:
                 yield 60
 
-        with _mock_process(process_arg_checker):
-            with mock.patch('time.time') as time_mock:
-                for cycle in range(1, 10):
-                    time_mock.side_effect = _infinite_gen()
+        for cycle in range(1, 10):
+            with _mock_process(process_arg_checker):
+                with mock.patch('time.time', side_effect=_infinite_gen()):
                     replicator.run_once()
                     self.assertEqual((start + 1 + cycle) % 10,
                                      replicator.replication_cycle)
@@ -345,6 +344,7 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertIn('replication_last', recon)
         expected = 'Object replication complete (once). (1.00 minutes)'
         self.assertIn(expected, self.logger.get_lines_for_level('info'))
+        self.assertFalse(self.logger.get_lines_for_level('error'))
         object_replicator.http_connect = was_connector
 
     # policy 1
