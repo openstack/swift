@@ -27,9 +27,19 @@
 # serve to show the default.
 
 import datetime
+import logging
 import os
 from swift import __version__
 import sys
+
+# NOTE(amotoki): Our current doc build job uses an older version of
+# liberasurecode which comes from Ubuntu 16.04.
+# pyeclib emits a warning message if liberasurecode <1.3.1 is used [1] and
+# this causes the doc build failure if warning-is-error is enabled in Sphinx.
+# As a workaround we suppress the warning message from pyeclib until we use
+# a newer version of liberasurecode in our doc build job.
+# [1] https://github.com/openstack/pyeclib/commit/d163972b
+logging.getLogger('pyeclib').setLevel(logging.ERROR)
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
