@@ -2826,7 +2826,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                           self.df_mgr.get_diskfile_from_hash,
                           self.existing_device, '0', hash_,
                           POLICIES.default)  # sanity
-        timestamp = Timestamp(time())
+        timestamp = Timestamp.now()
         for frag_index in (4, 7):
             write_diskfile(df, timestamp, frag_index=frag_index,
                            legacy_durable=legacy_durable)
@@ -3317,7 +3317,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         if ts:
             timestamp = Timestamp(ts)
         else:
-            timestamp = Timestamp(time())
+            timestamp = Timestamp.now()
         if prealloc:
             prealloc_size = fsize
         else:
@@ -3702,7 +3702,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_write_metadata(self):
         df, df_data = self._create_test_file('1234567890')
         file_count = len(os.listdir(df._datadir))
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
         df.write_metadata(metadata)
         dl = os.listdir(df._datadir)
@@ -3714,7 +3714,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # if metadata has content-type then its time should be in file name
         df, df_data = self._create_test_file('1234567890')
         file_count = len(os.listdir(df._datadir))
-        timestamp = Timestamp(time())
+        timestamp = Timestamp.now()
         metadata = {'X-Timestamp': timestamp.internal,
                     'X-Object-Meta-test': 'data',
                     'Content-Type': 'foo',
@@ -3807,7 +3807,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                         'Expected file %s not found in %s' % (exp_name, dl))
 
     def test_write_metadata_no_xattr(self):
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
 
         def mock_setxattr(*args, **kargs):
@@ -3821,7 +3821,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 diskfile.write_metadata, 'n/a', metadata)
 
     def test_write_metadata_disk_full(self):
-        timestamp = Timestamp(time()).internal
+        timestamp = Timestamp.now().internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
 
         def mock_setxattr_ENOSPC(*args, **kargs):
@@ -3863,7 +3863,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_commit(self):
         for policy in POLICIES:
-            timestamp = Timestamp(time())
+            timestamp = Timestamp.now()
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o_%s' % policy,
                                            policy=policy)
@@ -3879,7 +3879,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _do_test_write_cleanup(self, policy, legacy_durable=False):
         # create first fileset as starting state
-        timestamp_1 = Timestamp(time())
+        timestamp_1 = Timestamp.now()
         datadir_1 = self._create_diskfile_dir(
             timestamp_1, policy, legacy_durable)
         # second write should clean up first fileset
@@ -3977,7 +3977,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o', policy=policy)
 
-            timestamp = Timestamp(time())
+            timestamp = Timestamp.now()
             with df.create() as writer:
                 metadata = {
                     'ETag': 'bogus_etag',
@@ -3999,7 +3999,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o_error', policy=policy)
 
-            timestamp = Timestamp(time())
+            timestamp = Timestamp.now()
             with df.create() as writer:
                 metadata = {
                     'ETag': 'bogus_etag',
@@ -4037,7 +4037,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             }[policy.policy_type]
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o_error', policy=policy)
-            timestamp = Timestamp(time())
+            timestamp = Timestamp.now()
             with df.create() as writer:
                 metadata = {
                     'ETag': 'bogus_etag',
@@ -4063,7 +4063,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             }[policy.policy_type]
             df = self._simple_get_diskfile(account='a', container='c',
                                            obj='o_error', policy=policy)
-            timestamp = Timestamp(time())
+            timestamp = Timestamp.now()
             with df.create() as writer:
                 metadata = {
                     'ETag': 'bogus_etag',
@@ -4080,7 +4080,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     self.assertEqual(expected[1], mock_cleanup.call_count)
                 with mock.patch(self._manager_mock(
                         'cleanup_ondisk_files', df)) as mock_cleanup:
-                    timestamp = Timestamp(time())
+                    timestamp = Timestamp.now()
                     df.delete(timestamp)
                     self.assertEqual(expected[2], mock_cleanup.call_count)
 
@@ -4095,7 +4095,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             df = self._get_open_disk_file(policy=policy, frag_index=fi,
                                           extra_metadata=metadata)
 
-            ts = Timestamp(time())
+            ts = Timestamp.now()
             df.delete(ts)
             exp_name = '%s.ts' % ts.internal
             dl = os.listdir(df._datadir)
@@ -4740,7 +4740,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         data = '0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
-            'X-Timestamp': Timestamp(time()).internal,
+            'X-Timestamp': Timestamp.now().internal,
             'Content-Length': str(100),
         }
         with mock.patch("swift.obj.diskfile.renamer", _m_renamer):
@@ -4850,7 +4850,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         data = '0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
-            'X-Timestamp': Timestamp(time()).internal,
+            'X-Timestamp': Timestamp.now().internal,
             'Content-Length': str(100),
         }
         _m_renamer = mock.Mock()
@@ -4878,7 +4878,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         df = self._simple_get_diskfile(account='a', container='c',
                                        obj='o_rename_err',
                                        policy=POLICIES.default)
-        timestamp = Timestamp(time())
+        timestamp = Timestamp.now()
         with df.create() as writer:
             metadata = {
                 'ETag': 'bogus_etag',
@@ -4934,7 +4934,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         df = self._simple_get_diskfile(account='a', container='c',
                                        obj='o_fsync_dir_err',
                                        policy=POLICIES.default)
-        timestamp = Timestamp(time())
+        timestamp = Timestamp.now()
         with df.create() as writer:
             metadata = {
                 'ETag': 'bogus_etag',
@@ -6127,7 +6127,7 @@ class TestSuffixHashes(unittest.TestCase):
         # check behaviour for legacy durable files
         for policy in self.iter_policies():
             if policy.policy_type == EC_POLICY:
-                file1 = Timestamp(time()).internal + '.durable'
+                file1 = Timestamp.now().internal + '.durable'
                 file_list = [file1]
                 self.check_cleanup_ondisk_files(policy, file_list, [])
 
@@ -7232,7 +7232,7 @@ class TestSuffixHashes(unittest.TestCase):
             df = df_mgr.get_diskfile('sda1', '0', *matching_paths[0],
                                      policy=policy, frag_index=2)
             # create a real, valid hsh_path
-            df.delete(Timestamp(time()))
+            df.delete(Timestamp.now())
             # and a couple of empty hsh_paths
             empty_hsh_paths = []
             for path in matching_paths[1:]:
@@ -7542,7 +7542,7 @@ class TestSuffixHashes(unittest.TestCase):
             df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
                                      policy=policy, frag_index=4)
             os.makedirs(df._datadir)
-            filename = Timestamp(time()).internal + '.ts'
+            filename = Timestamp.now().internal + '.ts'
             open(os.path.join(df._datadir, filename), 'w').close()
             suffix = os.path.basename(os.path.dirname(df._datadir))
             # but get_hashes has no reason to find it (because we didn't
@@ -7796,7 +7796,7 @@ class TestSuffixHashes(unittest.TestCase):
             # create a real suffix dir
             df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
                                      'o', policy=policy, frag_index=3)
-            df.delete(Timestamp(time()))
+            df.delete(Timestamp.now())
             suffix = os.path.basename(os.path.dirname(df._datadir))
             # touch a bad suffix dir
             part_dir = os.path.join(self.devices, self.existing_device,

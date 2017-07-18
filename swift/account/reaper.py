@@ -408,7 +408,7 @@ class AccountReaper(Daemon):
                 break
         successes = 0
         failures = 0
-        timestamp = Timestamp(time())
+        timestamp = Timestamp.now()
         for node in nodes:
             anode = account_nodes.pop()
             try:
@@ -483,7 +483,7 @@ class AccountReaper(Daemon):
         part, nodes = ring.get_nodes(account, container, obj)
         successes = 0
         failures = 0
-        timestamp = Timestamp(time())
+        timestamp = Timestamp.now()
 
         for node in nodes:
             cnode = next(cnodes)

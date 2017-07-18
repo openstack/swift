@@ -1472,7 +1472,7 @@ class Controller(object):
         headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
         if transfer:
             self.transfer_headers(orig_req.headers, headers)
-        headers.setdefault('x-timestamp', Timestamp(time.time()).internal)
+        headers.setdefault('x-timestamp', Timestamp.now().internal)
         if orig_req:
             referer = orig_req.as_referer()
         else:
@@ -1780,7 +1780,7 @@ class Controller(object):
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
         path = '/%s' % account
-        headers = {'X-Timestamp': Timestamp(time.time()).internal,
+        headers = {'X-Timestamp': Timestamp.now().internal,
                    'X-Trans-Id': self.trans_id,
                    'X-Openstack-Request-Id': self.trans_id,
                    'Connection': 'close'}

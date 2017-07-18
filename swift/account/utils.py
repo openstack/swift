@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import json
-import time
 from xml.sax import saxutils
 
 from swift.common.swob import HTTPOk, HTTPNoContent
@@ -28,7 +27,7 @@ class FakeAccountBroker(object):
     like an account broker would for a real, empty account with no metadata.
     """
     def get_info(self):
-        now = Timestamp(time.time()).internal
+        now = Timestamp.now().internal
         return {'container_count': 0,
                 'object_count': 0,
                 'bytes_used': 0,

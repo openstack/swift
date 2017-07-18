@@ -400,7 +400,7 @@ class TestConstraints(unittest.TestCase):
                           constraints.valid_timestamp,
                           Request.blank('/', headers={
                               'X-Timestamp': 'asdf'}))
-        timestamp = utils.Timestamp(time.time())
+        timestamp = utils.Timestamp.now()
         req = Request.blank('/', headers={'X-Timestamp': timestamp.internal})
         self.assertEqual(timestamp, constraints.valid_timestamp(req))
         req = Request.blank('/', headers={'X-Timestamp': timestamp.normal})

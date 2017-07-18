@@ -178,7 +178,7 @@ class TestTimestamp(unittest.TestCase):
         self.assertRaises(ValueError, utils.Timestamp, time.time(), offset=-1)
 
     def test_invalid_string_conversion(self):
-        t = utils.Timestamp(time.time())
+        t = utils.Timestamp.now()
         self.assertRaises(TypeError, str, t)
 
     def test_offset_limit(self):

@@ -228,7 +228,7 @@ class ExampleBroker(DatabaseBroker):
         INSERT INTO test_stat (
             account, created_at, id, put_timestamp, status_changed_at)
         VALUES (?, ?, ?, ?, ?);
-        """, (self.account, Timestamp(time.time()).internal, str(uuid4()),
+        """, (self.account, Timestamp.now().internal, str(uuid4()),
               put_timestamp, put_timestamp))
 
     def merge_items(self, item_list):
@@ -552,7 +552,7 @@ class TestExampleBroker(unittest.TestCase):
 
     def test_get_syncs(self):
         broker = self.broker_class(':memory:', account='a', container='c')
-        broker.initialize(Timestamp(time.time()).internal,
+        broker.initialize(Timestamp.now().internal,
                           storage_policy_index=int(self.policy))
         self.assertEqual([], broker.get_syncs())
         broker.merge_syncs([{'sync_point': 1, 'remote_id': 'remote1'}])

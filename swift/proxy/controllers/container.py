@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from swift import gettext_ as _
-import time
 
 from six.moves.urllib.parse import unquote
 from swift.common.utils import public, csv_append, Timestamp
@@ -234,7 +233,7 @@ class ContainerController(Controller):
 
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,
                           policy_index=None):
-        additional = {'X-Timestamp': Timestamp(time.time()).internal}
+        additional = {'X-Timestamp': Timestamp.now().internal}
         if policy_index is None:
             additional['X-Backend-Storage-Policy-Default'] = \
                 int(POLICIES.default)

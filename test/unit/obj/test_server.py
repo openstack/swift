@@ -2554,7 +2554,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 404)
 
     def test_PUT_ssync_multi_frag(self):
-        timestamp = utils.Timestamp(time()).internal
+        timestamp = utils.Timestamp.now().internal
 
         def put_with_index(expected_rsp, frag_index, node_index=None):
             data_file_tail = '#%d#d.data' % frag_index
@@ -2926,7 +2926,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_GET_if_match_etag_is_at(self):
         headers = {
-            'X-Timestamp': utils.Timestamp(time()).internal,
+            'X-Timestamp': utils.Timestamp.now().internal,
             'Content-Type': 'application/octet-stream',
             'X-Object-Meta-Xtag': 'madeup',
             'X-Object-Sysmeta-Xtag': 'alternate madeup',
@@ -4019,7 +4019,7 @@ class TestObjectController(unittest.TestCase):
         def mock_diskfile_delete(self, timestamp):
             raise DiskFileNoSpace()
 
-        t_put = utils.Timestamp(time())
+        t_put = utils.Timestamp.now()
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put.internal,
@@ -4030,7 +4030,7 @@ class TestObjectController(unittest.TestCase):
 
         with mock.patch('swift.obj.diskfile.BaseDiskFile.delete',
                         mock_diskfile_delete):
-            t_delete = utils.Timestamp(time())
+            t_delete = utils.Timestamp.now()
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': t_delete.internal})
@@ -6865,7 +6865,7 @@ class TestObjectController(unittest.TestCase):
 
         # phase1 - PUT request with object metadata in footer and
         # multiphase commit conversation
-        put_timestamp = utils.Timestamp(time()).internal
+        put_timestamp = utils.Timestamp.now().internal
         headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
@@ -6932,7 +6932,7 @@ class TestObjectServer(unittest.TestCase):
             'Expect': '100-continue',
             'Content-Length': len(test_body),
             'Content-Type': 'application/test',
-            'X-Timestamp': utils.Timestamp(time()).internal,
+            'X-Timestamp': utils.Timestamp.now().internal,
         }
         conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
                                          'PUT', '/a/c/o', headers=headers)
@@ -6950,7 +6950,7 @@ class TestObjectServer(unittest.TestCase):
             'Expect': '100-continue',
             'Content-Length': len(test_body),
             'Content-Type': 'application/test',
-            'X-Timestamp': utils.Timestamp(time()).internal,
+            'X-Timestamp': utils.Timestamp.now().internal,
             'X-Backend-Obj-Metadata-Footer': 'yes',
             'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
         }
@@ -6964,7 +6964,7 @@ class TestObjectServer(unittest.TestCase):
 
     def test_expect_on_put_conflict(self):
         test_body = 'test'
-        put_timestamp = utils.Timestamp(time())
+        put_timestamp = utils.Timestamp.now()
         headers = {
             'Expect': '100-continue',
             'Content-Length': len(test_body),
@@ -6993,7 +6993,7 @@ class TestObjectServer(unittest.TestCase):
 
     def test_multiphase_put_no_mime_boundary(self):
         test_data = 'obj data'
-        put_timestamp = utils.Timestamp(time()).internal
+        put_timestamp = utils.Timestamp.now().internal
         headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
@@ -7010,7 +7010,7 @@ class TestObjectServer(unittest.TestCase):
         resp.close()
 
     def test_expect_on_multiphase_put_diconnect(self):
-        put_timestamp = utils.Timestamp(time()).internal
+        put_timestamp = utils.Timestamp.now().internal
         headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
@@ -7104,7 +7104,7 @@ class TestObjectServer(unittest.TestCase):
             'X-Backend-Obj-Multiphase-Commit': 'yes',
         }
         put_timestamp = utils.Timestamp(headers.setdefault(
-            'X-Timestamp', utils.Timestamp(time()).internal))
+            'X-Timestamp', utils.Timestamp.now().internal))
         container_update = \
             'swift.obj.server.ObjectController.container_update'
         with mock.patch(container_update) as _container_update:
@@ -7213,7 +7213,7 @@ class TestObjectServer(unittest.TestCase):
             "--boundary123",
         ))
 
-        put_timestamp = utils.Timestamp(time()).internal
+        put_timestamp = utils.Timestamp.now().internal
         headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
@@ -7378,7 +7378,7 @@ class TestObjectServer(unittest.TestCase):
 
         # phase1 - PUT request with multiphase commit conversation
         # no object metadata in footer
-        put_timestamp = utils.Timestamp(time()).internal
+        put_timestamp = utils.Timestamp.now().internal
         headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,

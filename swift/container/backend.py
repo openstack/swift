@@ -18,7 +18,6 @@ Pluggable Back-ends for Container Server
 
 import os
 from uuid import uuid4
-import time
 
 import six
 import six.moves.cPickle as pickle
@@ -314,7 +313,7 @@ class ContainerBroker(DatabaseBroker):
             INSERT INTO container_info (account, container, created_at, id,
                 put_timestamp, status_changed_at, storage_policy_index)
             VALUES (?, ?, ?, ?, ?, ?, ?);
-        """, (self.account, self.container, Timestamp(time.time()).internal,
+        """, (self.account, self.container, Timestamp.now().internal,
               str(uuid4()), put_timestamp, put_timestamp,
               storage_policy_index))
 
@@ -611,7 +610,7 @@ class ContainerBroker(DatabaseBroker):
         Update the container_stat policy_index and status_changed_at.
         """
         if timestamp is None:
-            timestamp = Timestamp(time.time()).internal
+            timestamp = Timestamp.now().internal
 
         def _setit(conn):
             conn.execute('''

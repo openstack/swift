@@ -367,7 +367,7 @@ class TestReconcilerUtils(unittest.TestCase):
     def test_get_container_policy_index_for_deleted(self):
         mock_path = 'swift.container.reconciler.direct_head_container'
         headers = container_resp_headers(
-            status_changed_at=Timestamp(time.time()).internal,
+            status_changed_at=Timestamp.now().internal,
             storage_policy_index=1,
         )
         stub_resp_headers = [
@@ -564,7 +564,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 'partition': partition, 'method': method, 'path': path,
                 'headers': headers, 'query_string': query_string})
 
-        x_timestamp = Timestamp(time.time())
+        x_timestamp = Timestamp.now()
         headers = {'x-timestamp': x_timestamp.internal}
         fake_hc = fake_http_connect(200, 200, 200, give_connect=test_connect)
         with mock.patch(mock_path, fake_hc):
@@ -1191,7 +1191,7 @@ class TestReconciler(unittest.TestCase):
 
     def test_src_object_unavailable_with_slightly_newer_tombstone(self):
         # should be some sort of retry case
-        q_ts = float(Timestamp(time.time()))
+        q_ts = float(Timestamp.now())
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
         self._mock_listing({
@@ -1230,7 +1230,7 @@ class TestReconciler(unittest.TestCase):
 
     def test_src_object_unavailable_server_error(self):
         # should be some sort of retry case
-        q_ts = float(Timestamp(time.time()))
+        q_ts = float(Timestamp.now())
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
         self._mock_listing({
@@ -1583,7 +1583,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
     def test_object_move_no_such_object_no_tombstone_recent(self):
-        q_ts = float(Timestamp(time.time()))
+        q_ts = float(Timestamp.now())
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
 
@@ -1615,7 +1615,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(deleted_container_entries, [])
 
     def test_object_move_no_such_object_no_tombstone_ancient(self):
-        queue_ts = float(Timestamp(time.time())) - \
+        queue_ts = float(Timestamp.now()) - \
             self.reconciler.reclaim_age * 1.1
         container = str(int(queue_ts // 3600 * 3600))
 

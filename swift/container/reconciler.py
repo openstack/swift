@@ -204,7 +204,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
         # already been popped from the queue to be reprocessed, but
         # could potentially prevent out of order updates from making it
         # into the queue
-        x_timestamp = Timestamp(time.time()).internal
+        x_timestamp = Timestamp.now().internal
     else:
         x_timestamp = obj_timestamp
     q_op_type = get_reconciler_content_type(op)

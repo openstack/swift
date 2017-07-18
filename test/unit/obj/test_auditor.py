@@ -716,7 +716,7 @@ class TestAuditor(unittest.TestCase):
 
     def setup_bad_zero_byte(self, timestamp=None):
         if timestamp is None:
-            timestamp = Timestamp(time.time())
+            timestamp = Timestamp.now()
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
         etag = md5()

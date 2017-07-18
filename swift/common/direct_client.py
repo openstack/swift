@@ -21,7 +21,6 @@ through the proxy.
 import json
 import os
 import socket
-from time import time
 
 from eventlet import sleep, Timeout
 import six
@@ -122,7 +121,7 @@ def _get_direct_account_container(path, stype, node, part,
 def gen_headers(hdrs_in=None, add_ts=False):
     hdrs_out = HeaderKeyDict(hdrs_in) if hdrs_in else HeaderKeyDict()
     if add_ts:
-        hdrs_out['X-Timestamp'] = Timestamp(time()).internal
+        hdrs_out['X-Timestamp'] = Timestamp.now().internal
     hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
     return hdrs_out
 

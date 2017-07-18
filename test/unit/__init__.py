@@ -1169,7 +1169,7 @@ def make_ec_object_stub(test_body, policy, timestamp):
     segment_size = policy.ec_segment_size
     test_body = test_body or (
         'test' * segment_size)[:-random.randint(1, 1000)]
-    timestamp = timestamp or utils.Timestamp(time.time())
+    timestamp = timestamp or utils.Timestamp.now()
     etag = md5(test_body).hexdigest()
     ec_archive_bodies = encode_frag_archive_bodies(policy, test_body)
 

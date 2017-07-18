@@ -260,7 +260,7 @@ class BaseObjectController(Controller):
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
-        req.headers['X-Timestamp'] = Timestamp(time.time()).internal
+        req.headers['X-Timestamp'] = Timestamp.now().internal
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
@@ -467,7 +467,7 @@ class BaseObjectController(Controller):
                          'was %r' % req.headers['x-timestamp'])
             req.headers['X-Timestamp'] = req_timestamp.internal
         else:
-            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
+            req.headers['X-Timestamp'] = Timestamp.now().internal
         return None
 
     def _check_failure_put_connections(self, putters, req, min_conns):
@@ -780,7 +780,7 @@ class BaseObjectController(Controller):
                          'was %r' % req.headers['x-timestamp'])
             req.headers['X-Timestamp'] = req_timestamp.internal
         else:
-            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
+            req.headers['X-Timestamp'] = Timestamp.now().internal
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)

@@ -476,7 +476,7 @@ class DatabaseBroker(object):
                                    delete_timestamp=MAX(?, delete_timestamp)
             ''' % self.db_type, (created_at, put_timestamp, delete_timestamp))
             if old_status != self._is_deleted(conn):
-                timestamp = Timestamp(time.time())
+                timestamp = Timestamp.now()
                 self._update_status_changed_at(conn, timestamp.internal)
 
             conn.commit()
