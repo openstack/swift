@@ -1361,21 +1361,53 @@ class TestUtils(unittest.TestCase):
         testcache_file = os.path.join(testdir_base, 'cache.recon')
         logger = utils.get_logger(None, 'server', log_route='server')
         try:
-            submit_dict = {'key1': {'value1': 1, 'value2': 2}}
+            submit_dict = {'key0': 99,
+                           'key1': {'value1': 1, 'value2': 2}}
             utils.dump_recon_cache(submit_dict, testcache_file, logger)
-            fd = open(testcache_file)
-            file_dict = json.loads(fd.readline())
-            fd.close()
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
             self.assertEqual(submit_dict, file_dict)
             # Use a nested entry
-            submit_dict = {'key1': {'key2': {'value1': 1, 'value2': 2}}}
-            result_dict = {'key1': {'key2': {'value1': 1, 'value2': 2},
-                           'value1': 1, 'value2': 2}}
+            submit_dict = {'key0': 101,
+                           'key1': {'key2': {'value1': 1, 'value2': 2}}}
+            expect_dict = {'key0': 101,
+                           'key1': {'key2': {'value1': 1, 'value2': 2},
+                                    'value1': 1, 'value2': 2}}
             utils.dump_recon_cache(submit_dict, testcache_file, logger)
-            fd = open(testcache_file)
-            file_dict = json.loads(fd.readline())
-            fd.close()
-            self.assertEqual(result_dict, file_dict)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
+            # cached entries are sticky
+            submit_dict = {}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
+            # nested dicts can be erased...
+            submit_dict = {'key1': {'key2': {}}}
+            expect_dict = {'key0': 101,
+                           'key1': {'value1': 1, 'value2': 2}}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
+            # ... and erasure is idempotent
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
+            # top level dicts can be erased...
+            submit_dict = {'key1': {}}
+            expect_dict = {'key0': 101}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
+            # ... and erasure is idempotent
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            with open(testcache_file) as fd:
+                file_dict = json.loads(fd.readline())
+            self.assertEqual(expect_dict, file_dict)
         finally:
             rmtree(testdir_base)
 
