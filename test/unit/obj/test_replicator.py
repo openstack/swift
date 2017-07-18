@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import collections
+import json
 import unittest
 import os
 import mock
@@ -320,12 +321,31 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual((start + 1) % 10, replicator.replication_cycle)
         self.assertFalse(process_errors)
         self.assertFalse(self.logger.get_lines_for_level('error'))
-        object_replicator.http_connect = was_connector
+
+        # Returns 0 at first, and 60 on all following .next() calls
+        def _infinite_gen():
+            yield 0
+            while True:
+                yield 60
+
         with _mock_process(process_arg_checker):
-            for cycle in range(1, 10):
-                replicator.run_once()
-                self.assertEqual((start + 1 + cycle) % 10,
-                                 replicator.replication_cycle)
+            with mock.patch('time.time') as time_mock:
+                for cycle in range(1, 10):
+                    time_mock.side_effect = _infinite_gen()
+                    replicator.run_once()
+                    self.assertEqual((start + 1 + cycle) % 10,
+                                     replicator.replication_cycle)
+
+        self.assertEqual(0, replicator.stats['start'])
+        recon_fname = os.path.join(self.recon_cache, "object.recon")
+        with open(recon_fname) as cachefile:
+            recon = json.loads(cachefile.read())
+            self.assertEqual(1, recon.get('replication_time'))
+            self.assertIn('replication_stats', recon)
+            self.assertIn('replication_last', recon)
+        expected = 'Object replication complete (once). (1.00 minutes)'
+        self.assertIn(expected, self.logger.get_lines_for_level('info'))
+        object_replicator.http_connect = was_connector
 
     # policy 1
     def test_run_once_1(self):
