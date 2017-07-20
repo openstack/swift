@@ -411,11 +411,20 @@ Object Server Configuration
 An Example Object Server configuration can be found at
 etc/object-server.conf-sample in the source code repository.
 
-The following configuration options are available:
+The following configuration sections are available:
+
+* :ref:`[DEFAULT] <object-server-default-options>`
+* `[object-server]`_
+* `[object-replicator]`_
+* `[object-reconstructor]`_
+* `[object-updater]`_
+* `[object-auditor]`_
 
 .. _object-server-default-options:
 
+*********
 [DEFAULT]
+*********
 
 ================================ ==========  ============================================
 Option                           Default     Description
@@ -550,7 +559,9 @@ ionice_priority                  None        I/O scheduling priority of server
 
 .. _object-server-options:
 
+***************
 [object-server]
+***************
 
 =============================  ====================== ===============================================
 Option                         Default                Description
@@ -666,7 +677,9 @@ eventlet_tpool_num_threads     auto                   The number of threads in e
                                                       value.
 =============================  ====================== ===============================================
 
+*******************
 [object-replicator]
+*******************
 
 ===========================  ========================  ================================
 Option                       Default                   Description
@@ -783,7 +796,9 @@ ionice_priority              None                      I/O scheduling priority o
                                                        is set.
 ===========================  ========================  ================================
 
+**********************
 [object-reconstructor]
+**********************
 
 ===========================  ========================  ================================
 Option                       Default                   Description
@@ -862,7 +877,9 @@ ionice_priority              None                      I/O scheduling priority o
                                                        is set.
 ===========================  ========================  ================================
 
+****************
 [object-updater]
+****************
 
 =================== =================== ==========================================
 Option              Default             Description
@@ -906,7 +923,9 @@ ionice_priority     None                I/O scheduling priority of server
                                         Ignored if IOPRIO_CLASS_IDLE is set.
 =================== =================== ==========================================
 
+****************
 [object-auditor]
+****************
 
 =========================== =================== ==========================================
 Option                      Default             Description
@@ -965,9 +984,19 @@ Container Server Configuration
 An example Container Server configuration can be found at
 etc/container-server.conf-sample in the source code repository.
 
-The following configuration options are available:
+The following configuration sections are available:
 
+* :ref:`[DEFAULT] <container_server_default_options>`
+* `[container-server]`_
+* `[container-replicator]`_
+* `[container-updater]`_
+* `[container-auditor]`_
+
+.. _container_server_default_options:
+
+*********
 [DEFAULT]
+*********
 
 ===============================  ==========  ============================================
 Option                           Default     Description
@@ -1058,7 +1087,9 @@ ionice_priority                  None        I/O scheduling priority of server p
                                              Ignored if IOPRIO_CLASS_IDLE is set.
 ===============================  ==========  ============================================
 
+******************
 [container-server]
+******************
 
 ==============================  ================  ========================================
 Option                          Default           Description
@@ -1112,7 +1143,9 @@ ionice_priority                 None              I/O scheduling priority of ser
                                                   Ignored if IOPRIO_CLASS_IDLE is set.
 ==============================  ================  ========================================
 
+**********************
 [container-replicator]
+**********************
 
 ==================  ===========================  =============================
 Option              Default                      Description
@@ -1203,7 +1236,9 @@ ionice_priority     None                         I/O scheduling priority of
                                                  is set.
 ==================  ===========================  =============================
 
+*******************
 [container-updater]
+*******************
 
 ========================  =================  ==================================
 Option                    Default            Description
@@ -1255,7 +1290,9 @@ ionice_priority           None               I/O scheduling priority of server
                                              Ignored if IOPRIO_CLASS_IDLE is set.
 ========================  =================  ==================================
 
+*******************
 [container-auditor]
+*******************
 
 =====================  =================  =======================================
 Option                 Default            Description
@@ -1300,9 +1337,19 @@ Account Server Configuration
 An example Account Server configuration can be found at
 etc/account-server.conf-sample in the source code repository.
 
-The following configuration options are available:
+The following configuration sections are available:
 
+* :ref:`[DEFAULT] <account_server_default_options>`
+* `[account-server]`_
+* `[account-replicator]`_
+* `[account-auditor]`_
+* `[account-reaper]`_
+
+.. _account_server_default_options:
+
+*********
 [DEFAULT]
+*********
 
 ===============================  ==========  =============================================
 Option                           Default     Description
@@ -1393,7 +1440,9 @@ ionice_priority                  None        I/O scheduling priority of server p
                                              Ignored if IOPRIO_CLASS_IDLE is set.
 ===============================  ==========  =============================================
 
+****************
 [account-server]
+****************
 
 =============================  ==============  ==========================================
 Option                         Default         Description
@@ -1444,7 +1493,9 @@ ionice_priority                None            I/O scheduling priority of server
                                                Ignored if IOPRIO_CLASS_IDLE is set.
 =============================  ==============  ==========================================
 
+********************
 [account-replicator]
+********************
 
 ==================  =========================  ===============================
 Option              Default                    Description
@@ -1530,7 +1581,9 @@ ionice_priority     None                       I/O scheduling priority of server
                                                is set.
 ==================  =========================  ===============================
 
+*****************
 [account-auditor]
+*****************
 
 ====================  ================  =======================================
 Option                Default           Description
@@ -1568,7 +1621,9 @@ ionice_priority       None              I/O scheduling priority of server
                                         Ignored if IOPRIO_CLASS_IDLE is set.
 ====================  ================  =======================================
 
+****************
 [account-reaper]
+****************
 
 ==================  ===============  =========================================
 Option              Default          Description
@@ -1626,9 +1681,22 @@ Proxy Server Configuration
 An example Proxy Server configuration can be found at
 etc/proxy-server.conf-sample in the source code repository.
 
-The following configuration options are available:
+The following configuration sections are available:
 
+An example Account Server configuration can be found at
+etc/account-server.conf-sample in the source code repository.
+
+The following configuration sections are available:
+
+* :ref:`[DEFAULT] <proxy_server_default_options>`
+* `[proxy-server]`_
+* Individual sections for `Proxy middlewares`_
+
+.. _proxy_server_default_options:
+
+*********
 [DEFAULT]
+*********
 
 ====================================  ========================  ========================================
 Option                                Default                   Description
@@ -1753,7 +1821,9 @@ ionice_priority                       None                      I/O scheduling p
                                                                 Ignored if IOPRIO_CLASS_IDLE is set.
 ====================================  ========================  ========================================
 
+**************
 [proxy-server]
+**************
 
 ======================================  ===============  =====================================
 Option                                  Default          Description
@@ -1959,8 +2029,9 @@ write_affinity_handoff_delete_count     auto             The number of local (as
 
 .. _proxy_server_per_policy_config:
 
+************************
 Per policy configuration
-^^^^^^^^^^^^^^^^^^^^^^^^
+************************
 
 Some proxy-server configuration options may be overridden for individual
 :doc:`overview_policies` by including per-policy config section(s). These
@@ -2046,8 +2117,9 @@ policy with index ``3``::
     * ``read_affinity = r1=100`` (set in the proxy-server section)
     * ``write_affinity = r0`` (inherited from the ``[DEFAULT]`` section)
 
+*****************
 Proxy Middlewares
-^^^^^^^^^^^^^^^^^
+*****************
 
 Many features in Swift are implemented as middleware in the proxy-server
 pipeline. See :doc:`middleware` and the ``proxy-server.conf-sample`` file for
