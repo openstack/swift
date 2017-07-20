@@ -324,14 +324,14 @@ use = egg:swift#recon
 # The handoffs_only mode option is for special case emergency situations during
 # rebalance such as disk full in the cluster.  This option SHOULD NOT BE
 # CHANGED, except for extreme situations.  When handoffs_only mode is enabled
-# the reconstructor will *only* revert rebalance fragments to primaries and not
-# attempt to sync any primary parts with neighbor primaries.  This will force
-# the reconstructor to sync and delete handoffs fragments more quickly and
-# minimize the time of the rebalance by limiting the number of rebuilds.  The
-# handoffs_only option is only for temporary use, it should be disabled as soon
-# as the emergency situation is resolved.  When handoffs_only is not set, the
-# deprecated handoffs_first option will be honored as a synonym, but may be
-# ignored in a future release.
+# the reconstructor will *only* revert fragments from handoff nodes to primary
+# nodes and will not sync primary nodes with neighboring primary nodes.  This
+# will force the reconstructor to sync and delete handoffs' fragments more
+# quickly and minimize the time of the rebalance by limiting the number of
+# rebuilds.  The handoffs_only option is only for temporary use and should be
+# disabled as soon as the emergency situation has been resolved.  When
+# handoffs_only is not set, the deprecated handoffs_first option will be
+# honored as a synonym, but may be ignored in a future release.
 # handoffs_only = False
 #
 # You can set scheduling priority of processes. Niceness values range from -20

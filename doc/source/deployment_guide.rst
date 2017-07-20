@@ -783,6 +783,85 @@ ionice_priority              None                      I/O scheduling priority o
                                                        is set.
 ===========================  ========================  ================================
 
+[object-reconstructor]
+
+===========================  ========================  ================================
+Option                       Default                   Description
+---------------------------  ------------------------  --------------------------------
+log_name                     object-reconstructor      Label used when logging
+log_facility                 LOG_LOCAL0                Syslog log facility
+log_level                    INFO                      Logging level
+log_address                  /dev/log                  Logging directory
+daemonize                    yes                       Whether or not to run
+                                                       reconstruction as a daemon
+interval                     30                        Time in seconds to wait between
+                                                       reconstruction passes
+concurrency                  1                         Number of reconstruction threads to
+                                                       spawn.
+stats_interval               300                       Interval in seconds between
+                                                       logging reconstruction statistics
+handoffs_only                false                     The handoffs_only mode option is for
+                                                       special case emergency situations
+                                                       during rebalance such as disk full in
+                                                       the cluster.  This option SHOULD NOT
+                                                       BE CHANGED, except for extreme
+                                                       situations.  When handoffs_only mode
+                                                       is enabled the reconstructor will
+                                                       *only* revert fragments from handoff
+                                                       nodes to primary nodes and will not
+                                                       sync primary nodes with neighboring
+                                                       primary nodes.  This will force the
+                                                       reconstructor to sync and delete
+                                                       handoffs' fragments more quickly and
+                                                       minimize the time of the rebalance by
+                                                       limiting the number of rebuilds.  The
+                                                       handoffs_only option is only for
+                                                       temporary use and should be disabled
+                                                       as soon as the emergency situation
+                                                       has been resolved.
+node_timeout                 DEFAULT or 10             Request timeout to external
+                                                       services. The value used is the value
+                                                       set in this section, or the value set
+                                                       in the DEFAULT section, or 10.
+http_timeout                 60                        Max duration of an http request.
+                                                       This is for REPLICATE finalization
+                                                       calls and so should be longer
+                                                       than node_timeout.
+lockup_timeout               1800                      Attempts to kill all threads if
+                                                       no fragment has been reconstructed
+                                                       for lockup_timeout seconds.
+ring_check_interval          15                        Interval for checking new ring
+                                                       file
+recon_cache_path             /var/cache/swift          Path to recon cache
+nice_priority                None                      Scheduling priority of server
+                                                       processes. Niceness values
+                                                       range from -20 (most favorable
+                                                       to the process) to 19 (least
+                                                       favorable to the process).
+                                                       The default does not modify
+                                                       priority.
+ionice_class                 None                      I/O scheduling class of server
+                                                       processes. I/O niceness class
+                                                       values are IOPRIO_CLASS_RT (realtime),
+                                                       IOPRIO_CLASS_BE (best-effort),
+                                                       and IOPRIO_CLASS_IDLE (idle).
+                                                       The default does not modify
+                                                       class and priority.
+                                                       Linux supports io scheduling
+                                                       priorities and classes since
+                                                       2.6.13 with the CFQ io scheduler.
+                                                       Work only with ionice_priority.
+ionice_priority              None                      I/O scheduling priority of server
+                                                       processes. I/O niceness priority
+                                                       is a number which goes from
+                                                       0 to 7. The higher the value,
+                                                       the lower the I/O priority of
+                                                       the process.
+                                                       Work only with ionice_class.
+                                                       Ignored if IOPRIO_CLASS_IDLE
+                                                       is set.
+===========================  ========================  ================================
+
 [object-updater]
 
 =================== =================== ==========================================
