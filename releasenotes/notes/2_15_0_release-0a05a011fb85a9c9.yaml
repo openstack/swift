@@ -1,0 +1,102 @@
+---
+features:
+  - |
+    Add Composite Ring Functionality
+
+    A composite ring comprises two or more component rings that are
+    combined to form a single ring with a replica count equal to the
+    sum of the component rings. The component rings are built
+    independently, using distinct devices in distinct regions, which
+    means that the dispersion of replicas between the components can
+    be guaranteed.
+
+    Composite rings can be used for explicit replica placement and
+    "replicated EC" for global erasure codes policies.
+
+    Composite rings support 'cooperative' rebalance which means that
+    during rebalance all component rings will be consulted before a
+    partition is moved in any component ring. This avoids the same
+    partition being simultaneously moved in multiple components.
+
+    We do not yet have CLI tools for creating composite rings, but
+    the functionality has been enabled in the ring modules to
+    support this advanced functionality. CLI tools will be delivered
+    in a subsequent release.
+
+    For further information see the
+    `docs <https://docs.openstack.org/swift/latest/overview_ring.html#module-swift.common.ring.composite_builder>`__
+  - |
+    The EC reconstructor process has been dramatically improved by
+    adding support for multiple concurrent workers. Multiple
+    processes are required to get high concurrency, and this change
+    results in much faster rebalance times on servers with many
+    drives.
+
+    Currently the default is still only one process, and no workers.
+    Set ``reconstructor_workers`` in the ``[object-reconstructor]``
+    section to some whole number <= the number of devices on a node
+    to get that many reconstructor workers.
+  - |
+    Add support to increase object ring partition power transparently
+    to end users and with no cluster downtime. Increasing the ring
+    part power allows for incremental adjustment to the upper bound
+    of the cluster size. Please review the
+    `full docs <https://docs.openstack.org/swift/latest/ring_partpower.html>`__
+    for more information.
+  - |
+    Added support for per-policy proxy config options. This allows
+    per-policy affinity options to be set for use with duplicated EC
+    policies and composite rings. Certain options found in per-policy
+    conf sections will override their equivalents that may be set
+    in the [app:proxy-server] section. Currently the options handled that
+    way are ``sorting_method``, ``read_affinity``, ``write_affinity``,
+    ``write_affinity_node_count``, and ``write_affinity_handoff_delete_count``.
+  - Enabled versioned writes on Dynamic Large Objects (DLOs).
+  - |
+    Write-affinity aware object deletion
+
+    Previously, when deleting objects in multi-region swift
+    deployment with write affinity configured, users always get 404
+    when deleting object before it's replicated to appropriate nodes.
+
+    Now Swift will use ``write_affinity_handoff_delete_count`` to
+    define how many local handoff nodes should swift send request to
+    get more candidates for the final response. The default value
+    "auto" means Swift will calculate the number automatically based
+    on the number of replicas and current cluster topology.
+  - |
+    Require that known-bad EC schemes be deprecated
+
+    Erasure-coded storage policies using ``isa_l_rs_vand`` and ``nparity``
+    >= 5 must be configured as deprecated, preventing any new
+    containers from being created with such a policy. This
+    configuration is known to harm data durability. Any data in such
+    policies should be migrated to a new policy. See
+    See `Launchpad bug 1639691 <https://bugs.launchpad.net/swift/+bug/1639691>`__
+    for more information.
+  - |
+    Optimize the Erasure Code reconstructor protocol to reduce IO
+    load on servers.
+  - Fixed a bug where SSYNC would fail to replicate unexpired object.
+  - Fixed a bug in domain_remap when obj starts/ends with slash.
+  - Fixed a socket leak in copy middleware when a large object was copied.
+  - Fixed a few areas where the ``swiftdir`` option was not respected.
+  - swift-recon now respects storage policy aliases.
+  - |
+    cname_lookup middleware now accepts a ``nameservers`` config
+    variable that, if defined, will be used for DNS lookups instead of
+    the system default.
+  - |
+    Make mount_check option usable in containerized environments by
+    adding a check for an ".ismount" file at the root directory of
+    a device.
+  - Remove deprecated ``vm_test_mode`` option.
+  - |
+    The object and container server config option ``slowdown`` has been
+    deprecated in favor of the new ``objects_per_second`` and
+    ``containers_per_second`` options.
+  - |
+    The output of devices from ``swift-ring-builder`` has been reordered
+    by region, zone, ip, and device.
+  - Imported docs content from openstack-manuals project.
+  - Various other minor bug fixes and improvements.
