@@ -94,6 +94,7 @@ Administrator Documentation
     logs
     ops_runbook/index
     admin/index
+    install/index
 
 Object Storage v1 REST API Documentation
 ========================================

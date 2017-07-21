@@ -1,6 +1,6 @@
-======================
-Object Storage service
-======================
+============================
+Object Storage Install Guide
+============================
 
 .. toctree::
    :maxdepth: 2
