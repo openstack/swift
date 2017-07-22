@@ -902,15 +902,16 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     utils.FALLOCATE_RESERVE, utils.FALLOCATE_IS_PERCENT = \
         utils.config_fallocate_value(conf.get('fallocate_reserve', '1%'))
 
-    # redirect errors to logger and close stdio
-    capture_stdio(logger)
-
     # Start listening on bind_addr/port
     error_msg = strategy.do_bind_ports()
     if error_msg:
         logger.error(error_msg)
         print(error_msg)
         return 1
+
+    # Redirect errors to logger and close stdio. Do this *after* binding ports;
+    # we use this to signal that the service is ready to accept connections.
+    capture_stdio(logger)
 
     no_fork_sock = strategy.no_fork_sock()
     if no_fork_sock:
