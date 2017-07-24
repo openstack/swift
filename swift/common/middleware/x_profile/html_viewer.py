@@ -529,5 +529,5 @@ class HTMLViewer(object):
                                 --></a></td></tr>' % (app_path,
                                                       profile_id, nfls))
         except Exception as ex:
-            html.append("Exception:" % ex.message)
+            html.append("Exception:" % str(ex))
         return ''.join(html)
