@@ -59,7 +59,7 @@ def get_server_number(ipport, ipport2server):
 
 def start_server(ipport, ipport2server):
     server, number = get_server_number(ipport, ipport2server)
-    err = Manager([server]).start(number=number, wait=False)
+    err = Manager([server]).start(number=number, wait=True)
     if err:
         raise Exception('unable to start %s' % (
             server if not number else '%s%s' % (server, number)))
@@ -358,7 +358,7 @@ class ProbeTest(unittest.TestCase):
                     'servers_per_port', '0'))
                 for c in self.configs['object-replicator'].values())
 
-            Manager(['main']).start(wait=False)
+            Manager(['main']).start(wait=True)
             for ipport in self.ipport2server:
                 check_server(ipport, self.ipport2server)
             proxy_ipport = ('127.0.0.1', 8080)
