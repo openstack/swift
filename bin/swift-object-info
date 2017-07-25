@@ -17,6 +17,8 @@
 import sys
 from optparse import OptionParser
 
+from swift.common.storage_policy import reload_storage_policies
+from swift.common.utils import set_swift_dir
 from swift.cli.info import print_obj, InfoSystemExit
 
 
@@ -37,6 +39,9 @@ if __name__ == '__main__':
 
     if len(args) != 1:
         sys.exit(parser.print_help())
+
+    if set_swift_dir(options.swift_dir):
+        reload_storage_policies()
 
     try:
         print_obj(*args, **vars(options))

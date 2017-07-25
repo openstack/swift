@@ -39,6 +39,7 @@ from six.moves.http_client import HTTPException
 
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
+from swift.common.utils import set_swift_dir
 
 from test import get_config, listen_zero
 from test.functional.swift_test_client import Account, Connection, Container, \
@@ -105,9 +106,6 @@ skip, skip2, skip3, skip_service_tokens, skip_if_no_reseller_admin = \
 
 orig_collate = ''
 insecure = False
-
-orig_hash_path_suff_pref = ('', '')
-orig_swift_conf_name = None
 
 in_process = False
 _testdir = _test_servers = _test_coros = _test_socks = None
@@ -413,6 +411,7 @@ def in_process_setup(the_object_server=object_server):
     utils.mkdirs(os.path.join(_testdir, 'sdc1', 'tmp'))
 
     swift_conf = _in_process_setup_swift_conf(swift_conf_src, _testdir)
+    _info('prepared swift.conf: %s' % swift_conf)
 
     # Call the associated method for the value of
     # 'SWIFT_TEST_IN_PROCESS_CONF_LOADER', if one exists
@@ -437,12 +436,11 @@ def in_process_setup(the_object_server=object_server):
 
     obj_sockets = _in_process_setup_ring(swift_conf, conf_src_dir, _testdir)
 
-    global orig_swift_conf_name
-    orig_swift_conf_name = utils.SWIFT_CONF_FILE
-    utils.SWIFT_CONF_FILE = swift_conf
-    constraints.reload_constraints()
-    storage_policy.SWIFT_CONF_FILE = swift_conf
-    storage_policy.reload_storage_policies()
+    # load new swift.conf file
+    if set_swift_dir(os.path.dirname(swift_conf)):
+        constraints.reload_constraints()
+        storage_policy.reload_storage_policies()
+
     global config
     if constraints.SWIFT_CONSTRAINTS_LOADED:
         # Use the swift constraints that are loaded for the test framework
@@ -453,9 +451,6 @@ def in_process_setup(the_object_server=object_server):
     else:
         # In-process swift constraints were not loaded, somethings wrong
         raise SkipTest
-    global orig_hash_path_suff_pref
-    orig_hash_path_suff_pref = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
-    utils.validate_hash_conf()
 
     global _test_socks
     _test_socks = []
@@ -918,10 +913,7 @@ def teardown_package():
             rmtree(os.path.dirname(_testdir))
         except Exception:
             pass
-        utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX = \
-            orig_hash_path_suff_pref
-        utils.SWIFT_CONF_FILE = orig_swift_conf_name
-        constraints.reload_constraints()
+
         reset_globals()
 
 

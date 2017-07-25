@@ -18,11 +18,13 @@
 from __future__ import print_function
 
 from eventlet.green import socket
+from six import string_types
 from six.moves.urllib.parse import urlparse
 
-from swift.common.utils import SWIFT_CONF_FILE, md5_hash_for_file
+from swift.common.utils import (
+    SWIFT_CONF_FILE, md5_hash_for_file, set_swift_dir)
 from swift.common.ring import Ring
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, reload_storage_policies
 import eventlet
 import json
 import optparse
@@ -916,7 +918,9 @@ class SwiftRecon(object):
         if self.server_type == 'object':
             ring_names = [p.ring_name for p in POLICIES if (
                 p.name == policy or not policy or (
-                    policy.isdigit() and int(policy) == int(p)))]
+                    policy.isdigit() and int(policy) == int(p) or
+                    (isinstance(policy, string_types)
+                     and policy in p.aliases)))]
         else:
             ring_names = [self.server_type]
 
@@ -1013,6 +1017,9 @@ class SwiftRecon(object):
             server_types = ['object']
 
         swift_dir = options.swiftdir
+        if set_swift_dir(swift_dir):
+            reload_storage_policies()
+
         self.verbose = options.verbose
         self.suppress_errors = options.suppress
         self.timeout = options.timeout

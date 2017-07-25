@@ -187,6 +187,29 @@ class InvalidHashPathConfigError(ValueError):
             "swift_hash_path_prefix are missing from %s" % SWIFT_CONF_FILE
 
 
+def set_swift_dir(swift_dir):
+    """
+    Sets the directory from which swift config files will be read. If the given
+    directory differs from that already set then the swift.conf file in the new
+    directory will be validated and storage policies will be reloaded from the
+    new swift.conf file.
+
+    :param swift_dir: non-default directory to read swift.conf from
+    """
+    global HASH_PATH_SUFFIX
+    global HASH_PATH_PREFIX
+    global SWIFT_CONF_FILE
+    if (swift_dir is not None and
+            swift_dir != os.path.dirname(SWIFT_CONF_FILE)):
+        SWIFT_CONF_FILE = os.path.join(
+            swift_dir, os.path.basename(SWIFT_CONF_FILE))
+        HASH_PATH_PREFIX = ''
+        HASH_PATH_SUFFIX = ''
+        validate_configuration()
+        return True
+    return False
+
+
 def validate_hash_conf():
     global HASH_PATH_SUFFIX
     global HASH_PATH_PREFIX

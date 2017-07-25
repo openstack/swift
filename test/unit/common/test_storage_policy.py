@@ -1051,7 +1051,7 @@ class TestStoragePolicies(unittest.TestCase):
         with NamedTemporaryFile() as f:
             conf.write(f)
             f.flush()
-            with mock.patch('swift.common.storage_policy.SWIFT_CONF_FILE',
+            with mock.patch('swift.common.utils.SWIFT_CONF_FILE',
                             new=f.name):
                 try:
                     reload_storage_policies()

@@ -31,6 +31,7 @@ import mock
 import random
 import re
 import socket
+import string
 import sys
 import json
 import math
@@ -61,9 +62,11 @@ from swift.common.exceptions import Timeout, MessageTimeout, \
     ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
     MimeInvalid
 from swift.common import utils
-from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6
+from swift.common.utils import is_valid_ip, is_valid_ipv4, is_valid_ipv6, \
+    set_swift_dir
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
 from test.unit import FakeLogger, requires_o_tmpfile_support
 
@@ -6217,6 +6220,37 @@ class TestHashForFileFunction(unittest.TestCase):
         if failures:
             self.fail('Some data did not compute expected hash:\n' +
                       '\n'.join(failures))
+
+
+class TestSetSwiftDir(unittest.TestCase):
+    def setUp(self):
+        self.swift_dir = tempfile.mkdtemp()
+        self.swift_conf = os.path.join(self.swift_dir, 'swift.conf')
+        self.policy_name = ''.join(random.sample(string.letters, 20))
+        with open(self.swift_conf, "wb") as sc:
+            sc.write('''
+[swift-hash]
+swift_hash_path_suffix = changeme
+
+[storage-policy:0]
+name = default
+default = yes
+
+[storage-policy:1]
+name = %s
+''' % self.policy_name)
+
+    def tearDown(self):
+        shutil.rmtree(self.swift_dir, ignore_errors=True)
+
+    def test_set_swift_dir(self):
+        set_swift_dir(None)
+        reload_storage_policies()
+        self.assertIsNone(POLICIES.get_by_name(self.policy_name))
+
+        set_swift_dir(self.swift_dir)
+        reload_storage_policies()
+        self.assertIsNotNone(POLICIES.get_by_name(self.policy_name))
 
 if __name__ == '__main__':
     unittest.main()

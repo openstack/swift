@@ -16,11 +16,13 @@
 import json
 import mock
 import os
+import random
 import re
 import tempfile
 import time
 import unittest
 import shutil
+import string
 import sys
 import six
 
@@ -147,6 +149,7 @@ class TestScout(unittest.TestCase):
 @patch_policies
 class TestRecon(unittest.TestCase):
     def setUp(self, *_args, **_kwargs):
+        self.swift_conf_file = utils.SWIFT_CONF_FILE
         self.recon_instance = recon.SwiftRecon()
         self.swift_dir = tempfile.mkdtemp()
         self.ring_name = POLICIES.legacy.ring_name
@@ -156,10 +159,24 @@ class TestRecon(unittest.TestCase):
         self.tmpfile_name2 = os.path.join(
             self.swift_dir, self.ring_name2 + '.ring.gz')
 
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
+        swift_conf = os.path.join(self.swift_dir, 'swift.conf')
+        self.policy_name = ''.join(random.sample(string.letters, 20))
+        with open(swift_conf, "wb") as sc:
+            sc.write('''
+[swift-hash]
+swift_hash_path_suffix = changeme
+
+[storage-policy:0]
+name = default
+default = yes
+
+[storage-policy:1]
+name = unu
+aliases = %s
+''' % self.policy_name)
 
     def tearDown(self, *_args, **_kwargs):
+        utils.SWIFT_CONF_FILE = self.swift_conf_file
         shutil.rmtree(self.swift_dir, ignore_errors=True)
 
     def _make_object_rings(self):
@@ -590,7 +607,7 @@ class TestRecon(unittest.TestCase):
 
         self.assertEqual(expected, discovered_hosts)
 
-    def test_main_object_hosts_default_unu(self):
+    def _test_main_object_hosts_policy_name(self, policy_name='unu'):
         self._make_object_rings()
         discovered_hosts = set()
 
@@ -602,7 +619,7 @@ class TestRecon(unittest.TestCase):
 
         with mock.patch.object(sys, 'argv', [
                 "prog", "object", "--swiftdir=%s" % self.swift_dir,
-                "--validate-servers", '--policy=unu']):
+                "--validate-servers", '--policy', policy_name]):
 
             self.recon_instance.main()
 
@@ -611,6 +628,12 @@ class TestRecon(unittest.TestCase):
             ('127.0.0.2', 10004),
         ])
         self.assertEqual(expected, discovered_hosts)
+
+    def test_main_object_hosts_default_unu(self):
+        self._test_main_object_hosts_policy_name()
+
+    def test_main_object_hosts_default_alias(self):
+        self._test_main_object_hosts_policy_name(self.policy_name)
 
     def test_main_object_hosts_default_invalid(self):
         self._make_object_rings()
