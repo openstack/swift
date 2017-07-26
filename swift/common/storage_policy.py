@@ -925,10 +925,6 @@ class StoragePolicySingleton(object):
 def reload_storage_policies():
     """
     Reload POLICIES from ``swift.conf``.
-
-    :param swift_conf_dir: non-default directory to read swift.conf from
-                           This is by default /etc/swift/swift.conf. If given,
-                           it will also trigger a re-validation of swift.conf
     """
     global _POLICIES
     policy_conf = ConfigParser()
