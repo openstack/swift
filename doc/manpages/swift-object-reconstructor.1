@@ -37,11 +37,12 @@ reconstruction before it has the correct data to push to the other node.
 Show this help message and exit
 .TP
 \fB\-d\fR \fIDEVICES\fR, \fB\-\-devices\fR=\fIDEVICES\fR
-Reconstruct only given devices. Comma\-separated list
+Reconstruct only given devices. Comma\-separated list. Only has effect if
+\-\-once is used.
 .TP
 \fB\-p\fR \fIPARTITIONS\fR, \fB\-\-partitions\fR=\fIPARTITIONS\fR
 Reconstruct only given partitions. Comma\-separated
-list
+list. Only has effect if \-\-once is used.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Log to console
@@ -52,9 +53,9 @@ Only run one pass of daemon
 
 .SH DOCUMENTATION
 .LP
-More in depth documentation in regards to 
+More in depth documentation in regards to
 .BI swift\-object\-reconstructor
-and also about OpenStack Swift as a whole can be found at 
+and also about OpenStack Swift as a whole can be found at
 .BI http://docs.openstack.org/developer/swift/index.html
-and 
+and
 .BI http://docs.openstack.org
