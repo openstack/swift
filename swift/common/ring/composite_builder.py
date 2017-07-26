@@ -719,7 +719,7 @@ class CooperativeRingBuilder(RingBuilder):
         :return: True if the partition can be moved, False otherwise.
         """
         # called by parent_builder - now forward to the superclass
-        return (not self._last_part_moves or
+        return (not self.ever_rebalanced or
                 super(CooperativeRingBuilder, self)._can_part_move(part))
 
     def _update_last_part_moves(self):

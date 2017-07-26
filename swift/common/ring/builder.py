@@ -146,6 +146,10 @@ class RingBuilder(object):
     def part_shift(self):
         return 32 - self.part_power
 
+    @property
+    def ever_rebalanced(self):
+        return self._last_part_moves is not None
+
     def _set_part_moved(self, part):
         self._last_part_moves[part] = 0
         byte, bit = divmod(part, 8)
@@ -485,7 +489,7 @@ class RingBuilder(object):
 
         old_replica2part2dev = copy.deepcopy(self._replica2part2dev)
 
-        if self._last_part_moves is None:
+        if not self.ever_rebalanced:
             self.logger.debug("New builder; performing initial balance")
             self._last_part_moves = array('B', itertools.repeat(0, self.parts))
         self._update_last_part_moves()
