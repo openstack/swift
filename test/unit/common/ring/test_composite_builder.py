@@ -853,6 +853,7 @@ class TestLoadComponents(BaseTestCompositeBuilder):
         self.assertIn("Older builder version", error_lines[0])
         self.assertFalse(error_lines[1:])
         self.assertEqual(orig_version + 1, cb.version)
+        self.assertIsNone(cb._builders)
         # unless we ignore errors
         self._call_method_under_test(cb, force=True)
         self.assertEqual(old_builders[0].version, cb._builders[0].version)
@@ -976,12 +977,12 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
                              {0: 256, 1: 256, 2: 256})  # sanity check
         return rb
 
-    def _partition_counts(self, builder, key='id'):
+    def _partition_counts(self, builder):
         """
-        Returns a dictionary mapping the given device key to (number of
-        partitions assigned to that key).
+        Returns a dictionary mapping device id's to (number of
+        partitions assigned to that device).
         """
-        return Counter(builder.devs[dev_id][key]
+        return Counter(builder.devs[dev_id]['id']
                        for part2dev_id in builder._replica2part2dev
                        for dev_id in part2dev_id)
 
@@ -1034,6 +1035,8 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         self.assertEqual(192, num_moved)
         self.assertEqual(self._partition_counts(rb1),
                          {0: 192, 1: 192, 2: 192, 3: 192})
+        # N.B. num_parts_can_move gathers super class's (i.e. RingBuilder)
+        # _can_part_move so that it doesn't refer cobuilders state.
         self.assertEqual(256, num_parts_can_move(rb2))
         self.assertEqual(64, num_parts_can_move(rb1))
 
