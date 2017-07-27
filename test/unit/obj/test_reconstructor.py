@@ -1597,7 +1597,7 @@ class TestWorkerReconstructor(unittest.TestCase):
         # and empty
         self.assertEqual({}, data)
 
-    def test_is_healthy_ring_update_next_check(self):
+    def test_is_healthy(self):
         reconstructor = object_reconstructor.ObjectReconstructor(
             {'recon_cache_path': self.recon_cache_path},
             logger=self.logger)
@@ -1607,6 +1607,25 @@ class TestWorkerReconstructor(unittest.TestCase):
         self.assertFalse(reconstructor.is_healthy())
         reconstructor.all_local_devices = {
             'sdb%d' % p for p in reconstructor.policies}
+        self.assertTrue(reconstructor.is_healthy())
+
+    def test_is_healthy_detects_ring_change(self):
+        reconstructor = object_reconstructor.ObjectReconstructor(
+            {'recon_cache_path': self.recon_cache_path,
+             'reconstructor_workers': 1,
+             # bind ip and port will not match any dev in first version of ring
+             'bind_ip': '10.0.0.20', 'bind_port': '1020'},
+            logger=self.logger)
+        p = random.choice(reconstructor.policies)
+        self.assertEqual(14, len(p.object_ring.devs))  # sanity check
+        worker_args = list(reconstructor.get_worker_args())
+        self.assertFalse(worker_args[0]['override_devices'])  # no local devs
+        self.assertTrue(reconstructor.is_healthy())
+        # expand ring - now there are local devices
+        p.object_ring.set_replicas(28)
+        self.assertEqual(28, len(p.object_ring.devs))  # sanity check
+        self.assertFalse(reconstructor.is_healthy())
+        self.assertNotEqual(worker_args, list(reconstructor.get_worker_args()))
         self.assertTrue(reconstructor.is_healthy())
 
     def test_final_recon_dump(self):
