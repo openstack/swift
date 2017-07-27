@@ -811,8 +811,18 @@ daemonize                    yes                       Whether or not to run
                                                        reconstruction as a daemon
 interval                     30                        Time in seconds to wait between
                                                        reconstruction passes
+reconstructor_workers        0                         Maximum number of worker processes
+                                                       to spawn.  Each worker will handle
+                                                       a subset of devices.  Devices will
+                                                       be assigned evenly among the workers
+                                                       so that workers cycle at similar
+                                                       intervals (which can lead to fewer
+                                                       workers than requested).  You can not
+                                                       have more workers than devices.  If
+                                                       you have no devices only a single
+                                                       worker is spawned.
 concurrency                  1                         Number of reconstruction threads to
-                                                       spawn.
+                                                       spawn per reconstructor process.
 stats_interval               300                       Interval in seconds between
                                                        logging reconstruction statistics
 handoffs_only                false                     The handoffs_only mode option is for

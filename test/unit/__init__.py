@@ -30,6 +30,7 @@ from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
 import eventlet
+from eventlet import greenpool, debug as eventlet_debug
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -217,6 +218,14 @@ class FakeRing(Ring):
         # this is set higher, or R^2 for R replicas
         self.set_replicas(replicas)
         self._reload()
+
+    def has_changed(self):
+        """
+        The real implementation uses getmtime on the serialized_path attribute,
+        which doesn't exist on our fake and relies on the implementation of
+        _reload which we override.  So ... just NOOPE.
+        """
+        return False
 
     def _reload(self):
         self._rtime = time.time()
@@ -688,6 +697,16 @@ def fake_syslog_handler():
 if utils.config_true_value(
         get_config('unit_test').get('fake_syslog', 'False')):
     fake_syslog_handler()
+
+
+@contextmanager
+def quiet_eventlet_exceptions():
+    orig_state = greenpool.DEBUG
+    eventlet_debug.hub_exceptions(False)
+    try:
+        yield
+    finally:
+        eventlet_debug.hub_exceptions(orig_state)
 
 
 class MockTrue(object):

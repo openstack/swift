@@ -3143,7 +3143,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
             try:
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
-                    tf.write(json.dumps(cache_entry) + '\n')
+                    tf.write(json.dumps(cache_entry, sort_keys=True) + '\n')
                 if set_owner:
                     os.chown(tf.name, pwd.getpwnam(set_owner).pw_uid, -1)
                 renamer(tf.name, cache_file, fsync=False)
