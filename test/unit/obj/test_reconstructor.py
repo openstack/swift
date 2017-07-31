@@ -3864,11 +3864,33 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
     def test_get_local_devices_with_no_ec_policy_env(self):
         # even no ec_policy found on the server, it runs just like as
         # no ec device found
-        self.policy = POLICIES.default
         self._configure_reconstructor()
         self.assertEqual([], self.reconstructor.policies)
         local_devs = self.reconstructor.get_local_devices()
         self.assertEqual(set(), local_devs)
+
+    @patch_policies(legacy_only=True)
+    def test_reconstruct_with_no_ec_policy_env(self):
+        self._configure_reconstructor()
+        self.assertEqual([], self.reconstructor.policies)
+        collect_parts_results = []
+        _orig_collect_parts = self.reconstructor.collect_parts
+
+        def capture_collect_parts(**kwargs):
+            part_infos = _orig_collect_parts(**kwargs)
+            collect_parts_results.append(part_infos)
+            return part_infos
+
+        with mock.patch.object(self.reconstructor, 'collect_parts',
+                               capture_collect_parts):
+            self.reconstructor.reconstruct()
+
+        # There is one call, and it returns an empty list
+        self.assertEqual([[]], collect_parts_results)
+        log_lines = self.logger.all_log_lines()
+        self.assertEqual(log_lines, {'info': [mock.ANY]})
+        line = log_lines['info'][0]
+        self.assertTrue(line.startswith('Nothing reconstructed '), line)
 
 
 class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
