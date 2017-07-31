@@ -1034,7 +1034,7 @@ class ObjectReconstructor(Daemon):
         policy2devices = self.get_policy2devices()
         return reduce(set.union, (
             set(d['device'] for d in devices)
-            for devices in policy2devices.values()))
+            for devices in policy2devices.values()), set())
 
     def collect_parts(self, override_devices=None, override_partitions=None):
         """

@@ -3856,6 +3856,20 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
         # hashpath is still there, but it's empty
         self.assertEqual([], os.listdir(df._datadir))
 
+    def test_get_local_devices(self):
+        local_devs = self.reconstructor.get_local_devices()
+        self.assertEqual({'sda'}, local_devs)
+
+    @patch_policies(legacy_only=True)
+    def test_get_local_devices_with_no_ec_policy_env(self):
+        # even no ec_policy found on the server, it runs just like as
+        # no ec device found
+        self.policy = POLICIES.default
+        self._configure_reconstructor()
+        self.assertEqual([], self.reconstructor.policies)
+        local_devs = self.reconstructor.get_local_devices()
+        self.assertEqual(set(), local_devs)
+
 
 class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
     obj_path = '/a/c/o'  # subclass overrides this
