@@ -47,10 +47,6 @@ needed based on projected workloads. A minimum of two proxy servers
 should be deployed behind a separately-managed load balancer. If one
 proxy server fails, the others take over.
 
-For more information concerning proxy server configuration, see
-`Configuration Reference
-<https://docs.openstack.org/ocata/config-reference/object-storage/proxy-server.html>`_.
-
 Rings
 -----
 

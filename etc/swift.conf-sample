@@ -68,7 +68,7 @@ aliases = yellow, orange
 # data that will be buffered up before feeding a segment into the
 # encoder/decoder.  More information about these configuration options and
 # supported 'ec_type' schemes is available in the Swift documentation.  See
-# https://docs.openstack.org/developer/swift/overview_erasure_code.html
+# https://docs.openstack.org/swift/latest/overview_erasure_code.html
 # for more information on how to configure EC policies.
 #
 # The example 'deepfreeze10-4' policy defined below is a _sample_
