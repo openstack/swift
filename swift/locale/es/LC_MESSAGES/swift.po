@@ -7,9 +7,9 @@
 # Pablo Caruana <pcaruana@redhat.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.9.1.dev6\n"
+"Project-Id-Version: swift 2.15.1.dev6\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-07-19 04:02+0000\n"
+"POT-Creation-Date: 2017-08-01 21:30+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Language: es\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.7.3\n"
+"X-Generator: Zanata 3.9.6\n"
 "Language-Team: Spanish\n"
 
 msgid ""
@@ -44,30 +44,8 @@ msgstr ""
 "sincronizados"
 
 #, python-format
-msgid "%(ip)s/%(device)s responded as unmounted"
-msgstr "%(ip)s/%(device)s han respondido como desmontados"
-
-#, python-format
-msgid "%(msg)s %(hdr)s: %(e)s"
-msgstr "%(msg)s %(hdr)s: %(e)s"
-
-#, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid "%(msg)s: %(err)s"
-msgstr "%(msg)s: %(err)s"
-
-#, python-format
-msgid ""
-"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
-"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
-"(%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"%(reconstructed)d/%(total)d (%(percentage).2f%%) particiones de %(device)d/"
-"%(dtotal)d (%(dpercentage).2f%%) dispositivos reconstruidas en %(time).2fs "
-"(%(rate).2f/sec, %(remaining)s remaining)"
 
 #, python-format
 msgid ""
@@ -943,11 +921,6 @@ msgstr "Problema al limpiar %(datadir)s (%(err)s)"
 #, python-format
 msgid "Problem cleaning up %s"
 msgstr "Problema al limpiar %s"
-
-#, python-format
-msgid "Problem writing durable state file %(file)s (%(err)s)"
-msgstr ""
-"Problema al escribir en el archivo de estado durable %(file)s (%(err)s)"
 
 #, python-format
 msgid "Profiling Error: %s"

@@ -6,20 +6,20 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.9.1.dev6\n"
+"Project-Id-Version: swift 2.15.1.dev6\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-07-19 04:02+0000\n"
+"POT-Creation-Date: 2017-08-01 21:30+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-27 11:17+0000\n"
-"Last-Translator: Ilya Alekseyev <ilyaalekseyev@acm.org>\n"
+"PO-Revision-Date: 2016-04-12 06:43+0000\n"
+"Last-Translator: Copied by Zanata <copied-by-zanata@zanata.org>\n"
 "Language: ru\n"
 "Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
 "%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n"
 "%100>=11 && n%100<=14)? 2 : 3);\n"
 "Generated-By: Babel 2.0\n"
-"X-Generator: Zanata 3.7.3\n"
+"X-Generator: Zanata 3.9.6\n"
 "Language-Team: Russian\n"
 
 msgid ""
@@ -45,22 +45,8 @@ msgstr ""
 "синхронизировано: %(synced).2f%%"
 
 #, python-format
-msgid "%(ip)s/%(device)s responded as unmounted"
-msgstr "Ответили как размонтированные: %(ip)s/%(device)s"
-
-#, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
-
-#, python-format
-msgid ""
-"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of %(device)d/"
-"%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in %(time).2fs "
-"(%(rate).2f/sec, %(remaining)s remaining)"
-msgstr ""
-"Реконструированно разделов: %(reconstructed)d/%(total)d (%(percentage).2f%%) "
-"partitions of %(device)d/%(dtotal)d (%(dpercentage).2f%%) за время "
-"%(time).2fs (%(rate).2f/sec, осталось: %(remaining)s)"
 
 #, python-format
 msgid ""
