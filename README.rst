@@ -138,7 +138,7 @@ For client applications, official Python language bindings are provided
 at http://github.com/openstack/python-swiftclient.
 
 Complete API documentation at
-http://docs.openstack.org/api/openstack-object-storage/1.0/content/
+http://developer.openstack.org/api-ref/object-store/
 
 There is a large ecosystem of applications and libraries that support and
 work with OpenStack Swift. Several are listed on the
