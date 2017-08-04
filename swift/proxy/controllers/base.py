@@ -183,7 +183,7 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
     """
     headers, meta, sysmeta = _prep_headers_to_info(headers, 'object')
     transient_sysmeta = {}
-    for key, val in six.iteritems(headers):
+    for key, val in headers.items():
         if is_object_transient_sysmeta(key):
             key = strip_object_transient_sysmeta_prefix(key.lower())
             transient_sysmeta[key] = val
