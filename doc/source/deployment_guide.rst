@@ -668,7 +668,7 @@ eventlet_tpool_num_threads     auto                   The number of threads in e
                                                       occur in separate IO threads, managed by
                                                       eventlet.
                                                       The default value is auto, whose actual value
-                                                      is dependant on the servers_per_port value.
+                                                      is dependent on the servers_per_port value.
                                                       If servers_per_port is zero then it uses
                                                       eventlet's default (currently 20 threads).
                                                       If the servers_per_port is nonzero then it'll

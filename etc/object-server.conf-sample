@@ -129,7 +129,7 @@ use = egg:swift#object
 # in the object server's main thread, but certain "heavy" IO
 # operations will occur in separate IO threads, managed by eventlet.
 #
-# The default value is auto, whose actual value is dependant on the
+# The default value is auto, whose actual value is dependent on the
 # servers_per_port value:
 #
 #  - When servers_per_port is zero, the default value of
