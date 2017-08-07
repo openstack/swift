@@ -1058,9 +1058,9 @@ Metric Name                      Description
                                  deletion.
 `container-sync.deletes.timing`  Timing data for each container database row
                                  synchronization via deletion.
-`container-sync.puts`            Count of container database rows sync'ed by PUTing.
+`container-sync.puts`            Count of container database rows sync'ed by Putting.
 `container-sync.puts.timing`     Timing data for each container database row
-                                 synchronization via PUTing.
+                                 synchronization via Putting.
 ===============================  ====================================================
 
 Metrics for `container-updater`:

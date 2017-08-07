@@ -167,7 +167,7 @@ class TestContainerController(unittest.TestCase):
         self.assertTrue(response.status.startswith('204'))
         self.assertNotIn('x-container-read', response.headers)
         self.assertNotIn('x-container-write', response.headers)
-        # Ensure PUTing acls works
+        # Ensure PUT acls works
         req = Request.blank(
             '/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': '4', 'X-Container-Read': '.r:*',
