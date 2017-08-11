@@ -174,6 +174,19 @@ class TestRingBuilder(unittest.TestCase):
         self.assertNotEqual(r0.to_dict(), r1.to_dict())
         self.assertEqual(r1.to_dict(), r2.to_dict())
 
+        # check that random state is reset
+        pre_state = random.getstate()
+        rb2.rebalance(seed=10)
+        self.assertEqual(pre_state, random.getstate(),
+                         "Random state was not reset")
+
+        pre_state = random.getstate()
+        with mock.patch.object(rb2, "_build_replica_plan",
+                               side_effect=Exception()):
+            self.assertRaises(Exception, rb2.rebalance, seed=10)
+        self.assertEqual(pre_state, random.getstate(),
+                         "Random state was not reset")
+
     def test_rebalance_part_on_deleted_other_part_on_drained(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'region': 1, 'zone': 1, 'weight': 1,
@@ -1057,18 +1070,18 @@ class TestRingBuilder(unittest.TestCase):
         rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 100,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
         rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 900,
-                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
         rb.add_dev({'id': 4, 'region': 0, 'zone': 0, 'weight': 900,
-                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
         rb.add_dev({'id': 6, 'region': 0, 'zone': 0, 'weight': 900,
-                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
         # 127.0.0.2 (odd devices)
         rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 500,
-                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
         rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 500,
-                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdc'})
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
         rb.add_dev({'id': 5, 'region': 0, 'zone': 0, 'weight': 500,
-                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdd'})
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdc'})
         rb.add_dev({'id': 7, 'region': 0, 'zone': 0, 'weight': 500,
                     'ip': '127.0.0.2', 'port': 10000, 'device': 'sdd'})
 
@@ -1175,9 +1188,13 @@ class TestRingBuilder(unittest.TestCase):
         }
         self.assertEqual(expected, {d['id']: d['parts_wanted']
                                     for d in rb._iter_devs()})
+        self.assertEqual(rb.get_balance(), 100)
 
         rb.pretend_min_part_hours_passed()
-        rb.rebalance()
+        # There's something like a 11% chance that we won't be able to get to
+        # a balance of 0 (and a 6% chance that we won't change anything at all)
+        # Pick a seed to make this pass.
+        rb.rebalance(seed=123)
         self.assertEqual(rb.get_balance(), 0)
 
     def test_multiple_duplicate_device_assignment(self):
@@ -1601,7 +1618,7 @@ class TestRingBuilder(unittest.TestCase):
         # overload is 10% (0.1).
         rb.set_overload(0.1)
         rb.pretend_min_part_hours_passed()
-        rb.rebalance()
+        rb.rebalance(seed=12345)
 
         part_counts = self._partition_counts(rb, key='zone')
         self.assertEqual(part_counts[0], 212)

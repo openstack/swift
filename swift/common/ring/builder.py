@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import copy
 import errno
 import itertools
@@ -56,6 +57,24 @@ except ImportError:
     class NullHandler(logging.Handler):
         def emit(self, *a, **kw):
             pass
+
+
+@contextlib.contextmanager
+def _set_random_seed(seed):
+    # If random seed is set when entering this context then reset original
+    # random state when exiting the context. This avoids a test calling this
+    # method with a fixed seed value causing all subsequent tests to use a
+    # repeatable random sequence.
+    random_state = None
+    if seed is not None:
+        random_state = random.getstate()
+        random.seed(seed)
+    try:
+        yield
+    finally:
+        if random_state:
+            # resetting state rather than calling seed() eases unit testing
+            random.setstate(random_state)
 
 
 class RingBuilder(object):
@@ -482,9 +501,6 @@ class RingBuilder(object):
                     'num_devices': num_devices,
                 })
 
-        if seed is not None:
-            random.seed(seed)
-
         self._ring = None
 
         old_replica2part2dev = copy.deepcopy(self._replica2part2dev)
@@ -494,45 +510,47 @@ class RingBuilder(object):
             self._last_part_moves = array('B', itertools.repeat(0, self.parts))
         self._update_last_part_moves()
 
-        replica_plan = self._build_replica_plan()
-        self._set_parts_wanted(replica_plan)
+        with _set_random_seed(seed):
+            replica_plan = self._build_replica_plan()
+            self._set_parts_wanted(replica_plan)
 
-        assign_parts = defaultdict(list)
-        # gather parts from replica count adjustment
-        self._adjust_replica2part2dev_size(assign_parts)
-        # gather parts from failed devices
-        removed_devs = self._gather_parts_from_failed_devices(assign_parts)
-        # gather parts for dispersion (N.B. this only picks up parts that
-        # *must* disperse according to the replica plan)
-        self._gather_parts_for_dispersion(assign_parts, replica_plan)
-
-        # we'll gather a few times, or until we archive the plan
-        for gather_count in range(MAX_BALANCE_GATHER_COUNT):
-            self._gather_parts_for_balance(assign_parts, replica_plan)
-            if not assign_parts:
-                # most likely min part hours
-                finish_status = 'Unable to finish'
-                break
-            assign_parts_list = list(assign_parts.items())
-            # shuffle the parts to be reassigned, we have no preference on the
-            # order in which the replica plan is fulfilled.
-            random.shuffle(assign_parts_list)
-            # reset assign_parts map for next iteration
             assign_parts = defaultdict(list)
+            # gather parts from replica count adjustment
+            self._adjust_replica2part2dev_size(assign_parts)
+            # gather parts from failed devices
+            removed_devs = self._gather_parts_from_failed_devices(assign_parts)
+            # gather parts for dispersion (N.B. this only picks up parts that
+            # *must* disperse according to the replica plan)
+            self._gather_parts_for_dispersion(assign_parts, replica_plan)
 
-            num_part_replicas = sum(len(r) for p, r in assign_parts_list)
-            self.logger.debug("Gathered %d parts", num_part_replicas)
-            self._reassign_parts(assign_parts_list, replica_plan)
-            self.logger.debug("Assigned %d parts", num_part_replicas)
+            # we'll gather a few times, or until we archive the plan
+            for gather_count in range(MAX_BALANCE_GATHER_COUNT):
+                self._gather_parts_for_balance(assign_parts, replica_plan)
+                if not assign_parts:
+                    # most likely min part hours
+                    finish_status = 'Unable to finish'
+                    break
+                assign_parts_list = list(assign_parts.items())
+                # shuffle the parts to be reassigned, we have no preference on
+                # the order in which the replica plan is fulfilled.
+                random.shuffle(assign_parts_list)
+                # reset assign_parts map for next iteration
+                assign_parts = defaultdict(list)
 
-            if not sum(d['parts_wanted'] < 0 for d in
-                       self._iter_devs()):
-                finish_status = 'Finished'
-                break
-        else:
-            finish_status = 'Unable to finish'
-        self.logger.debug('%(status)s rebalance plan after %(count)s attempts',
-                          {'status': finish_status, 'count': gather_count + 1})
+                num_part_replicas = sum(len(r) for p, r in assign_parts_list)
+                self.logger.debug("Gathered %d parts", num_part_replicas)
+                self._reassign_parts(assign_parts_list, replica_plan)
+                self.logger.debug("Assigned %d parts", num_part_replicas)
+
+                if not sum(d['parts_wanted'] < 0 for d in
+                           self._iter_devs()):
+                    finish_status = 'Finished'
+                    break
+            else:
+                finish_status = 'Unable to finish'
+            self.logger.debug(
+                '%(status)s rebalance plan after %(count)s attempts',
+                {'status': finish_status, 'count': gather_count + 1})
 
         self.devs_changed = False
         self.version += 1

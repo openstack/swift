@@ -904,7 +904,7 @@ class TestRing(TestRingBase):
         part = random.randint(0, r.partition_count)
         node_iter = r.get_more_nodes(part)
         next(node_iter)
-        self.assertEqual(5, counting_table.count)
+        self.assertLess(counting_table.count, 14)
         # sanity
         self.assertEqual(1, r._num_regions)
         self.assertEqual(2, r._num_zones)
