@@ -331,6 +331,10 @@ class TestController(unittest.TestCase):
                               'container_count': '12345',
                               'total_object_count': None,
                               'bytes': None,
+                              'storage_policies': {p.idx: {
+                                  'container_count': 0,
+                                  'object_count': 0,
+                                  'bytes': 0} for p in POLICIES},
                               'meta': {},
                               'sysmeta': {}}
             self.assertEqual(container_info,
@@ -358,6 +362,10 @@ class TestController(unittest.TestCase):
                             'container_count': None,  # internally keep None
                             'total_object_count': None,
                             'bytes': None,
+                            'storage_policies': {p.idx: {
+                                'container_count': 0,
+                                'object_count': 0,
+                                'bytes': 0} for p in POLICIES},
                             'meta': {},
                             'sysmeta': {}}
             self.assertEqual(account_info,

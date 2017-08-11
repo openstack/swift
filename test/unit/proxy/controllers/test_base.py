@@ -26,8 +26,8 @@ from swift.common import exceptions
 from swift.common.utils import split_path
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
-from swift.common.storage_policy import StoragePolicy
-from test.unit import fake_http_connect, FakeRing, FakeMemcache
+from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
+from test.unit import fake_http_connect, FakeRing, FakeMemcache, PatchPolicies
 from swift.proxy import server as proxy_server
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
@@ -614,6 +614,30 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(
             resp,
             headers_to_account_info(headers.items(), 200))
+
+    def test_headers_to_account_info_storage_policies(self):
+        headers = {
+            'x-account-storage-policy-zero-object-count': '13',
+            'x-account-storage-policy-zero-container-count': '120',
+            'x-account-storage-policy-zero-bytes-used': '1002',
+            'x-account-storage-policy-one-object-count': '10',
+            'x-account-storage-policy-one-container-count': '20',
+        }
+        spc = StoragePolicyCollection([StoragePolicy(0, 'zero', True),
+                                       StoragePolicy(1, 'one', False)])
+        with PatchPolicies(spc):
+            resp = headers_to_account_info(headers.items(), 200)
+        self.assertEqual(
+            resp['storage_policies'][0]['object_count'], 13)
+        self.assertEqual(
+            resp['storage_policies'][0]['container_count'], 120)
+        self.assertEqual(
+            resp['storage_policies'][0]['bytes'], 1002)
+        self.assertEqual(
+            resp['storage_policies'][1]['object_count'], 10)
+        self.assertEqual(
+            resp['storage_policies'][1]['container_count'], 20)
+        self.assertEqual(resp['storage_policies'][1]['bytes'], 0)
 
     def test_headers_to_object_info_missing(self):
         resp = headers_to_object_info({}, 404)
