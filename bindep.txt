@@ -3,7 +3,8 @@
 
 build-essential [platform:dpkg]
 gcc [platform:rpm]
-gettext
+gettext [!platform:suse]
+gettext-runtime [platform:suse]
 liberasurecode-dev [platform:dpkg]
 liberasurecode-devel [platform:rpm]
 libffi-dev [platform:dpkg]
@@ -12,8 +13,10 @@ memcached
 python-dev [platform:dpkg]
 python-devel [platform:rpm]
 python3-dev [platform:dpkg]
-python34-devel [platform:rpm]
+python34-devel [platform:redhat]
+python3-devel [platfrom:suse]
 rsync
 xfsprogs
 libssl-dev [platform:dpkg]
-openssl-devel [platform:rpm]
+openssl-devel [platform:redhat]
+libopenssl-devel [platform:suse]
