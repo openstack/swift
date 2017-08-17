@@ -259,6 +259,13 @@ class TestContainerController(TestRingBase):
             self.fail('Some requests did not have expected response:\n' +
                       '\n'.join(failures))
 
+        # One more test, simulating all nodes being error-limited
+        with mocked_http_conn(), mock.patch.object(self.app, 'iter_nodes',
+                                                   return_value=[]):
+            req = Request.blank('/v1/a/c')
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 503)
+
     def test_response_code_for_PUT(self):
         PUT_TEST_CASES = [
             ((201, 201, 201), 201),
