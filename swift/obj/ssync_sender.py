@@ -329,7 +329,8 @@ class Sender(object):
             try:
                 df = self.df_mgr.get_diskfile_from_hash(
                     self.job['device'], self.job['partition'], object_hash,
-                    self.job['policy'], frag_index=self.job.get('frag_index'))
+                    self.job['policy'], frag_index=self.job.get('frag_index'),
+                    open_expired=True)
             except exceptions.DiskFileNotExist:
                 continue
             url_path = urllib.parse.quote(

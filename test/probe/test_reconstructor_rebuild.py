@@ -24,7 +24,9 @@ import shutil
 import random
 from collections import defaultdict
 import os
+import time
 
+from swift.common.direct_client import DirectClientException
 from test.probe.common import ECProbeTest
 
 from swift.common import direct_client
@@ -80,19 +82,10 @@ class TestReconstructorRebuild(ECProbeTest):
                              headers=headers)
 
         # PUT object and POST some metadata
-        contents = Body()
-        headers = {
-            self._make_name('x-object-meta-').decode('utf8'):
-                self._make_name('meta-foo-').decode('utf8'),
-        }
+        self.proxy_put()
         self.headers_post = {
             self._make_name('x-object-meta-').decode('utf8'):
                 self._make_name('meta-bar-').decode('utf8')}
-
-        self.etag = client.put_object(self.url, self.token,
-                                      self.container_name,
-                                      self.object_name,
-                                      contents=contents, headers=headers)
         client.post_object(self.url, self.token, self.container_name,
                            self.object_name, headers=dict(self.headers_post))
 
@@ -107,6 +100,19 @@ class TestReconstructorRebuild(ECProbeTest):
                 'X-Backend-Durable-Timestamp', hdrs,
                 'Missing durable timestamp in %r' % self.frag_headers)
 
+    def proxy_put(self, extra_headers=None):
+        contents = Body()
+        headers = {
+            self._make_name('x-object-meta-').decode('utf8'):
+                self._make_name('meta-foo-').decode('utf8'),
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        self.etag = client.put_object(self.url, self.token,
+                                      self.container_name,
+                                      self.object_name,
+                                      contents=contents, headers=headers)
+
     def proxy_get(self):
         # GET object
         headers, body = client.get_object(self.url, self.token,
@@ -118,8 +124,10 @@ class TestReconstructorRebuild(ECProbeTest):
             resp_checksum.update(chunk)
         return headers, resp_checksum.hexdigest()
 
-    def direct_get(self, node, part, require_durable=True):
+    def direct_get(self, node, part, require_durable=True, extra_headers=None):
         req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
+        if extra_headers:
+            req_headers.update(extra_headers)
         if not require_durable:
             req_headers.update(
                 {'X-Backend-Fragment-Preferences': json.dumps([])})
@@ -166,14 +174,15 @@ class TestReconstructorRebuild(ECProbeTest):
     def _format_node(self, node):
         return '%s#%s' % (node['device'], node['index'])
 
-    def _assert_all_nodes_have_frag(self):
+    def _assert_all_nodes_have_frag(self, extra_headers=None):
         # check all frags are in place
         failures = []
         frag_etags = {}
         frag_headers = {}
         for node in self.onodes:
             try:
-                headers, etag = self.direct_get(node, self.opart)
+                headers, etag = self.direct_get(node, self.opart,
+                                                extra_headers=extra_headers)
                 frag_etags[node['index']] = etag
                 del headers['Date']  # Date header will vary so remove it
                 frag_headers[node['index']] = headers
@@ -334,6 +343,51 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # just to be nice
         self.revive_drive(device_path)
+
+    def test_sync_expired_object(self):
+        # verify that missing frag can be rebuilt for an expired object
+        delete_at = int(time.time() + 3)
+        self.proxy_put(extra_headers={'x-delete-at': delete_at})
+        self.proxy_get()  # sanity check
+        orig_frag_headers, orig_frag_etags = self._assert_all_nodes_have_frag(
+            extra_headers={'X-Backend-Replication': 'True'})
+
+        # wait for object to expire
+        time.sleep(3)
+
+        # sanity check - object has now expired, proxy get fails
+        with self.assertRaises(ClientException) as cm:
+            self.proxy_get()
+        self.assertEqual(404, cm.exception.http_status)
+
+        # sanity check - X-Backend-Replication let's us get expired frag...
+        fail_node = random.choice(self.onodes)
+        self.direct_get(fail_node, self.opart,
+                        extra_headers={'X-Backend-Replication': 'True'})
+        # ...until we remove the frag from fail_node
+        self._break_nodes([self.onodes.index(fail_node)], [])
+        # ...now it's really gone
+        with self.assertRaises(DirectClientException) as cm:
+            self.direct_get(fail_node, self.opart,
+                            extra_headers={'X-Backend-Replication': 'True'})
+        self.assertEqual(404, cm.exception.http_status)
+        self.assertNotIn('X-Backend-Timestamp', cm.exception.http_headers)
+
+        # run the reconstructor
+        self.reconstructor.once()
+
+        # the missing frag is now in place but expired
+        with self.assertRaises(DirectClientException) as cm:
+            self.direct_get(fail_node, self.opart)
+        self.assertEqual(404, cm.exception.http_status)
+        self.assertIn('X-Backend-Timestamp', cm.exception.http_headers)
+
+        # check all frags are intact, durable and have expected metadata
+        frag_headers, frag_etags = self._assert_all_nodes_have_frag(
+            extra_headers={'X-Backend-Replication': 'True'})
+        self.assertEqual(orig_frag_etags, frag_etags)
+        self.maxDiff = None
+        self.assertEqual(orig_frag_headers, frag_headers)
 
 
 class TestReconstructorRebuildUTF8(TestReconstructorRebuild):

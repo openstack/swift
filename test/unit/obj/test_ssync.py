@@ -147,7 +147,7 @@ class TestBaseSsync(BaseTest):
     def _open_rx_diskfile(self, obj_name, policy, frag_index=None):
         df = self.rx_controller.get_diskfile(
             self.device, self.partition, 'a', 'c', obj_name, policy=policy,
-            frag_index=frag_index)
+            frag_index=frag_index, open_expired=True)
         df.open()
         return df
 
@@ -1345,6 +1345,41 @@ class TestSsyncReplication(TestBaseSsync):
             metadata = df.get_metadata()
             self.assertEqual(metadata['X-Object-Meta-Test'], oname)
             self.assertEqual(metadata['X-Object-Sysmeta-Test'], 'sys_' + oname)
+
+    def test_expired_object(self):
+        # verify that expired objects sync
+        policy = POLICIES.default
+        rx_node_index = 0
+        tx_df_mgr = self.daemon._df_router[policy]
+        t1 = next(self.ts_iter)
+        obj_name = 'o1'
+        metadata = {'X-Delete-At': '0', 'Content-Type': 'plain/text'}
+        df = self._make_diskfile(
+            obj=obj_name, body=self._get_object_data('/a/c/%s' % obj_name),
+            extra_metadata=metadata, timestamp=t1, policy=policy,
+            df_mgr=tx_df_mgr, verify=False)
+        with self.assertRaises(DiskFileExpired):
+            df.open()  # sanity check - expired
+
+        # create ssync sender instance...
+        suffixes = [os.path.basename(os.path.dirname(df._datadir))]
+        job = {'device': self.device,
+               'partition': self.partition,
+               'policy': policy}
+        node = dict(self.rx_node)
+        node.update({'index': rx_node_index})
+        sender = ssync_sender.Sender(self.daemon, node, job, suffixes)
+        # wrap connection from tx to rx to capture ssync messages...
+        sender.connect, trace = self.make_connect_wrapper(sender)
+
+        # run the sync protocol...
+        success, in_sync_objs = sender()
+
+        self.assertEqual(1, len(in_sync_objs))
+        self.assertTrue(success)
+        # allow the expired sender diskfile to be opened for verification
+        df._open_expired = True
+        self._verify_ondisk_files({obj_name: [df]}, policy)
 
     def _check_no_longer_expired_object(self, obj_name, df, policy):
         # verify that objects with x-delete-at metadata that are not expired

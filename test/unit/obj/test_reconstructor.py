@@ -3964,6 +3964,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
             self.assertEqual(
                 [{'timestamp': self.obj_timestamp.normal, 'exclude': []}],
                 json.loads(called_header['X-Backend-Fragment-Preferences']))
+            self.assertIn('X-Backend-Replication', called_header)
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
         self.assertFalse(self.logger.get_lines_for_level('warning'))

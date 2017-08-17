@@ -908,7 +908,9 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy, frag_prefs=frag_prefs)
+                policy=policy, frag_prefs=frag_prefs,
+                open_expired=config_true_value(
+                    request.headers.get('x-backend-replication', 'false')))
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
