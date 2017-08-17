@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import mock
+import socket
 import unittest
 
 from eventlet import Timeout
@@ -193,34 +194,32 @@ class TestContainerController(TestRingBase):
                     self.assertEqual(req['method'], method)
                     self.assertTrue(req['path'].endswith('/a/c'))
 
-            base_status = [201] * 3
+            base_status = [201] * self.CONTAINER_REPLICAS
             # test happy path
             test_status_map(list(base_status), 201)
-            for i in range(3):
+            for i in range(self.CONTAINER_REPLICAS):
                 self.assertEqual(node_error_count(
                     self.app, self.container_ring.devs[i]), 0)
             # single node errors and test isolation
-            for i in range(3):
-                status_list = list(base_status)
-                status_list[i] = 503
-                status_list.append(201)
-                test_status_map(status_list, 201)
-                for j in range(3):
+            for i in range(self.CONTAINER_REPLICAS):
+                test_status_map(base_status[:i] + [503] + base_status[i:], 201)
+                for j in range(self.CONTAINER_REPLICAS):
                     expected = 1 if j == i else 0
                     self.assertEqual(node_error_count(
                         self.app, self.container_ring.devs[j]), expected)
             # timeout
-            test_status_map((201, Timeout(), 201, 201), 201)
+            test_status_map(base_status[:1] + [Timeout()] + base_status[1:],
+                            201)
             self.assertEqual(node_error_count(
                 self.app, self.container_ring.devs[1]), 1)
 
             # exception
-            test_status_map((Exception('kaboom!'), 201, 201, 201), 201)
+            test_status_map([Exception('kaboom!')] + base_status, 201)
             self.assertEqual(node_error_count(
                 self.app, self.container_ring.devs[0]), 1)
 
             # insufficient storage
-            test_status_map((201, 201, 507, 201), 201)
+            test_status_map(base_status[:2] + [507] + base_status[2:], 201)
             self.assertEqual(node_error_count(
                 self.app, self.container_ring.devs[2]),
                 self.app.error_suppression_limit + 1)
@@ -229,7 +228,8 @@ class TestContainerController(TestRingBase):
         nodes = self.app.container_ring.replicas
         handoffs = self.app.request_node_count(nodes) - nodes
         GET_TEST_CASES = [
-            ([], 503),
+            ([socket.error()] * (nodes + handoffs), 503),
+            ([500] * (nodes + handoffs), 503),
             ([200], 200),
             ([404, 200], 200),
             ([404] * nodes + [200], 200),
