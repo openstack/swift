@@ -5750,11 +5750,12 @@ class TestObjectController(unittest.TestCase):
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
-        resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.status_int, 201)
 
         # fix server time to now: delete-at is in future, verify GET is ok
         with mock.patch('swift.obj.server.time.time', return_value=now):
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 201)
+
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'GET'},
@@ -5807,15 +5808,14 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
-        orig_time = object_server.time.time
-        try:
-            t = time()
-            delete_at_timestamp = int(t + 1)
+        # fix server time to now: delete-at is in future, verify GET is ok
+        now = time()
+        with mock.patch('swift.obj.server.time.time', return_value=now):
+            delete_at_timestamp = int(now + 1)
             delete_at_container = str(
                 delete_at_timestamp /
                 self.object_controller.expiring_objects_container_divisor *
                 self.object_controller.expiring_objects_container_divisor)
-            object_server.time.time = lambda: t
             put_timestamp = normalize_timestamp(test_time - 1000)
             req = Request.blank(
                 '/sda1/p/a/c/o',
@@ -5834,23 +5834,16 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': normalize_timestamp(test_time)})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-        finally:
-            object_server.time.time = orig_time
 
-        orig_time = object_server.time.time
-        try:
-            t = time() + 2
-            object_server.time.time = lambda: t
+        with mock.patch('swift.obj.server.time.time', return_value=now + 2):
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'HEAD'},
-                headers={'X-Timestamp': normalize_timestamp(time())})
+                headers={'X-Timestamp': normalize_timestamp(now + 2)})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 404)
             self.assertEqual(resp.headers['X-Backend-Timestamp'],
                              utils.Timestamp(put_timestamp))
-        finally:
-            object_server.time.time = orig_time
 
     def test_POST_but_expired(self):
         test_time = time() + 10000
