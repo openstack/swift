@@ -1,0 +1,19 @@
+---
+fixes:
+  - |
+    Fixed a bug introduced in 2.15.0 where the object reconstructor
+    would exit with a traceback if no EC policy was configured.
+  - |
+    Fixed deadlock when logging from a tpool thread.
+
+    The object server runs certain IO-intensive methods outside the
+    main pthread for performance. Previously, if one of those methods
+    tried to log, this can cause a crash that eventually leads to an
+    object server with hundreds or thousands of greenthreads, all
+    deadlocked. The fix is to use a mutex that works across different
+    greenlets and different pthreads.
+  - |
+    The object reconstructor can now rebuild an EC fragment for an
+    expired object.
+other:
+  - Various other minor bug fixes and improvements.
