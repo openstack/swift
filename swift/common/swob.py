@@ -1198,44 +1198,43 @@ class Response(object):
         self.content_range = None
         return content_size, content_type
 
+    def _get_conditional_response_status(self):
+        """Checks for a conditional response from an If-Match
+        or If-Modified. request. If so, returns the correct status code
+        (304 or 412).
+        :returns: conditional response status (304 or 412) or None
+        """
+        if self.conditional_etag and self.request.if_none_match and \
+                self.conditional_etag in self.request.if_none_match:
+            return 304
+
+        if self.conditional_etag and self.request.if_match and \
+                self.conditional_etag not in self.request.if_match:
+            return 412
+
+        if self.status_int == 404 and self.request.if_match \
+                and '*' in self.request.if_match:
+            # If none of the entity tags match, or if "*" is given and no
+            # current entity exists, the server MUST NOT perform the
+            # requested method, and MUST return a 412 (Precondition
+            # Failed) response. [RFC 2616 section 14.24]
+            return 412
+
+        if self.last_modified and self.request.if_modified_since \
+                and self.last_modified <= self.request.if_modified_since:
+            return 304
+
+        if self.last_modified and self.request.if_unmodified_since \
+                and self.last_modified > self.request.if_unmodified_since:
+            return 412
+
+        return None
+
     def _response_iter(self, app_iter, body):
-        etag = self.conditional_etag
         if self.conditional_response and self.request:
-            if etag and self.request.if_none_match and \
-                    etag in self.request.if_none_match:
-                self.status = 304
-                self.content_length = 0
-                close_if_possible(app_iter)
-                return ['']
-
-            if etag and self.request.if_match and \
-               etag not in self.request.if_match:
-                self.status = 412
-                self.content_length = 0
-                close_if_possible(app_iter)
-                return ['']
-
-            if self.status_int == 404 and self.request.if_match \
-               and '*' in self.request.if_match:
-                # If none of the entity tags match, or if "*" is given and no
-                # current entity exists, the server MUST NOT perform the
-                # requested method, and MUST return a 412 (Precondition
-                # Failed) response. [RFC 2616 section 14.24]
-                self.status = 412
-                self.content_length = 0
-                close_if_possible(app_iter)
-                return ['']
-
-            if self.last_modified and self.request.if_modified_since \
-               and self.last_modified <= self.request.if_modified_since:
-                self.status = 304
-                self.content_length = 0
-                close_if_possible(app_iter)
-                return ['']
-
-            if self.last_modified and self.request.if_unmodified_since \
-               and self.last_modified > self.request.if_unmodified_since:
-                self.status = 412
+            empty_resp = self._get_conditional_response_status()
+            if empty_resp is not None:
+                self.status = empty_resp
                 self.content_length = 0
                 close_if_possible(app_iter)
                 return ['']
