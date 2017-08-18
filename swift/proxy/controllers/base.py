@@ -144,6 +144,18 @@ def headers_to_account_info(headers, status_int=HTTP_OK):
         'container_count': headers.get('x-account-container-count'),
         'total_object_count': headers.get('x-account-object-count'),
         'bytes': headers.get('x-account-bytes-used'),
+        'storage_policies': {policy.idx: {
+            'container_count': int(headers.get(
+                'x-account-storage-policy-{}-container-count'.format(
+                    policy.name), 0)),
+            'object_count': int(headers.get(
+                'x-account-storage-policy-{}-object-count'.format(
+                    policy.name), 0)),
+            'bytes': int(headers.get(
+                'x-account-storage-policy-{}-bytes-used'.format(
+                    policy.name), 0))}
+            for policy in POLICIES
+        },
         'meta': meta,
         'sysmeta': sysmeta,
     }
