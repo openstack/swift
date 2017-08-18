@@ -723,8 +723,11 @@ class File(Base):
         if 'Destination' in headers:
             headers['Destination'] = urllib.parse.quote(headers['Destination'])
 
-        return self.conn.make_request('COPY', self.path, hdrs=headers,
-                                      parms=parms) == 201
+        if self.conn.make_request('COPY', self.path, hdrs=headers,
+                                  cfg=cfg, parms=parms) != 201:
+            raise ResponseError(self.conn.response, 'COPY',
+                                self.conn.make_path(self.path))
+        return True
 
     def copy_account(self, dest_account, dest_cont, dest_file,
                      hdrs=None, parms=None, cfg=None):
@@ -749,8 +752,11 @@ class File(Base):
         if 'Destination' in headers:
             headers['Destination'] = urllib.parse.quote(headers['Destination'])
 
-        return self.conn.make_request('COPY', self.path, hdrs=headers,
-                                      parms=parms) == 201
+        if self.conn.make_request('COPY', self.path, hdrs=headers,
+                                  cfg=cfg, parms=parms) != 201:
+            raise ResponseError(self.conn.response, 'COPY',
+                                self.conn.make_path(self.path))
+        return True
 
     def delete(self, hdrs=None, parms=None, cfg=None):
         if hdrs is None:

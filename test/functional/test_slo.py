@@ -753,9 +753,9 @@ class TestSlo(Base):
 
         # manifest copy will fail because there is no read access to segments
         # in destination account
-        file_item.copy_account(
-            acct, dest_cont, "copied-abcde-manifest-only",
-            parms={'multipart-manifest': 'get'})
+        self.assertRaises(ResponseError, file_item.copy_account,
+                          acct, dest_cont, "copied-abcde-manifest-only",
+                          parms={'multipart-manifest': 'get'})
         self.assertEqual(400, file_item.conn.response.status)
         resp_body = file_item.conn.response.read()
         self.assertEqual(5, resp_body.count('403 Forbidden'),
@@ -769,9 +769,9 @@ class TestSlo(Base):
 
         # manifest copy will still fail because there are no segments in
         # destination account
-        file_item.copy_account(
-            acct, dest_cont, "copied-abcde-manifest-only",
-            parms={'multipart-manifest': 'get'})
+        self.assertRaises(ResponseError, file_item.copy_account,
+                          acct, dest_cont, "copied-abcde-manifest-only",
+                          parms={'multipart-manifest': 'get'})
         self.assertEqual(400, file_item.conn.response.status)
         resp_body = file_item.conn.response.read()
         self.assertEqual(5, resp_body.count('404 Not Found'),
