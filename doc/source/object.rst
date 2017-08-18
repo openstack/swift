@@ -44,6 +44,16 @@ Object Replicator
     :undoc-members:
     :show-inheritance:
 
+.. _object-reconstructor:
+
+Object Reconstructor
+====================
+
+.. automodule:: swift.obj.reconstructor
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. _object-server:
 
 Object Server

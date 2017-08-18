@@ -41,22 +41,29 @@ from the system. When an object item is deleted a tombstone is set as the latest
 version of the item. The replicator will see the tombstone and ensure that the item
 is removed from the entire system.
 
-The options are as follows:
-
-.RS 4
-.PD 0
-.IP "-v"
-.IP "--verbose"
-.RS 4
-.IP "log to console"
-.RE
-.IP "-o"
-.IP "--once"
-.RS 4
-.IP "only run one pass of daemon"
-.RE
-.PD
-.RE
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show this help message and exit
+.TP
+\fB\-d\fR \fIDEVICES\fR, \fB\-\-devices\fR=\fIDEVICES\fR
+Replicate only given devices. Comma\-separated list. Only has effect if
+\-\-once is used.
+.TP
+\fB\-p\fR \fIPARTITIONS\fR, \fB\-\-partitions\fR=\fIPARTITIONS\fR
+Replicate only given partitions. Comma\-separated
+list. Only has effect if \-\-once is used.
+.TP
+\fB\-i\fR \fIPOLICIES\fR, \fB\-\-policies\fR=\fIPOLICIES\fR
+Replicate only given policy indices. Comma\-separated list. Only has effect if
+\-\-once is used.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Log to console
+.TP
+\fB\-o\fR, \fB\-\-once\fR
+Only run one pass of daemon
+.PP
 
 
 .SH DOCUMENTATION

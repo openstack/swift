@@ -23,12 +23,15 @@ if __name__ == '__main__':
     parser = OptionParser("%prog CONFIG [options]")
     parser.add_option('-d', '--devices',
                       help='Replicate only given devices. '
-                           'Comma-separated list')
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
     parser.add_option('-p', '--partitions',
                       help='Replicate only given partitions. '
-                           'Comma-separated list')
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
     parser.add_option('-i', '--policies',
                       help='Replicate only given policy indices. '
-                           'Comma-separated list')
+                           'Comma-separated list. '
+                           'Only has effect if --once is used.')
     conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectReplicator, conf_file, **options)
