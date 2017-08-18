@@ -1000,12 +1000,12 @@ class TestReconCommands(unittest.TestCase):
 
         def dummy_request(*args, **kwargs):
             return [
-                ('http://127.0.0.1:6010/recon/load',
+                ('http://127.0.0.1:6010/recon/time',
                  now,
                  200,
                  now - 0.5,
                  now + 0.5),
-                ('http://127.0.0.1:6020/recon/load',
+                ('http://127.0.0.1:6020/recon/time',
                  now,
                  200,
                  now,
@@ -1050,11 +1050,82 @@ class TestReconCommands(unittest.TestCase):
         default_calls = [
             mock.call("!! http://127.0.0.1:6010/recon/time current time is "
                       "2015-04-25 22:13:21, but remote is "
-                      "2015-04-25 22:13:20, differs by 1.30 sec"),
+                      "2015-04-25 22:13:20, differs by 1.3000 sec"),
             mock.call('1/2 hosts matched, 0 error[s] while checking hosts.'),
         ]
 
         cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
+
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('six.moves.builtins.print')
+    @mock.patch('time.time')
+    def test_time_check_jitter(self, mock_now, mock_print):
+        now = 1430000000.0
+        mock_now.return_value = now
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6010/recon/time',
+                 now - 2,
+                 200,
+                 now,
+                 now + 3),
+                ('http://127.0.0.1:6020/recon/time',
+                 now + 2,
+                 200,
+                 now - 3,
+                 now),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('2/2 hosts matched, 0 error[s] while checking hosts.')
+        ]
+
+        cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)], 3)
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('six.moves.builtins.print')
+    @mock.patch('time.time')
+    def test_time_check_jitter_mismatch(self, mock_now, mock_print):
+        now = 1430000000.0
+        mock_now.return_value = now
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6010/recon/time',
+                 now - 4,
+                 200,
+                 now,
+                 now + 2),
+                ('http://127.0.0.1:6020/recon/time',
+                 now + 4,
+                 200,
+                 now - 2,
+                 now),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call("!! http://127.0.0.1:6010/recon/time current time is "
+                      "2015-04-25 22:13:22, but remote is "
+                      "2015-04-25 22:13:16, differs by 6.0000 sec"),
+            mock.call("!! http://127.0.0.1:6020/recon/time current time is "
+                      "2015-04-25 22:13:20, but remote is "
+                      "2015-04-25 22:13:24, differs by 4.0000 sec"),
+            mock.call('0/2 hosts matched, 0 error[s] while checking hosts.'),
+        ]
+
+        cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)], 3)
 
         # We need any_order=True because the order of calls depends on the dict
         # that is returned from the recon middleware, thus can't rely on it

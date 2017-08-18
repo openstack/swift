@@ -867,14 +867,16 @@ class SwiftRecon(object):
                     host = urlparse(url).netloc.split(':')[0]
                     print('%.02f%%  %s' % (used, '%-15s %s' % (host, device)))
 
-    def time_check(self, hosts):
+    def time_check(self, hosts, jitter=0.0):
         """
         Check a time synchronization of hosts with current time
 
         :param hosts: set of hosts to check. in the format of:
             set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+        :param jitter: Maximal allowed time jitter
         """
 
+        jitter = abs(jitter)
         matches = 0
         errors = 0
         recon = Scout("time", self.verbose, self.suppress_errors,
@@ -885,13 +887,13 @@ class SwiftRecon(object):
             if status != 200:
                 errors = errors + 1
                 continue
-            if (ts_remote < ts_start or ts_remote > ts_end):
+            if (ts_remote + jitter < ts_start or ts_remote - jitter > ts_end):
                 diff = abs(ts_end - ts_remote)
                 ts_end_f = self._ptime(ts_end)
                 ts_remote_f = self._ptime(ts_remote)
 
                 print("!! %s current time is %s, but remote is %s, "
-                      "differs by %.2f sec" % (
+                      "differs by %.4f sec" % (
                           url,
                           ts_end_f,
                           ts_remote_f,
@@ -978,6 +980,8 @@ class SwiftRecon(object):
                         help="Get drive audit error stats")
         args.add_option('--time', '-T', action="store_true",
                         help="Check time synchronization")
+        args.add_option('--jitter', type="float", default=0.0,
+                        help="Maximal allowed time jitter")
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
         args.add_option('--lowest', type='int', metavar='COUNT', default=0,
@@ -1058,7 +1062,7 @@ class SwiftRecon(object):
                 self.socket_usage(hosts)
                 self.server_type_check(hosts)
                 self.driveaudit_check(hosts)
-                self.time_check(hosts)
+                self.time_check(hosts, options.jitter)
             else:
                 if options.async:
                     if self.server_type == 'object':
@@ -1107,7 +1111,7 @@ class SwiftRecon(object):
                 if options.driveaudit:
                     self.driveaudit_check(hosts)
                 if options.time:
-                    self.time_check(hosts)
+                    self.time_check(hosts, options.jitter)
 
 
 def main():
