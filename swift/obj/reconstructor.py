@@ -1237,8 +1237,8 @@ class ObjectReconstructor(Daemon):
             'object_reconstruction_last': time.time(),
         }
 
-        if self.reconstructor_workers > 0:
-            devices = override_devices or self.all_local_devices
+        devices = override_devices or self.all_local_devices
+        if self.reconstructor_workers > 0 and devices:
             recon_update['pid'] = os.getpid()
             recon_update = {'object_reconstruction_per_disk': {
                 d: recon_update for d in devices}}
