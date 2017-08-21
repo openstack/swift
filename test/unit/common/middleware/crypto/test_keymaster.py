@@ -213,9 +213,11 @@ class TestKeymaster(unittest.TestCase):
                 'keymaster_config_path': '/ets/swift/keymaster.conf'}
         with self.assertRaises(ValueError) as err:
             keymaster.KeyMaster(self.swift, conf)
-        self.assertEqual('keymaster_config_path is set, but there are '
-                         'other config options specified!',
-                         err.exception.message)
+        expected_message = ('keymaster_config_path is set, but there are '
+                            'other config options specified:')
+        self.assertTrue(err.exception.message.startswith(expected_message),
+                        "Error message does not start with '%s'" %
+                        expected_message)
 
 
 if __name__ == '__main__':
