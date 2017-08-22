@@ -30,8 +30,7 @@ from eventlet.green import subprocess
 from eventlet import Timeout
 
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mocked_http_conn, FakeLogger, mock_check_drive,
-                       skip_if_no_xattrs)
+                       mocked_http_conn, mock_check_drive, skip_if_no_xattrs)
 from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)
@@ -1558,6 +1557,7 @@ class TestObjectReplicator(unittest.TestCase):
             def raise_exception_rmdir(exception_class, error_no):
                 instance = exception_class()
                 instance.errno = error_no
+                instance.strerror = os.strerror(error_no)
 
                 def func(directory):
                     if directory == suffix_dir_path:
@@ -1596,7 +1596,10 @@ class TestObjectReplicator(unittest.TestCase):
             with mock.patch('os.rmdir',
                             raise_exception_rmdir(OSError, ENOTDIR)):
                 self.replicator.replicate()
-            self.assertEqual(len(mock_logger.get_lines_for_level('error')), 1)
+            self.assertEqual(mock_logger.get_lines_for_level('error'), [
+                'Unexpected error trying to cleanup suffix dir:%r: ' %
+                os.path.dirname(df._datadir),
+            ])
             self.assertFalse(os.access(whole_path_from, os.F_OK))
             self.assertTrue(os.access(suffix_dir_path, os.F_OK))
             self.assertTrue(os.access(part_path, os.F_OK))
@@ -1692,7 +1695,7 @@ class TestObjectReplicator(unittest.TestCase):
                             mock_http_connect(200)):
                 with mock.patch('swift.obj.replicator.dump_recon_cache'):
                     replicator = object_replicator.ObjectReplicator(
-                        conf, logger=FakeLogger())
+                        conf, logger=self.logger)
 
                     self.get_hash_count = 0
                     with mock.patch.object(replicator, 'sync', fake_sync):
@@ -1843,6 +1846,7 @@ class TestObjectReplicator(unittest.TestCase):
         # Check successful http_connection and exception with
         # incorrect pickle.loads(resp.read())
         resp.status = 200
+        resp.read.return_value = 'garbage'
         expect = 'Error syncing with node: %r: '
         for job in jobs:
             set_default(self)
