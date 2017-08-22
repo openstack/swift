@@ -627,17 +627,14 @@ class TestFuncs(unittest.TestCase):
                                        StoragePolicy(1, 'one', False)])
         with PatchPolicies(spc):
             resp = headers_to_account_info(headers.items(), 200)
-        self.assertEqual(
-            resp['storage_policies'][0]['object_count'], 13)
-        self.assertEqual(
-            resp['storage_policies'][0]['container_count'], 120)
-        self.assertEqual(
-            resp['storage_policies'][0]['bytes'], 1002)
-        self.assertEqual(
-            resp['storage_policies'][1]['object_count'], 10)
-        self.assertEqual(
-            resp['storage_policies'][1]['container_count'], 20)
-        self.assertEqual(resp['storage_policies'][1]['bytes'], 0)
+        self.assertEqual(resp['storage_policies'], {
+            0: {'object_count': 13,
+                'container_count': 120,
+                'bytes': 1002},
+            1: {'object_count': 10,
+                'container_count': 20,
+                'bytes': 0},
+        })
 
     def test_headers_to_object_info_missing(self):
         resp = headers_to_object_info({}, 404)
