@@ -252,8 +252,14 @@ class TestObjectExpirer(TestCase):
                 self.assertFalse(pop_queue.called)
                 self.assertEqual(start_reports, x.report_objects)
                 self.assertEqual(1, len(log_lines))
-                self.assertIn('Exception while deleting object container obj',
-                              log_lines[0])
+                if isinstance(exc, internal_client.UnexpectedResponse):
+                    self.assertEqual(
+                        log_lines[0],
+                        'Unexpected response while deleting object container '
+                        'obj: %s' % exc.resp.status_int)
+                else:
+                    self.assertTrue(log_lines[0].startswith(
+                        'Exception while deleting object container obj'))
 
         # verify pop_queue logic on exceptions
         for exc, ts, should_pop in [(None, timestamp, True),
