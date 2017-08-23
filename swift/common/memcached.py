@@ -49,7 +49,6 @@ import json
 import logging
 import time
 from bisect import bisect
-from swift import gettext_ as _
 from hashlib import md5
 
 from eventlet.green import socket
@@ -163,10 +162,13 @@ class MemcacheRing(object):
     def _exception_occurred(self, server, e, action='talking',
                             sock=None, fp=None, got_connection=True):
         if isinstance(e, Timeout):
-            logging.error(_("Timeout %(action)s to memcached: %(server)s"),
+            logging.error("Timeout %(action)s to memcached: %(server)s",
                           {'action': action, 'server': server})
+        elif isinstance(e, socket.error):
+            logging.error("Error %(action)s to memcached: %(server)s: %(err)s",
+                          {'action': action, 'server': server, 'err': e})
         else:
-            logging.exception(_("Error %(action)s to memcached: %(server)s"),
+            logging.exception("Error %(action)s to memcached: %(server)s",
                               {'action': action, 'server': server})
         try:
             if fp:
@@ -191,7 +193,7 @@ class MemcacheRing(object):
                                     if err > now - ERROR_LIMIT_TIME]
             if len(self._errors[server]) > ERROR_LIMIT_COUNT:
                 self._error_limited[server] = now + ERROR_LIMIT_DURATION
-                logging.error(_('Error limiting server %s'), server)
+                logging.error('Error limiting server %s', server)
 
     def _get_conns(self, key):
         """
