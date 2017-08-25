@@ -93,7 +93,8 @@ class TestReconstructorRevert(ECProbeTest):
                           headers=headers)
         client.post_object(self.url, self.token, self.container_name,
                            self.object_name, headers=headers_post)
-        del headers_post['X-Auth-Token']  # WTF, where did this come from?
+        # (Some versions of?) swiftclient will mutate the headers dict on post
+        headers_post.pop('X-Auth-Token', None)
 
         # these primaries can't serve the data any more, we expect 507
         # here and not 404 because we're using mount_check to kill nodes
