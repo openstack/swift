@@ -9,9 +9,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.15.1.dev6\n"
+"Project-Id-Version: swift 2.15.2.dev9\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2017-08-01 21:30+0000\n"
+"POT-Creation-Date: 2017-08-24 21:08+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -504,24 +504,12 @@ msgstr "FEHLER: Auf %(path)s kann nicht zugegriffen werden: %(error)s"
 msgid "ERROR: Unable to run auditing: %s"
 msgstr "FEHLER: Prüfung konnte nicht durchgeführt werden: %s"
 
-#, python-format
-msgid "Error %(action)s to memcached: %(server)s"
-msgstr "Fehler %(action)s für memcached: %(server)s"
-
-#, python-format
-msgid "Error encoding to UTF-8: %s"
-msgstr "Fehler beim Kodieren nach UTF-8: %s"
-
 msgid "Error hashing suffix"
 msgstr "Fehler beim Hashing des Suffix"
 
 #, python-format
 msgid "Error in %(conf)r with mtime_check_interval: %(error)s"
 msgstr "Fehler in %(conf)r mit mtime_check_interval: %(error)s"
-
-#, python-format
-msgid "Error limiting server %s"
-msgstr "Fehler beim Begrenzen des Servers %s"
 
 msgid "Error listing devices"
 msgstr "Fehler beim Auflisten der Geräte"
@@ -971,10 +959,6 @@ msgid ""
 msgstr ""
 "Die Gesamtsumme an %(key)s für den Container (%(total)s) entspricht nicht "
 "der Summe der %(key)s für alle Richtlinien (%(sum)s)"
-
-#, python-format
-msgid "Timeout %(action)s to memcached: %(server)s"
-msgstr "Zeitlimit %(action)s für memcached: %(server)s"
 
 #, python-format
 msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"

@@ -8,9 +8,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.15.1.dev6\n"
+"Project-Id-Version: swift 2.15.2.dev9\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2017-08-01 21:30+0000\n"
+"POT-Creation-Date: 2017-08-24 21:08+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -436,20 +436,8 @@ msgstr "오류: %(path)s에 액세스할 수 없음: %(error)s"
 msgid "ERROR: Unable to run auditing: %s"
 msgstr "오류: 감사를 실행할 수 없음: %s"
 
-#, python-format
-msgid "Error %(action)s to memcached: %(server)s"
-msgstr "memcached에 대한 %(action)s 오류: %(server)s"
-
-#, python-format
-msgid "Error encoding to UTF-8: %s"
-msgstr "UTF-8: %s 으로 변환 오류"
-
 msgid "Error hashing suffix"
 msgstr "접미부를 해싱하는 중 오류 발생"
-
-#, python-format
-msgid "Error limiting server %s"
-msgstr "서버 %s 제한 오류"
 
 msgid "Error listing devices"
 msgstr "디바이스 나열 중 오류 발생"
@@ -863,10 +851,6 @@ msgid ""
 msgstr ""
 "컨테이너의 총 %(key)s가 (%(total)s) 과  %(key)s의 총합 (%(sum)s)가 일치하지 "
 "않습니다."
-
-#, python-format
-msgid "Timeout %(action)s to memcached: %(server)s"
-msgstr "memcached에 대한 %(action)s 제한시간 초과: %(server)s"
 
 #, python-format
 msgid "Timeout Exception with %(ip)s:%(port)s/%(device)s"
