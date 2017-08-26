@@ -99,8 +99,9 @@ def mocked_http_conn(*args, **kwargs):
 class TestDirectClient(unittest.TestCase):
 
     def setUp(self):
-        self.node = {'ip': '1.2.3.4', 'port': '6200', 'device': 'sda',
-                     'replication_ip': '1.2.3.5', 'replication_port': '7000'}
+        self.node = json.loads(json.dumps({  # json roundtrip to ring-like
+            'ip': '1.2.3.4', 'port': '6200', 'device': 'sda',
+            'replication_ip': '1.2.3.5', 'replication_port': '7000'}))
         self.part = '0'
 
         self.account = u'\u062a account'
@@ -837,7 +838,8 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(err_ctx.exception.http_status, 500)
         self.assertIn('DELETE', err_ctx.exception.message)
         self.assertIn(quote('/%s/%s/%s/%s/%s'
-                            % (self.node['device'], self.part, self.account,
+                            % (self.node['device'].encode('utf-8'),
+                               self.part, self.account,
                                self.container, self.obj)),
                       err_ctx.exception.message)
         self.assertIn(self.node['ip'], err_ctx.exception.message)
@@ -871,6 +873,15 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(3, len(error_lines))
         for line in error_lines:
             self.assertIn('Kaboom!', line)
+
+
+class TestUTF8DirectClient(TestDirectClient):
+
+    def setUp(self):
+        super(TestUTF8DirectClient, self).setUp()
+        self.account = self.account.encode('utf-8')
+        self.container = self.container.encode('utf-8')
+        self.obj = self.obj.encode('utf-8')
 
 if __name__ == '__main__':
     unittest.main()

@@ -42,6 +42,8 @@ class DirectClientException(ClientException):
         # host can be used to override the node ip and port reported in
         # the exception
         host = host if host is not None else node
+        if not isinstance(path, six.text_type):
+            path = path.decode("utf-8")
         full_path = quote('/%s/%s%s' % (node['device'], part, path))
         msg = '%s server %s:%s direct %s %r gave status %s' % (
             stype, host['ip'], host['port'], method, full_path, resp.status)
