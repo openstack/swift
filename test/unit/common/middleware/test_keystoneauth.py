@@ -623,7 +623,7 @@ class TestAuthorize(BaseTestAuthorize):
         elif exception:
             self.assertEqual(result.status_int, exception)
         else:
-            self.assertTrue(result is None)
+            self.assertIsNone(result)
         return req
 
     def test_authorize_fails_for_unauthorized_user(self):
