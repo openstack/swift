@@ -5774,14 +5774,18 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.headers['X-Backend-Timestamp'],
                              utils.Timestamp(put_timestamp))
             # ...unless X-Backend-Replication is sent
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Timestamp': normalize_timestamp(now + 2),
-                         'X-Backend-Replication': 'True'})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 200)
-            self.assertEqual('TEST', resp.body)
+            expected = {
+                'GET': 'TEST',
+                'HEAD': '',
+            }
+            for meth, expected_body in expected.items():
+                req = Request.blank(
+                    '/sda1/p/a/c/o', method=meth,
+                    headers={'X-Timestamp': normalize_timestamp(now + 2),
+                             'X-Backend-Replication': 'True'})
+                resp = req.get_response(self.object_controller)
+                self.assertEqual(resp.status_int, 200)
+                self.assertEqual(expected_body, resp.body)
 
     def test_HEAD_but_expired(self):
         test_time = time() + 10000
