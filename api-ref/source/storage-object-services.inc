@@ -8,9 +8,9 @@ Creates, replaces, shows details for, and deletes objects. Copies
 objects from another object with a new or different name. Updates
 object metadata. For more information and concepts about
 objects see `Object Storage API overview
-<http://docs.openstack.org/developer/swift/api/object_api_v1_overview.html>`_
+<https://docs.openstack.org/swift/latest/api/object_api_v1_overview.html>`_
 and `Large Objects
-<http://docs.openstack.org/developer/swift/api/large_objects.html>`_.
+<https://docs.openstack.org/swift/latest/api/large_objects.html>`_.
 
 
 Get object content and metadata

@@ -280,7 +280,7 @@ X-Account-Access-Control_req:
     Sets an account access control list (ACL) that grants access to
     containers and objects in the account.
     See `Account ACLs
-    <http://docs.openstack.org/developer/swift/overview_acl.html#account-acls>`_
+    <https://docs.openstack.org/swift/latest/overview_acl.html#account-acls>`_
     for more information.
   in: header
   required: false
@@ -293,7 +293,7 @@ X-Account-Access-Control_resp:
     containers and objects in the account.
     If there is no ACL, this header is not returned by this operation.
     See `Account ACLs
-    <http://docs.openstack.org/developer/swift/overview_acl.html#account-acls>`_
+    <https://docs.openstack.org/swift/latest/overview_acl.html#account-acls>`_
     for more information.
   in: header
   required: false
@@ -480,7 +480,7 @@ X-Container-Meta-Quota-Bytes:
     exceeds this quota value.
     This value does not take effect immediately. see
     `Container Quotas
-    <http://docs.openstack.org/developer/swift/api/container_quotas.html>`_
+    <https://docs.openstack.org/swift/latest/api/container_quotas.html>`_
     for more information.
   in: header
   required: false
@@ -500,7 +500,7 @@ X-Container-Meta-Quota-Count:
     exceeds this quota value.
     This value does not take effect immediately. see
     `Container Quotas
-    <http://docs.openstack.org/developer/swift/api/container_quotas.html>`_
+    <https://docs.openstack.org/swift/latest/api/container_quotas.html>`_
     for more information.
   in: header
   required: false
@@ -568,7 +568,7 @@ X-Container-Read:
 
     The format and scope of the ACL is dependent on the authorization system
     used by the Object Storage service. See `Container ACLs
-    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    <https://docs.openstack.org/swift/latest/overview_acl.html#container-acls>`_
     for more information.
   in: header
   required: false
@@ -578,7 +578,7 @@ X-Container-Read_resp:
     The ACL that grants read access. If there is no ACL, this
     header is not returned by this operation.
     See `Container ACLs
-    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    <https://docs.openstack.org/swift/latest/overview_acl.html#container-acls>`_
     for more information.
   in: header
   required: false
@@ -589,8 +589,7 @@ X-Container-Sync-Key:
     synchronization. If you remove the secret key, synchronization is
     halted.
     For more information, see `Container to Container Synchronization
-    <http://docs.openstack.org/developer/swift/overview_
-    container_sync.html>`_
+    <https://docs.openstack.org/swift/latest/overview_container_sync.html>`_
   in: header
   required: false
   type: string
@@ -628,7 +627,7 @@ X-Container-Write:
 
     The format of the ACL is dependent on the authorization system
     used by the Object Storage service.  See `Container ACLs
-    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    <https://docs.openstack.org/swift/latest/overview_acl.html#container-acls>`_
     for more information.
 
   in: header
@@ -639,7 +638,7 @@ X-Container-Write_resp:
     The ACL that grants write access. If there is no ACL,
     this header is not returned by this operation.
     See `Container ACLs
-    <http://docs.openstack.org/developer/swift/overview_acl.html#container-acls>`_
+    <https://docs.openstack.org/swift/latest/overview_acl.html#container-acls>`_
     for more information.
   in: header
   required: false
@@ -731,17 +730,16 @@ X-History-Location:
     is set, versioning is disabled for this container. ``X-History-Location``
     and ``X-Versions-Location`` cannot both be set at the same time. For more
     information about object versioning, see `Object versioning
-    <http://docs.openstack.org/ developer/swift/api/object_versioning.html>`_.
+    <https://docs.openstack.org/swift/latest/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
 X-History-Location_resp:
   description: |
     If present, this container has versioning enabled and the value
-    is the UTF-8 encoded name of another container.
-    For more information about object versioning,
-    see `Object versioning <http://docs.openstack.org/developer/
-    swift/api/object_versioning.html>`_.
+    is the UTF-8 encoded name of another container. For more information
+    about object versioning, see `Object versioning
+    <https://docs.openstack.org/swift/latest/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
@@ -832,7 +830,7 @@ X-Remove-Versions-Location:
 X-Service-Token:
   description: |
     A service token. See `OpenStack Service Using Composite Tokens
-    <http://docs.openstack.org/developer/swift/overview_auth.html#openstack-
+    <https://docs.openstack.org/swift/latest/overview_auth.html#openstack-
     service-using-composite-tokens>`_ for more information.
   in: header
   required: false
@@ -881,7 +879,7 @@ X-Trans-Id-Extra:
     extra transaction information before you include it in the
     ``X-Trans-Id-Extra`` request header.  For example, you can include
     extra transaction information when you upload `large objects
-    <http://docs.openstack.org/developer/swift/api/large_objects.html>`_
+    <https://docs.openstack.org/swift/latest/api/large_objects.html>`_
     such as images. When
     you upload each segment and the manifest, include the same value
     in the ``X-Trans-Id-Extra`` request header. If an error occurs,
@@ -900,17 +898,16 @@ X-Versions-Location:
     is set, versioning is disabled for this container. ``X-Versions-Location``
     and ``X-History-Location`` cannot both be set at the same time. For more
     information about object versioning, see `Object versioning
-    <http://docs.openstack.org/ developer/swift/api/object_versioning.html>`_.
+    <https://docs.openstack.org/swift/latest/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
 X-Versions-Location_resp:
   description: |
     If present, this container has versioning enabled and the value
-    is the UTF-8 encoded name of another container.
-    For more information about object versioning,
-    see `Object versioning <http://docs.openstack.org/developer/
-    swift/api/object_versioning.html>`_.
+    is the UTF-8 encoded name of another container. For more information
+    about object versioning, see `Object versioning
+    <https://docs.openstack.org/swift/latest/api/object_versioning.html>`_.
   in: header
   required: false
   type: string
@@ -948,8 +945,8 @@ bulk-delete:
     When the ``bulk-delete`` query parameter is present in the POST
     request, multiple objects or containers can be deleted
     with a single request. See `Bulk Delete
-    <http://docs.openstack.org/developer/swift/middleware.html?highlight=
-    bulk#bulk-delete>`_ for how this feature is used.
+    <https://docs.openstack.org/swift/latest/middleware.html#bulk-delete>`_
+    for how this feature is used.
   in: query
   required: false
   type: string
@@ -975,8 +972,8 @@ extract-archive:
     When the ``extract-archive`` query parameter is present in the POST
     request, an archive (tar file) is uploaded and extracted to
     create multiple objects. See `Extract Archive
-    <http://docs.openstack.org/developer/swift/middleware.html?highlight=
-    bulk#extract-archive>`_ for how this feature is used.
+    <https://docs.openstack.org/swift/latest/middleware.html#extract-archive>`_
+    for how this feature is used.
   in: query
   required: false
   type: string
@@ -988,8 +985,7 @@ filename:
     ``Content-Disposition`` response header. Browsers can interpret
     this file name value as a file attachment to save. For more
     information about temporary URLs, see `Temporary URL middleware
-    <http://docs.openstack.org/developer/
-    swift/api/temporary_url_middleware.html>`_.
+    <https://docs.openstack.org/swift/latest/api/temporary_url_middleware.html>`_.
   in: query
   required: false
   type: string
@@ -1105,8 +1101,7 @@ temp_url_expires:
     For example, ``1440619048`` or ``2015-08-26T19:57:28Z``
     is equivalent to ``Mon, Wed, 26 Aug 2015 19:57:28 GMT``.  For more
     information about temporary URLs, see `Temporary URL middleware
-    <http://docs.openstack.org/developer/swift/api/temporary
-    _url_middleware.html>`_.
+    <https://docs.openstack.org/swift/latest/api/temporary_url_middleware.html>`_.
   in: query
   required: true
   type: integer
@@ -1117,8 +1112,7 @@ temp_url_sig:
     method, expiration date, full path to the object, and the secret
     key for the temporary URL. For more information about temporary
     URLs, see `Temporary URL middleware
-    <http://docs.openstack.org/developer/swif
-    t/api/temporary_url_middleware.html>`_.
+    <https://docs.openstack.org/swift/latest/api/temporary_url_middleware.html>`_.
   in: query
   required: true
   type: string

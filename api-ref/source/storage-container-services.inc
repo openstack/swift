@@ -8,7 +8,7 @@ Lists objects in a container. Creates, shows details for, and
 deletes containers. Creates, updates, shows, and deletes container
 metadata. For more information and concepts about
 containers see `Object Storage API overview
-<http://docs.openstack.org/developer/swift/api/object_api_v1_overview.html>`_.
+<https://docs.openstack.org/swift/latest/api/object_api_v1_overview.html>`_.
 
 
 Show container details and list objects
