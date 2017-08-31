@@ -232,8 +232,6 @@ class GetContext(WSGIContext):
         container = unquote(container)
         obj_prefix = unquote(obj_prefix)
 
-        # manifest might point to a different container
-        req.acl = None
         version, account, _junk = req.split_path(2, 3, True)
         error_response, segments = self._get_container_listing(
             req, version, account, container, obj_prefix)
