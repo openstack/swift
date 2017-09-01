@@ -62,7 +62,7 @@ from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
     fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
-    config_true_value, listdir, split_path, ismount, remove_file, \
+    config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     tpool_reraise, MD5_OF_EMPTY_STRING, link_fd_to_path, o_tmpfile_supported, \
     O_TMPFILE, makedirs_count, replace_partition_in_path
@@ -429,11 +429,11 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
     shuffle(device_dirs)
 
     for device in device_dirs:
-        if mount_check and not \
-                ismount(os.path.join(devices, device)):
+        if not check_drive(devices, device, mount_check):
             if logger:
                 logger.debug(
-                    _('Skipping %s as it is not mounted'), device)
+                    'Skipping %s as it is not %s', device,
+                    'mounted' if mount_check else 'a dir')
             continue
         # loop through object dirs for all policies
         device_dir = os.path.join(devices, device)
@@ -1209,14 +1209,15 @@ class BaseDiskFileManager(object):
         :returns: full path to the device, None if the path to the device is
                   not a proper mount point or directory.
         """
-        # we'll do some kind of check unless explicitly forbidden
-        if mount_check is not False:
-            if mount_check or self.mount_check:
-                mount_check = True
-            else:
-                mount_check = False
-            return check_drive(self.devices, device, mount_check)
-        return join(self.devices, device)
+        if mount_check is False:
+            # explicitly forbidden from syscall, just return path
+            return join(self.devices, device)
+        # we'll do some kind of check if not explicitly forbidden
+        if mount_check or self.mount_check:
+            mount_check = True
+        else:
+            mount_check = False
+        return check_drive(self.devices, device, mount_check)
 
     @contextmanager
     def replication_lock(self, device):

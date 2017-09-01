@@ -24,11 +24,11 @@ from random import random
 from eventlet import spawn, Timeout
 
 from swift.common.bufferedhttp import http_connect
+from swift.common.constraints import check_drive
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache, config_true_value, ismount, ratelimit_sleep, \
-    eventlet_monkey_patch
+    dump_recon_cache, config_true_value, ratelimit_sleep, eventlet_monkey_patch
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -94,8 +94,7 @@ class ObjectUpdater(Daemon):
             # read from container ring to ensure it's fresh
             self.get_container_ring().get_nodes('')
             for device in self._listdir(self.devices):
-                if self.mount_check and \
-                        not ismount(os.path.join(self.devices, device)):
+                if not check_drive(self.devices, device, self.mount_check):
                     self.logger.increment('errors')
                     self.logger.warning(
                         _('Skipping %s as it is not mounted'), device)
@@ -137,8 +136,7 @@ class ObjectUpdater(Daemon):
         self.successes = 0
         self.failures = 0
         for device in self._listdir(self.devices):
-            if self.mount_check and \
-                    not ismount(os.path.join(self.devices, device)):
+            if not check_drive(self.devices, device, self.mount_check):
                 self.logger.increment('errors')
                 self.logger.warning(
                     _('Skipping %s as it is not mounted'), device)

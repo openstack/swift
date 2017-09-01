@@ -24,21 +24,21 @@ from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
 from test import listen_zero
-from test.unit import FakeLogger, make_timestamp_iter
-from test.unit import debug_logger, patch_policies, mocked_http_conn
+from test.unit import (
+    make_timestamp_iter, debug_logger, patch_policies, mocked_http_conn)
 from time import time
 from distutils.dir_util import mkpath
 
 from eventlet import spawn, Timeout
 
 from swift.obj import updater as object_updater
-from swift.obj.diskfile import (ASYNCDIR_BASE, get_async_dir, DiskFileManager,
-                                get_tmp_dir)
+from swift.obj.diskfile import (
+    ASYNCDIR_BASE, get_async_dir, DiskFileManager, get_tmp_dir)
 from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
-    write_pickle
+from swift.common.utils import (
+    hash_path, normalize_timestamp, mkdirs, write_pickle)
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -146,11 +146,10 @@ class TestObjectUpdater(unittest.TestCase):
             'mount_check': 'false',
             'swift_dir': self.testdir,
         }
-        daemon = object_updater.ObjectUpdater(conf)
-        daemon.logger = FakeLogger()
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         paths = daemon._listdir('foo/bar')
         self.assertEqual([], paths)
-        log_lines = daemon.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         msg = ('ERROR: Unable to access foo/bar: permission_denied')
         self.assertEqual(log_lines[0], msg)
 
@@ -162,10 +161,9 @@ class TestObjectUpdater(unittest.TestCase):
             'mount_check': 'false',
             'swift_dir': self.testdir,
         }
-        daemon = object_updater.ObjectUpdater(conf)
-        daemon.logger = FakeLogger()
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         path = daemon._listdir('foo/bar/')
-        log_lines = daemon.logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(len(log_lines), 0)
         self.assertEqual(path, ['foo', 'bar'])
 
@@ -250,9 +248,9 @@ class TestObjectUpdater(unittest.TestCase):
         # a warning indicating that the '99' policy isn't valid
         check_with_idx('99', 1, should_skip=True)
 
-    @mock.patch.object(object_updater, 'ismount')
-    def test_run_once_with_disk_unmounted(self, mock_ismount):
-        mock_ismount.return_value = False
+    @mock.patch.object(object_updater, 'check_drive')
+    def test_run_once_with_disk_unmounted(self, mock_check_drive):
+        mock_check_drive.return_value = False
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -265,8 +263,12 @@ class TestObjectUpdater(unittest.TestCase):
         os.mkdir(async_dir)
         ou.run_once()
         self.assertTrue(os.path.exists(async_dir))
-        # mount_check == False means no call to ismount
-        self.assertEqual([], mock_ismount.mock_calls)
+        # each run calls check_device
+        self.assertEqual([
+            mock.call(self.devices_dir, 'sda1', False),
+            mock.call(self.devices_dir, 'sda1', False),
+        ], mock_check_drive.mock_calls)
+        mock_check_drive.reset_mock()
 
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
@@ -281,15 +283,14 @@ class TestObjectUpdater(unittest.TestCase):
         ou.run_once()
         self.assertTrue(os.path.exists(async_dir))
         self.assertTrue(os.path.exists(odd_dir))  # skipped - not mounted!
-        # mount_check == True means ismount was checked
         self.assertEqual([
-            mock.call(self.sda1),
-        ], mock_ismount.mock_calls)
+            mock.call(self.devices_dir, 'sda1', True),
+        ], mock_check_drive.mock_calls)
         self.assertEqual(ou.logger.get_increment_counts(), {'errors': 1})
 
-    @mock.patch.object(object_updater, 'ismount')
-    def test_run_once(self, mock_ismount):
-        mock_ismount.return_value = True
+    @mock.patch.object(object_updater, 'check_drive')
+    def test_run_once(self, mock_check_drive):
+        mock_check_drive.return_value = True
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
             'mount_check': 'false',
@@ -302,8 +303,12 @@ class TestObjectUpdater(unittest.TestCase):
         os.mkdir(async_dir)
         ou.run_once()
         self.assertTrue(os.path.exists(async_dir))
-        # mount_check == False means no call to ismount
-        self.assertEqual([], mock_ismount.mock_calls)
+        # each run calls check_device
+        self.assertEqual([
+            mock.call(self.devices_dir, 'sda1', False),
+            mock.call(self.devices_dir, 'sda1', False),
+        ], mock_check_drive.mock_calls)
+        mock_check_drive.reset_mock()
 
         ou = object_updater.ObjectUpdater({
             'devices': self.devices_dir,
@@ -317,11 +322,10 @@ class TestObjectUpdater(unittest.TestCase):
         os.mkdir(odd_dir)
         ou.run_once()
         self.assertTrue(os.path.exists(async_dir))
-        self.assertTrue(not os.path.exists(odd_dir))
-        # mount_check == True means ismount was checked
+        self.assertFalse(os.path.exists(odd_dir))
         self.assertEqual([
-            mock.call(self.sda1),
-        ], mock_ismount.mock_calls)
+            mock.call(self.devices_dir, 'sda1', True),
+        ], mock_check_drive.mock_calls)
 
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])

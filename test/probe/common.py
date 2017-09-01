@@ -444,7 +444,7 @@ class ProbeTest(unittest.TestCase):
     def revive_drive(self, device):
         disabled_name = device + "X"
         if os.path.isdir(disabled_name):
-            renamer(device + "X", device)
+            renamer(disabled_name, device)
         else:
             os.system('sudo mount %s' % device)
 

@@ -289,9 +289,9 @@ class AuditorWorker(object):
 class ObjectAuditor(Daemon):
     """Audit objects."""
 
-    def __init__(self, conf, **options):
+    def __init__(self, conf, logger=None, **options):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-auditor')
+        self.logger = logger or get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.concurrency = int(conf.get('concurrency', 1))
         self.conf_zero_byte_fps = int(

@@ -30,7 +30,7 @@ from swift.common.utils import Timestamp, encode_timestamps
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
-from test.unit import patch_policies, make_timestamp_iter, FakeLogger
+from test.unit import patch_policies, make_timestamp_iter, mock_check_drive
 from contextlib import contextmanager
 
 
@@ -176,7 +176,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         node = random.choice([n for n in self._ring.devs
                               if n['id'] != local_node['id']])
         info = broker.get_replication_info()
-        success = daemon._repl_to_node(node, broker, part, info)
+        with mock_check_drive(ismount=True):
+            success = daemon._repl_to_node(node, broker, part, info)
         self.assertFalse(success)
 
     def test_sync_remote_missing_most_rows(self):
@@ -1024,8 +1025,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             def update_sync_store(self, broker):
                 raise OSError(1, '1')
 
-        logger = FakeLogger()
-        daemon = replicator.ContainerReplicator({}, logger)
+        daemon = replicator.ContainerReplicator({}, logger=self.logger)
         daemon.sync_store = FakeContainerSyncStore()
         ts_iter = make_timestamp_iter()
         broker = self._get_broker('a', 'c', node_index=0)
@@ -1033,7 +1033,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.initialize(timestamp.internal, POLICIES.default.idx)
         info = broker.get_replication_info()
         daemon._post_replicate_hook(broker, info, [])
-        log_lines = logger.get_lines_for_level('error')
+        log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(log_lines))
         self.assertIn('Failed to update sync_store', log_lines[0])
 
