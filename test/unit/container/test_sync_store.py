@@ -69,7 +69,7 @@ class TestContainerSyncStore(unittest.TestCase):
                         with open(db_file, 'w') as outfile:
                             outfile.write('%s' % db_file)
 
-    def teardown(self):
+    def tearDown(self):
         rmtree(self.test_dir_prefix)
 
     def pick_dbfile(self):

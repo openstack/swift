@@ -6603,10 +6603,16 @@ class TestECMismatchedFA(unittest.TestCase):
 
 
 class TestECGets(unittest.TestCase):
+    def setUp(self):
+        super(TestECGets, self).setUp()
+        self.tempdir = mkdtemp()
+
     def tearDown(self):
+        rmtree(self.tempdir, ignore_errors=True)
         prosrv = _test_servers[0]
         # don't leak error limits and poison other tests
         prosrv._error_limiting = {}
+        super(TestECGets, self).tearDown()
 
     def _setup_nodes_and_do_GET(self, objs, node_state):
         """
@@ -6666,7 +6672,7 @@ class TestECGets(unittest.TestCase):
 
             # move all hash dir files to per-node, per-obj tempdir
             for node_index, hash_dir in node_hash_dirs.items():
-                node_tmp_dirs[node_index][ref] = mkdtemp()
+                node_tmp_dirs[node_index][ref] = mkdtemp(dir=self.tempdir)
                 for f in os.listdir(hash_dir):
                     move(os.path.join(hash_dir, f),
                          os.path.join(node_tmp_dirs[node_index][ref], f))
