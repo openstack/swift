@@ -177,11 +177,11 @@ class ContainerController(Controller):
         headers = self._backend_requests(req, len(containers),
                                          account_partition, accounts,
                                          policy_index)
-        clear_info_cache(self.app, req.environ,
-                         self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring,
             container_partition, 'PUT', req.swift_entity_path, headers)
+        clear_info_cache(self.app, req.environ,
+                         self.account_name, self.container_name)
         return resp
 
     @public
