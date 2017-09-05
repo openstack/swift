@@ -222,4 +222,4 @@ Note that if the above example is copied exactly, and used in a command
 shell, then the ampersand is interpreted as an operator and the URL
 will be truncated. Enclose the URL in quotation marks to avoid this.
 
-.. _tempurl: http://docs.openstack.org/developer/python-swiftclient/cli.html#tempurl
+.. _tempurl: https://docs.openstack.org/python-swiftclient/latest/cli/index.html#swift-tempurl
