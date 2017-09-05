@@ -40,7 +40,7 @@ swift client
 swift-init
   Script that initializes the building of the ring file, takes daemon
   names as parameter and offers commands. Documented in
-  http://docs.openstack.org/developer/swift/admin_guide.html#managing-services.
+  https://docs.openstack.org/swift/latest/admin_guide.html#managing-services.
 
 swift-recon
   A cli tool used to retrieve various metrics and telemetry information
@@ -48,4 +48,4 @@ swift-recon
 
 swift-ring-builder
   Storage ring build and rebalance utility. Documented in
-  http://docs.openstack.org/developer/swift/admin_guide.html#managing-the-rings.
+  https://docs.openstack.org/swift/latest/admin_guide.html#managing-the-rings.
