@@ -98,6 +98,12 @@ container_sync section only needs the "use" item. For example::
     [filter:container_sync]
     use = egg:swift#container_sync
 
+The container sync daemon will use an internal client to sync objects. Even if
+you don't configure the internal client, the container sync daemon will work
+with default configuration. The default configuration is as same as
+``internal-client.conf-sample``. If you want to configure the internal client,
+please update ``internal_client_conf_path`` of container-server.conf. The
+configuration file at the path will be used for the internal client.
 
 -------------------------------------------------------
 Old-Style: Configuring a Cluster's Allowable Sync Hosts
