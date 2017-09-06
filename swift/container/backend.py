@@ -933,57 +933,57 @@ class ContainerBroker(DatabaseBroker):
                     query += ', +deleted '
                 else:
                     query += ', deleted '
-                query += 'FROM object WHERE'
+                query += 'FROM object '
                 query_args = []
+                query_conditions = []
                 if end_marker and (not prefix or end_marker < end_prefix):
                     if include_end_marker:
-                        query += ' name <= ? AND'
+                        query_conditions.append('name <= ?')
                     else:
-                        query += ' name < ? AND'
+                        query_conditions.append('name < ?')
                     query_args.append(end_marker)
                 elif prefix:
-                    query += ' name < ? AND'
+                    query_conditions.append('name < ?')
                     query_args.append(end_prefix)
 
                 if delim_force_gte:
-                    query += ' name >= ? AND'
+                    query_conditions.append('name >= ?')
                     query_args.append(marker)
                     # Always set back to False
                     delim_force_gte = False
                 elif marker and marker >= prefix:
-                    query += ' name > ? AND'
+                    query_conditions.append('name > ?')
                     query_args.append(marker)
                 elif prefix:
-                    query += ' name >= ? AND'
+                    query_conditions.append('name >= ?')
                     query_args.append(prefix)
-                if include_deleted and query.endswith(' AND'):
-                    query = query[:-4]
-                else:
+                if not include_deleted:
                     if self.get_db_version(conn) < 1:
-                        query += ' +deleted = 0'
+                        query_conditions.append('+deleted = 0')
                     else:
-                        query += ' deleted = 0'
-
-                orig_tail_query = '''
+                        query_conditions.append('deleted = 0')
+                # storage policy filter
+                query_conditions.append('storage_policy_index = ?')
+                query_args.append(storage_policy_index)
+                full_query = query
+                if query_conditions:
+                    full_query += 'WHERE ' + ' AND '.join(query_conditions)
+                tail_query = '''
                     ORDER BY name %s LIMIT ?
                 ''' % ('DESC' if reverse else '')
-                orig_tail_args = [limit - len(results)]
-                # storage policy filter
-                policy_tail_query = '''
-                    AND storage_policy_index = ?
-                ''' + orig_tail_query
-                policy_tail_args = [storage_policy_index] + orig_tail_args
-                tail_query, tail_args = \
-                    policy_tail_query, policy_tail_args
+                tail_args = [limit - len(results)]
                 try:
-                    curs = conn.execute(query + tail_query,
+                    curs = conn.execute(full_query + tail_query,
                                         tuple(query_args + tail_args))
                 except sqlite3.OperationalError as err:
                     if 'no such column: storage_policy_index' not in str(err):
                         raise
-                    tail_query, tail_args = \
-                        orig_tail_query, orig_tail_args
-                    curs = conn.execute(query + tail_query,
+                    query_conditions = query_conditions[:-1]
+                    query_args = query_args[:-1]
+                    full_query = query
+                    if query_conditions:
+                        full_query += 'WHERE ' + ' AND '.join(query_conditions)
+                    curs = conn.execute(full_query + tail_query,
                                         tuple(query_args + tail_args))
                 curs.row_factory = None
 
