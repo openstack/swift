@@ -1118,10 +1118,17 @@ temp_url_sig:
   type: string
 
 # variables in body
-bytes:
+bytes_in_account_get:
   description: |
     The total number of bytes that are stored in
     Object Storage for the account.
+  in: body
+  required: true
+  type: integer
+bytes_in_container_get:
+  description: |
+    The total number of bytes that are stored in
+    Object Storage for the container.
   in: body
   required: true
   type: integer
@@ -1161,9 +1168,15 @@ last_modified:
   in: body
   required: true
   type: string
-name:
+name_in_account_get:
   description: |
     The name of the container.
+  in: body
+  required: true
+  type: string
+name_in_container_get:
+  description: |
+    The name of the object.
   in: body
   required: true
   type: string

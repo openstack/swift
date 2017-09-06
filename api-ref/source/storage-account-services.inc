@@ -112,8 +112,8 @@ Response Parameters
    - X-Account-Access-Control: X-Account-Access-Control_resp
    - Content-Type: Content-Type_listing_resp
    - count: count
-   - bytes: bytes
-   - name: name
+   - bytes: bytes_in_account_get
+   - name: name_in_account_get
 
 
 Create, update, or delete account metadata

@@ -94,8 +94,8 @@ Response Parameters
    - hash: hash
    - last_modified: last_modified
    - content_type: content_type
-   - bytes: bytes
-   - name: name
+   - bytes: bytes_in_container_get
+   - name: name_in_container_get
 
 
 Response Example format=json
