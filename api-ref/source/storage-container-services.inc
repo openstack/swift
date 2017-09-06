@@ -89,7 +89,7 @@ Response Parameters
    - X-Timestamp: X-Timestamp
    - X-Trans-Id: X-Trans-Id
    - X-Openstack-Request-Id: X-Openstack-Request-Id
-   - Content_Type: Content-Type_listing_resp
+   - Content-Type: Content-Type_listing_resp
    - Date: Date
    - hash: hash
    - last_modified: last_modified
