@@ -149,7 +149,10 @@ tells Object Storage how to find the segment objects that comprise the
 large object. The segments remain individually addressable, but
 retrieving the manifest object streams all the segments concatenated.
 There is no limit to the number of segments that can be a part of a
-single large object.
+single large object, but ``Content-Length`` is included in **GET** or **HEAD**
+response only if the number of segments is smaller than container listing
+limit. In other words, the number of segments that fit within a single
+container listing page.
 
 To ensure the download works correctly, you must upload all the object
 segments to the same container and ensure that each object name is
