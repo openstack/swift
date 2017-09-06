@@ -313,6 +313,7 @@ class ContainerController(BaseStorageServer):
             record_type = req.headers.get('x-backend-record-type')
             if record_type == str(RECORD_TYPE_PIVOT_NODE):
                 broker.delete_pivot(
+                    # TODO (acoles): should this be x-timestamp?
                     obj, req.headers.get('x-backend-timestamp'),
                     req.headers.get(
                         'x-meta-timestamp', req_timestamp.internal),
@@ -433,6 +434,8 @@ class ContainerController(BaseStorageServer):
                 res = self._find_shard_location(req, broker, obj)
                 if res:
                     return res
+                # TODO: else what? should not return HTTPCreated when the
+                # update was ignored
             else:
                 broker.put_object(obj, req_timestamp.internal,
                                   int(req.headers['x-size']),
