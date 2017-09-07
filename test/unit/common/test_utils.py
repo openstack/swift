@@ -6575,6 +6575,25 @@ class TestShardRange(unittest.TestCase):
 
         assert_initialisation_fails(dict(good_run, bytes_used=-1))
 
+    def test_to_from_dict(self):
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        pr = utils.ShardRange('test', ts_1, 'l', 'u', 10, 100, ts_2)
+        pr_dict = dict(pr)
+        expected = {'name': 'test', 'created_at': ts_1.internal, 'lower': 'l',
+                    'upper': 'u', 'object_count': 10, 'bytes_used': 100,
+                    'meta_timestamp': ts_2.internal}
+        self.assertEqual(expected, pr_dict)
+        pr_new = utils.ShardRange.from_dict(pr_dict)
+        self.assertEqual(pr, pr_new)
+        self.assertEqual(pr_dict, dict(pr_new))
+
+        for key in pr_dict:
+            bad_dict = dict(pr_dict)
+            bad_dict.pop(key)
+            with self.assertRaises(KeyError):
+                utils.ShardRange.from_dict(bad_dict)
+
     def test_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
         pr = utils.ShardRange('test', ts_1, 'l', 'u', 0, 0, None)
