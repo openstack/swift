@@ -762,5 +762,11 @@ def create_container_listing(req, out_content_type, resp_headers,
             else:
                 index = 0
             ret.body = '\n'.join(rec[index] for rec in container_list) + '\n'
-        ret.last_modified = math.ceil(float(resp_headers['X-PUT-Timestamp']))
+        for ts_header in ('X-PUT-Timestamp', 'X-Backend-Put-Timestamp'):
+            if ts_header in resp_headers:
+                ret.last_modified = math.ceil(float(resp_headers[ts_header]))
+                break
+        else:
+            raise ValueError("Couldn't find a timestamp to use for "
+                             "Last-Modified in %r" % resp_headers)
         return ret

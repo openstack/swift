@@ -106,8 +106,16 @@ class ContainerSharder(ContainerReplicator):
     def _zero_stats(self):
         """Zero out the stats."""
         # TODO check that none of the replicator stats are useful
-        # super(ContainerSharder, self)._zero_stats()
-        self.stats = defaultdict(int)
+        super(ContainerSharder, self)._zero_stats()
+        self.stats.update({
+            'containers_scanned': 0,
+            'containers_sharded': 0,
+            'containers_shrunk': 0,
+            'container_shard_ranges': 0,
+            'containers_misplaced': 0,
+            'containers_audit_failed': 0,
+            'containers_failed': 0,
+        })
 
     def _report_stats(self):
         stats = self.stats
@@ -295,9 +303,9 @@ class ContainerSharder(ContainerReplicator):
                 'X-Container-Sysmeta-Shard-Upper':
                     (shard_range.upper, timestamp),
                 'X-Container-Sysmeta-Shard-Timestamp':
-                    (shard_range.timestamp, timestamp),
+                    (shard_range.timestamp.internal, timestamp),
                 'X-Container-Sysmeta-Shard-Meta-Timestamp':
-                    (shard_range.meta_timestamp, timestamp),
+                    (shard_range.meta_timestamp.internal, timestamp),
                 'X-Container-Sysmeta-Sharding': (None, timestamp)})
 
     def _misplaced_objects(self, broker, root_account, root_container,
@@ -1282,9 +1290,9 @@ class ContainerSharder(ContainerReplicator):
                                (broker.account, n_shard_range.name)):
                 self.swift.set_container_metadata(acct, cont, shrink_meta)
             self.logger.increment('shrunk_phase_1')
-        except Exception as ex:
-            self.logger.error('There was a problem adding the metadata %s' %
-                              ex)
+        except Exception:
+            self.logger.exception('Could not add shrink metadata %r',
+                                  shrink_meta)
 
     def _get_merge_range(self, account, container):
         path = self.swift.make_path(account, container)

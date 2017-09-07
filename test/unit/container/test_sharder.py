@@ -407,16 +407,20 @@ class TestSharder(unittest.TestCase):
     def test_run_forever(self):
         with self.setup_mocks() as (sharder, mocks):
             mocks['time'].side_effect = [
-                1,  # set initial reported
-                2,  # set begin
+                1,  # zero stats
+                2,  # set initial reported
+                3,  # set begin
                 20,  # calculate elapsed
-                21,  # report_stats -> reset reported
+                21,  # zero stats
+                22,  # report_stats -> reset reported
                 32,  # set begin
                 3602,  # calculate elapsed
-                3603,  # report_stats -> reset reported
-                3604,  # set begin
+                3603,  # zero stats
+                3604,  # report_stats -> reset reported
+                3605,  # set begin
                 4000,  # calculate elapsed
-                4001,  # report_stats -> reset reported
+                4001,  # zero stats
+                4002,  # report_stats -> reset reported
                 Exception("Test over")  # set begin - exit test run
             ]
 
@@ -436,10 +440,10 @@ class TestSharder(unittest.TestCase):
             # second pass
             self.assertEqual(2, mocks['sleep'].call_count)
             self.assertLessEqual(mocks['sleep'].call_args_list[0][0][0], 30)
-            self.assertEqual(12, mocks['sleep'].call_args_list[1][0][0])
+            self.assertEqual(13, mocks['sleep'].call_args_list[1][0][0])
 
             lines = sharder.logger.get_lines_for_level('info')
-            self.assertIn('Container sharder cycle completed: 18.00s',
+            self.assertIn('Container sharder cycle completed: 17.00s',
                           lines[0])
             self.assertIn('1 containers failed', lines[1])
             self.assertIn('Container sharder cycle completed: 3570.00s',
@@ -447,7 +451,7 @@ class TestSharder(unittest.TestCase):
             self.assertIn('2 sharded', lines[3])
             # checks stats were reset
             self.assertNotIn('1 containers failed', lines[3])
-            self.assertIn('Container sharder cycle completed: 396.00s',
+            self.assertIn('Container sharder cycle completed: 395.00s',
                           lines[4])
             self.assertIn('23 shard ranges found', lines[5])
             # checks stats were reset
