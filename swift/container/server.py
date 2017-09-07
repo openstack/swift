@@ -522,7 +522,11 @@ class ContainerController(BaseStorageServer):
                              limit=constraints.CONTAINER_LISTING_LIMIT):
 
         def merge_items(old_items, new_items, reverse=False):
+            # TODO: this method should compare timestamps and not assume that
+            # any item in the pivot db is newer (across data, content-type and
+            # metadata) than an item in the old db.
             if old_items and isinstance(old_items[0], dict):
+                # TODO (acoles): does this condition ever occur?
                 name, deleted = 'name', 'deleted'
             else:
                 name, deleted = 0, -1
@@ -532,7 +536,10 @@ class ContainerController(BaseStorageServer):
                 if item[deleted] == 1:
                     if item[name] in items:
                         del items[item[name]]
-                        continue
+                        # TODO: if limit was applied to old_items then we may
+                        # now need to go back to the old db to fetch a
+                        # replacement for the deleted item
+                    continue
                 items[item[name]] = item
 
             result = sorted([item for item in items.values()],
@@ -549,25 +556,24 @@ class ContainerController(BaseStorageServer):
         headers.update({'X-Container-Object-Count': info['object_count'],
                         'X-Container-Bytes-Used': info['bytes_used']})
 
-        old_items = old_b.list_objects_iter(
+        results = old_b.list_objects_iter(
             limit, marker, end_marker, prefix, delimiter, path,
             broker.storage_policy_index, reverse)
 
-        possibly_more = True
-        while possibly_more:
+        last_old = results[-1] if results else None
+        while True:
             shard_items = shard_b.list_objects_iter(
-                limit, marker, end_marker, prefix, delimiter, path,
-                broker.storage_policy_index, reverse, include_deleted=True)
-            old_items = merge_items(old_items, shard_items, reverse)
-            if len(old_items) >= limit:
+                constraints.CONTAINER_LISTING_LIMIT, marker, end_marker,
+                prefix, delimiter, path, broker.storage_policy_index, reverse,
+                include_deleted=True)
+            results = merge_items(results, shard_items, reverse)
+            if len(shard_items) < constraints.CONTAINER_LISTING_LIMIT:
                 break
-            if len(shard_items) == limit:
-                limit -= len(old_items)
-                marker = shard_items[-1][0]
-            else:
-                possibly_more = False
-
-        return headers, old_items
+            marker = shard_items[-1][0]
+            if len(results) >= limit and marker > last_old[0]:
+                # no more deletes to apply to old_items
+                break
+        return headers, results[:limit]
 
     @public
     @timing_stats()

@@ -2161,6 +2161,88 @@ class TestContainerController(unittest.TestCase):
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
+    # TODO: fix implementation so that this test passes
+    @unittest.expectedFailure
+    def test_GET_while_in_sharding_state_no_pivot_ranges(self):
+        # verify that GET merges items from the old and new db's
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        objects = [{'name': 'obj_%d' % i,
+                    'x-timestamp': next(ts_iter).normal,
+                    'x-content-type': 'text/plain',
+                    'x-etag': 'etag_%d' % i,
+                    'x-size': 1024 * i
+                    } for i in range(10)]
+        for obj in objects[:5]:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+
+        # set broker to sharding state
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        broker.set_sharding_state()
+
+        # these PUTS will land in the pivot db (no pivot ranges yet)
+        for obj in objects[5:]:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+
+        def check_object_GET(path, expected_objs):
+            req = Request.blank(path, method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected_objs, json.loads(resp.body))
+
+        expected = [
+            dict(hash=obj['x-etag'], bytes=obj['x-size'],
+                 content_type=obj['x-content-type'],
+                 last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                 name=obj['name']) for obj in objects]
+        check_object_GET('/sda1/p/a/c?format=json', expected)
+
+        # these DELETES will land in the pivot db (no pivot ranges yet)
+        for obj in objects[2:4]:
+            obj['x-timestamp'] = next(ts_iter).normal
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'],
+                                method='DELETE', headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(204, resp.status_int)
+
+        check_object_GET('/sda1/p/a/c?format=json',
+                         expected[:2] + expected[4:])
+        check_object_GET('/sda1/p/a/c?format=json&limit=6',
+                         expected[:2] + expected[4:8])
+        check_object_GET('/sda1/p/a/c?format=json&limit=100',
+                         expected[:2] + expected[4:])
+        check_object_GET('/sda1/p/a/c?format=json&limit=2', expected[:2])
+        check_object_GET('/sda1/p/a/c?format=json&prefix=obj_2', [])
+        check_object_GET('/sda1/p/a/c?format=json&marker=obj_2', expected[4:])
+        check_object_GET('/sda1/p/a/c?format=json&reverse=true',
+                         list(reversed(expected[:2] + expected[4:])))
+        check_object_GET('/sda1/p/a/c?format=json&reverse=true&marker=obj_4',
+                         list(reversed(expected[:2])))
+        # TODO: next assertion fails because the limit is applied to old_items,
+        # which has 5 items but only 4 are listed due to limit=4. Then two of
+        # those are removed due to deletes in the pivot db, and replaced with
+        # items in the pivot db. The fifth old item is not listed but should
+        # be.
+        check_object_GET('/sda1/p/a/c?format=json&limit=4',
+                         expected[:2] + expected[4:6])
+        with mock.patch('swift.common.constraints.CONTAINER_LISTING_LIMIT', 2):
+            # mock listing limit to check that repeated calls are made to the
+            # pivot db to replace old items that are found to be deleted
+            check_object_GET('/sda1/p/a/c?format=json&marker=obj_1&limit=2',
+                             [expected[1], expected[4]])
+
     def test_GET_json_all_items(self):
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
