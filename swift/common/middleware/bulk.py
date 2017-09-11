@@ -205,6 +205,7 @@ from swift.common.utils import get_logger, register_swift_info, \
     StreamingPile
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
+from swift.common.wsgi import make_subrequest
 
 
 class CreateContainerError(Exception):
@@ -306,20 +307,18 @@ class Bulk(object):
         :returns: True if created container, False if container exists
         :raises CreateContainerError: when unable to create container
         """
-        new_env = req.environ.copy()
-        new_env['PATH_INFO'] = container_path
-        new_env['swift.source'] = 'EA'
-        new_env['REQUEST_METHOD'] = 'HEAD'
-        head_cont_req = Request.blank(container_path, environ=new_env)
+        head_cont_req = make_subrequest(
+            req.environ, method='HEAD', path=quote(container_path),
+            headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
+            swift_source='EA')
         resp = head_cont_req.get_response(self.app)
         if resp.is_success:
             return False
         if resp.status_int == HTTP_NOT_FOUND:
-            new_env = req.environ.copy()
-            new_env['PATH_INFO'] = container_path
-            new_env['swift.source'] = 'EA'
-            new_env['REQUEST_METHOD'] = 'PUT'
-            create_cont_req = Request.blank(container_path, environ=new_env)
+            create_cont_req = make_subrequest(
+                req.environ, method='PUT', path=quote(container_path),
+                headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
+                swift_source='EA')
             resp = create_cont_req.get_response(self.app)
             if resp.is_success:
                 return True
@@ -441,15 +440,11 @@ class Bulk(object):
                                     objs_to_delete)
 
             def do_delete(obj_name, delete_path):
-                new_env = req.environ.copy()
-                new_env['PATH_INFO'] = delete_path
-                del(new_env['wsgi.input'])
-                new_env['CONTENT_LENGTH'] = 0
-                new_env['REQUEST_METHOD'] = 'DELETE'
-                new_env['HTTP_USER_AGENT'] = '%s %s' % (
-                    req.environ.get('HTTP_USER_AGENT'), user_agent)
-                new_env['swift.source'] = swift_source
-                delete_obj_req = Request.blank(delete_path, new_env)
+                delete_obj_req = make_subrequest(
+                    req.environ, method='DELETE', path=quote(delete_path),
+                    headers={'X-Auth-Token': req.headers.get('X-Auth-Token')},
+                    body='', agent='%(orig)s ' + user_agent,
+                    swift_source=swift_source)
                 return (delete_obj_req.get_response(self.app), obj_name, 0)
 
             with StreamingPile(self.delete_concurrency) as pile:
@@ -593,15 +588,16 @@ class Bulk(object):
                             continue
 
                     tar_file = tar.extractfile(tar_info)
-                    new_env = req.environ.copy()
-                    new_env['REQUEST_METHOD'] = 'PUT'
-                    new_env['wsgi.input'] = tar_file
-                    new_env['PATH_INFO'] = destination
-                    new_env['CONTENT_LENGTH'] = tar_info.size
-                    new_env['swift.source'] = 'EA'
-                    new_env['HTTP_USER_AGENT'] = \
-                        '%s BulkExpand' % req.environ.get('HTTP_USER_AGENT')
-                    create_obj_req = Request.blank(destination, new_env)
+                    create_headers = {
+                        'Content-Length': tar_info.size,
+                        'X-Auth-Token': req.headers.get('X-Auth-Token'),
+                    }
+
+                    create_obj_req = make_subrequest(
+                        req.environ, method='PUT', path=quote(destination),
+                        headers=create_headers,
+                        agent='%(orig)s BulkExpand', swift_source='EA')
+                    create_obj_req.environ['wsgi.input'] = tar_file
 
                     for pax_key, pax_value in tar_info.pax_headers.items():
                         header_name = pax_key_to_swift_header(pax_key)
