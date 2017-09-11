@@ -6,7 +6,7 @@ Getting Started
 System Requirements
 -------------------
 
-Swift development currently targets Ubuntu Server 14.04, but should work on
+Swift development currently targets Ubuntu Server 16.04, but should work on
 most Linux platforms.
 
 Swift is written in Python and has these dependencies:
