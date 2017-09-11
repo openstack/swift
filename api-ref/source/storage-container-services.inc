@@ -186,8 +186,9 @@ Example requests and responses:
      X-Openstack-Request-Id: tx06021f10fc8642b2901e7-0052d58f37
      Date: Tue, 14 Jan 2014 19:25:43 GMT
 
-Error response codes:201,204,
+Normal response codes: 201, 202
 
+Error response codes: 400, 404, 507
 
 Request
 -------
