@@ -1079,6 +1079,30 @@ class TestResponse(unittest.TestCase):
         app_iter.close()
         self.assertRaises(StopIteration, iterator.next)
 
+    def test_call_finds_nonempty_chunk(self):
+        def test_app(environ, start_response):
+            start_response('400 Bad Request', [])
+            yield ''
+            start_response('200 OK', [])
+            yield 'complete '
+            yield ''
+            yield 'response'
+        req = swift.common.swob.Request.blank('/')
+        req.method = 'GET'
+        status, headers, app_iter = req.call_application(test_app)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(list(app_iter), ['complete ', '', 'response'])
+
+    def test_call_requires_that_start_response_is_called(self):
+        def test_app(environ, start_response):
+            yield 'response'
+        req = swift.common.swob.Request.blank('/')
+        req.method = 'GET'
+        with self.assertRaises(RuntimeError) as mgr:
+            req.call_application(test_app)
+        self.assertEqual(mgr.exception.args[0],
+                         'application never called start_response')
+
     def test_location_rewrite(self):
         def start_response(env, headers):
             pass

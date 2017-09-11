@@ -999,6 +999,8 @@ class Request(object):
             app_iter = output
         if not captured:
             app_iter = reiterate(app_iter)
+        if not captured:
+            raise RuntimeError('application never called start_response')
         return (captured[0], captured[1], app_iter)
 
     def get_response(self, application):
