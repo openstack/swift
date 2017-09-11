@@ -1174,21 +1174,27 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # first init an acct DB without the policy_stat table present
         broker = AccountBroker(db_path, account='a')
         broker.initialize(Timestamp('1').internal)
-        with broker.get() as conn:
-            try:
-                conn.execute('''
-                    SELECT * FROM policy_stat
-                    ''').fetchone()[0]
-            except sqlite3.OperationalError as err:
-                # confirm that the table really isn't there
-                self.assertIn('no such table: policy_stat', str(err))
-            else:
-                self.fail('broker did not raise sqlite3.OperationalError '
-                          'trying to select from policy_stat table!')
+
+        def confirm_no_table():
+            with broker.get() as conn:
+                try:
+                    conn.execute('''
+                        SELECT * FROM policy_stat
+                        ''').fetchone()[0]
+                except sqlite3.OperationalError as err:
+                    # confirm that the table really isn't there
+                    self.assertIn('no such table: policy_stat', str(err))
+                else:
+                    self.fail('broker did not raise sqlite3.OperationalError '
+                              'trying to select from policy_stat table!')
+
+        confirm_no_table()
 
         # make sure we can HEAD this thing w/o the table
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 0)
+
+        confirm_no_table()
 
         # now do a PUT to create the table
         broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
@@ -1201,6 +1207,54 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
 
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 1)
+
+    @with_tempdir
+    def test_policy_table_migration_in_get_policy_stats(self, tempdir):
+        db_path = os.path.join(tempdir, 'account.db')
+
+        # first init an acct DB without the policy_stat table present
+        broker = AccountBroker(db_path, account='a')
+        broker.initialize(Timestamp('1').internal)
+
+        # And manually add some container records for the default policy
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO container (
+                    name, put_timestamp, delete_timestamp,
+                    object_count, bytes_used
+                ) VALUES (
+                    'c', '%s', '0', 0, 0
+                )''' % Timestamp.now().internal).fetchone()
+            conn.commit()
+
+        def confirm_no_table():
+            with broker.get() as conn:
+                try:
+                    conn.execute('''
+                        SELECT * FROM policy_stat
+                        ''').fetchone()[0]
+                except sqlite3.OperationalError as err:
+                    # confirm that the table really isn't there
+                    self.assertIn('no such table: policy_stat', str(err))
+                else:
+                    self.fail('broker did not raise sqlite3.OperationalError '
+                              'trying to select from policy_stat table!')
+
+        confirm_no_table()
+
+        # make sure we can HEAD this thing w/o the table
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 0)
+
+        confirm_no_table()
+
+        # but if we pass in do_migrations (like in the auditor), it comes in
+        stats = broker.get_policy_stats(do_migrations=True)
+        self.assertEqual(len(stats), 1)
+
+        # double check that it really exists
+        with broker.get() as conn:
+            conn.execute('SELECT * FROM policy_stat')
 
     @patch_policies
     @with_tempdir

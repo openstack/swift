@@ -337,7 +337,12 @@ class AccountBroker(DatabaseBroker):
                     else:
                         columns.remove('container_count')
                     info = run_query()
-                elif "no such table: policy_stat" not in str(err):
+                elif "no such table: policy_stat" in str(err):
+                    if do_migrations:
+                        self.create_policy_stat_table(conn)
+                        info = run_query()
+                    # else, pass and let the results be empty
+                else:
                     raise
 
         policy_stats = {}
