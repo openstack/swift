@@ -1299,25 +1299,31 @@ class TestStoragePolicies(unittest.TestCase):
                             ec_ndata=4, ec_nparity=2,
                             ec_duplication_factor=2)
         ]
-        actual_load_ring_replicas = [8, 10, 7, 11]
         policies = StoragePolicyCollection(test_policies)
 
         class MockRingData(object):
             def __init__(self, num_replica):
-                self._replica2part2dev_id = [0] * num_replica
+                self.replica_count = num_replica
 
-        for policy, ring_replicas in zip(policies, actual_load_ring_replicas):
-            with mock.patch('swift.common.ring.ring.RingData.load',
-                            return_value=MockRingData(ring_replicas)):
-                necessary_replica_num = \
-                    policy.ec_n_unique_fragments * policy.ec_duplication_factor
-                with mock.patch(
-                        'swift.common.ring.ring.validate_configuration'):
-                    msg = 'EC ring for policy %s needs to be configured with ' \
-                          'exactly %d replicas.' % \
-                          (policy.name, necessary_replica_num)
-                    self.assertRaisesWithMessage(RingLoadError, msg,
-                                                 policy.load_ring, 'mock')
+        def do_test(actual_load_ring_replicas):
+            for policy, ring_replicas in zip(policies,
+                                             actual_load_ring_replicas):
+                with mock.patch('swift.common.ring.ring.RingData.load',
+                                return_value=MockRingData(ring_replicas)):
+                    necessary_replica_num = (policy.ec_n_unique_fragments *
+                                             policy.ec_duplication_factor)
+                    with mock.patch(
+                            'swift.common.ring.ring.validate_configuration'):
+                        msg = 'EC ring for policy %s needs to be configured ' \
+                              'with exactly %d replicas.' % \
+                              (policy.name, necessary_replica_num)
+                        self.assertRaisesWithMessage(RingLoadError, msg,
+                                                     policy.load_ring, 'mock')
+
+        # first, do somethign completely different
+        do_test([8, 10, 7, 11])
+        # then again, closer to true, but fractional
+        do_test([9.9, 14.1, 5.99999, 12.000000001])
 
     def test_storage_policy_get_info(self):
         test_policies = [
