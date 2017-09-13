@@ -200,6 +200,8 @@ def strip_user_meta_prefix(server_type, key):
     :param key: header key
     :returns: stripped header key
     """
+    if not is_user_meta(server_type, key):
+        raise ValueError('Key is not user meta')
     return key[len(get_user_meta_prefix(server_type)):]
 
 
@@ -212,6 +214,8 @@ def strip_sys_meta_prefix(server_type, key):
     :param key: header key
     :returns: stripped header key
     """
+    if not is_sys_meta(server_type, key):
+        raise ValueError('Key is not sysmeta')
     return key[len(get_sys_meta_prefix(server_type)):]
 
 
@@ -223,6 +227,8 @@ def strip_object_transient_sysmeta_prefix(key):
     :param key: header key
     :returns: stripped header key
     """
+    if not is_object_transient_sysmeta(key):
+        raise ValueError('Key is not object transient sysmeta')
     return key[len(OBJECT_TRANSIENT_SYSMETA_PREFIX):]
 
 
