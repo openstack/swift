@@ -51,14 +51,14 @@ class TestDatabaseConnectionError(unittest.TestCase):
     def test_str(self):
         err = \
             DatabaseConnectionError(':memory:', 'No valid database connection')
-        self.assertTrue(':memory:' in str(err))
-        self.assertTrue('No valid database connection' in str(err))
+        self.assertIn(':memory:', str(err))
+        self.assertIn('No valid database connection', str(err))
         err = DatabaseConnectionError(':memory:',
                                       'No valid database connection',
                                       timeout=1357)
-        self.assertTrue(':memory:' in str(err))
-        self.assertTrue('No valid database connection' in str(err))
-        self.assertTrue('1357' in str(err))
+        self.assertIn(':memory:', str(err))
+        self.assertIn('No valid database connection', str(err))
+        self.assertIn('1357', str(err))
 
 
 class TestDictFactory(unittest.TestCase):
@@ -607,7 +607,7 @@ class TestDatabaseBroker(unittest.TestCase):
         db_file = os.path.join(self.testdir, '1.db')
         broker = DatabaseBroker(db_file)
         self.assertEqual(broker.db_file, db_file)
-        self.assertTrue(broker.conn is None)
+        self.assertIsNone(broker.conn)
 
     def test_disk_preallocate(self):
         test_size = [-1]
@@ -676,7 +676,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker._initialize = init_stub
         # Initializes a good broker for us
         broker.initialize(normalize_timestamp('1'))
-        self.assertTrue(broker.conn is not None)
+        self.assertIsNotNone(broker.conn)
         broker._delete_db = delete_stub
         stub_called[0] = False
         broker.delete_db('2')
@@ -1077,58 +1077,58 @@ class TestDatabaseBroker(unittest.TestCase):
         first_timestamp = normalize_timestamp(1)
         first_value = '1'
         broker.update_metadata({'First': [first_value, first_timestamp]})
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
         # Add our second item
         second_timestamp = normalize_timestamp(2)
         second_value = '2'
         broker.update_metadata({'Second': [second_value, second_timestamp]})
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
-        self.assertTrue('Second' in broker.metadata)
+        self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Update our first item
         first_timestamp = normalize_timestamp(3)
         first_value = '1b'
         broker.update_metadata({'First': [first_value, first_timestamp]})
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
-        self.assertTrue('Second' in broker.metadata)
+        self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Delete our second item (by setting to empty string)
         second_timestamp = normalize_timestamp(4)
         second_value = ''
         broker.update_metadata({'Second': [second_value, second_timestamp]})
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
-        self.assertTrue('Second' in broker.metadata)
+        self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Reclaim at point before second item was deleted
         reclaim(broker, normalize_timestamp(3))
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
-        self.assertTrue('Second' in broker.metadata)
+        self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Reclaim at point second item was deleted
         reclaim(broker, normalize_timestamp(4))
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
-        self.assertTrue('Second' in broker.metadata)
+        self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
                          [second_value, second_timestamp])
         # Reclaim after point second item was deleted
         reclaim(broker, normalize_timestamp(5))
-        self.assertTrue('First' in broker.metadata)
+        self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
                          [first_value, first_timestamp])
         self.assertNotIn('Second', broker.metadata)

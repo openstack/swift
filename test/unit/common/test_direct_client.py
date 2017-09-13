@@ -529,8 +529,7 @@ class TestDirectClient(unittest.TestCase):
 
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual('bar', conn.req_headers.get('x-foo'))
-        self.assertNotIn('x-timestamp', conn.req_headers,
-                         'x-timestamp was in HEAD request headers')
+        self.assertNotIn('x-timestamp', conn.req_headers)
         self.assertEqual(headers, resp)
 
     def test_direct_head_object_error(self):

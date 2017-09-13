@@ -449,8 +449,8 @@ class TestProxyLogging(unittest.TestCase):
         [x for x in resp]
         log_parts = self._log_parts(app)
         headers = unquote(log_parts[14]).split('\n')
-        self.assertTrue('First: 1' in headers)
-        self.assertTrue('Second: 2' in headers)
+        self.assertIn('First: 1', headers)
+        self.assertIn('Second: 2', headers)
         self.assertNotIn('Third: 3', headers)
         self.assertNotIn('Host: localhost:80', headers)
 

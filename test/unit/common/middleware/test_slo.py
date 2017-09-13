@@ -513,8 +513,10 @@ class TestSloPutManifest(SloTestCase):
             body=test_json_data)
         self.assertNotIn('X-Static-Large-Object', req.headers)
         self.slo(req.environ, fake_start_response)
-        self.assertTrue('X-Static-Large-Object' in req.headers)
-        self.assertTrue(req.environ['PATH_INFO'], '/cont/object\xe2\x99\xa1')
+        self.assertIn('X-Static-Large-Object', req.headers)
+        self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_test/c/man')
+        self.assertIn(('HEAD', '/v1/AUTH_test/cont/object\xe2\x99\xa1'),
+                      self.app.calls)
 
     def test_handle_multipart_put_no_xml(self):
         req = Request.blank(

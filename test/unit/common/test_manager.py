@@ -484,7 +484,7 @@ class TestServer(unittest.TestCase):
                     # check verbose lists configs
                     conf_files = server.conf_files(number=2, verbose=True)
                     c1 = self.join_swift_dir('container-server/1.conf')
-                    self.assertTrue(c1 in pop_stream(f))
+                    self.assertIn(c1, pop_stream(f))
             finally:
                 sys.stdout = old_stdout
 
@@ -720,11 +720,11 @@ class TestServer(unittest.TestCase):
             server = manager.Server('proxy', run_dir=manager.RUN_DIR)
             pids = server.signal_pids(DUMMY_SIG)
             self.assertEqual(len(pids), 1)
-            self.assertTrue(1 in pids)
+            self.assertIn(1, pids)
             self.assertEqual(manager.os.pid_sigs[1], [DUMMY_SIG])
             # make sure other process not signaled
-            self.assertFalse(2 in pids)
-            self.assertFalse(2 in manager.os.pid_sigs)
+            self.assertNotIn(2, pids)
+            self.assertNotIn(2, manager.os.pid_sigs)
             # capture stdio
             old_stdout = sys.stdout
             try:
@@ -733,8 +733,8 @@ class TestServer(unittest.TestCase):
                     # test print details
                     pids = server.signal_pids(DUMMY_SIG)
                     output = pop_stream(f)
-                    self.assertTrue('pid: %s' % 1 in output)
-                    self.assertTrue('signal: %s' % DUMMY_SIG in output)
+                    self.assertIn('pid: %s' % 1, output)
+                    self.assertIn('signal: %s' % DUMMY_SIG, output)
                     # test no details on signal.SIG_DFL
                     pids = server.signal_pids(signal.SIG_DFL)
                     self.assertEqual(pop_stream(f), '')
@@ -818,7 +818,7 @@ class TestServer(unittest.TestCase):
             manager.os = MockOs([1, 3])
             running_pids = server.get_running_pids()
             self.assertEqual(len(running_pids), 1)
-            self.assertTrue(1 in running_pids)
+            self.assertIn(1, running_pids)
             self.assertNotIn(2, running_pids)
             self.assertNotIn(3, running_pids)
             # test persistent running pid files
@@ -855,7 +855,7 @@ class TestServer(unittest.TestCase):
             running_pids = server.get_running_pids()
             # only thing-doer.pid, 1
             self.assertEqual(len(running_pids), 1)
-            self.assertTrue(1 in running_pids)
+            self.assertIn(1, running_pids)
             # no other pids returned
             for n in (2, 3, 4):
                 self.assertNotIn(n, running_pids)
@@ -899,7 +899,7 @@ class TestServer(unittest.TestCase):
             # test kill one pid
             pids = server.kill_running_pids()
             self.assertEqual(len(pids), 1)
-            self.assertTrue(1 in pids)
+            self.assertIn(1, pids)
             self.assertEqual(manager.os.pid_sigs[1], [signal.SIGTERM])
             # reset os mock
             manager.os = MockOs([1])
@@ -908,7 +908,7 @@ class TestServer(unittest.TestCase):
                             manager.GRACEFUL_SHUTDOWN_SERVERS)
             pids = server.kill_running_pids(graceful=True)
             self.assertEqual(len(pids), 1)
-            self.assertTrue(1 in pids)
+            self.assertIn(1, pids)
             self.assertEqual(manager.os.pid_sigs[1], [signal.SIGHUP])
             # start up other servers
             manager.os = MockOs([11, 12])
@@ -1247,8 +1247,8 @@ class TestServer(unittest.TestCase):
                         server.procs = [proc]
                         status = server.wait(output=True)
                     output = pop_stream(f)
-                    self.assertTrue('mock process started' in output)
-                    self.assertTrue('setup complete' in output)
+                    self.assertIn('mock process started', output)
+                    self.assertIn('setup complete', output)
                     # make sure we don't get prints after stdout was closed
                     self.assertNotIn('mock process finished', output)
                     # test process which fails to start
@@ -1256,7 +1256,7 @@ class TestServer(unittest.TestCase):
                         server.procs = [proc]
                         status = server.wait()
                         self.assertEqual(status, 1)
-                    self.assertTrue('failed' in pop_stream(f))
+                    self.assertIn('failed', pop_stream(f))
                     # test multiple procs
                     procs = [MockProcess(delay=.5) for i in range(3)]
                     for proc in procs:
@@ -1390,7 +1390,7 @@ class TestServer(unittest.TestCase):
                             }
                             self.assertEqual(mock_spawn.kwargs, [expected])
                             output = pop_stream(f)
-                            self.assertTrue('Starting' in output)
+                            self.assertIn('Starting', output)
                             self.assertNotIn('once', output)
                         # test multi-server kwarg once
                         server = manager.Server('object-replicator')

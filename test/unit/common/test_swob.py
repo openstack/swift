@@ -268,21 +268,21 @@ class TestMatch(unittest.TestCase):
     def test_match(self):
         match = swift.common.swob.Match('"a", "b"')
         self.assertEqual(match.tags, set(('a', 'b')))
-        self.assertTrue('a' in match)
-        self.assertTrue('b' in match)
+        self.assertIn('a', match)
+        self.assertIn('b', match)
         self.assertNotIn('c', match)
 
     def test_match_star(self):
         match = swift.common.swob.Match('"a", "*"')
-        self.assertTrue('a' in match)
-        self.assertTrue('b' in match)
-        self.assertTrue('c' in match)
+        self.assertIn('a', match)
+        self.assertIn('b', match)
+        self.assertIn('c', match)
 
     def test_match_noquote(self):
         match = swift.common.swob.Match('a, b')
         self.assertEqual(match.tags, set(('a', 'b')))
-        self.assertTrue('a' in match)
-        self.assertTrue('b' in match)
+        self.assertIn('a', match)
+        self.assertIn('b', match)
         self.assertNotIn('c', match)
 
 
@@ -738,7 +738,7 @@ class TestRequest(unittest.TestCase):
         req.range = 'bytes=1-7'
         self.assertEqual(req.range.ranges[0], (1, 7))
 
-        self.assertTrue('Range' in req.headers)
+        self.assertIn('Range', req.headers)
         req.range = None
         self.assertNotIn('Range', req.headers)
 
@@ -755,7 +755,7 @@ class TestRequest(unittest.TestCase):
         self.assertEqual(req.headers['If-Unmodified-Since'], 'something')
         self.assertIsNone(req.if_unmodified_since)
 
-        self.assertTrue('If-Unmodified-Since' in req.headers)
+        self.assertIn('If-Unmodified-Since', req.headers)
         req.if_unmodified_since = None
         self.assertNotIn('If-Unmodified-Since', req.headers)
 
@@ -1026,12 +1026,12 @@ class TestResponse(unittest.TestCase):
 
         resp.location = 'something'
         self.assertEqual(resp.location, 'something')
-        self.assertTrue('Location' in resp.headers)
+        self.assertIn('Location', resp.headers)
         resp.location = None
         self.assertNotIn('Location', resp.headers)
 
         resp.content_type = 'text/plain'
-        self.assertTrue('Content-Type' in resp.headers)
+        self.assertIn('Content-Type', resp.headers)
         resp.content_type = None
         self.assertNotIn('Content-Type', resp.headers)
 
@@ -1377,7 +1377,7 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(resp.headers['Etag'], '"hi"')
         self.assertEqual(resp.etag, 'hi')
 
-        self.assertTrue('etag' in resp.headers)
+        self.assertIn('etag', resp.headers)
         resp.etag = None
         self.assertNotIn('etag', resp.headers)
 
