@@ -308,7 +308,7 @@ def missing_string(partition_count, missing_copies, copy_count):
     )
 
 
-if __name__ == '__main__':
+def main():
     patcher.monkey_patch()
     hubs.get_hub().debug_exceptions = False
 
@@ -335,43 +335,60 @@ Usage: %%prog [options] [conf_file]
                       help="Specify storage policy name")
 
     options, args = parser.parse_args()
-
     if args:
         conffile = args.pop(0)
+
+    if options.debug:
+        global debug
+        debug = True
 
     c = ConfigParser()
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
     conf = dict(c.items('dispersion'))
 
-    if options.policy_name is None:
+    if options.dump_json:
+        conf['dump_json'] = 'yes'
+    if options.object_only:
+        conf['container_report'] = 'no'
+    if options.container_only:
+        conf['object_report'] = 'no'
+    if options.insecure:
+        conf['keystone_api_insecure'] = 'yes'
+    if options.partitions:
+        conf['partitions'] = 'yes'
+
+    output = generate_report(conf, options.policy_name)
+
+    if json_output:
+        print(json.dumps(output))
+
+
+def generate_report(conf, policy_name=None):
+    global json_output
+    json_output = config_true_value(conf.get('dump_json', 'no'))
+    if policy_name is None:
         policy = POLICIES.default
     else:
-        policy = POLICIES.get_by_name(options.policy_name)
+        policy = POLICIES.get_by_name(policy_name)
         if policy is None:
-            exit('Unable to find policy: %s' % options.policy_name)
-    print('Using storage policy: %s ' % policy.name)
+            exit('Unable to find policy: %s' % policy_name)
+    if not json_output:
+        print('Using storage policy: %s ' % policy.name)
 
     swift_dir = conf.get('swift_dir', '/etc/swift')
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
     endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
     region_name = str(conf.get('region_name', ''))
-    if options.dump_json or config_true_value(conf.get('dump_json', 'no')):
-        json_output = True
-    container_report = config_true_value(conf.get('container_report', 'yes')) \
-        and not options.object_only
-    object_report = config_true_value(conf.get('object_report', 'yes')) \
-        and not options.container_only
+    container_report = config_true_value(conf.get('container_report', 'yes'))
+    object_report = config_true_value(conf.get('object_report', 'yes'))
     if not (object_report or container_report):
         exit("Neither container or object report is set to run")
     user_domain_name = str(conf.get('user_domain_name', ''))
     project_domain_name = str(conf.get('project_domain_name', ''))
     project_name = str(conf.get('project_name', ''))
-    insecure = options.insecure \
-        or config_true_value(conf.get('keystone_api_insecure', 'no'))
-    if options.debug:
-        debug = True
+    insecure = config_true_value(conf.get('keystone_api_insecure', 'no'))
 
     coropool = GreenPool(size=concurrency)
 
@@ -402,10 +419,14 @@ Usage: %%prog [options] [conf_file]
     if container_report:
         output['container'] = container_dispersion_report(
             coropool, connpool, account, container_ring, retries,
-            options.partitions, policy)
+            conf.get('partitions'), policy)
     if object_report:
         output['object'] = object_dispersion_report(
             coropool, connpool, account, object_ring, retries,
-            options.partitions, policy)
-    if json_output:
-        print(json.dumps(output))
+            conf.get('partitions'), policy)
+
+    return output
+
+
+if __name__ == '__main__':
+    main()
