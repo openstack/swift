@@ -672,23 +672,12 @@ class ContainerSharder(ContainerReplicator):
                         continue
 
                 # We are either in the sharding state or we need to start
-                # sharding. So find out if this is suppose to be the scanning
-                # node, if defined
-                scan_idx = self.get_metadata_item(
-                    broker, 'X-Container-Sysmeta-Shard-Scanner')
+                # sharding.
                 scan_complete = config_true_value(self.get_metadata_item(
                     broker, 'X-Container-Sysmeta-Sharding-Scan-Done'))
 
-                if scan_idx is None and not scan_complete:
-                    try:
-                        scan_idx = self._find_scanner_node(broker)
-                    except Exception:
-                        # todo log and continue
-                        self.stats['containers_failed'] += 1
-                        continue
-
-                if scan_idx is not None and int(scan_idx) == self.node_idx \
-                        and not scan_complete:
+                # TODO: bring back leader election (maybe?)
+                if self.node_idx == 0 and not scan_complete:
                     scan_complete = self._find_shard_ranges(broker)
                     if scan_complete:
                         self._cleave(broker, root_account,
@@ -751,8 +740,8 @@ class ContainerSharder(ContainerReplicator):
                 'x-backend-shard-bytes': shard_range.bytes_used,
                 'x-backend-shard-lower': shard_range.lower,
                 'x-backend-shard-upper': shard_range.upper,
-                'x-backend-timestamp': shard_range.timestamp,
-                'x-meta-timestamp': shard_range.meta_timestamp,
+                'x-backend-timestamp': shard_range.timestamp.internal,
+                'x-meta-timestamp': shard_range.meta_timestamp.internal,
                 'x-size': 0}
 
             for node in nodes:
@@ -785,86 +774,6 @@ class ContainerSharder(ContainerReplicator):
                 result.add(tuple(res))
 
         return result
-
-    def _find_scanner_node(self, broker):
-        self.logger.info('Started searching for best node to be shard point '
-                         'scanner for %s/%s',
-                         broker.account, broker.container)
-        obj_count = [broker.get_info()['object_count']]
-        scanner_id = [self._get_node_index()]
-        scanner_ids = {}
-
-        def on_success(resp, node_idx):
-            if not resp or not is_success(resp.status):
-                return False
-
-            found_scan_id = resp.getheader('X-Container-Sysmeta-Shard-Scanner')
-            found_obj_count = int(resp.getheader('X-Container-Object-Count'))
-
-            if found_scan_id:
-                if scanner_ids.get(found_scan_id):
-                    scanner_ids[found_scan_id] += 1
-                else:
-                    scanner_ids[found_scan_id] = 1
-
-            if found_obj_count > obj_count[0]:
-                obj_count[0] = found_obj_count
-                scanner_id[0] = node_idx
-
-            return True
-
-        if not self._get_quorum(broker, success=on_success):
-            self.logger.info('Failed to reach quorum on a shard scanner for '
-                             '%s/%s', broker.account, broker.container)
-            return
-
-        # We have a quorum of responses but if there is already a node out
-        # there with a scan_id set, then this means that there was a quorum
-        # previously, and most probably this node failed the POSTing of the
-        # metadata OR the POSTing of the metadata failed to get quorum.
-        # In either case, we'll just use it, as replication should have/will
-        # move the scan_id around anyway. And a scanner will always ask for
-        # quorum before adding an item to shard_ranges, so all should be good.
-        if scanner_ids:
-            if len(scanner_ids) > 1:
-                # find the most occurring or if a tie wait for replication to
-                # choose the best
-                max_id = max(scanner_ids.items(), key=lambda x: x[1])
-
-                # We need to make sure there isn't a tie, if there is we want
-                # to bail and let replication decide
-                max_ids = filter(lambda x: x == max_id[1], scanner_ids)
-                if len(max_ids) > 1:
-                    self.logger.warn("Cannot find a scanner node, too many "
-                                     "potential scanners nodes (%s). "
-                                     "Leaving for replication to "
-                                     "determine.",
-                                     ",".join([str(i) for i, c in max_ids]))
-                    return
-                scanner_id[0] = max_id[0]
-            else:
-                scanner_id[0] = scanner_ids.keys()[0]
-
-        # Found a node to be the scanner
-        headers = {'X-Container-Sysmeta-Shard-Scanner': scanner_id[0]}
-
-        timestamp = Timestamp(time.time()).internal
-        broker.update_metadata({
-            'X-Container-Sysmeta-Shard-Scanner': (scanner_id[0], timestamp)})
-
-        if not self._get_quorum(broker, op='POST', headers=headers):
-            self.logger.info('Failed to set node %d as the shard scanner '
-                             'for %s/%s on remote servers',
-                             scanner_id, broker.account, broker.container)
-            return
-
-        self.logger.info('Best shard scanner for %s/%s is node %d',
-                         broker.account, broker.container, scanner_id[0])
-        self.logger.increment('scanner_searches')
-
-        # return scanner_id[0]
-        return self.get_metadata_item(broker,
-                                      'X-Container-Sysmeta-Shard-Scanner')
 
     def _get_quorum(self, broker, success=None, quorum=None, op='HEAD',
                     headers=None, post_success=None, post_fail=None,
@@ -974,27 +883,8 @@ class ContainerSharder(ContainerReplicator):
                                 "We will try again next cycle.")
             return
 
-        # make sure this node is still the scanner (a split brain might have
-        # happened and now someone else is).
-        def on_success(resp, node_idx):
-            if not resp or not is_success(resp.status):
-                return False
-
-            found_scan_id = resp.getheader('X-Container-Sysmeta-Shard-Scanner')
-
-            if found_scan_id:
-                if found_scan_id != str(self.node_idx):
-                    return False
-            else:
-                return False
-
-            return True
-
-        if not self._get_quorum(broker, success=on_success):
-            self.logger.info('Failed to reach quorum node %d may not be the '
-                             'scanner for %s/%s anymore. Aborting scan.',
-                             self.node_idx, broker.account, broker.container)
-            return
+        # TODO: if we bring back leader election, this is about the spot where
+        # we should confirm we're still the scanner
 
         # we are still the scanner, so lets write the shard points.
         shard_ranges = []

@@ -280,7 +280,7 @@ class ContainerController(BaseStorageServer):
                 (acct, containing_range.name, obj)
             headers = {'Location': location,
                        'X-Redirect-Timestamp':
-                           containing_range.timestamp}
+                           containing_range.timestamp.internal}
 
             return HTTPMovedPermanently(headers=headers)
 

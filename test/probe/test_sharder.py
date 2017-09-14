@@ -135,15 +135,15 @@ class TestContainerSharding(ReplProbeTest):
                                         self.container_name)
         self.assertEqual('True', headers.get('x-container-sharding'))
 
-        # Interfere in the election -- pick one to run first; it will declare
-        # itself leader and establish shard ranges
-        sharders.once(number=self.brain.primary_numbers[0])
+        # Only run the one in charge of scanning
+        sharders.once(number=self.brain.node_numbers[0])
 
         # Verify that we have one shard db -- though the other normal DBs
         # received the shard ranges that got defined
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 1)
         broker = ContainerBroker(found['shard_dbs'][0])
+        # TODO: assert the shard db is on replica 0
         self.assertIs(True, broker.is_root_container())
         self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
         expected_shard_ranges = get_shard_ranges(broker)
