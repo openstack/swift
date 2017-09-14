@@ -82,7 +82,7 @@ def _get_direct_account_container(path, stype, node, part,
                                   marker=None, limit=None,
                                   prefix=None, delimiter=None,
                                   conn_timeout=5, response_timeout=15,
-                                  end_marker=None, reverse=None, **kargs):
+                                  end_marker=None, reverse=None, items=None):
     """Base class for get direct account and container.
 
     Do not use directly use the get_direct_account or
@@ -101,10 +101,8 @@ def _get_direct_account_container(path, stype, node, part,
         qs += '&end_marker=%s' % quote(end_marker)
     if reverse:
         qs += '&reverse=%s' % quote(reverse)
-    if 'nodes' in kargs:
-        qs += '&nodes=%s' % quote(kargs.get('nodes', ''))
-    if 'noshard' in kargs:
-        qs += '&noshard=%s' % quote(kargs.get('noshard', ''))
+    if items:
+        qs += '&items=%s' % quote(items)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             'GET', path, query_string=qs,
@@ -200,7 +198,7 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
 def direct_get_container(node, part, account, container, marker=None,
                          limit=None, prefix=None, delimiter=None,
                          conn_timeout=5, response_timeout=15, end_marker=None,
-                         reverse=None, **kargs):
+                         reverse=None, items=None):
     """
     Get container listings directly from the container server.
 
@@ -216,6 +214,9 @@ def direct_get_container(node, part, account, container, marker=None,
     :param response_timeout: timeout in seconds for getting the response
     :param end_marker: end_marker query
     :param reverse: reverse the returned listing
+    :param items: omit for normal listings, 'all' to include deleted object
+                  records, 'pivot' to get pivot ranges instead of object
+                  records
     :returns: a tuple of (response headers, a list of objects) The response
               headers will be a HeaderKeyDict.
     """
@@ -228,7 +229,7 @@ def direct_get_container(node, part, account, container, marker=None,
                                          reverse=reverse,
                                          conn_timeout=conn_timeout,
                                          response_timeout=response_timeout,
-                                         **kargs)
+                                         items=items)
 
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,
