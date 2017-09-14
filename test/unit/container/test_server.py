@@ -2161,6 +2161,67 @@ class TestContainerController(unittest.TestCase):
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
+    def test_GET_json_all_items(self):
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        objects = [{'name': 'obj_%d' % i,
+                    'x-timestamp': next(ts_iter).normal,
+                    'x-content-type': 'text/plain',
+                    'x-etag': 'etag_%d' % i,
+                    'x-size': 1024 * i
+                    } for i in range(4)]
+        # PUT four objects
+        for obj in objects:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+        # DELETE first two objects
+        for obj in objects[:2]:
+            obj['x-timestamp'] = next(ts_iter).normal
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'],
+                                method='DELETE', headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(204, resp.status_int)
+
+        def check_object_GET(path, expected):
+            req = Request.blank(path, method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(expected, json.loads(resp.body))
+
+        # sanity check - GET undeleted objects
+        expected_without_deleted = [
+            dict(hash=obj['x-etag'], bytes=obj['x-size'],
+                 content_type=obj['x-content-type'],
+                 last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                 name=obj['name']) for obj in objects[2:]]
+
+        check_object_GET('/sda1/p/a/c?format=json', expected_without_deleted)
+        check_object_GET('/sda1/p/a/c?items=blah&format=json',
+                         expected_without_deleted)
+
+        # using items=all
+        expected_with_deleted = [
+            dict(hash='noetag', bytes=0, deleted=1,
+                 content_type='application/deleted',
+                 last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                 name=obj['name']) for obj in objects[:2]]
+        expected_with_deleted.extend([dict(obj, deleted=0)
+                                      for obj in expected_without_deleted])
+
+        check_object_GET('/sda1/p/a/c?items=all&format=json',
+                         expected_with_deleted)
+        check_object_GET('/sda1/p/a/c?items=all&format=json&prefix=obj_1',
+                         expected_with_deleted[1:2])
+        check_object_GET('/sda1/p/a/c?items=all&format=json&marker=obj_0',
+                         expected_with_deleted[1:])
+
     def test_GET_json(self):
         # make a container
         req = Request.blank(
