@@ -4341,12 +4341,13 @@ class PivotRange(object):
 
     def __iter__(self):
         yield 'name', self.name
-        yield 'created_at', self.timestamp
+        yield 'created_at', self.timestamp.internal if self.timestamp else None
         yield 'lower', self.lower
         yield 'upper', self.upper
         yield 'object_count', self.object_count
         yield 'bytes_used', self.bytes_used
-        yield 'meta_timestamp', self.meta_timestamp
+        yield ('meta_timestamp',
+               self.meta_timestamp.internal if self.meta_timestamp else None)
 
 
 def find_pivot_range(item, ranges):

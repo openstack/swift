@@ -243,7 +243,8 @@ class ContainerSharder(ContainerReplicator):
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
         db_path = os.path.join(self.root, node['device'], db_dir, hsh + '.db')
-        broker = ContainerBroker(db_path, account=account, container=container)
+        broker = ContainerBroker(db_path, account=account, container=container,
+                                 logger=self.logger)
         if not os.path.exists(broker.db_file):
             try:
                 broker.initialize(storage_policy_index=policy_index)
@@ -272,9 +273,9 @@ class ContainerSharder(ContainerReplicator):
             try:
                 if isinstance(item, PivotRange):
                     item = (
-                        item.name, item.timestamp, item.lower, item.upper,
-                        item.object_count, item.bytes_used,
-                        item.meta_timestamp)
+                        item.name, item.timestamp.internal, item.lower,
+                        item.upper, item.object_count, item.bytes_used,
+                        item.meta_timestamp.internal)
                 if delete:
                     # Generate a new delete timestamp based off the existing
                     # created_at, this way we don't clobber other objects that

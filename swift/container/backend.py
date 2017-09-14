@@ -1442,18 +1442,11 @@ class ContainerBroker(DatabaseBroker):
             return {'bytes_used': 0, 'object_count': 0}
 
     def pivot_nodes_to_items(self, nodes):
+        # TODO: split this to separate helper method for each given type?
         result = list()
         for item in nodes:
             if isinstance(item, PivotRange):
-                obj = {
-                    'name': item.name,
-                    'created_at': item.timestamp,
-                    'lower': item.lower,
-                    'upper': item.upper,
-                    'object_count': item.object_count,
-                    'bytes_used': item.bytes_used,
-                    'meta_timestamp': item.meta_timestamp,
-                    'deleted': 0}
+                obj = dict(item, deleted=0)
             else:
                 obj = {
                     'name': item[0],

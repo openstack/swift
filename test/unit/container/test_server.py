@@ -21,7 +21,7 @@ import itertools
 from contextlib import contextmanager
 from shutil import rmtree
 from tempfile import mkdtemp
-from test.unit import FakeLogger
+from test.unit import FakeLogger, make_timestamp_iter
 from time import gmtime
 from xml.dom import minidom
 import time
@@ -40,7 +40,8 @@ import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
-                                storage_directory, lock_parent_directory)
+                                storage_directory, lock_parent_directory,
+                                PivotRange)
 from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -71,7 +72,9 @@ class TestContainerController(unittest.TestCase):
         mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         self.controller = container_server.ContainerController(
-            {'devices': self.testdir, 'mount_check': 'false'})
+            {'devices': self.testdir, 'mount_check': 'false'},
+            logger=FakeLogger()
+        )
         # some of the policy tests want at least two policies
         self.assertTrue(len(POLICIES) > 1)
 
@@ -84,6 +87,23 @@ class TestContainerController(unittest.TestCase):
         behavior.
         """
         pass
+
+    def _put_pivot_range(self, pivot_range):
+        headers = {
+            'x-timestamp': pivot_range.timestamp.normal,
+            'x-backend-record-type': 1,
+            'x-backend-pivot-objects': pivot_range.object_count,
+            'x-backend-pivot-bytes': pivot_range.bytes_used,
+            'x-backend-pivot-lower': pivot_range.lower,
+            'x-backend-pivot-upper': pivot_range.upper,
+            'x-backend-timestamp': pivot_range.timestamp.normal,
+            'x-meta-timestamp': pivot_range.meta_timestamp.normal,
+            'x-size': 0}
+        req = Request.blank('/sda1/p/a/c/%s' % pivot_range.name, method='PUT',
+                            headers=headers)
+        self._update_object_put_headers(req)
+        resp = req.get_response(self.controller)
+        self.assertEqual(201, resp.status_int)
 
     def _check_put_container_storage_policy(self, req, policy_index):
         resp = req.get_response(self.controller)
@@ -2029,6 +2049,117 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)
+
+    def test_PUT_GET_pivot_ranges(self):
+        # make a container
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        objects = [{'name': 'obj_%d' % i,
+                    'x-timestamp': next(ts_iter).normal,
+                    'x-content-type': 'text/plain',
+                    'x-etag': 'etag_%d' % i,
+                    'x-size': 1024 * i
+                    } for i in range(2)]
+        for obj in objects:
+            req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
+                                headers=obj)
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(201, resp.status_int)
+        pivot_ranges = [PivotRange('pivot_%d' % i, next(ts_iter),
+                                   'obj%d_lower' % i, 'obj%d_upper' % i,
+                                   i * 100, i * 1000, None)
+                        for i in range(3)]
+        for pivot_range in pivot_ranges:
+            self._put_pivot_range(pivot_range)
+
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        pivot_rows = broker.get_pivot_ranges()
+        self.assertEqual(
+            [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
+              p.bytes_used, p.meta_timestamp) for p in pivot_ranges],
+            pivot_rows)
+
+        # sanity check - no pivot ranges when GET is only for objects
+        def check_object_GET(path):
+            req = Request.blank(path, method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [
+                dict(hash=obj['x-etag'], bytes=obj['x-size'],
+                     content_type=obj['x-content-type'],
+                     last_modified=Timestamp(obj['x-timestamp']).isoformat,
+                     name=obj['name']) for obj in objects]
+            self.assertEqual(expected, json.loads(resp.body))
+
+        check_object_GET('/sda1/p/a/c?format=json')
+        check_object_GET('/sda1/p/a/c?items=blah&format=json')
+
+        # GET only pivot ranges
+        req = Request.blank('/sda1/p/a/c?items=pivot&format=json',
+                            method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
+                    for p in pivot_ranges]
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # delete a pivot range
+        pivot_range = pivot_ranges[0]
+        headers = {
+            'x-timestamp': next(ts_iter).internal,
+            'x-backend-record-type': 1,
+            'x-backend-pivot-lower': pivot_range.lower,
+            'x-backend-pivot-upper': pivot_range.upper,
+            # TODO (acoles): should this be pivot.timestamp.internal?
+            'x-backend-timestamp': next(ts_iter).internal,
+            'x-meta-timestamp': pivot_range.meta_timestamp.normal}
+        req = Request.blank('/sda1/p/a/c/%s' % pivot_range.name,
+                            method='DELETE', headers=headers)
+        resp = req.get_response(self.controller)
+        self.assertEqual(204, resp.status_int)
+
+        pivot_rows = broker.get_pivot_ranges()
+        self.assertEqual(
+            [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
+              p.bytes_used, p.meta_timestamp) for p in pivot_ranges[1:]],
+            pivot_rows)
+
+        # GET only pivot ranges
+        req = Request.blank('/sda1/p/a/c?items=pivot&format=json',
+                            method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
+                    for p in pivot_ranges[1:]]
+        self.assertEqual(expected, json.loads(resp.body))
+
+        # GET pivot range for obj1_test
+        req = Request.blank('/sda1/p/a/c/obj1_test?items=pivot&format=json',
+                            method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
+                    for p in pivot_ranges[1:2]]
+        self.assertEqual(expected, json.loads(resp.body))
+        # GET pivot range for obj2_test
+        req = Request.blank('/sda1/p/a/c/obj2_test?items=pivot&format=json',
+                            method='GET')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
+                    for p in pivot_ranges[2:]]
+        self.assertEqual(expected, json.loads(resp.body))
+        # TODO: add case for obj name not in a pivot range
+        self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
+        self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
     def test_GET_json(self):
         # make a container
