@@ -104,7 +104,7 @@ PR_BYTES_USED = 5
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
-    def __init__(self, conf, logger=None, **kargs):
+    def __init__(self, conf, logger=None):
         logger = logger or get_logger(conf, log_route='container-sharder')
         super(ContainerReplicator, self).__init__(conf, logger=logger)
         self.rcache = os.path.join(self.recon_cache_path,
@@ -195,6 +195,8 @@ class ContainerSharder(ContainerReplicator):
         return results
 
     def _get_pivot_ranges(self, account, container, newest=False):
+        # TODO: this surely doesn't work -- self.swift is an internal client,
+        # and the proxy's container controller doesn't clients get pivots
         path = self.swift.make_path(account, container) + \
             '?items=pivot&format=json'
         headers = dict()
@@ -260,7 +262,7 @@ class ContainerSharder(ContainerReplicator):
         Create a list of dictionary items ready to be consumed by
         Broker.merge_items()
 
-        :param items: list of objects
+        :param items: list of objects or pivots
         :param policy_index: the Policy index of the container
         :param delete: mark the objects as deleted; default False
 
@@ -283,9 +285,7 @@ class ContainerSharder(ContainerReplicator):
                     # will replace the deleted record, which will be picked up
                     # as a misplaced object and then be pushed and compared to
                     # where it needs to be.
-                    ts = Timestamp(item[1])
-                    ts.offset += 1
-                    timestamp = ts.internal
+                    timestamp = Timestamp(item[1], offset=1).internal
                 obj = {
                     'created_at': timestamp or item[1]}
                 if not isinstance(item[2], int):
@@ -319,6 +319,10 @@ class ContainerSharder(ContainerReplicator):
         return objs
 
     def _get_node_index(self):
+        # TODO: stop having node_id hang off self
+        if not hasattr(self, 'node_id'):
+            return None
+
         nodes = self.ring.get_part_nodes(self.part)
         indices = [node['index'] for node in nodes
                    if node['id'] == self.node_id]
@@ -328,7 +332,7 @@ class ContainerSharder(ContainerReplicator):
                             pivot, force=False):
         if not broker.metadata.get('X-Container-Sysmeta-Shard-Account') \
                 and pivot or force:
-            timestamp = Timestamp(time.time()).internal
+            timestamp = Timestamp.now().internal
             broker.update_metadata({
                 'X-Container-Sysmeta-Shard-Account': (root_account, timestamp),
                 'X-Container-Sysmeta-Shard-Container':
@@ -350,16 +354,17 @@ class ContainerSharder(ContainerReplicator):
                        been moved.
         :param root_account: The root account
         :param root_container: The root container
-        :param pivot: The pivot point of the container
+        :param pivot: The PivotRange appropriate for this broker, or None if
+                      the current broker is for an unsharded or root container
         """
 
         self.logger.info('Scanning %s/%s for misplaced objects',
                          broker.account, broker.container)
         queries = []
-        misplaced_items = [False]
         policy_index = broker.storage_policy_index
         query = dict(marker='', end_marker='', prefix='', delimiter='',
                      storage_policy_index=policy_index)
+        # TODO: what about records for objects in the wrong storage policy?
         state = broker.get_db_state()
 
         if state == DB_STATE_SHARDED or broker.is_deleted():
@@ -380,7 +385,7 @@ class ContainerSharder(ContainerReplicator):
                 # in object table are suppose to be there (in holding).
                 return
             tmp_q = query.copy()
-            tmp_q['end_marker'] = last_pivot
+            tmp_q['end_marker'] = last_pivot + '\x00'
             queries.append(tmp_q)
 
         elif pivot is None or state == DB_STATE_NOTFOUND:
@@ -396,15 +401,13 @@ class ContainerSharder(ContainerReplicator):
                 queries.append(tmp_q)
             if pivot.lower:
                 tmp_q = query.copy()
-                tmp_q['end_marker'] = pivot.lower
+                tmp_q['end_marker'] = pivot.lower + '\x00'
                 queries.append(tmp_q)
 
-        def run_query(qry):
+        def run_query(qry, found_misplaced_items):
             objs = broker.list_objects_iter(CONTAINER_LISTING_LIMIT, **qry)
             if not objs:
-                return
-
-            misplaced_items[0] = True
+                return found_misplaced_items
 
             # We have a list of misplaced objects, so we better find a home
             # for them
@@ -412,18 +415,15 @@ class ContainerSharder(ContainerReplicator):
                 self.ranges = self._get_pivot_ranges(
                     root_account, root_container, newest=True)
 
-            pivot_to_obj = {}
+            pivot_to_obj = defaultdict(list)
             for obj in objs:
-                p = find_pivot_range(obj, self.ranges)
-
-                if p in pivot_to_obj:
-                    pivot_to_obj[p].append(obj)
-                else:
-                    pivot_to_obj[p] = [obj]
+                pivot = find_pivot_range(obj, self.ranges)
+                pivot_to_obj[pivot].append(obj)
                 qry['marker'] = obj[0]
 
-            self.logger.info('preparing to move misplaced objects found '
-                             'in %s/%s', broker.account, broker.container)
+            self.logger.info('preparing to move %d misplaced objects found '
+                             'in %s/%s', len(objs), broker.account,
+                             broker.container)
             for piv, obj_list in pivot_to_obj.items():
                 acct = account_to_pivot_account(root_account)
                 part, new_broker, node_id = \
@@ -442,24 +442,25 @@ class ContainerSharder(ContainerReplicator):
                 items = self._generate_object_list(obj_list, policy_index,
                                                    delete=True)
                 broker.merge_items(items)
+            # wait for one of these to error, or all to complete successfully
             any(self.cpool)
 
-            if len(objs) == CONTAINER_LISTING_LIMIT:
-                # There could be more, so recurse my pretty
-                run_query(qry)
+            # There could be more, so recurse my pretty
+            return run_query(qry, True)
 
+        misplaced_items = False
         for query in queries:
-            run_query(query)
+            misplaced_items = run_query(query, misplaced_items)
 
-        if misplaced_items[0]:
+        if misplaced_items:
             self.logger.increment('misplaced_items_found')
             self.stats['containers_misplaced'] += 1
 
-        # wipe out the cache do disable bypass in delete_db
+        # wipe out the cache to disable bypass in delete_db
         cleanups = self.shard_cleanups or {}
         self.shard_cleanups = self.shard_brokers = None
         self.logger.info('Cleaning up %d replicated shard containers',
-                         len(cleanups) if cleanups else 0)
+                         len(cleanups))
         for container in cleanups.values():
             self.cpool.spawn(self.delete_db, container)
         any(self.cpool)
@@ -481,11 +482,11 @@ class ContainerSharder(ContainerReplicator):
         if not upper:
             upper = None
 
-        pivot = PivotRange(broker.container, timestamp, lower, upper, 0,
-                           0, Timestamp(time.time()))
         tmp_info = broker.get_info()
-        pivot.object_count = tmp_info.get('object_count', 0)
-        pivot.bytes_used = tmp_info.get('bytes_used', 0)
+        pivot = PivotRange(broker.container, timestamp, lower, upper,
+                           tmp_info.get('object_count', 0),
+                           tmp_info.get('bytes_used', 0),
+                           Timestamp(time.time()))
 
         return pivot
 
@@ -504,7 +505,6 @@ class ContainerSharder(ContainerReplicator):
         :return: account, container of the root shard container or the brokers
                  if it can't be determined.
         """
-        broker.get_info()
         account = broker.metadata.get('X-Container-Sysmeta-Shard-Account')
         if account:
             account = account[0]
@@ -537,8 +537,6 @@ class ContainerSharder(ContainerReplicator):
                                root_container=None):
         # TODO We will need to audit the root (make sure there are no missing
         #      gaps in the ranges.
-        # TODO Search for overlaps if you find some, keep the newest and
-        #      attempt to correct (remove the older one).
         # TODO If the shard container has a sharding lock then see if it's
         #       needed. Maybe something as simple as sharding lock older then
         #       reclaim age.
@@ -568,12 +566,9 @@ class ContainerSharder(ContainerReplicator):
                 older = set(overlap).difference(set([newest]))
 
                 # now delete the older overlaps, keeping only the newest
-                timestamp = Timestamp(newest.timestamp)
-                timestamp.offset += 1
-
-                def update_timestamp(pivot):
+                timestamp = Timestamp(newest.timestamp, offset=1)
+                for pivot in older:
                     pivot.timestamp = timestamp
-                map(update_timestamp, older)
                 self._update_pivot_ranges(root_account, root_container,
                                           'DELETE', older)
                 continue_with_container = False
@@ -606,8 +601,9 @@ class ContainerSharder(ContainerReplicator):
             return continue_with_container
 
         # pivot isn't in ranges, if it overlaps with an item, were in trouble.
-        # If there is overlap lets see if it's newer then this containers,
+        # If there is overlap let's see if it's newer than this containers,
         # if so, it's safe to delete (quarantine this container).
+        # TODO(tburke): is ^^^ right? or better to consider it all misplaced?
         # if it's newer, then it might not be updated yet, so just let it
         # continue (or maybe we shouldn't?).
         overlaps = [r for r in self.ranges if r.overlaps(pivot)]
@@ -646,6 +642,8 @@ class ContainerSharder(ContainerReplicator):
 
     @staticmethod
     def get_metadata_item(broker, header):
+        # TODO: Since every broker.metadata is a query, this may not be
+        # the best helper...
         item = broker.metadata.get(header)
         return None if item is None else item[0]
 
@@ -663,8 +661,8 @@ class ContainerSharder(ContainerReplicator):
         """
         The main function, everything the sharder does forks from this method.
 
-        The sharder loops through each sharded container on server, on each
-        container it:
+        The sharder loops through each container with sharding enabled and each
+        sharded container on the server, on each container it:
             - audits the container
             - checks and deals with misplaced items
             - 2 phase sharding (if no. objects > shard_container_size)
@@ -725,7 +723,7 @@ class ContainerSharder(ContainerReplicator):
             if broker.is_deleted():
                 # This container is deleted so we can skip it. We still want
                 # deleted containers to go via misplaced items, cause they may
-                # have new objects in sitting in them that may need to move.
+                # have new objects sitting in them that may need to move.
                 continue
 
             self.state = broker.get_db_state()
@@ -746,7 +744,7 @@ class ContainerSharder(ContainerReplicator):
                 # container requires sharding.. that is big enough and
                 # sharding hasn't started yet. Then we need to identify a
                 # primary node to scan for shards. The others will wait for
-                # shards to appear in there pivot_ranges table
+                # shards to appear in their pivot_ranges table
                 # (via replication). They will start the sharding process
 
                 if self.state == DB_STATE_UNSHARDED:
@@ -756,7 +754,7 @@ class ContainerSharder(ContainerReplicator):
                     if not skip_shrinking and obj_count <= \
                             (self.shard_container_size *
                              self.shard_shrink_point):
-                        # Shrink
+                        # TODO: Shrink
                         # self._shrink(broker, root_account, root_container)
                         continue
                     elif obj_count <= self.shard_container_size:
@@ -805,6 +803,7 @@ class ContainerSharder(ContainerReplicator):
                 self.cpool.spawn(self.delete_db, container)
 
         # Now we wait for all threads to finish.
+        # TODO: wait, we used any() above... which is right?
         all(self.cpool)
         self.logger.info('Finished container sharding pass')
 
@@ -979,9 +978,9 @@ class ContainerSharder(ContainerReplicator):
         path = "/%s/%s" % (account, container)
         part, nodes = self.ring.get_nodes(account, container)
         if local:
-            nodes = [d for d in nodes
-                     if d['ip'] not in self.ips or
-                     d['port'] != self.port]
+            nodes = [
+                d for d in nodes if not is_local_device(
+                    self.ips, self.port, d['ip'], d['port'])]
 
         for node in nodes:
             self.cpool.spawn(
@@ -1662,6 +1661,7 @@ class ContainerSharder(ContainerReplicator):
         elapsed = time.time() - begin
         self.logger.info(
             'Container sharder "once" mode completed: %.02fs', elapsed)
+        # TODO: why's the stat order different compared to above?
         self._report_stats()
         dump_recon_cache({'container_sharder_cycle_completed': elapsed},
                          self.rcache, self.logger)

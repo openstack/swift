@@ -346,7 +346,8 @@ class Replicator(Daemon):
             # order with no gaps
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
-            self._sync_other_items(broker, local_id, http)
+
+        self._sync_other_items(broker, local_id, http)
         if objects:
             self.logger.debug(
                 'Synchronization for %s has fallen more than '

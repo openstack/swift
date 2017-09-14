@@ -232,22 +232,22 @@ class BaseObjectController(Controller):
     def _get_container_meta(self, req, container_info):
         db_state = container_info.get('sharding_state', DB_STATE_UNSHARDED)
         if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
-            # find the sharded container to send the update too.
+            # find the sharded container to which we'll send the update.
             ranges = self._get_pivot_ranges(
                 req, self.account_name, self.container_name, self.object_name)
 
             if ranges:
-                piv_acct = account_to_pivot_account(self.account_name)
-                partition, containers = self.app.container_ring.get_nodes(
-                    piv_acct, ranges[0].name)
-                overide_prefix = 'X-Backend-Container-Update-Override'
                 shard = ranges[0].name
+                piv_acct = account_to_pivot_account(self.account_name)
+                partition, nodes = self.app.container_ring.get_nodes(
+                    piv_acct, shard)
+                overide_prefix = 'X-Backend-Container-Update-Override'
                 container_meta = {
                     '%s-Backend-Pivot-Account' % overide_prefix: piv_acct,
                     '%s-Backend-Pivot-Container' % overide_prefix: shard
                 }
 
-                return partition, containers, container_meta
+                return partition, nodes, container_meta
 
         return container_info['partition'], container_info['nodes'], {}
 
@@ -258,14 +258,14 @@ class BaseObjectController(Controller):
         """HTTP POST request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        container_partition, containers, container_meta = \
+        container_partition, container_nodes, container_meta = \
             self._get_container_meta(req, container_info)
         req.acl = container_info['write_acl']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not containers:
+        if not container_nodes:
             return HTTPNotFound(request=req)
         error_response = check_metadata(req, 'object')
         if error_response:
@@ -288,7 +288,7 @@ class BaseObjectController(Controller):
         req.headers['X-Timestamp'] = Timestamp.now().internal
 
         headers = self._backend_requests(
-            req, len(nodes), container_partition, containers,
+            req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes,
             container_meta)
         return self._post_object(req, obj_ring, partition, headers)
@@ -787,7 +787,7 @@ class BaseObjectController(Controller):
         next_part_power = getattr(obj_ring, 'next_part_power', None)
         if next_part_power:
             req.headers['X-Backend-Next-Part-Power'] = next_part_power
-        container_partition, containers, container_meta = \
+        container_partition, container_nodes, container_meta = \
             self._get_container_meta(req, container_info)
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
@@ -795,7 +795,7 @@ class BaseObjectController(Controller):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if not containers:
+        if not container_nodes:
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -825,7 +825,7 @@ class BaseObjectController(Controller):
             node_count += local_handoffs
 
         headers = self._backend_requests(
-            req, node_count, container_partition, containers,
+            req, node_count, container_partition, container_nodes,
             container_meta=container_meta)
         return self._delete_object(req, obj_ring, partition, headers)
 

@@ -21,7 +21,7 @@ from eventlet import Timeout
 
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    DB_STATE_SHARDED, DB_STATE_SHARDING
+    DB_STATE_UNSHARDED, DB_STATE_SHARDING
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, incorrect_policy_index,
     get_reconciler_container_name, get_row_to_q_entry_translator)
@@ -279,19 +279,9 @@ class ContainerReplicator(db_replicator.Replicator):
         return broker.has_sharding_lock()
 
     def _can_push(self, info, rinfo):
-        def is_sharded(inf):
-            return inf.get('db_state') and \
-                inf.get('db_state') == DB_STATE_SHARDED
-
-        def is_sharding(inf):
-            return inf.get('db_state') and \
-                inf.get('db_state') == DB_STATE_SHARDING
-
-        if is_sharded(rinfo) and not is_sharded(info):
-            return False
-        if is_sharding(info) or is_sharding(rinfo):
-            return False
-        return True
+        state = info.get('db_state', DB_STATE_UNSHARDED)
+        rstate = rinfo.get('db_state', DB_STATE_UNSHARDED)
+        return state == rstate and state != DB_STATE_SHARDING
 
 
 class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):

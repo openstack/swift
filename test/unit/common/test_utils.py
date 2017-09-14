@@ -3770,6 +3770,8 @@ cluster_dfw1 = http://dfw1.host/v1/
 
         for x in range(100):
             self.assertTrue(x in inf_pr)
+            self.assertTrue(str(x) in inf_pr)
+            self.assertTrue(chr(x) in inf_pr)
 
         for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
             self.assertTrue(x in inf_pr)

@@ -376,6 +376,9 @@ def get_container_info(env, app, swift_source=None):
         else:
             info[field] = int(info[field])
 
+    if info.get('sharding_state') is None:
+        info['sharding_state'] = DB_STATE_UNSHARDED
+
     return info
 
 
@@ -1970,18 +1973,20 @@ class Controller(object):
             return ranges
 
         try:
-            for pivot in json.loads(piv_resp.body):
-                lower = pivot.get('lower') or None
-                upper = pivot.get('upper') or None
-                created_at = pivot.get('created_at') or None
-                object_count = pivot.get('object_count') or 0
-                bytes_used = pivot.get('bytes_used') or 0
-                meta_timestamp = pivot.get('meta_timestamp') or None
-                ranges.append(PivotRange(pivot['name'], created_at, lower,
-                                         upper, object_count, bytes_used,
-                                         meta_timestamp))
+            pivots = json.loads(piv_resp.body)
         except ValueError:
             # Failed to decode the json response
             pass
+
+        for pivot in pivots:
+            lower = pivot.get('lower') or None
+            upper = pivot.get('upper') or None
+            created_at = pivot.get('created_at') or None
+            object_count = pivot.get('object_count') or 0
+            bytes_used = pivot.get('bytes_used') or 0
+            meta_timestamp = pivot.get('meta_timestamp') or None
+            ranges.append(PivotRange(pivot['name'], created_at, lower,
+                                     upper, object_count, bytes_used,
+                                     meta_timestamp))
 
         return ranges

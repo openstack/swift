@@ -299,7 +299,11 @@ def merge_pivots(item, existing):
 
 
 class ContainerBroker(DatabaseBroker):
-    """Encapsulates working with a container database."""
+    """
+    Encapsulates working with a container database.
+
+    Note that this may involve multiple on-disk DB files, if sharding.
+    """
     db_type = 'container'
     db_contains_type = 'object'
     db_reclaim_timestamp = 'created_at'
@@ -313,7 +317,6 @@ class ContainerBroker(DatabaseBroker):
         # The auditor will create a backend using the pivot_db as the db_file.
         if db_file == ':memory:' or db_file.endswith("_pivot.db"):
             self._pivot_db_file = db_file
-            # self._db_file = ''
         else:
             self._pivot_db_file = db_file[:-len('.db')] + "_pivot.db"
 
@@ -330,7 +333,7 @@ class ContainerBroker(DatabaseBroker):
         elif not db_exists and pivot_exists:
             return DB_STATE_SHARDED
         else:
-            # Both Pivot db and db doesn't doesn't exist.
+            # Neither db nor pivot db exists
             return DB_STATE_NOTFOUND
 
     @property
@@ -342,7 +345,7 @@ class ContainerBroker(DatabaseBroker):
             return self._pivot_db_file
 
     def _db_exists(self):
-        return not self.get_db_state() == DB_STATE_NOTFOUND
+        return self.get_db_state() != DB_STATE_NOTFOUND
 
     @property
     def storage_policy_index(self):
@@ -455,22 +458,19 @@ class ContainerBroker(DatabaseBroker):
 
         :param conn: DB connection object
         """
-        try:
-            conn.executescript("""
-                CREATE TABLE pivot_ranges (
-                    ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT,
-                    lower TEXT,
-                    upper TEXT,
-                    object_count INTEGER DEFAULT 0,
-                    bytes_used INTEGER DEFAULT 0,
-                    created_at TEXT,
-                    meta_timestamp TEXT,
-                    deleted INTEGER DEFAULT 0
-                );
-            """)
-        except Exception:
-            pass
+        conn.executescript("""
+            CREATE TABLE pivot_ranges (
+                ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                lower TEXT,
+                upper TEXT,
+                object_count INTEGER DEFAULT 0,
+                bytes_used INTEGER DEFAULT 0,
+                created_at TEXT,
+                meta_timestamp TEXT,
+                deleted INTEGER DEFAULT 0
+            );
+        """)
 
     def get_db_version(self, conn):
         if self._db_version == -1:
@@ -575,6 +575,7 @@ class ContainerBroker(DatabaseBroker):
 
     def make_tuple_for_pickle(self, record):
         if record['record_type'] == RECORD_TYPE_PIVOT_NODE:
+            # NB: there's some padding since record_type *MUST* be at index 9
             return (record['name'], record['created_at'], record['lower'],
                     record['upper'], record['object_count'],
                     record['bytes_used'], record['meta_timestamp'],
@@ -614,7 +615,7 @@ class ContainerBroker(DatabaseBroker):
         self.put_record(record)
 
     def delete_pivot(self, name, timestamp, meta_timestamp=None,
-                     lower=None, upper=None, object_count=0, bytes_used=0):
+                     lower=None, upper=None):
         """
         Mark an pivot range deleted.
 
@@ -623,12 +624,9 @@ class ContainerBroker(DatabaseBroker):
         :param meta_timestamp: timestamp of when metadata was last updated
         :param lower: pivots lower range
         :param upper: pivots upper range
-        :param object_count: number of object stored in range
-        :param bytes_used: number of bytes used in the range
         """
         self.put_pivot(name, timestamp, meta_timestamp, deleted=1, lower=lower,
-                       upper=upper, object_count=object_count,
-                       bytes_used=bytes_used)
+                       upper=upper, object_count=0, bytes_used=0)
 
     def put_pivot(self, name, timestamp, meta_timestamp=None, deleted=0,
                   lower=None, upper=None, object_count=0, bytes_used=0):
@@ -1059,7 +1057,7 @@ class ContainerBroker(DatabaseBroker):
 
     def merge_items(self, item_list, source=None):
         """
-        Merge items into the object table.
+        Merge items into the object or pivot_ranges tables.
 
         :param item_list: list of dictionaries of {'name', 'created_at',
                           'size', 'content_type', 'etag', 'deleted',
@@ -1070,7 +1068,7 @@ class ContainerBroker(DatabaseBroker):
         for item in item_list:
             item.setdefault('record_type', RECORD_TYPE_OBJECT)
             cols = ['name']
-            if item.get('lower'):
+            if item['record_type'] == RECORD_TYPE_PIVOT_NODE:
                 cols += ['lower', 'upper']
             for col in cols:
                 if isinstance(item[col], six.text_type):
@@ -1092,7 +1090,6 @@ class ContainerBroker(DatabaseBroker):
                     for record in curs.execute(sql, chunk))
 
         def get_records_pivot(curs, chunk, query_mod):
-            # None/NULL must be checked with the IS operator
             sql = (('SELECT name, created_at, lower, upper, object_count, '
                     'bytes_used, meta_timestamp, deleted '
                     'FROM pivot_ranges '
@@ -1164,7 +1161,7 @@ class ContainerBroker(DatabaseBroker):
                     self.update_pivot_usage(item)
 
             if to_delete:
-                filters = ' AND '.join(['%s IS ?' % key for key in del_keys])
+                filters = ' AND '.join(['%s = ?' % key for key in del_keys])
                 sql = 'DELETE FROM %s WHERE %s%s' % (table, query_mod, filters)
                 del_generator = (tuple([record[key] for key in del_keys])
                                  for record in to_delete.values())
@@ -1482,21 +1479,18 @@ class ContainerBroker(DatabaseBroker):
                 args.append(last_upper)
             sql += "ORDER BY name LIMIT 1 OFFSET %d" % offset
             data = conn.execute(sql, args)
-            if data:
-                data = data.fetchone()
-                if not data:
-                    return None
-                return data['name']
-            else:
-                return ''
+            data = data.fetchone()
+            if not data:
+                return None
+            return data['name']
         except Exception:
             return ''
 
     def get_next_pivot_point(self, shard_container_size, last_upper=None,
                              connection=None):
         """
-        Finds the middle entry of the table that could be used as a pivot
-        point when sharding. It finds the middle object and returns it.
+        Finds the next entry in the objects table to use as a pivot point
+        when sharding.
 
         If there is an error or no objects in the container it will return an
         emply string ('').
@@ -1551,6 +1545,7 @@ class ContainerBroker(DatabaseBroker):
             fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
             yield fd
         finally:
+            os.close(fd)
             os.unlink(lockpath)
 
     def has_sharding_lock(self):

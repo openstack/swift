@@ -271,7 +271,7 @@ class ContainerController(BaseStorageServer):
             ranges = broker.build_pivot_ranges()
             containing_range = find_pivot_range(obj, ranges)
             if containing_range is None:
-                return
+                return  # TODO: what??
             if broker.is_root_container():
                 acct = account_to_pivot_account(broker.account)
             else:
@@ -286,6 +286,8 @@ class ContainerController(BaseStorageServer):
             return HTTPMovedPermanently(headers=headers)
 
         except Exception:
+            # TODO: think more about what kinds of errors we may encounter here
+            self.logger.exception('Error finding shard location')
             return HTTPInternalServerError()
 
     @public
@@ -321,6 +323,9 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-pivot-upper'))
             elif len(broker.get_pivot_ranges()) > 0:
                 # cannot put to a root shard container, find actual container
+                # TODO: what if this returns None? i.e., we have pivot ranges,
+                # but they don't cover the whole namespace so we can't find a
+                # pivot for this object
                 return self._find_shard_location(req, broker, obj)
             else:
                 broker.delete_object(obj, req.headers.get('x-timestamp'),
@@ -439,8 +444,8 @@ class ContainerController(BaseStorageServer):
             else:
                 broker.put_object(obj, req_timestamp.internal,
                                   int(req.headers['x-size']),
-                                  req.headers.get('x-content-type'),
-                                  req.headers.get('x-etag'), 0,
+                                  req.headers['x-content-type'],
+                                  req.headers['x-etag'], 0,
                                   obj_policy_index,
                                   req.headers.get('x-content-type-timestamp'),
                                   req.headers.get('x-meta-timestamp'))

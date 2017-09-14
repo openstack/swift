@@ -27,7 +27,8 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache, config_true_value, ismount, ratelimit_sleep, urlparse
+    dump_recon_cache, config_true_value, ismount, ratelimit_sleep, urlparse, \
+    split_path
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -261,25 +262,22 @@ class ObjectUpdater(Daemon):
                     redirects.add(redirect)
                 else:
                     success = False
-            if redirects:
-                if len(redirects) > 1:
-                    redirect = map(max(lambda x: x[-1], redirects))
-                else:
-                    redirect = redirects.pop()
-                update['headers']['X-Backend-Pivot-Account'] = redirect[0]
-                update['headers']['X-Backend-Pivot-Container'] = redirect[1]
-                if num_redirects == i + 1:
-                    success = False
-                else:
-                    self.logger.increment("redirects")
-                    self.logger.debug('Update sent for %(obj)s %(path)s '
-                                      'triggered a redirect to '
-                                      '%(redir_acct)s/%(redir_cont)s',
-                                      {'obj': obj, 'path': update_path,
-                                       'redir_acct': redirect[0],
-                                       'redir_cont': redirect[1]})
-            else:
+            if not redirects:
                 break
+
+            redirect = max(redirects, key=lambda x: x[-1])
+            update['headers']['X-Backend-Pivot-Account'] = redirect[0]
+            update['headers']['X-Backend-Pivot-Container'] = redirect[1]
+            if num_redirects == i + 1:
+                success = False
+            else:
+                self.logger.increment("redirects")
+                self.logger.debug('Update sent for %(obj)s %(path)s '
+                                  'triggered a redirect to '
+                                  '%(redir_acct)s/%(redir_cont)s',
+                                  {'obj': obj, 'path': update_path,
+                                   'redir_acct': redirect[0],
+                                   'redir_cont': redirect[1]})
 
         if success:
             self.successes += 1
@@ -308,33 +306,38 @@ class ObjectUpdater(Daemon):
         :param obj: object name being updated
         :param headers_out: headers to send with the update
         """
+        redirect = None
         try:
-            redirect = []
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(node['ip'], node['port'], node['device'],
                                     part, op, obj, headers_out)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
                 resp.read()
-                success = is_success(resp.status)
+            success = is_success(resp.status)
 
             if resp.status == HTTP_MOVED_PERMANENTLY:
                 rheaders = HeaderKeyDict(resp.getheaders())
                 location = rheaders.get('Location')
                 if not location:
                     # treat as a normal failure.
+                    resp_dict = {
+                        'status': resp.status, 'ip': node['ip'],
+                        'port': node['port'], 'device': node['device']}
+                    self.logger.debug(
+                        _('Error code %(status)d is returned from remote '
+                          'server %(ip)s: %(port)s / %(device)s'), resp_dict)
                     return success, node['id'], redirect
 
                 location = urlparse(location).path
-                if location.startswith('/'):
-                    location = location[1:]
-                piv_acc, piv_cont, obj_ = location.split('/', 2)
-                if not piv_acc or not piv_cont:
+                try:
+                    piv_acc, piv_cont, _junk = split_path(location, 2, 3, True)
+                except ValueError:
                     # there has been an error so log it and return
-                    self.logger.error(_('ERROR Container update failed: %s '
-                                        'possibly sharded but couldn\'t '
-                                        'find determine shard container '
-                                        'location.') % obj)
+                    self.logger.error('Container update failed: %s '
+                                      'possibly sharded but couldn\'t '
+                                      'find determine shard container '
+                                      'location.' % obj)
                     return False, node['id'], redirect
                 redirect = (piv_acc, piv_cont,
                             rheaders.get('X-Redirect-Timestamp'))
@@ -350,4 +353,4 @@ class ObjectUpdater(Daemon):
         except (Exception, Timeout):
             self.logger.exception(_('ERROR with remote server '
                                     '%(ip)s:%(port)s/%(device)s'), node)
-        return HTTP_INTERNAL_SERVER_ERROR, node['id'], None
+        return HTTP_INTERNAL_SERVER_ERROR, node['id'], redirect

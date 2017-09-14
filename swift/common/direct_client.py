@@ -102,6 +102,8 @@ def _get_direct_account_container(path, stype, node, part,
     if reverse:
         qs += '&reverse=%s' % quote(reverse)
     if items:
+        if stype.lower() != 'container':
+            raise ValueError("'items' is not valid for %s server" % stype)
         qs += '&items=%s' % quote(items)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,

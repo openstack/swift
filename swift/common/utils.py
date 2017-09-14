@@ -393,9 +393,9 @@ def config_positive_int_value(value):
 def config_float_value(value, minimum=None, maximum=None):
     try:
         val = float(value)
-        if minimum and val < minimum:
+        if minimum is not None and val < minimum:
             raise ValueError()
-        if maximum and val > maximum:
+        if maximum is not None and val > maximum:
             raise ValueError()
         return val
     except (TypeError, ValueError):
@@ -4203,7 +4203,7 @@ class PivotRange(object):
         self.name = name
         self.lower = lower
         if upper and upper < lower:
-            raise ValueError("upper must be bigger the lower ('%s' > '%s')" %
+            raise ValueError('upper (%r) must be bigger than lower (%r)' %
                              (upper, lower or ''))
         self.upper = upper
         self.timestamp = timestamp
@@ -4287,7 +4287,7 @@ class PivotRange(object):
         if isinstance(other, PivotRange):
             if other.upper is None:
                 return False
-            upper = self.upper or other.upper + 'a'
+            upper = self.upper or other.upper + '\x00'
             return self.lower >= other.upper or upper > other.upper
         elif other is None:
             return False
@@ -4299,12 +4299,13 @@ class PivotRange(object):
             return False
         return self.lower == other.lower and self.upper == other.upper
 
+    def __ne__(self, other):
+        return not (self == other)
+
     def __repr__(self):
-        if isinstance(self.timestamp, Timestamp):
-            ts = self.timestamp.internal
-        else:
-            ts = self.timestamp
-        return '(%s to %s as of %s)' % (self.lower, self.upper, ts)
+        return '%s<%s to %s as of %s>' % (
+            self.__class__.__name__, self.lower, self.upper,
+            self.timestamp.internal)
 
     def entire_namespace(self):
         return self.lower is None and self.upper is None
@@ -4368,7 +4369,7 @@ def pivot_to_pivot_container(account, container, pivot=None):
         Using a specified pivot range or pivot name and generate the required
         sharded account and container name.
 
-        Given something like ``acc, cont, orange`` it will return:
+        Given something like ``acc, cont, orange`` it will return::
 
             .sharded_acc cont_orange
 
