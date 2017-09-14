@@ -9,7 +9,7 @@ maximum partitions, 3 replicas of each object, and 1 hour minimum time between
 moving a partition more than once. For Object Storage, a partition indicates a
 directory on a storage device rather than a conventional partition table.
 For more information, see the
-`Deployment Guide <http://docs.openstack.org/developer/swift/deployment_guide.html>`__.
+`Deployment Guide <https://docs.openstack.org/swift/latest/deployment_guide.html>`__.
 
 .. note::
    Perform these steps on the controller node.

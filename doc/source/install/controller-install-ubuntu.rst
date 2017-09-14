@@ -10,7 +10,7 @@ the proxy service on the controller node. However, you can run the proxy
 service on any node with network connectivity to the storage nodes.
 Additionally, you can install and configure the proxy service on multiple
 nodes to increase performance and redundancy. For more information, see the
-`Deployment Guide <http://docs.openstack.org/developer/swift/deployment_guide.html>`__.
+`Deployment Guide <https://docs.openstack.org/swift/latest/deployment_guide.html>`__.
 
 This section applies to Ubuntu 14.04 (LTS).
 

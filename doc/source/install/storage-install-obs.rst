@@ -14,7 +14,7 @@ Although Object Storage supports any file system with
 extended attributes (xattr), testing and benchmarking
 indicate the best performance and reliability on XFS. For
 more information on horizontally scaling your environment, see the
-`Deployment Guide <http://docs.openstack.org/developer/swift/deployment_guide.html>`_.
+`Deployment Guide <https://docs.openstack.org/swift/latest/deployment_guide.html>`_.
 
 This section applies to openSUSE Leap 42.2 and SUSE Linux Enterprise Server
 12 SP2.
