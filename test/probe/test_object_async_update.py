@@ -237,8 +237,7 @@ class TestUpdateOverridesEC(ECProbeTest):
         self.assertFalse(direct_client.direct_get_container(
             cnodes[0], cpart, self.account, 'c1')[1])
 
-        # use internal client for POST so we can force fast-post mode
-        int_client = self.make_internal_client(object_post_as_copy=False)
+        int_client = self.make_internal_client()
         int_client.set_object_metadata(
             self.account, 'c1', 'o1', {'X-Object-Meta-Fruit': 'Tomato'})
         self.assertEqual(
@@ -296,8 +295,7 @@ class TestUpdateOverridesEC(ECProbeTest):
                           content_type='test/ctype')
         meta = client.head_object(self.url, self.token, 'c1', 'o1')
 
-        # use internal client for POST so we can force fast-post mode
-        int_client = self.make_internal_client(object_post_as_copy=False)
+        int_client = self.make_internal_client()
         int_client.set_object_metadata(
             self.account, 'c1', 'o1', {'X-Object-Meta-Fruit': 'Tomato'})
         self.assertEqual(
