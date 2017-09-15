@@ -407,10 +407,29 @@ class TestConstraints(unittest.TestCase):
     def test_check_drive_invalid_path(self):
         root = '/srv/'
         with mock_check_drive() as mocks:
-            self.assertIsNone(constraints.check_dir(root, 'foo?bar'))
-            self.assertIsNone(constraints.check_mount(root, 'foo bar'))
-            self.assertIsNone(constraints.check_drive(root, 'foo/bar', True))
-            self.assertIsNone(constraints.check_drive(root, 'foo%bar', False))
+            drive = 'foo?bar'
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_dir(root, drive)
+            self.assertEqual(str(exc_mgr.exception),
+                             '%s is not a valid drive name' % drive)
+
+            drive = 'foo bar'
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_mount(root, drive)
+            self.assertEqual(str(exc_mgr.exception),
+                             '%s is not a valid drive name' % drive)
+
+            drive = 'foo/bar'
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_drive(root, drive, True)
+            self.assertEqual(str(exc_mgr.exception),
+                             '%s is not a valid drive name' % drive)
+
+            drive = 'foo%bar'
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_drive(root, drive, False)
+            self.assertEqual(str(exc_mgr.exception),
+                             '%s is not a valid drive name' % drive)
         self.assertEqual([], mocks['isdir'].call_args_list)
         self.assertEqual([], mocks['ismount'].call_args_list)
 
@@ -418,11 +437,20 @@ class TestConstraints(unittest.TestCase):
         root = '/srv'
         path = 'sdb1'
         with mock_check_drive(ismount=True) as mocks:
-            self.assertIsNone(constraints.check_dir(root, path))
-            self.assertIsNone(constraints.check_drive(root, path, False))
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_dir(root, path)
+            self.assertEqual(str(exc_mgr.exception),
+                             '/srv/sdb1 is not a directory')
+
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_drive(root, path, False)
+            self.assertEqual(str(exc_mgr.exception),
+                             '/srv/sdb1 is not a directory')
+
             self.assertEqual([mock.call('/srv/sdb1'), mock.call('/srv/sdb1')],
                              mocks['isdir'].call_args_list)
             self.assertEqual([], mocks['ismount'].call_args_list)
+
         with mock_check_drive(ismount=True) as mocks:
             self.assertEqual('/srv/sdb1', constraints.check_mount(root, path))
             self.assertEqual('/srv/sdb1', constraints.check_drive(
@@ -441,9 +469,18 @@ class TestConstraints(unittest.TestCase):
             self.assertEqual([mock.call('/srv/sdb2'), mock.call('/srv/sdb2')],
                              mocks['isdir'].call_args_list)
             self.assertEqual([], mocks['ismount'].call_args_list)
+
         with mock_check_drive(isdir=True) as mocks:
-            self.assertIsNone(constraints.check_mount(root, path))
-            self.assertIsNone(constraints.check_drive(root, path, True))
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_mount(root, path)
+            self.assertEqual(str(exc_mgr.exception),
+                             '/srv/sdb2 is not mounted')
+
+            with self.assertRaises(ValueError) as exc_mgr:
+                constraints.check_drive(root, path, True)
+            self.assertEqual(str(exc_mgr.exception),
+                             '/srv/sdb2 is not mounted')
+
             self.assertEqual([], mocks['isdir'].call_args_list)
             self.assertEqual([mock.call('/srv/sdb2'), mock.call('/srv/sdb2')],
                              mocks['ismount'].call_args_list)

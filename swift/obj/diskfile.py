@@ -484,11 +484,11 @@ def object_audit_location_generator(devices, datadir, mount_check=True,
 
     base, policy = split_policy_string(datadir)
     for device in device_dirs:
-        if not check_drive(devices, device, mount_check):
+        try:
+            check_drive(devices, device, mount_check)
+        except ValueError as err:
             if logger:
-                logger.debug(
-                    'Skipping %s as it is not %s', device,
-                    'mounted' if mount_check else 'a dir')
+                logger.debug('Skipping: %s', err)
             continue
 
         datadir_path = os.path.join(devices, device, datadir)
@@ -1248,11 +1248,11 @@ class BaseDiskFileManager(object):
             # explicitly forbidden from syscall, just return path
             return join(self.devices, device)
         # we'll do some kind of check if not explicitly forbidden
-        if mount_check or self.mount_check:
-            mount_check = True
-        else:
-            mount_check = False
-        return check_drive(self.devices, device, mount_check)
+        try:
+            return check_drive(self.devices, device,
+                               mount_check or self.mount_check)
+        except ValueError:
+            return None
 
     @contextmanager
     def replication_lock(self, device):

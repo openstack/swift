@@ -101,9 +101,10 @@ class ContainerUpdater(Daemon):
         """
         paths = []
         for device in self._listdir(self.devices):
-            dev_path = check_drive(self.devices, device, self.mount_check)
-            if not dev_path:
-                self.logger.warning(_('%s is not mounted'), device)
+            try:
+                dev_path = check_drive(self.devices, device, self.mount_check)
+            except ValueError as err:
+                self.logger.warning("%s", err)
                 continue
             con_path = os.path.join(dev_path, DATADIR)
             if not os.path.exists(con_path):

@@ -88,7 +88,9 @@ class AccountController(BaseStorageServer):
     def DELETE(self, req):
         """Handle HTTP DELETE request."""
         drive, part, account = split_and_validate_path(req, 3)
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         req_timestamp = valid_timestamp(req)
         broker = self._get_account_broker(drive, part, account)
@@ -102,7 +104,9 @@ class AccountController(BaseStorageServer):
     def PUT(self, req):
         """Handle HTTP PUT request."""
         drive, part, account, container = split_and_validate_path(req, 3, 4)
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         if container:   # put account container
             if 'x-timestamp' not in req.headers:
@@ -169,7 +173,9 @@ class AccountController(BaseStorageServer):
         """Handle HTTP HEAD request."""
         drive, part, account = split_and_validate_path(req, 3)
         out_content_type = listing_formats.get_listing_content_type(req)
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
                                           pending_timeout=0.1,
@@ -204,7 +210,9 @@ class AccountController(BaseStorageServer):
         end_marker = get_param(req, 'end_marker')
         out_content_type = listing_formats.get_listing_content_type(req)
 
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account,
                                           pending_timeout=0.1,
@@ -225,7 +233,9 @@ class AccountController(BaseStorageServer):
         """
         post_args = split_and_validate_path(req, 3)
         drive, partition, hash = post_args
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         try:
             args = json.load(req.environ['wsgi.input'])
@@ -241,7 +251,9 @@ class AccountController(BaseStorageServer):
         """Handle HTTP POST request."""
         drive, part, account = split_and_validate_path(req, 3)
         req_timestamp = valid_timestamp(req)
-        if not check_drive(self.root, drive, self.mount_check):
+        try:
+            check_drive(self.root, drive, self.mount_check)
+        except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
