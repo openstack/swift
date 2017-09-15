@@ -885,7 +885,7 @@ class ContainerBroker(DatabaseBroker):
 
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, storage_policy_index=0, reverse=False,
-                          include_end_marker=False, include_deleted=False):
+                          include_deleted=False):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -900,7 +900,6 @@ class ContainerBroker(DatabaseBroker):
                      the path
         :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
-        :param include_end_marker: Include the item at end_marker in results
         :param include_deleted: Include items that have the delete marker set
 
         :returns: list of tuples of (name, created_at, size, content_type,
@@ -935,10 +934,7 @@ class ContainerBroker(DatabaseBroker):
                 query_args = []
                 query_conditions = []
                 if end_marker and (not prefix or end_marker < end_prefix):
-                    if include_end_marker:
-                        query_conditions.append('name <= ?')
-                    else:
-                        query_conditions.append('name < ?')
+                    query_conditions.append('name < ?')
                     query_args.append(end_marker)
                 elif prefix:
                     query_conditions.append('name < ?')

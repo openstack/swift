@@ -1535,10 +1535,9 @@ class ContainerSharder(ContainerReplicator):
                          storage_policy_index=policy_index)
 
             q = query.copy()
-            q.update({'marker': shard_range.lower or '',
-                      'end_marker': shard_range.upper or ''})
+            q['marker'] = shard_range.lower or ''
             if shard_range.upper:
-                q.update({'include_end_marker': True})
+                q['end_marker'] = shard_range.upper + '\x00'
             try:
                 acct = account_to_shard_account(root_account)
                 new_part, new_broker, node_id = self._get_shard_broker(
