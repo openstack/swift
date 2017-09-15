@@ -906,7 +906,7 @@ class TestAuditor(unittest.TestCase):
             self.disk_file.delete(ts_tomb)
             # this get_hashes call will truncate the invalid hashes entry
             self.disk_file.manager.get_hashes(
-                self.devices + '/sda', '0', [], self.disk_file.policy)
+                'sda', '0', [], self.disk_file.policy)
         suffix = basename(dirname(self.disk_file._datadir))
         part_dir = dirname(dirname(self.disk_file._datadir))
         # sanity checks...
@@ -1011,7 +1011,7 @@ class TestAuditor(unittest.TestCase):
 
         # this get_hashes call will truncate the invalid hashes entry
         self.disk_file.manager.get_hashes(
-            self.devices + '/sda', '0', [], self.disk_file.policy)
+            'sda', '0', [], self.disk_file.policy)
         with open(hash_invalid, 'rb') as fp:
             self.assertEqual('', fp.read().strip('\n'))  # sanity check
 

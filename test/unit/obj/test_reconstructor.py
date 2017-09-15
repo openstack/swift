@@ -2762,46 +2762,51 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
 
         paths = []
 
-        def fake_check_mount(devices, device):
-            paths.append(os.path.join(devices, device))
-            return False
+        def fake_check_drive(devices, device, mount_check):
+            path = os.path.join(devices, device)
+            if (not mount_check) and os.path.isdir(path):
+                # while mount_check is false, the test still creates the dirs
+                paths.append(path)
+                return path
+            return None
 
         with mock.patch('swift.obj.reconstructor.whataremyips',
                         return_value=[self.ip]), \
                 mock.patch.object(self.policy.object_ring, '_devs',
                                   new=stub_ring_devs), \
-                mock.patch('swift.obj.diskfile.check_mount',
-                           fake_check_mount):
+                mock.patch('swift.obj.diskfile.check_drive',
+                           fake_check_drive):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(2, len(part_infos))  # sanity, same jobs
         self.assertEqual(set(int(p['partition']) for p in part_infos),
                          set([0, 1]))
 
-        # ... because ismount was not called
-        self.assertEqual(paths, [])
+        # ... because fake_check_drive returned paths for both dirs
+        self.assertEqual(set(paths), set([
+            os.path.join(self.devices, dev) for dev in local_devs]))
 
         # ... now with mount check
         self._configure_reconstructor(mount_check=True)
         self.assertTrue(self.reconstructor.mount_check)
+        paths = []
         for policy in POLICIES:
             self.assertTrue(self.reconstructor._df_router[policy].mount_check)
         with mock.patch('swift.obj.reconstructor.whataremyips',
                         return_value=[self.ip]), \
                 mock.patch.object(self.policy.object_ring, '_devs',
                                   new=stub_ring_devs), \
-                mock.patch('swift.obj.diskfile.check_mount',
-                           fake_check_mount):
+                mock.patch('swift.obj.diskfile.check_drive',
+                           fake_check_drive):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual([], part_infos)  # sanity, no jobs
 
-        # ... because fake_ismount returned False for both paths
-        self.assertEqual(set(paths), set([
-            os.path.join(self.devices, dev) for dev in local_devs]))
+        # ... because fake_check_drive returned False for both paths
+        self.assertFalse(paths)
 
-        def fake_check_mount(devices, device):
-            path = os.path.join(devices, device)
-            if path.endswith('sda'):
-                return True
+        def fake_check_drive(devices, device, mount_check):
+            self.assertTrue(mount_check)
+            if device == 'sda':
+                return os.path.join(devices, device)
             else:
                 return False
 
@@ -2809,8 +2814,8 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                         return_value=[self.ip]), \
                 mock.patch.object(self.policy.object_ring, '_devs',
                                   new=stub_ring_devs), \
-                mock.patch('swift.obj.diskfile.check_mount',
-                           fake_check_mount):
+                mock.patch('swift.obj.diskfile.check_drive',
+                           fake_check_drive):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(1, len(part_infos))  # only sda picked up (part 0)
         self.assertEqual(part_infos[0]['partition'], 0)

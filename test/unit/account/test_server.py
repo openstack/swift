@@ -36,7 +36,7 @@ from swift.account.server import AccountController
 from swift.common.utils import (normalize_timestamp, replication, public,
                                 mkdirs, storage_directory, Timestamp)
 from swift.common.request_helpers import get_sys_meta_prefix
-from test.unit import patch_policies, debug_logger
+from test.unit import patch_policies, debug_logger, mock_check_drive
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -47,6 +47,7 @@ class TestAccountController(unittest.TestCase):
         """Set up for testing swift.account.server.AccountController"""
         self.testdir_base = mkdtemp()
         self.testdir = os.path.join(self.testdir_base, 'account_server')
+        mkdirs(os.path.join(self.testdir, 'sda1'))
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false'})
 
@@ -70,6 +71,50 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(len(resp.headers['Allow'].split(', ')), 7)
         self.assertEqual(resp.headers['Server'],
                          (server_handler.server_type + '/' + swift_version))
+
+    def test_insufficient_storage_mount_check_true(self):
+        conf = {'devices': self.testdir, 'mount_check': 'true'}
+        account_controller = AccountController(conf)
+        self.assertTrue(account_controller.mount_check)
+        for method in account_controller.allowed_methods:
+            if method == 'OPTIONS':
+                continue
+            req = Request.blank('/sda1/p/a-or-suff', method=method,
+                                headers={'x-timestamp': '1'})
+            with mock_check_drive() as mocks:
+                try:
+                    resp = req.get_response(account_controller)
+                    self.assertEqual(resp.status_int, 507)
+                    mocks['ismount'].return_value = True
+                    resp = req.get_response(account_controller)
+                    self.assertNotEqual(resp.status_int, 507)
+                    # feel free to rip out this last assertion...
+                    expected = 2 if method == 'PUT' else 4
+                    self.assertEqual(resp.status_int // 100, expected)
+                except AssertionError as e:
+                    self.fail('%s for %s' % (e, method))
+
+    def test_insufficient_storage_mount_check_false(self):
+        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        account_controller = AccountController(conf)
+        self.assertFalse(account_controller.mount_check)
+        for method in account_controller.allowed_methods:
+            if method == 'OPTIONS':
+                continue
+            req = Request.blank('/sda1/p/a-or-suff', method=method,
+                                headers={'x-timestamp': '1'})
+            with mock_check_drive() as mocks:
+                try:
+                    resp = req.get_response(account_controller)
+                    self.assertEqual(resp.status_int, 507)
+                    mocks['isdir'].return_value = True
+                    resp = req.get_response(account_controller)
+                    self.assertNotEqual(resp.status_int, 507)
+                    # feel free to rip out this last assertion...
+                    expected = 2 if method == 'PUT' else 4
+                    self.assertEqual(resp.status_int // 100, expected)
+                except AssertionError as e:
+                    self.fail('%s for %s' % (e, method))
 
     def test_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
@@ -146,29 +191,6 @@ class TestAccountController(unittest.TestCase):
                             headers={'X-Timestamp': 'not-float'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
-
-    def test_DELETE_insufficient_storage(self):
-        self.controller = AccountController({'devices': self.testdir})
-        req = Request.blank(
-            '/sda-null/p/a', environ={'REQUEST_METHOD': 'DELETE',
-                                      'HTTP_X_TIMESTAMP': '1'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 507)
-
-    def test_REPLICATE_insufficient_storage(self):
-        conf = {'devices': self.testdir, 'mount_check': 'true'}
-        self.account_controller = AccountController(conf)
-
-        def fake_check_mount(*args, **kwargs):
-            return False
-
-        with mock.patch("swift.common.constraints.check_mount",
-                        fake_check_mount):
-            req = Request.blank('/sda1/p/suff',
-                                environ={'REQUEST_METHOD': 'REPLICATE'},
-                                headers={})
-            resp = req.get_response(self.account_controller)
-        self.assertEqual(resp.status_int, 507)
 
     def test_REPLICATE_rsync_then_merge_works(self):
         def fake_rsync_then_merge(self, drive, db_file, args):
@@ -330,13 +352,6 @@ class TestAccountController(unittest.TestCase):
                             headers={'Accept': 'application/plain'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 406)
-
-    def test_HEAD_insufficient_storage(self):
-        self.controller = AccountController({'devices': self.testdir})
-        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'HEAD',
-                                                      'HTTP_X_TIMESTAMP': '1'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 507)
 
     def test_HEAD_invalid_format(self):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
@@ -569,13 +584,6 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
 
-    def test_PUT_insufficient_storage(self):
-        self.controller = AccountController({'devices': self.testdir})
-        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'PUT',
-                                                      'HTTP_X_TIMESTAMP': '1'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 507)
-
     def test_POST_HEAD_metadata(self):
         req = Request.blank(
             '/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
@@ -692,13 +700,6 @@ class TestAccountController(unittest.TestCase):
                             headers={'X-Timestamp': 'not-float'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
-
-    def test_POST_insufficient_storage(self):
-        self.controller = AccountController({'devices': self.testdir})
-        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'POST',
-                                                      'HTTP_X_TIMESTAMP': '1'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 507)
 
     def test_POST_after_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1501,13 +1502,6 @@ class TestAccountController(unittest.TestCase):
                     if node2.nodeName == 'name':
                         listing.append(node2.firstChild.nodeValue)
         self.assertEqual(listing, ['sub.1.0', 'sub.1.1', 'sub.1.2'])
-
-    def test_GET_insufficient_storage(self):
-        self.controller = AccountController({'devices': self.testdir})
-        req = Request.blank('/sda-null/p/a', environ={'REQUEST_METHOD': 'GET',
-                                                      'HTTP_X_TIMESTAMP': '1'})
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 507)
 
     def test_through_call(self):
         inbuf = BytesIO()
