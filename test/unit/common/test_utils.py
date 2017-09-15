@@ -3696,163 +3696,6 @@ cluster_dfw1 = http://dfw1.host/v1/
             if tempdir:
                 shutil.rmtree(tempdir)
 
-    def test_pivot_range_initialisation(self):
-        def test_initialisation(params, expected=None, error=False):
-            if error:
-                with self.assertRaises(ValueError):
-                    utils.PivotRange(**params)
-            else:
-                pr = utils.PivotRange(**params)
-                self.assertDictEqual(dict(pr), expected)
-
-        empty_run = dict(name=None, timestamp=None, lower='',
-                         upper='', object_count=0, bytes_used=0,
-                         meta_timestamp=None)
-        empty_expect = empty_run.copy()
-        empty_expect['created_at'] = empty_expect['timestamp']
-        empty_expect.pop('timestamp')
-        test_initialisation(empty_run.copy(), empty_expect.copy())
-
-        good_run = dict(name='name', timestamp=utils.Timestamp(1), lower='a',
-                        upper='m', object_count=0, bytes_used=10,
-                        meta_timestamp=utils.Timestamp(2))
-        good_expect = good_run.copy()
-        good_expect['created_at'] = good_expect['timestamp']
-        good_expect.pop('timestamp')
-        test_initialisation(good_run.copy(), good_expect.copy())
-
-        # obj count and bytes used as int strings
-        good_str_run = good_run.copy()
-        good_str_run.update({'object_count': '0', 'bytes_used': '10'})
-        test_initialisation(good_str_run, good_expect.copy())
-
-        good_no_meta = good_run.copy()
-        good_no_meta.pop('meta_timestamp')
-        expected = good_run.copy()
-        expected['meta_timestamp'] = expected['created_at'] = \
-            expected['timestamp']
-        expected.pop('timestamp')
-        test_initialisation(good_no_meta, expected)
-
-        bad_timestamp = good_run.copy()
-        bad_timestamp['timestamp'] = 'water balloon'
-        test_initialisation(bad_timestamp, error=True)
-
-        bad_timestamp = good_run.copy()
-        bad_timestamp['meta_timestamp'] = 'water balloon'
-        test_initialisation(bad_timestamp, error=True)
-
-        bad_lower = good_run.copy()
-        bad_lower['lower'] = 'water balloon'
-        test_initialisation(bad_lower, error=True)
-
-        bad_not_int = good_run.copy()
-        bad_not_int['object_count'] = 'water balloon'
-        test_initialisation(bad_not_int, error=True)
-
-        bad_not_int = good_run.copy()
-        bad_not_int['bytes_used'] = 'water balloon'
-        test_initialisation(bad_not_int, error=True)
-
-        bad_neg = good_run.copy()
-        bad_neg['object_count'] = -1
-        test_initialisation(bad_neg, error=True)
-
-        bad_neg = good_run.copy()
-        bad_neg['bytes_used'] = -1
-        test_initialisation(bad_neg, error=True)
-
-    def test_pivot_range(self):
-        # first test infinite range (no boundries)
-        inf_pr = utils.PivotRange()
-        self.assertEqual('', inf_pr.upper)
-        self.assertEqual('', inf_pr.lower)
-        self.assertIs(True, inf_pr.entire_namespace())
-
-        for x in range(100):
-            self.assertTrue(x in inf_pr)
-            self.assertTrue(str(x) in inf_pr)
-            self.assertTrue(chr(x) in inf_pr)
-
-        for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
-            self.assertTrue(x in inf_pr)
-
-        ts = utils.Timestamp(time.time()).internal
-
-        # upper (if provided) *must* be greater than lower
-        with self.assertRaises(ValueError):
-            utils.PivotRange('f-a', ts, 'f', 'a')
-
-        # test basic boundries
-        atof = utils.PivotRange('a-f', ts, 'a', 'f')
-        ftol = utils.PivotRange('f-l', ts, 'f', 'l')
-        ltor = utils.PivotRange('l-r', ts, 'l', 'r')
-        rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
-
-        # overlapping ranges
-        dtof = utils.PivotRange('d-f', ts, 'd', 'f')
-        dtom = utils.PivotRange('d-m', ts, 'd', 'm')
-
-        # test range > and <
-        # non-adjacent
-        self.assertFalse(rtoz < atof)
-        self.assertTrue(atof < ltor)
-        self.assertTrue(ltor > atof)
-        self.assertFalse(ftol > rtoz)
-
-        # adjacent
-        self.assertFalse(rtoz < ltor)
-        self.assertTrue(atof < ftol)
-        self.assertTrue(ltor > ftol)
-        self.assertFalse(ltor > rtoz)
-
-        # test range < and > to an item
-        # range is > lower and <= upper to lower boundry is't
-        # actually included
-        self.assertTrue(ftol > 'f')
-        self.assertFalse(atof < 'f')
-        self.assertTrue(ltor < 'y')
-
-        self.assertFalse(ftol < 'f')
-        self.assertFalse(atof > 'f')
-        self.assertFalse(ltor > 'y')
-
-        self.assertTrue('f' < ftol)
-        self.assertFalse('f' > atof)
-        self.assertTrue('y' > ltor)
-
-        self.assertFalse('f' > ftol)
-        self.assertFalse('f' < atof)
-        self.assertFalse('y' < ltor)
-
-        # Now test ranges with only 1 boundry
-        start_to_l = utils.PivotRange('None-l', ts, '', 'l')
-        l_to_end = utils.PivotRange('l-None', ts, 'l', '')
-
-        for x in ('l', 'm', 'z', 'zzz1231sd'):
-            if x == 'l':
-                self.assertFalse(x in l_to_end)
-                self.assertFalse(start_to_l < x)
-                self.assertFalse(x > start_to_l)
-            else:
-                self.assertTrue(x in l_to_end)
-                self.assertTrue(start_to_l < x)
-                self.assertTrue(x > start_to_l)
-
-        # Now test some of the range to range checks with missing boundries
-        self.assertFalse(atof < start_to_l)
-        self.assertFalse(start_to_l < inf_pr)
-
-        # Now test PivotRange.overlaps(other)
-        self.assertFalse(atof.overlaps(ftol))
-        self.assertFalse(ftol.overlaps(atof))
-        self.assertTrue(atof.overlaps(dtof))
-        self.assertTrue(dtof.overlaps(atof))
-        self.assertFalse(dtof.overlaps(ftol))
-        self.assertTrue(dtom.overlaps(ftol))
-        self.assertTrue(ftol.overlaps(dtom))
-        self.assertFalse(start_to_l.overlaps(l_to_end))
-
     def test_find_pivot_range(self):
         ts = utils.Timestamp(time.time()).internal
         start = utils.PivotRange('-a', ts, '', 'a')
@@ -6661,6 +6504,204 @@ class TestPipeMutex(unittest.TestCase):
     def tearDownClass(cls):
         # PipeMutex turns this off when you instantiate one
         eventlet.debug.hub_prevent_multiple_readers(True)
+
+
+class TestPivotRange(unittest.TestCase):
+    def setUp(self):
+        self.ts_iter = make_timestamp_iter()
+
+    def test_pivot_range_initialisation(self):
+        def assert_initialisation_ok(params, expected):
+            pr = utils.PivotRange(**params)
+            self.assertDictEqual(dict(pr), expected)
+
+        def assert_initialisation_fails(params, err_type=ValueError):
+            with self.assertRaises(err_type):
+                utils.PivotRange(**params)
+
+        ts_1 = next(self.ts_iter)
+        ts_2 = next(self.ts_iter)
+        empty_run = dict(name=None, timestamp=None, lower=None,
+                         upper=None, object_count=0, bytes_used=0,
+                         meta_timestamp=None)
+        # name, timestamp must be given
+        assert_initialisation_fails(empty_run.copy())
+        assert_initialisation_fails(dict(empty_run, name='name'), TypeError)
+        assert_initialisation_fails(dict(empty_run, timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='name',
+                                         timestamp=ts_1),
+                                    TypeError)
+        assert_initialisation_fails(dict(empty_run, name='name',
+                                         timestamp=ts_1, lower=''),
+                                    TypeError)
+
+        expect = dict(name='name', created_at=ts_1.internal, lower='',
+                      upper='', object_count=0, bytes_used=0,
+                      meta_timestamp=ts_1.internal)
+        assert_initialisation_ok(dict(name='name', timestamp=ts_1), expect)
+
+        good_run = dict(name='name', timestamp=ts_1, lower='l',
+                        upper='u', object_count=2, bytes_used=10,
+                        meta_timestamp=ts_2)
+        expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
+                       'bytes_used': 10, 'meta_timestamp': ts_2.internal})
+        assert_initialisation_ok(good_run.copy(), expect)
+
+        # obj count and bytes used as int strings
+        good_str_run = good_run.copy()
+        good_str_run.update({'object_count': '2', 'bytes_used': '10'})
+        assert_initialisation_ok(good_str_run, expect)
+
+        good_no_meta = good_run.copy()
+        good_no_meta.pop('meta_timestamp')
+        assert_initialisation_ok(good_no_meta,
+                                 dict(expect, meta_timestamp=ts_1.internal))
+
+        assert_initialisation_fails(dict(good_run, timestamp='water balloon'))
+
+        assert_initialisation_fails(
+            dict(good_run, meta_timestamp='water balloon'))
+
+        assert_initialisation_fails(dict(good_run, lower='water balloon'))
+
+        assert_initialisation_fails(dict(good_run, upper='balloon'))
+
+        assert_initialisation_fails(
+            dict(good_run, object_count='water balloon'))
+
+        assert_initialisation_fails(dict(good_run, bytes_used='water ballon'))
+
+        assert_initialisation_fails(dict(good_run, object_count=-1))
+
+        assert_initialisation_fails(dict(good_run, bytes_used=-1))
+
+    def test_timestamp_setter(self):
+        ts_1 = next(self.ts_iter)
+        pr = utils.PivotRange('test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, pr.timestamp)
+
+        ts_2 = next(self.ts_iter)
+        pr.timestamp = ts_2
+        self.assertEqual(ts_2, pr.timestamp)
+
+        with self.assertRaises(TypeError):
+            pr.timestamp = None
+
+    def test_meta_timestamp_setter(self):
+        ts_1 = next(self.ts_iter)
+        pr = utils.PivotRange('test', ts_1, 'l', 'u', 0, 0, None)
+        self.assertEqual(ts_1, pr.timestamp)
+        self.assertEqual(ts_1, pr.meta_timestamp)
+
+        ts_2 = next(self.ts_iter)
+        pr.meta_timestamp = ts_2
+        self.assertEqual(ts_1, pr.timestamp)
+        self.assertEqual(ts_2, pr.meta_timestamp)
+
+        ts_3 = next(self.ts_iter)
+        pr.timestamp = ts_3
+        self.assertEqual(ts_3, pr.timestamp)
+        self.assertEqual(ts_2, pr.meta_timestamp)
+
+        # meta_timestamp default to tracking timestamp
+        pr.meta_timestamp = None
+        self.assertEqual(ts_3, pr.timestamp)
+        self.assertEqual(ts_3, pr.meta_timestamp)
+        ts_4 = next(self.ts_iter)
+        pr.timestamp = ts_4
+        self.assertEqual(ts_4, pr.timestamp)
+        self.assertEqual(ts_4, pr.meta_timestamp)
+
+    def test_pivot_range(self):
+        # first test infinite range (no boundries)
+        inf_pr = utils.PivotRange(name='test', timestamp=utils.Timestamp.now())
+        self.assertEqual('', inf_pr.upper)
+        self.assertEqual('', inf_pr.lower)
+        self.assertIs(True, inf_pr.entire_namespace())
+
+        for x in range(100):
+            self.assertTrue(x in inf_pr)
+            self.assertTrue(str(x) in inf_pr)
+            self.assertTrue(chr(x) in inf_pr)
+
+        for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
+            self.assertTrue(x in inf_pr)
+
+        ts = utils.Timestamp(time.time()).internal
+
+        # upper (if provided) *must* be greater than lower
+        with self.assertRaises(ValueError):
+            utils.PivotRange('f-a', ts, 'f', 'a')
+
+        # test basic boundries
+        atof = utils.PivotRange('a-f', ts, 'a', 'f')
+        ftol = utils.PivotRange('f-l', ts, 'f', 'l')
+        ltor = utils.PivotRange('l-r', ts, 'l', 'r')
+        rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
+
+        # overlapping ranges
+        dtof = utils.PivotRange('d-f', ts, 'd', 'f')
+        dtom = utils.PivotRange('d-m', ts, 'd', 'm')
+
+        # test range > and <
+        # non-adjacent
+        self.assertFalse(rtoz < atof)
+        self.assertTrue(atof < ltor)
+        self.assertTrue(ltor > atof)
+        self.assertFalse(ftol > rtoz)
+
+        # adjacent
+        self.assertFalse(rtoz < ltor)
+        self.assertTrue(atof < ftol)
+        self.assertTrue(ltor > ftol)
+        self.assertFalse(ltor > rtoz)
+
+        # test range < and > to an item
+        # range is > lower and <= upper to lower boundry is't
+        # actually included
+        self.assertTrue(ftol > 'f')
+        self.assertFalse(atof < 'f')
+        self.assertTrue(ltor < 'y')
+
+        self.assertFalse(ftol < 'f')
+        self.assertFalse(atof > 'f')
+        self.assertFalse(ltor > 'y')
+
+        self.assertTrue('f' < ftol)
+        self.assertFalse('f' > atof)
+        self.assertTrue('y' > ltor)
+
+        self.assertFalse('f' > ftol)
+        self.assertFalse('f' < atof)
+        self.assertFalse('y' < ltor)
+
+        # Now test ranges with only 1 boundry
+        start_to_l = utils.PivotRange('None-l', ts, '', 'l')
+        l_to_end = utils.PivotRange('l-None', ts, 'l', '')
+
+        for x in ('l', 'm', 'z', 'zzz1231sd'):
+            if x == 'l':
+                self.assertFalse(x in l_to_end)
+                self.assertFalse(start_to_l < x)
+                self.assertFalse(x > start_to_l)
+            else:
+                self.assertTrue(x in l_to_end)
+                self.assertTrue(start_to_l < x)
+                self.assertTrue(x > start_to_l)
+
+        # Now test some of the range to range checks with missing boundries
+        self.assertFalse(atof < start_to_l)
+        self.assertFalse(start_to_l < inf_pr)
+
+        # Now test PivotRange.overlaps(other)
+        self.assertFalse(atof.overlaps(ftol))
+        self.assertFalse(ftol.overlaps(atof))
+        self.assertTrue(atof.overlaps(dtof))
+        self.assertTrue(dtof.overlaps(atof))
+        self.assertFalse(dtof.overlaps(ftol))
+        self.assertTrue(dtom.overlaps(ftol))
+        self.assertTrue(ftol.overlaps(dtom))
+        self.assertFalse(start_to_l.overlaps(l_to_end))
 
 
 if __name__ == '__main__':

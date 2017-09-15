@@ -4200,6 +4200,21 @@ def get_md5_socket():
 class PivotRange(object):
     def __init__(self, name=None, timestamp=None, lower='', upper='',
                  object_count=0, bytes_used=0, meta_timestamp=None):
+        """
+        A PivotRange encapsulates state related to a container shard.
+
+        :param name: the name of the shard.
+        :param timestamp: the timestamp at which the shard was created.
+        :param lower: the lower bound of object names contained in the shard.
+        :param upper: the upper bound of object names contained in the shard.
+        :param object_count: the number of objects in the shard, defaults to
+            zero.
+        :param bytes_used: the number of bytes in the shard; defaults to zero.
+        :param meta_timestamp: the timestamp at which the shard state was last
+            updated; defaults to the value of `timestamp`.
+        """
+        if name is None:
+            raise ValueError('name cannot be None')
         self.name = name
         self.lower = lower
         if not isinstance(lower, string_types):
@@ -4210,6 +4225,7 @@ class PivotRange(object):
             raise ValueError('upper (%r) must be bigger than lower (%r)' %
                              (upper, lower or ''))
         self.upper = upper
+        self._timestamp = self._meta_timestamp = None
         self.timestamp = timestamp
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
@@ -4229,15 +4245,17 @@ class PivotRange(object):
 
     @timestamp.setter
     def timestamp(self, ts):
+        if ts is None:
+            raise TypeError('timestamp cannot be None')
         self._timestamp = self._to_timestamp(ts)
 
     @property
     def meta_timestamp(self):
-        return self._meta_timestamp
+        return self._meta_timestamp or self.timestamp
 
     @meta_timestamp.setter
     def meta_timestamp(self, ts):
-        self._meta_timestamp = self._to_timestamp(ts) or self.timestamp
+        self._meta_timestamp = self._to_timestamp(ts)
 
     @property
     def object_count(self):
@@ -4346,13 +4364,12 @@ class PivotRange(object):
 
     def __iter__(self):
         yield 'name', self.name
-        yield 'created_at', self.timestamp.internal if self.timestamp else None
+        yield 'created_at', self.timestamp.internal
         yield 'lower', self.lower
         yield 'upper', self.upper
         yield 'object_count', self.object_count
         yield 'bytes_used', self.bytes_used
-        yield ('meta_timestamp',
-               self.meta_timestamp.internal if self.meta_timestamp else None)
+        yield 'meta_timestamp', self.meta_timestamp.internal
 
 
 def find_pivot_range(item, ranges):
