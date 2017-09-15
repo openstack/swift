@@ -771,14 +771,16 @@ class ResumingGetter(object):
                            this request. This will change the Range header
                            so that the next req will start where it left off.
 
-        :raises ValueError: if invalid range header
         :raises HTTPRequestedRangeNotSatisfiable: if begin + num_bytes
                                                   > end of range + 1
         :raises RangeAlreadyComplete: if begin + num_bytes == end of range + 1
         """
-        if 'Range' in self.backend_headers:
-            req_range = Range(self.backend_headers['Range'])
+        try:
+            req_range = Range(self.backend_headers.get('Range'))
+        except ValueError:
+            req_range = None
 
+        if req_range:
             begin, end = req_range.ranges[0]
             if begin is None:
                 # this is a -50 range req (last 50 bytes of file)
@@ -801,6 +803,9 @@ class ResumingGetter(object):
             self.backend_headers['Range'] = str(req_range)
         else:
             self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
+
+        # Reset so if we need to do this more than once, we don't double-up
+        self.bytes_used_from_backend = 0
 
     def pop_range(self):
         """
