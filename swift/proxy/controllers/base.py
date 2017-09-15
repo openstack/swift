@@ -1979,8 +1979,8 @@ class Controller(object):
             pass
 
         for pivot in pivots:
-            lower = pivot.get('lower') or None
-            upper = pivot.get('upper') or None
+            lower = pivot.get('lower', '')
+            upper = pivot.get('upper', '')
             created_at = pivot.get('created_at') or None
             object_count = pivot.get('object_count') or 0
             bytes_used = pivot.get('bytes_used') or 0
