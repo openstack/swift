@@ -238,7 +238,7 @@ Keys currently stored in Barbican can be listed using the
 The keymaster uses the explicitly configured username and password (and
 project name etc.) from the `keymaster.conf` file for retrieving the encryption
 root secret from an external key management system. The `Castellan library
-<http://docs.openstack.org/developer/castellan/>`_ is used to communicate with
+<https://docs.openstack.org/castellan/latest/>`_ is used to communicate with
 Barbican.
 
 For the proxy server, reading the encryption root secret directly from the
