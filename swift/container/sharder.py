@@ -270,7 +270,6 @@ class ContainerSharder(ContainerReplicator):
                  merge_items.
         """
         objs = list()
-        timestamp = None
         for item in items:
             try:
                 if isinstance(item, PivotRange):
@@ -285,13 +284,14 @@ class ContainerSharder(ContainerReplicator):
                     # will replace the deleted record, which will be picked up
                     # as a misplaced object and then be pushed and compared to
                     # where it needs to be.
-                    timestamp = Timestamp(item[1], offset=1).internal
-                obj = {
-                    'created_at': timestamp or item[1]}
+                    created_at = Timestamp(item[1], offset=1).internal
+                else:
+                    created_at = item[1]
                 if not isinstance(item[2], int):
                     # pivot node
-                    obj.update({
+                    obj = {
                         'name': item[0],
+                        'created_at': created_at,
                         'lower': item[2],
                         'upper': item[3],
                         'object_count': item[4],
@@ -299,18 +299,21 @@ class ContainerSharder(ContainerReplicator):
                         'meta_timestamp': item[6],
                         'deleted': 1 if delete else 0,
                         'storage_policy_index': 0,
-                        'record_type': RECORD_TYPE_PIVOT_NODE})
+                        'record_type': RECORD_TYPE_PIVOT_NODE}
                 else:
                     # object item
-                    obj.update({
+                    obj = {
                         'name': item[0],
+                        'created_at': created_at,
                         'size': item[2],
                         'content_type': item[3],
                         'etag': item[4],
                         'deleted': 1 if delete else 0,
                         'storage_policy_index': policy_index,
-                        'record_type': RECORD_TYPE_OBJECT})
+                        'record_type': RECORD_TYPE_OBJECT}
             except Exception:
+                # TODO: narrow exception type
+                # TODO: would this be a bug? is just logging appropriate?
                 self.logger.warning("Failed to add object %s, not in the"
                                     'right format',
                                     item[0] if item[0] else str(item))
@@ -446,6 +449,8 @@ class ContainerSharder(ContainerReplicator):
             any(self.cpool)
 
             # There could be more, so recurse my pretty
+            # TODO: can we restore condition?
+            # if len(objs) == CONTAINER_LISTING_LIMIT:
             return run_query(qry, True)
 
         misplaced_items = False

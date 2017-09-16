@@ -347,7 +347,7 @@ class Replicator(Daemon):
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
 
-        self._sync_other_items(broker, local_id, http)
+        self._sync_other_items(broker, http, local_id)
         if objects:
             self.logger.debug(
                 'Synchronization for %s has fallen more than '
@@ -366,7 +366,7 @@ class Replicator(Daemon):
                 return True
         return False
 
-    def _sync_other_items(self, broker, local_id, http):
+    def _sync_other_items(self, broker, http, local_id):
 
         # Attempt to sync other items
         # Note the following will have to be cleaned up at some point. The
