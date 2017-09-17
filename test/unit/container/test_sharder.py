@@ -335,11 +335,10 @@ class TestSharder(unittest.TestCase):
             'shard_batch_size': 2,
             'scanner_batch_size': 10,
             'rcache': '/var/cache/swift/container-sharder.recon'}
-        # TODO: internal_client_conf_path should have a default value
-        conf = {'internal_client_conf_path': '/etc/swift/internal-client.conf'}
-        mock_ic = do_test(conf, expected)
+        mock_ic = do_test({}, expected)
         mock_ic.assert_called_once_with(
-            '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3)
+            '/etc/swift/internal-client.conf', 'Swift Container Sharder', 3,
+            allow_modify_pipeline=False)
 
         conf = {
             'mount_check': False, 'bind_ip': '10.11.12.13', 'bind_port': 62010,
@@ -372,7 +371,8 @@ class TestSharder(unittest.TestCase):
             'rcache': '/var/cache/swift/container-sharder.recon'}
         mock_ic = do_test(conf, expected)
         mock_ic.assert_called_once_with(
-            '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2)
+            '/etc/swift/my-sharder-ic.conf', 'Swift Container Sharder', 2,
+            allow_modify_pipeline=False)
 
         with self.assertRaises(ValueError) as cm:
             do_test({'shard_shrink_point': 101}, {})

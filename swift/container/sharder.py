@@ -42,56 +42,8 @@ from swift.common.utils import get_logger, config_true_value, \
     storage_directory, Timestamp, PivotRange, \
     find_pivot_range, ismount, majority_size, GreenAsyncPile, \
     account_to_pivot_account, config_float_value, config_positive_int_value
-from swift.common.wsgi import ConfigString
 from swift.common.storage_policy import POLICIES
 
-# The default internal client config body is to support upgrades without
-# requiring deployment of the new /etc/swift/internal-client.conf
-ic_conf_body = """
-[DEFAULT]
-# swift_dir = /etc/swift
-# user = swift
-# You can specify default log routing here if you want:
-# log_name = swift
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# log_address = /dev/log
-#
-# comma separated list of functions to call to setup custom log handlers.
-# functions get passed: conf, name, log_to_console, log_route, fmt, logger,
-# adapted_logger
-# log_custom_handlers =
-#
-# If set, log_udp_host will override log_address
-# log_udp_host =
-# log_udp_port = 514
-#
-# You can enable StatsD logging here:
-# log_statsd_host = localhost
-# log_statsd_port = 8125
-# log_statsd_default_sample_rate = 1.0
-# log_statsd_sample_rate_factor = 1.0
-# log_statsd_metric_prefix =
-
-[pipeline:main]
-pipeline = catch_errors proxy-logging cache proxy-server
-
-[app:proxy-server]
-use = egg:swift#proxy
-account_autocreate = true
-# See proxy-server.conf-sample for options
-
-[filter:cache]
-use = egg:swift#memcache
-# See proxy-server.conf-sample for options
-
-[filter:proxy-logging]
-use = egg:swift#proxy_logging
-
-[filter:catch_errors]
-use = egg:swift#catch_errors
-# See proxy-server.conf-sample for options
-""".lstrip()
 
 PR_NAME = 0
 PR_CREATED_AT = 1
@@ -133,20 +85,18 @@ class ContainerSharder(ContainerReplicator):
         self.conn_timeout = float(conf.get('conn_timeout', 5))
         request_tries = config_positive_int_value(
             conf.get('request_tries', 3))
-        internal_client_conf_path = conf.get('internal_client_conf_path')
-        if not internal_client_conf_path:
-            self.logger.warning(
-                'Configuration option internal_client_conf_path not '
-                'defined. Using default configuration, See '
-                'internal-client.conf-sample for options. NOTE: '
-                '"account_autocreate = true" is required.')
-            internal_client_conf = ConfigString(ic_conf_body)
-        else:
-            internal_client_conf = internal_client_conf_path
+        internal_client_conf_path = conf.get('internal_client_conf_path',
+                                             '/etc/swift/internal-client.conf')
         try:
             self.swift = internal_client.InternalClient(
-                internal_client_conf, 'Swift Container Sharder', request_tries)
+                internal_client_conf_path,
+                'Swift Container Sharder',
+                request_tries,
+                allow_modify_pipeline=False)
         except IOError as err:
+            # TODO: if sharder functions are moved into replicator then for
+            # backwards compatibility we need this to simply log a warning that
+            # sharding will be skipped due to missing internal client conf
             if err.errno != errno.ENOENT:
                 raise
             raise SystemExit(
