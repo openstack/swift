@@ -432,11 +432,8 @@ class ContainerSharder(ContainerReplicator):
         if not lower and not upper:
             return None
 
-        if not lower:
-            lower = None
-        if not upper:
-            upper = None
-
+        pivot = PivotRange(broker.container, timestamp, lower or '',
+                           upper or '', 0, 0, Timestamp(time.time()))
         tmp_info = broker.get_info()
         pivot = PivotRange(broker.container, timestamp, lower, upper,
                            tmp_info.get('object_count', 0),
@@ -973,11 +970,11 @@ class ContainerSharder(ContainerReplicator):
 
         # get the last pivot point found to continue from
         cont_pivot = self.get_pivot_range(broker)
-        cont_lower = cont_pivot.lower if cont_pivot else None
-        cont_upper = cont_pivot.upper if cont_pivot else None
+        cont_lower = cont_pivot.lower if cont_pivot else ''
+        cont_upper = cont_pivot.upper if cont_pivot else ''
 
         pivot_ranges = broker.build_pivot_ranges()
-        old_piv = marker = pivot_ranges[-1].upper if pivot_ranges else None
+        old_piv = marker = pivot_ranges[-1].upper if pivot_ranges else ''
         if old_piv and broker.get_db_state() == DB_STATE_UNSHARDED:
             broker.set_sharding_state()
         progress = len(pivot_ranges) * self.split_size
@@ -1662,23 +1659,19 @@ class RangeAnalyser(object):
     def _build(self, ranges):
         ranges.sort()
         self.path = []
-        upto = {None: self.path}
+        upto = {'': self.path}
         for r in ranges:
+            rl = RangeLink(r)
             if r.lower not in upto:
-                rl = RangeLink(r)
                 self.gaps.append(rl)
-                if upto.get(r.upper) is not None:
+            else:
+                upto[r.lower].append(rl)
+
+            if r.upper:
+                if r.upper in upto:
                     rl.upper = upto[r.upper]
                 else:
-                    upto[rl.pivot.upper] = rl.upper
-            else:
-                rl = RangeLink(r)
-                upto[r.lower].append(rl)
-                if r.upper is not None:
-                    if upto.get(r.upper) is not None:
-                        rl.upper = upto[r.upper]
-                    else:
-                        upto[r.upper] = rl.upper
+                    upto[r.upper] = rl.upper
 
     def _post_result(self, newest, complete, result):
         idx = None
@@ -1691,9 +1684,9 @@ class RangeAnalyser(object):
                 # This incomplete has a gap at the start, it _may_ be the
                 # end of another incomplete.
                 matched = [(i, r) for i, r in enumerate(self.incomplete)
-                           if r[-1].upper is not None and r[-1] < result[0]]
+                           if r[-1].upper and r[-1] < result[0]]
                 if matched:
-                    matched = sorted(matched, cmp=lambda x: x[-1][-1],
+                    matched = sorted(matched, key=lambda x: x[-1][-1],
                                      reverse=True)
                     i, match = matched[0]
                     match.extend(result)
@@ -1727,10 +1720,7 @@ class RangeAnalyser(object):
         newest = max(ts, rangelink.pivot.timestamp)
         result.append(rangelink.pivot)
         if not rangelink.upper:
-            if rangelink.pivot.upper is None:
-                complete = True
-            else:
-                complete = False
+            complete = (rangelink.pivot.upper == '')
             return newest, complete, result
         elif len(rangelink.upper) > 1:
             for i, rl in enumerate(rangelink.upper):
@@ -1757,8 +1747,13 @@ class RangeAnalyser(object):
 
             self._break_ties()
         except Exception as ex:
+            # TODO: either stop wrapping or include a traceback -- errors like
+            #
+            #   <lambda>() takes exactly 1 argument (2 given)
+            #
+            # aren't super helpful on their own
             raise RangeAnalyserException('Failed to find a correct set of '
-                                         'ranges: %s', str(ex))
+                                         'ranges: %s' % str(ex))
 
     def _break_ties(self):
         # Idea here, is that the may be a newer change to the list of ranges

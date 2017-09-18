@@ -35,7 +35,7 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         ranges = [
-            PivotRange('-d', ts, None, 'd'),
+            PivotRange('-d', ts, '', 'd'),
             PivotRange('d-g', ts, 'd', 'g'),
             PivotRange('g-j', ts, 'g', 'j'),
             PivotRange('j-l', ts, 'j', 'l'),
@@ -43,7 +43,7 @@ class TestRangeAnalyser(unittest.TestCase):
             PivotRange('n-p', ts, 'n', 'p'),
             PivotRange('p-s', ts, 'p', 's'),
             PivotRange('s-v', ts, 's', 'v'),
-            PivotRange('v-', ts, 'v', None)]
+            PivotRange('v-', ts, 'v', '')]
 
         return ranges
 
@@ -178,7 +178,7 @@ class TestRangeAnalyser(unittest.TestCase):
             PivotRange('o-q', ts, 'o', 'q'),
             PivotRange('q-t', ts, 'q', 't'),
             PivotRange('t-w', ts, 't', 'w'),
-            PivotRange('w-', ts, 'w', None)]
+            PivotRange('w-', ts, 'w', '')]
 
         # expected n-p
         expected_other_ranges = [{p for p in self.ranges[5:]},
@@ -207,7 +207,7 @@ class TestRangeAnalyser(unittest.TestCase):
             PivotRange('n-o', ts, 'n', 'o'),
             PivotRange('o-q', ts, 'o', 'q'),
             PivotRange('t-w', ts, 't', 'w'),
-            PivotRange('w-', ts, 'w', None)]
+            PivotRange('w-', ts, 'w', '')]
 
         expected_completes = [False, True]
         expected_other_ranges = [{p for p in self.ranges[5:]},

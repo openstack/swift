@@ -3705,8 +3705,8 @@ cluster_dfw1 = http://dfw1.host/v1/
                 pr = utils.PivotRange(**params)
                 self.assertDictEqual(dict(pr), expected)
 
-        empty_run = dict(name=None, timestamp=None, lower=None,
-                         upper=None, object_count=0, bytes_used=0,
+        empty_run = dict(name=None, timestamp=None, lower='',
+                         upper='', object_count=0, bytes_used=0,
                          meta_timestamp=None)
         empty_expect = empty_run.copy()
         empty_expect['created_at'] = empty_expect['timestamp']
@@ -3765,8 +3765,9 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_pivot_range(self):
         # first test infinite range (no boundries)
         inf_pr = utils.PivotRange()
-        self.assertIsNone(inf_pr.upper)
-        self.assertIsNone(inf_pr.lower)
+        self.assertEqual('', inf_pr.upper)
+        self.assertEqual('', inf_pr.lower)
+        self.assertIs(True, inf_pr.entire_namespace())
 
         for x in range(100):
             self.assertTrue(x in inf_pr)
@@ -3791,10 +3792,6 @@ cluster_dfw1 = http://dfw1.host/v1/
         # overlapping ranges
         dtof = utils.PivotRange('d-f', ts, 'd', 'f')
         dtom = utils.PivotRange('d-m', ts, 'd', 'm')
-
-        # nones
-        nonetol = utils.PivotRange('None-l', ts, None, 'l')
-        ltonone = utils.PivotRange('l-None', ts, 'l', None)
 
         # test range > and <
         # non-adjacent
@@ -3829,17 +3826,22 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertFalse('y' < ltor)
 
         # Now test ranges with only 1 boundry
+        start_to_l = utils.PivotRange('None-l', ts, '', 'l')
+        l_to_end = utils.PivotRange('l-None', ts, 'l', '')
+
         for x in ('l', 'm', 'z', 'zzz1231sd'):
             if x == 'l':
-                self.assertFalse(x in ltonone)
-                self.assertFalse(nonetol < x)
+                self.assertFalse(x in l_to_end)
+                self.assertFalse(start_to_l < x)
+                self.assertFalse(x > start_to_l)
             else:
-                self.assertTrue(x in ltonone)
-                self.assertTrue(nonetol < x)
+                self.assertTrue(x in l_to_end)
+                self.assertTrue(start_to_l < x)
+                self.assertTrue(x > start_to_l)
 
         # Now test some of the range to range checks with missing boundries
-        self.assertFalse(atof < nonetol)
-        self.assertFalse(nonetol < inf_pr)
+        self.assertFalse(atof < start_to_l)
+        self.assertFalse(start_to_l < inf_pr)
 
         # Now test PivotRange.overlaps(other)
         self.assertFalse(atof.overlaps(ftol))
@@ -3849,16 +3851,16 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertFalse(dtof.overlaps(ftol))
         self.assertTrue(dtom.overlaps(ftol))
         self.assertTrue(ftol.overlaps(dtom))
-        self.assertFalse(nonetol.overlaps(ltonone))
+        self.assertFalse(start_to_l.overlaps(l_to_end))
 
     def test_find_pivot_range(self):
         ts = utils.Timestamp(time.time()).internal
-        start = utils.PivotRange('-a', ts, None, 'a')
+        start = utils.PivotRange('-a', ts, '', 'a')
         atof = utils.PivotRange('a-f', ts, 'a', 'f')
         ftol = utils.PivotRange('f-l', ts, 'f', 'l')
         ltor = utils.PivotRange('l-r', ts, 'l', 'r')
         rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
-        end = utils.PivotRange('z-', ts, 'z', None)
+        end = utils.PivotRange('z-', ts, 'z', '')
         ranges = [start, atof, ftol, ltor, rtoz, end]
 
         found = utils.find_pivot_range(' ', ranges)

@@ -4198,10 +4198,14 @@ def get_md5_socket():
 
 
 class PivotRange(object):
-    def __init__(self, name=None, timestamp=None, lower=None, upper=None,
+    def __init__(self, name=None, timestamp=None, lower='', upper='',
                  object_count=0, bytes_used=0, meta_timestamp=None):
         self.name = name
         self.lower = lower
+        if not isinstance(lower, string_types):
+            raise TypeError('lower must be a string')
+        if not isinstance(upper, string_types):
+            raise TypeError('upper must be a string')
         if upper and upper < lower:
             raise ValueError('upper (%r) must be bigger than lower (%r)' %
                              (upper, lower or ''))
@@ -4269,10 +4273,10 @@ class PivotRange(object):
             return self.lower < item <= self.upper
 
     def __lt__(self, other):
-        if self.upper is None:
+        if not self.upper:
             return False
         if isinstance(other, PivotRange):
-            if other.lower is None:
+            if not other.lower:
                 return False
             lower = self.lower or ''
             return self.upper < other.lower or lower < other.lower
@@ -4282,10 +4286,10 @@ class PivotRange(object):
             return self.upper < other
 
     def __gt__(self, other):
-        if self.lower is None:
+        if not self.lower:
             return False
         if isinstance(other, PivotRange):
-            if other.upper is None:
+            if not other.upper:
                 return False
             upper = self.upper or other.upper + '\x00'
             return self.lower >= other.upper or upper > other.upper
@@ -4308,24 +4312,24 @@ class PivotRange(object):
             self.timestamp.internal)
 
     def entire_namespace(self):
-        return self.lower is None and self.upper is None
+        return self.lower == self.upper == ''
 
     def overlaps(self, other):
         if not isinstance(other, PivotRange):
             return False
-        if self.lower is None and other.lower is None:
+        if self.lower == other.lower == '':
             return True
-        elif self.upper is None and other.upper is None:
+        elif self.upper == other.upper == '':
             return True
         elif self.entire_namespace() or other.entire_namespace():
             return True
-        elif self.upper is None:
+        elif not self.upper:
             return other.upper > self.lower
-        elif other.upper is None:
+        elif not other.upper:
             return self.upper > other.lower
-        elif self.lower is None:
+        elif not self.lower:
             return other.lower < self.upper
-        elif other.lower is None:
+        elif not other.lower:
             return self.lower < other.upper
         return other.upper > self.upper > other.lower or \
             other.upper > self.lower > other.lower or \
