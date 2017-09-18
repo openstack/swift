@@ -133,6 +133,91 @@ class TestContainerController(TestRingBase):
         for key in owner_headers:
             self.assertIn(key, resp.headers)
 
+    def test_reseller_admin(self):
+        reseller_internal_headers = {
+            get_sys_meta_prefix('container') + 'sharding': 'True'}
+        reseller_external_headers = {'x-container-sharding': 'on'}
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+        # Normal users, even swift owners, can't set it
+        req = Request.blank('/v1/a/c', method='PUT',
+                            headers=reseller_external_headers,
+                            environ={'swift_owner': True})
+        with mocked_http_conn(*[201] * self.CONTAINER_REPLICAS) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_internal_headers:
+            for captured in mock_conn.requests:
+                self.assertNotIn(key.title(), captured['headers'])
+
+        req = Request.blank('/v1/a/c', method='POST',
+                            headers=reseller_external_headers,
+                            environ={'swift_owner': True})
+        with mocked_http_conn(*[204] * self.CONTAINER_REPLICAS) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_internal_headers:
+            for captured in mock_conn.requests:
+                self.assertNotIn(key.title(), captured['headers'])
+
+        req = Request.blank('/v1/a/c', environ={'swift_owner': True})
+        # Heck, they don't even get to know
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200,
+                                          headers=reseller_internal_headers)):
+            resp = controller.HEAD(req)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_external_headers:
+            self.assertNotIn(key, resp.headers)
+
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200,
+                                          headers=reseller_internal_headers)):
+            resp = controller.GET(req)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_external_headers:
+            self.assertNotIn(key, resp.headers)
+
+        # But reseller admins can set it
+        req = Request.blank('/v1/a/c', method='PUT',
+                            headers=reseller_external_headers,
+                            environ={'reseller_request': True})
+        with mocked_http_conn(*[201] * self.CONTAINER_REPLICAS) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_internal_headers:
+            for captured in mock_conn.requests:
+                self.assertIn(key.title(), captured['headers'])
+
+        req = Request.blank('/v1/a/c', method='POST',
+                            headers=reseller_external_headers,
+                            environ={'reseller_request': True})
+        with mocked_http_conn(*[204] * self.CONTAINER_REPLICAS) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_internal_headers:
+            for captured in mock_conn.requests:
+                self.assertIn(key.title(), captured['headers'])
+
+        # And see that they have
+        req = Request.blank('/v1/a/c', environ={'reseller_request': True})
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200,
+                                          headers=reseller_internal_headers)):
+            resp = controller.HEAD(req)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_external_headers:
+            self.assertIn(key, resp.headers)
+            self.assertEqual(resp.headers[key], 'True')
+
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200,
+                                          headers=reseller_internal_headers)):
+            resp = controller.GET(req)
+        self.assertEqual(2, resp.status_int // 100)
+        for key in reseller_external_headers:
+            self.assertEqual(resp.headers[key], 'True')
+
     def test_sys_meta_headers_PUT(self):
         # check that headers in sys meta namespace make it through
         # the container controller
