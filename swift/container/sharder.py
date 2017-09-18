@@ -432,60 +432,6 @@ class ContainerSharder(ContainerReplicator):
         any(self.cpool)
         self.logger.info('Finished misplaced shard replication')
 
-    @staticmethod
-    def get_shard_range(broker):
-        timestamp = ContainerSharder.get_metadata_item(
-            broker, 'X-Container-Sysmeta-Shard-Timestamp')
-        lower = ContainerSharder.get_metadata_item(
-            broker, 'X-Container-Sysmeta-Shard-Lower')
-        upper = ContainerSharder.get_metadata_item(
-            broker, 'X-Container-Sysmeta-Shard-Upper')
-        if not lower and not upper:
-            return None
-
-        shard = ShardRange(broker.container, timestamp, lower or '',
-                           upper or '', 0, 0, Timestamp(time.time()))
-        tmp_info = broker.get_info()
-        shard = ShardRange(broker.container, timestamp, lower, upper,
-                           tmp_info.get('object_count', 0),
-                           tmp_info.get('bytes_used', 0),
-                           Timestamp(time.time()))
-
-        return shard
-
-    @staticmethod
-    def get_shard_root_path(broker):
-        """
-        Attempt to get the root shard container name and account for the
-        container represented by this broker.
-
-        A container shard has 'X-Container-Sysmeta-Shard-{Account,Container}
-        set, which will contain the relevant values for the root shard
-        container. If they don't exist, then it returns the account and
-        container associated directly with the broker.
-
-        :param broker:
-        :return: account, container of the root shard container or the brokers
-                 if it can't be determined.
-        """
-        if broker.container is None:
-            # Ensure account/container get populated
-            broker.get_info()
-
-        account = broker.metadata.get('X-Container-Sysmeta-Shard-Account')
-        if account:
-            account = account[0]
-        else:
-            account = broker.account
-
-        container = broker.metadata.get('X-Container-Sysmeta-Shard-Container')
-        if container:
-            container = container[0]
-        else:
-            container = broker.container
-
-        return account, container
-
     def _post_replicate_hook(self, broker, info, responses):
         return
 
@@ -518,8 +464,7 @@ class ContainerSharder(ContainerReplicator):
             return continue_with_container
 
         if not root_account or not root_container:
-            root_account, root_container = \
-                ContainerSharder.get_shard_root_path(broker)
+            root_account, root_container = broker.get_shard_root_path()
 
         if root_container == broker.container:
             # This is the root container, and therefore the tome of knowledge,
@@ -602,7 +547,7 @@ class ContainerSharder(ContainerReplicator):
     def _update_shard_range_counts(self, root_account, root_container, broker):
         if broker.container == root_container:
             return
-        shard_range = ContainerSharder.get_shard_range(broker)
+        shard_range = broker.get_shard_range()
         if not shard_range:
             return
         self._update_shard_ranges(root_account, root_container, 'PUT',
@@ -669,9 +614,8 @@ class ContainerSharder(ContainerReplicator):
             self.node_idx = node_idx
             self.node_id = node_id
             self.part = int(part)
-            root_account, root_container = \
-                ContainerSharder.get_shard_root_path(broker)
-            shard_range = ContainerSharder.get_shard_range(broker)
+            root_account, root_container = broker.get_shard_root_path()
+            shard_range = broker.get_shard_range()
 
             # Before we do any heavy lifting, lets do an audit on the shard
             # container. We grab the root's view of the shard_points and make
@@ -985,8 +929,8 @@ class ContainerSharder(ContainerReplicator):
         self.logger.info('Started searching for shard ranges on %s/%s',
                          broker.account, broker.container)
 
-        # get the last pivot found to continue from
-        cont_range = self.get_shard_range(broker)
+        # get the last shard found to continue from
+        cont_range = broker.get_shard_range()
         cont_lower = cont_range.lower if cont_range else ''
         cont_upper = cont_range.upper if cont_range else ''
 
@@ -1056,9 +1000,8 @@ class ContainerSharder(ContainerReplicator):
 
         # we are still the scanner, so lets write the shard points.
         shard_ranges = []
-        root_account, root_container = \
-            ContainerSharder.get_shard_root_path(broker)
-        piv_account = account_to_shard_account(root_account)
+        root_account, root_container = broker.get_shard_root_path()
+        shard_account = account_to_shard_account(root_account)
         lower = old_range if old_range else cont_lower
         policy = POLICIES.get_by_index(broker.storage_policy_index)
         headers = {
@@ -1076,7 +1019,7 @@ class ContainerSharder(ContainerReplicator):
                     'X-Container-Sysmeta-Shard-Upper': shard_range,
                     'X-Container-Sysmeta-Shard-Timestamp': timestamp,
                     'X-Container-Sysmeta-Shard-Meta-Timestamp': timestamp})
-                self.swift.create_container(piv_account, piv_name,
+                self.swift.create_container(shard_account, piv_name,
                                             headers=headers)
             except internal_client.UnexpectedResponse as ex:
                 self.logger.warning('Failed to put container: %s', str(ex))
@@ -1113,7 +1056,7 @@ class ContainerSharder(ContainerReplicator):
                     'X-Container-Sysmeta-Shard-Upper': cont_upper,
                     'X-Container-Sysmeta-Shard-Timestamp': timestamp,
                     'X-Container-Sysmeta-Shard-Meta-Timestamp': timestamp})
-                self.swift.create_container(piv_account, piv_name,
+                self.swift.create_container(shard_account, piv_name,
                                             headers=headers)
             except internal_client.UnexpectedResponse as ex:
                 self.logger.warning('Failed to put container: %s', str(ex))
@@ -1188,7 +1131,7 @@ class ContainerSharder(ContainerReplicator):
 
         self.logger.info('Sharded container %s/%s is a candidate for '
                          'shrinking', broker.account, broker.container)
-        shard_range = ContainerSharder.get_shard_range(broker)
+        shard_range = broker.get_shard_range()
 
         obj_count = [broker.get_info()['object_count']]
 
@@ -1353,7 +1296,7 @@ class ContainerSharder(ContainerReplicator):
 
         # OK so we agree, so now we can merge this container (shrink) into the
         # merge container neighbour. First lets build the new shard range
-        shrink_range = ContainerSharder.get_shard_range(broker)
+        shrink_range = broker.get_shard_range()
         merge_range = self._get_merge_range(broker.account, merge_shard)
         if merge_range > shrink_range:
             merge_range.lower = shrink_range.lower
@@ -1463,7 +1406,7 @@ class ContainerSharder(ContainerReplicator):
             self._update_shard_ranges(root_account, root_container, 'PUT',
                                       broker.build_shard_ranges())
             timestamp = Timestamp(time.time()).internal
-            shard_range = self.get_shard_range(broker)
+            shard_range = broker.get_shard_range()
             shard_range.timestamp = timestamp
             self._update_shard_ranges(root_account, root_container, 'DELETE',
                                       [shard_range])
