@@ -330,23 +330,6 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
-    def test_put_object_post_as_copy(self):
-        # PUTs due to a post-as-copy should NOT cause a versioning op
-        self.app.register(
-            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
-
-        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
-        req = Request.blank(
-            '/v1/a/c/o',
-            environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
-                     'CONTENT_LENGTH': '100',
-                     'swift.post_as_copy': True})
-        status, headers, body = self.call_vw(req)
-        self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 1)
-        self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(1, self.app.call_count)
-
     def test_put_first_object_success(self):
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPOk, {}, 'passed')

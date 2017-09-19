@@ -307,11 +307,6 @@ class TestObjectSysmeta(unittest.TestCase):
         # test fast-post by issuing requests to the proxy app
         self._test_sysmeta_not_updated_by_POST(self.app)
 
-    def test_sysmeta_not_updated_by_POST_as_copy(self):
-        # test post-as-copy by issuing requests to the copy middleware app
-        self.copy_app.object_post_as_copy = True
-        self._test_sysmeta_not_updated_by_POST(self.copy_app)
-
     def test_sysmeta_updated_by_COPY(self):
         # check sysmeta is updated by a COPY in same way as user meta by
         # issuing requests to the copy middleware app
@@ -482,8 +477,3 @@ class TestObjectSysmeta(unittest.TestCase):
 
     def test_transient_sysmeta_replaced_by_PUT_or_POST(self):
         self._test_transient_sysmeta_replaced_by_PUT_or_POST(self.app)
-
-    def test_transient_sysmeta_replaced_by_PUT_or_POST_as_copy(self):
-        # test post-as-copy by issuing requests to the copy middleware app
-        self.copy_app.object_post_as_copy = True
-        self._test_transient_sysmeta_replaced_by_PUT_or_POST(self.copy_app)

@@ -47,7 +47,7 @@ class Test(ReplProbeTest):
                                    policy=self.policy)
         self.container_brain = BrainSplitter(self.url, self.token,
                                              self.container_name)
-        self.int_client = self.make_internal_client(object_post_as_copy=False)
+        self.int_client = self.make_internal_client()
 
     def _get_object_info(self, account, container, obj, number):
         obj_conf = self.configs['object-server']

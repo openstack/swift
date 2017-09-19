@@ -448,7 +448,7 @@ class ProbeTest(unittest.TestCase):
         else:
             os.system('sudo mount %s' % device)
 
-    def make_internal_client(self, object_post_as_copy=True):
+    def make_internal_client(self):
         tempdir = mkdtemp()
         try:
             conf_path = os.path.join(tempdir, 'internal_client.conf')
@@ -464,14 +464,13 @@ class ProbeTest(unittest.TestCase):
 
             [filter:copy]
             use = egg:swift#copy
-            object_post_as_copy = %s
 
             [filter:cache]
             use = egg:swift#memcache
 
             [filter:catch_errors]
             use = egg:swift#catch_errors
-            """ % object_post_as_copy
+            """
             with open(conf_path, 'w') as f:
                 f.write(dedent(conf_body))
             return internal_client.InternalClient(conf_path, 'test', 1)
