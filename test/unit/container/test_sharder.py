@@ -20,7 +20,7 @@ from tempfile import mkdtemp
 import mock
 
 from swift.container.sharder import ContainerSharder, RangeAnalyser
-from swift.common.utils import PivotRange, Timestamp
+from swift.common.utils import ShardRange, Timestamp
 
 import unittest
 
@@ -35,15 +35,15 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         ranges = [
-            PivotRange('-d', ts, '', 'd'),
-            PivotRange('d-g', ts, 'd', 'g'),
-            PivotRange('g-j', ts, 'g', 'j'),
-            PivotRange('j-l', ts, 'j', 'l'),
-            PivotRange('l-n', ts, 'l', 'n'),
-            PivotRange('n-p', ts, 'n', 'p'),
-            PivotRange('p-s', ts, 'p', 's'),
-            PivotRange('s-v', ts, 's', 'v'),
-            PivotRange('v-', ts, 'v', '')]
+            ShardRange('-d', ts, '', 'd'),
+            ShardRange('d-g', ts, 'd', 'g'),
+            ShardRange('g-j', ts, 'g', 'j'),
+            ShardRange('j-l', ts, 'j', 'l'),
+            ShardRange('l-n', ts, 'l', 'n'),
+            ShardRange('n-p', ts, 'n', 'p'),
+            ShardRange('p-s', ts, 'p', 's'),
+            ShardRange('s-v', ts, 's', 'v'),
+            ShardRange('v-', ts, 'v', '')]
 
         return ranges
 
@@ -53,8 +53,8 @@ class TestRangeAnalyser(unittest.TestCase):
         # This simulate a shard sharding by having an older 'n-p' and
         # newer split 'n-o' and 'o-p'
         overlap_without_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-p', ts, 'o', 'p')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-p', ts, 'o', 'p')]
 
         # expected 'n-p'
         expected_other_ranges = {self.ranges[5]}
@@ -79,12 +79,12 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         # second scanner that joins back up ( ie runs and dumps into
-        # PivotRanges before the other scanner has a go and so takes off where
+        # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_without_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-q', ts, 'o', 'q'),
-            PivotRange('q-s', ts, 'q', 's')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-q', ts, 'o', 'q'),
+            ShardRange('q-s', ts, 'q', 's')]
 
         # expected n-p, p-s
         expected_other_ranges = {p for p in self.ranges[5:7]}
@@ -109,12 +109,12 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         # second scanner that joins back up ( ie runs and dumps into
-        # PivotRanges before the other scanner has a go and so takes off where
+        # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_without_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-q', ts, 'o', 'q'),
-            PivotRange('q-s', ts, 'q', 's')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-q', ts, 'o', 'q'),
+            ShardRange('q-s', ts, 'q', 's')]
 
         # expected n-p
         expected_other_ranges = {self.ranges[5]}
@@ -141,11 +141,11 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         # second scanner that joins back up ( ie runs and dumps into
-        # PivotRanges before the other scanner has a go and so takes off where
+        # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_with_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-q', ts, 'o', 'q')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-q', ts, 'o', 'q')]
 
         # The newest will be incomplete, the second (older) path will
         # be complete.
@@ -174,11 +174,11 @@ class TestRangeAnalyser(unittest.TestCase):
 
         # To the end with different paths
         overlap_without_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-q', ts, 'o', 'q'),
-            PivotRange('q-t', ts, 'q', 't'),
-            PivotRange('t-w', ts, 't', 'w'),
-            PivotRange('w-', ts, 'w', '')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-q', ts, 'o', 'q'),
+            ShardRange('q-t', ts, 'q', 't'),
+            ShardRange('t-w', ts, 't', 'w'),
+            ShardRange('w-', ts, 'w', '')]
 
         # expected n-p
         expected_other_ranges = [{p for p in self.ranges[5:]},
@@ -204,10 +204,10 @@ class TestRangeAnalyser(unittest.TestCase):
 
         # To the end with different paths
         overlap_without_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-q', ts, 'o', 'q'),
-            PivotRange('t-w', ts, 't', 'w'),
-            PivotRange('w-', ts, 'w', '')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-q', ts, 'o', 'q'),
+            ShardRange('t-w', ts, 't', 'w'),
+            ShardRange('w-', ts, 'w', '')]
 
         expected_completes = [False, True]
         expected_other_ranges = [{p for p in self.ranges[5:]},
@@ -232,12 +232,12 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         # second scanner that joins back up ( ie runs and dumps into
-        # PivotRange before the other scanner has a go and so takes off where
+        # ShardRange before the other scanner has a go and so takes off where
         # it left off).
         overlap_without_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('o-q', ts, 'o', 'q'),
-            PivotRange('q-s', ts, 'q', 's')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('o-q', ts, 'o', 'q'),
+            ShardRange('q-s', ts, 'q', 's')]
 
         expected_other_ranges = [{p for p in self.ranges[5:7]},
                                  set(overlap_without_gaps)]
@@ -245,7 +245,7 @@ class TestRangeAnalyser(unittest.TestCase):
                                   + overlap_without_gaps),
                               set(self.ranges)]
 
-        # make a pivot in both paths newer then any of the difference to
+        # make a shard range in both paths newer then any of the difference to
         # force a tie break situation
         self.ranges[2].timestamp = Timestamp(time.time()).internal
         self.ranges.extend(overlap_without_gaps)
@@ -265,11 +265,11 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = Timestamp(time.time()).internal
 
         # second scanner that joins back up ( ie runs and dumps into
-        # PivotRanges before the other scanner has a go and so takes off where
+        # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_with_gaps = [
-            PivotRange('n-o', ts, 'n', 'o'),
-            PivotRange('q-s', ts, 'q', 's')]
+            ShardRange('n-o', ts, 'n', 'o'),
+            ShardRange('q-s', ts, 'q', 's')]
 
         expected_completes = [False, True]
         expected_other_ranges = [{p for p in self.ranges[5:7]},
@@ -278,7 +278,7 @@ class TestRangeAnalyser(unittest.TestCase):
                                   + overlap_with_gaps),
                               set(self.ranges)]
 
-        # make a pivot in both paths newer then any of the difference to
+        # make a shard range in both paths newer then any of the difference to
         # force a tie break situation
         self.ranges[2].timestamp = Timestamp(time.time()).internal
         self.ranges.extend(overlap_with_gaps)
@@ -422,7 +422,7 @@ class TestSharder(unittest.TestCase):
 
             fake_stats = [{'containers_failed': 1},
                           {'containers_sharded': 2},
-                          {'container_pivots': 23}]
+                          {'container_shard_ranges': 23}]
 
             def set_stats(*args, **kwargs):
                 sharder.stats.update(fake_stats.pop(0))
@@ -449,7 +449,7 @@ class TestSharder(unittest.TestCase):
             self.assertNotIn('1 containers failed', lines[3])
             self.assertIn('Container sharder cycle completed: 396.00s',
                           lines[4])
-            self.assertIn('23 pivots found', lines[5])
+            self.assertIn('23 shard ranges found', lines[5])
             # checks stats were reset
             self.assertNotIn('2 sharded', lines[5])
             # TODO check recon cache

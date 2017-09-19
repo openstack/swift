@@ -25,7 +25,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_PIVOT_NODE, DB_STATE_SHARDING, DB_STATE_SHARDED, \
+    RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_SHARDED, \
     DB_STATE_UNSHARDED
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
@@ -35,7 +35,7 @@ from swift.common.request_helpers import get_param, get_listing_content_type, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    get_log_line, find_pivot_range, account_to_pivot_account, whataremyips
+    get_log_line, find_shard_range, account_to_shard_account, whataremyips
 from swift.common.constraints import check_mount, valid_timestamp, check_utf8
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
@@ -267,12 +267,12 @@ class ContainerController(BaseStorageServer):
             # live and return a 301. If redirect_cont
             # is given, then we know where to redirect to without having to
             # look it up.
-            ranges = broker.build_pivot_ranges()
-            containing_range = find_pivot_range(obj, ranges)
+            ranges = broker.build_shard_ranges()
+            containing_range = find_shard_range(obj, ranges)
             if containing_range is None:
                 return  # TODO: what??
             if broker.is_root_container():
-                acct = account_to_pivot_account(broker.account)
+                acct = account_to_shard_account(broker.account)
             else:
                 acct = broker.account
 
@@ -312,15 +312,15 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound()
         if obj:     # delete object
             record_type = req.headers.get('x-backend-record-type')
-            if record_type == str(RECORD_TYPE_PIVOT_NODE):
-                broker.delete_pivot(
+            if record_type == str(RECORD_TYPE_SHARD_NODE):
+                broker.delete_shard(
                     # TODO (acoles): should this be x-timestamp?
                     obj, req.headers.get('x-backend-timestamp'),
                     req.headers.get(
                         'x-meta-timestamp', req_timestamp.internal),
-                    req.headers.get('x-backend-pivot-lower'),
-                    req.headers.get('x-backend-pivot-upper'))
-            elif len(broker.get_pivot_ranges()) > 0:
+                    req.headers.get('x-backend-shard-lower'),
+                    req.headers.get('x-backend-shard-upper'))
+            elif len(broker.get_shard_ranges()) > 0:
                 # cannot put to a root shard container, find actual container
                 # TODO: what if this returns None? i.e., we have pivot ranges,
                 # but they don't cover the whole namespace so we can't find a
@@ -429,15 +429,16 @@ class ContainerController(BaseStorageServer):
                 return HTTPNotFound()
 
             record_type = req.headers.get('x-backend-record-type')
-            if record_type == str(RECORD_TYPE_PIVOT_NODE):
-                broker.put_pivot(obj, req.headers.get('x-backend-timestamp'),
-                                 req.headers.get('x-meta-timestamp'),
-                                 0, req.headers.get('x-backend-pivot-lower'),
-                                 req.headers.get('x-backend-pivot-upper'),
-                                 req.headers.get('x-backend-pivot-objects'),
-                                 req.headers.get('x-backend-pivot-bytes'))
+            if record_type == str(RECORD_TYPE_SHARD_NODE):
+                broker.put_shard(
+                    obj, req.headers.get('x-backend-timestamp'),
+                    req.headers.get('x-meta-timestamp'),
+                    0, req.headers.get('x-backend-shard-lower'),
+                    req.headers.get('x-backend-shard-upper'),
+                    req.headers.get('x-backend-shard-objects'),
+                    req.headers.get('x-backend-shard-bytes'))
 
-            elif len(broker.get_pivot_ranges()) > 0:
+            elif len(broker.get_shard_ranges()) > 0:
                 # cannot put to a root shard container, find actual container
                 res = self._find_shard_location(req, broker, obj)
                 if res:
@@ -543,7 +544,7 @@ class ContainerController(BaseStorageServer):
         path = get_param(req, 'path')
         delimiter = get_param(req, 'delimiter')
         reverse = config_true_value(get_param(req, 'reverse'))
-        old_b, pivot_b = broker.get_brokers()
+        old_b, shard_b = broker.get_brokers()
         info, is_deleted = old_b.get_info_is_deleted()
         headers.update({'X-Container-Object-Count': info['object_count'],
                         'X-Container-Bytes-Used': info['bytes_used']})
@@ -554,15 +555,15 @@ class ContainerController(BaseStorageServer):
 
         possibly_more = True
         while possibly_more:
-            pivot_items = pivot_b.list_objects_iter(
+            shard_items = shard_b.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 broker.storage_policy_index, reverse, include_deleted=True)
-            old_items = merge_items(old_items, pivot_items, reverse)
+            old_items = merge_items(old_items, shard_items, reverse)
             if len(old_items) >= limit:
                 break
-            if len(pivot_items) == limit:
+            if len(shard_items) == limit:
                 limit -= len(old_items)
-                marker = pivot_items[-1][0]
+                marker = shard_items[-1][0]
             else:
                 possibly_more = False
 
@@ -606,10 +607,10 @@ class ContainerController(BaseStorageServer):
         if is_deleted:
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
-        if items and items.lower() == "pivot":
-            container_list = broker.build_pivot_ranges()
+        if items and items.lower() == "shard":
+            container_list = broker.build_shard_ranges()
             if obj:
-                container_list = [find_pivot_range(obj, container_list)]
+                container_list = [find_shard_range(obj, container_list)]
             elif marker or end_marker:
                 if reverse:
                     marker, end_marker = end_marker, marker

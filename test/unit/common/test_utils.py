@@ -3698,33 +3698,33 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     def test_find_pivot_range(self):
         ts = utils.Timestamp(time.time()).internal
-        start = utils.PivotRange('-a', ts, '', 'a')
-        atof = utils.PivotRange('a-f', ts, 'a', 'f')
-        ftol = utils.PivotRange('f-l', ts, 'f', 'l')
-        ltor = utils.PivotRange('l-r', ts, 'l', 'r')
-        rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
-        end = utils.PivotRange('z-', ts, 'z', '')
+        start = utils.ShardRange('-a', ts, '', 'a')
+        atof = utils.ShardRange('a-f', ts, 'a', 'f')
+        ftol = utils.ShardRange('f-l', ts, 'f', 'l')
+        ltor = utils.ShardRange('l-r', ts, 'l', 'r')
+        rtoz = utils.ShardRange('r-z', ts, 'r', 'z')
+        end = utils.ShardRange('z-', ts, 'z', '')
         ranges = [start, atof, ftol, ltor, rtoz, end]
 
-        found = utils.find_pivot_range(' ', ranges)
+        found = utils.find_shard_range(' ', ranges)
         self.assertEqual(found, start)
-        found = utils.find_pivot_range(' ', ranges[1:])
+        found = utils.find_shard_range(' ', ranges[1:])
         self.assertEqual(found, None)
-        found = utils.find_pivot_range('b', ranges)
+        found = utils.find_shard_range('b', ranges)
         self.assertEqual(found, atof)
-        found = utils.find_pivot_range('f', ranges)
+        found = utils.find_shard_range('f', ranges)
         self.assertEqual(found, atof)
-        found = utils.find_pivot_range('x', ranges)
+        found = utils.find_shard_range('x', ranges)
         self.assertEqual(found, rtoz)
-        found = utils.find_pivot_range('r', ranges)
+        found = utils.find_shard_range('r', ranges)
         self.assertEqual(found, ltor)
-        found = utils.find_pivot_range('}', ranges)
+        found = utils.find_shard_range('}', ranges)
         self.assertEqual(found, end)
-        found = utils.find_pivot_range('}', ranges[:-1])
+        found = utils.find_shard_range('}', ranges[:-1])
         self.assertEqual(found, None)
-        # remove ltor from list import and try and find a pivot for an item
-        # in that range.
-        found = utils.find_pivot_range('p', ranges[:-3] + ranges[-2:])
+        # remove ltor from list import and try and find a shard range for an
+        # item in that range.
+        found = utils.find_shard_range('p', ranges[:-3] + ranges[-2:])
         self.assertEqual(found, None)
 
     def test_modify_priority(self):
@@ -6506,18 +6506,18 @@ class TestPipeMutex(unittest.TestCase):
         eventlet.debug.hub_prevent_multiple_readers(True)
 
 
-class TestPivotRange(unittest.TestCase):
+class TestShardRange(unittest.TestCase):
     def setUp(self):
         self.ts_iter = make_timestamp_iter()
 
     def test_pivot_range_initialisation(self):
         def assert_initialisation_ok(params, expected):
-            pr = utils.PivotRange(**params)
+            pr = utils.ShardRange(**params)
             self.assertDictEqual(dict(pr), expected)
 
         def assert_initialisation_fails(params, err_type=ValueError):
             with self.assertRaises(err_type):
-                utils.PivotRange(**params)
+                utils.ShardRange(**params)
 
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
@@ -6577,7 +6577,7 @@ class TestPivotRange(unittest.TestCase):
 
     def test_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
-        pr = utils.PivotRange('test', ts_1, 'l', 'u', 0, 0, None)
+        pr = utils.ShardRange('test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, pr.timestamp)
 
         ts_2 = next(self.ts_iter)
@@ -6589,7 +6589,7 @@ class TestPivotRange(unittest.TestCase):
 
     def test_meta_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
-        pr = utils.PivotRange('test', ts_1, 'l', 'u', 0, 0, None)
+        pr = utils.ShardRange('test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, pr.timestamp)
         self.assertEqual(ts_1, pr.meta_timestamp)
 
@@ -6614,7 +6614,7 @@ class TestPivotRange(unittest.TestCase):
 
     def test_pivot_range(self):
         # first test infinite range (no boundries)
-        inf_pr = utils.PivotRange(name='test', timestamp=utils.Timestamp.now())
+        inf_pr = utils.ShardRange(name='test', timestamp=utils.Timestamp.now())
         self.assertEqual('', inf_pr.upper)
         self.assertEqual('', inf_pr.lower)
         self.assertIs(True, inf_pr.entire_namespace())
@@ -6631,17 +6631,17 @@ class TestPivotRange(unittest.TestCase):
 
         # upper (if provided) *must* be greater than lower
         with self.assertRaises(ValueError):
-            utils.PivotRange('f-a', ts, 'f', 'a')
+            utils.ShardRange('f-a', ts, 'f', 'a')
 
         # test basic boundries
-        atof = utils.PivotRange('a-f', ts, 'a', 'f')
-        ftol = utils.PivotRange('f-l', ts, 'f', 'l')
-        ltor = utils.PivotRange('l-r', ts, 'l', 'r')
-        rtoz = utils.PivotRange('r-z', ts, 'r', 'z')
+        atof = utils.ShardRange('a-f', ts, 'a', 'f')
+        ftol = utils.ShardRange('f-l', ts, 'f', 'l')
+        ltor = utils.ShardRange('l-r', ts, 'l', 'r')
+        rtoz = utils.ShardRange('r-z', ts, 'r', 'z')
 
         # overlapping ranges
-        dtof = utils.PivotRange('d-f', ts, 'd', 'f')
-        dtom = utils.PivotRange('d-m', ts, 'd', 'm')
+        dtof = utils.ShardRange('d-f', ts, 'd', 'f')
+        dtom = utils.ShardRange('d-m', ts, 'd', 'm')
 
         # test range > and <
         # non-adjacent
@@ -6676,8 +6676,8 @@ class TestPivotRange(unittest.TestCase):
         self.assertFalse('y' < ltor)
 
         # Now test ranges with only 1 boundry
-        start_to_l = utils.PivotRange('None-l', ts, '', 'l')
-        l_to_end = utils.PivotRange('l-None', ts, 'l', '')
+        start_to_l = utils.ShardRange('None-l', ts, '', 'l')
+        l_to_end = utils.ShardRange('l-None', ts, 'l', '')
 
         for x in ('l', 'm', 'z', 'zzz1231sd'):
             if x == 'l':
@@ -6693,7 +6693,7 @@ class TestPivotRange(unittest.TestCase):
         self.assertFalse(atof < start_to_l)
         self.assertFalse(start_to_l < inf_pr)
 
-        # Now test PivotRange.overlaps(other)
+        # Now test ShardRange.overlaps(other)
         self.assertFalse(atof.overlaps(ftol))
         self.assertFalse(ftol.overlaps(atof))
         self.assertTrue(atof.overlaps(dtof))

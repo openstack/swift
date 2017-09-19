@@ -216,8 +216,8 @@ def direct_get_container(node, part, account, container, marker=None,
     :param response_timeout: timeout in seconds for getting the response
     :param end_marker: end_marker query
     :param reverse: reverse the returned listing
-    :param items: omit for normal listings, 'all' to include deleted object
-                  records, 'pivot' to get pivot ranges instead of object
+    :param items: omit for normal listings, ``all`` to include deleted object
+                  records, ``shard`` to get shard ranges instead of object
                   records
     :returns: a tuple of (response headers, a list of objects) The response
               headers will be a HeaderKeyDict.

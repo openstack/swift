@@ -43,7 +43,7 @@ from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable, \
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
-    parse_content_range, csv_append, list_from_csv, PivotRange, Timestamp, \
+    parse_content_range, csv_append, list_from_csv, ShardRange, Timestamp, \
     override_bytes_from_content_type, Spliterator
 
 from swift.common.wsgi import make_subrequest
@@ -703,7 +703,7 @@ def update_container_data_record(record, logger=None, include_deleted=False):
     if isinstance(record, dict):
         # Conversion has already happened (e.g. from a sharded node)
         return record
-    if isinstance(record, PivotRange):
+    if isinstance(record, ShardRange):
         created = record.timestamp
         response = dict(record)
     else:
@@ -734,7 +734,7 @@ def create_container_listing(req, out_content_type, resp_headers,
             fields = ["name", "hash", "bytes", "content_type", "last_modified"]
             if include_deleted:
                 fields.append('deleted')
-            if container_list and isinstance(container_list[0], PivotRange):
+            if container_list and isinstance(container_list[0], ShardRange):
                 fields = ["name", "lower", "upper", "object_count",
                           "bytes_used", "last_modified", "meta_timestamp"]
             for obj in container_list:

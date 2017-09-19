@@ -27,7 +27,7 @@ from six.moves import range
 import sqlite3
 
 from swift.common.utils import Timestamp, encode_timestamps, \
-    decode_timestamps, extract_swift_bytes, PivotRange
+    decode_timestamps, extract_swift_bytes, ShardRange
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
 
 
@@ -36,7 +36,7 @@ SQLITE_ARG_LIMIT = 999
 DATADIR = 'containers'
 
 RECORD_TYPE_OBJECT = 0
-RECORD_TYPE_PIVOT_NODE = 1
+RECORD_TYPE_SHARD_NODE = 1
 
 DB_STATE_NOTFOUND = 0
 DB_STATE_UNSHARDED = 1
@@ -270,7 +270,7 @@ def merge_data(item, existing):
         return '', True
 
 
-def merge_pivots(item, existing):
+def merge_shards(item, existing):
     if not existing:
         return True
     if existing['created_at'] < item['created_at']:
@@ -314,26 +314,26 @@ class ContainerBroker(DatabaseBroker):
         super(ContainerBroker, self).__init__(
             db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok)
-        # The auditor will create a backend using the pivot_db as the db_file.
-        if db_file == ':memory:' or db_file.endswith("_pivot.db"):
-            self._pivot_db_file = db_file
+        # The auditor will create a backend using the shard_db as the db_file.
+        if db_file == ':memory:' or db_file.endswith("_shard.db"):
+            self._shard_db_file = db_file
         else:
-            self._pivot_db_file = db_file[:-len('.db')] + "_pivot.db"
+            self._shard_db_file = db_file[:-len('.db')] + "_shard.db"
 
     def get_db_state(self):
         if self._db_file == ':memory:':
             return DB_STATE_UNSHARDED
         db_exists = os.path.exists(self._db_file) and \
-            self._db_file != self._pivot_db_file
-        pivot_exists = os.path.exists(self._pivot_db_file)
-        if db_exists and not pivot_exists:
+            self._db_file != self._shard_db_file
+        shard_exists = os.path.exists(self._shard_db_file)
+        if db_exists and not shard_exists:
             return DB_STATE_UNSHARDED
-        elif db_exists and pivot_exists:
+        elif db_exists and shard_exists:
             return DB_STATE_SHARDING
-        elif not db_exists and pivot_exists:
+        elif not db_exists and shard_exists:
             return DB_STATE_SHARDED
         else:
-            # Neither db nor pivot db exists
+            # Neither db nor shard db exists
             return DB_STATE_NOTFOUND
 
     @property
@@ -342,7 +342,7 @@ class ContainerBroker(DatabaseBroker):
         if db_state in (DB_STATE_NOTFOUND, DB_STATE_UNSHARDED):
             return self._db_file
         elif db_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
-            return self._pivot_db_file
+            return self._shard_db_file
 
     def _db_exists(self):
         return self.get_db_state() != DB_STATE_NOTFOUND
@@ -370,7 +370,7 @@ class ContainerBroker(DatabaseBroker):
         self.create_policy_stat_table(conn, storage_policy_index)
         self.create_container_info_table(conn, put_timestamp,
                                          storage_policy_index)
-        self.create_pivot_ranges_table(conn)
+        self.create_shard_ranges_table(conn)
 
     def create_object_table(self, conn):
         """
@@ -452,14 +452,14 @@ class ContainerBroker(DatabaseBroker):
             VALUES (?)
         """, (storage_policy_index,))
 
-    def create_pivot_ranges_table(self, conn):
+    def create_shard_ranges_table(self, conn):
         """
-        Create the pivot_ranges table which is specific to the container DB.
+        Create the shard_ranges table which is specific to the container DB.
 
         :param conn: DB connection object
         """
         conn.executescript("""
-            CREATE TABLE pivot_ranges (
+            CREATE TABLE shard_ranges (
                 ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
                 lower TEXT,
@@ -505,7 +505,7 @@ class ContainerBroker(DatabaseBroker):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
         data = pickle.loads(entry.decode('base64'))
         record_type = data[9] if len(data) > 9 else RECORD_TYPE_OBJECT
-        if record_type == RECORD_TYPE_PIVOT_NODE:
+        if record_type == RECORD_TYPE_SHARD_NODE:
             (name, timestamp, lower, upper, object_count, bytes_used,
              meta_timestamp, deleted) = data[:8]
             item = {
@@ -548,7 +548,7 @@ class ContainerBroker(DatabaseBroker):
             try:
                 if self.get_db_state() == DB_STATE_SHARDED:
                     row = conn.execute(
-                        'SELECT max(object_count) from pivot_ranges where '
+                        'SELECT max(object_count) from shard_ranges where '
                         'deleted = 0').fetchone()
                 else:
                     row = conn.execute(
@@ -574,7 +574,7 @@ class ContainerBroker(DatabaseBroker):
                         deleted=1, storage_policy_index=storage_policy_index)
 
     def make_tuple_for_pickle(self, record):
-        if record['record_type'] == RECORD_TYPE_PIVOT_NODE:
+        if record['record_type'] == RECORD_TYPE_SHARD_NODE:
             # NB: there's some padding since record_type *MUST* be at index 9
             return (record['name'], record['created_at'], record['lower'],
                     record['upper'], record['object_count'],
@@ -614,41 +614,41 @@ class ContainerBroker(DatabaseBroker):
                   'record_type': RECORD_TYPE_OBJECT}
         self.put_record(record)
 
-    def delete_pivot(self, name, timestamp, meta_timestamp=None,
+    def delete_shard(self, name, timestamp, meta_timestamp=None,
                      lower=None, upper=None):
         """
-        Mark an pivot range deleted.
+        Mark a shard range range deleted.
 
-        :param name: pivot name to be deleted
+        :param name: shard range name to be deleted
         :param timestamp: timestamp when the object was marked as deleted
         :param meta_timestamp: timestamp of when metadata was last updated
-        :param lower: pivots lower range
-        :param upper: pivots upper range
+        :param lower: shard's lower range
+        :param upper: shard's upper range
         """
-        self.put_pivot(name, timestamp, meta_timestamp, deleted=1, lower=lower,
+        self.put_shard(name, timestamp, meta_timestamp, deleted=1, lower=lower,
                        upper=upper, object_count=0, bytes_used=0)
 
-    def put_pivot(self, name, timestamp, meta_timestamp=None, deleted=0,
+    def put_shard(self, name, timestamp, meta_timestamp=None, deleted=0,
                   lower=None, upper=None, object_count=0, bytes_used=0):
         """
-        Creates a pivot range in the DB with its metadata.
+        Creates a shard range in the DB with its metadata.
 
-        :param name: pivot name to be created
-        :param timestamp: timestamp of when the object was created
+        :param name: shard range name to be created
+        :param timestamp: timestamp of when the shard was created
         :param meta_timestamp: timestamp of when metadata was last updated
-        :param deleted: if True, marks the object as deleted and sets the
+        :param deleted: if True, marks the shard as deleted and sets the
                         deleted_at timestamp to timestamp
-        :param lower: pivots lower range
-        :param upper: pivots upper range
-        :param object_count: number of object stored in range
-        :param bytes_used: number of bytes used in the range
+        :param lower: shard's lower range
+        :param upper: shard's upper range
+        :param object_count: number of objects stored in shard range
+        :param bytes_used: number of bytes used in the shard range
         """
         record = {'name': name, 'created_at': timestamp, 'lower': lower,
                   'upper': upper, 'object_count': object_count,
                   'bytes_used': bytes_used, 'deleted': deleted,
                   'storage_policy_index': 0,
                   'meta_timestamp': meta_timestamp,
-                  'record_type': RECORD_TYPE_PIVOT_NODE}
+                  'record_type': RECORD_TYPE_SHARD_NODE}
         self.put_record(record)
 
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
@@ -691,7 +691,7 @@ class ContainerBroker(DatabaseBroker):
 
     def get_replication_info(self):
         info = super(ContainerBroker, self).get_replication_info()
-        info['pivot_max_row'] = self.get_max_row('pivot_points')
+        info['shard_max_row'] = self.get_max_row('shard_ranges')
         return info
 
     def _get_info(self):
@@ -745,7 +745,7 @@ class ContainerBroker(DatabaseBroker):
                   reported_delete_timestamp, reported_object_count,
                   reported_bytes_used, hash, id, x_container_sync_point1,
                   x_container_sync_point2, and storage_policy_index,
-                  pivot_point.
+                  db_state.
         """
         data = self._get_info()
 
@@ -756,7 +756,7 @@ class ContainerBroker(DatabaseBroker):
             data.update({'object_count': other_info.get('object_count', 0),
                          'bytes_used': other_info.get('bytes_used', 0)})
         elif data['db_state'] == DB_STATE_SHARDED:
-            data.update(self.get_pivot_usage())
+            data.update(self.get_shard_usage())
 
         return data
 
@@ -1057,7 +1057,7 @@ class ContainerBroker(DatabaseBroker):
 
     def merge_items(self, item_list, source=None):
         """
-        Merge items into the object or pivot_ranges tables.
+        Merge items into the object or shard ranges tables.
 
         :param item_list: list of dictionaries of {'name', 'created_at',
                           'size', 'content_type', 'etag', 'deleted',
@@ -1068,14 +1068,14 @@ class ContainerBroker(DatabaseBroker):
         for item in item_list:
             item.setdefault('record_type', RECORD_TYPE_OBJECT)
             cols = ['name']
-            if item['record_type'] == RECORD_TYPE_PIVOT_NODE:
+            if item['record_type'] == RECORD_TYPE_SHARD_NODE:
                 cols += ['lower', 'upper']
             for col in cols:
                 if isinstance(item[col], six.text_type):
                     item[col] = item[col].encode('utf-8')
 
-        pivot_range_list = [item for item in item_list
-                            if item['record_type'] == RECORD_TYPE_PIVOT_NODE]
+        shard_range_list = [item for item in item_list
+                            if item['record_type'] == RECORD_TYPE_SHARD_NODE]
 
         item_list = [item for item in item_list
                      if item['record_type'] == RECORD_TYPE_OBJECT]
@@ -1089,10 +1089,10 @@ class ContainerBroker(DatabaseBroker):
             return (((record[0], record[6]), record)
                     for record in curs.execute(sql, chunk))
 
-        def get_records_pivot(curs, chunk, query_mod):
+        def get_records_shard(curs, chunk, query_mod):
             sql = (('SELECT name, created_at, lower, upper, object_count, '
                     'bytes_used, meta_timestamp, deleted '
-                    'FROM pivot_ranges '
+                    'FROM shard_ranges '
                     'WHERE %s name IN (%s)')
                    % (query_mod,
                       ','.join('?' * len(chunk))))
@@ -1114,15 +1114,15 @@ class ContainerBroker(DatabaseBroker):
                 table = 'object'
                 record_type = RECORD_TYPE_OBJECT
             else:
-                get_records = get_records_pivot
+                get_records = get_records_shard
                 keys = ('name',)
                 del_keys = ('name',)
                 add_keys = ('name', 'created_at', 'lower', 'upper',
                             'object_count', 'bytes_used', 'meta_timestamp',
                             'deleted')
-                transform_item = merge_pivots
-                table = 'pivot_ranges'
-                record_type = RECORD_TYPE_PIVOT_NODE
+                transform_item = merge_shards
+                table = 'shard_ranges'
+                record_type = RECORD_TYPE_SHARD_NODE
 
             # Get created_at times for objects in rec_list that already exist.
             # We must chunk it up to avoid sqlite's limit of 999 args.
@@ -1158,7 +1158,7 @@ class ContainerBroker(DatabaseBroker):
                 # we delete the current values.
                 items = [i for i in to_add.values() if i.get('prefixed')]
                 for item in items:
-                    self.update_pivot_usage(item)
+                    self.update_shard_usage(item)
 
             if to_delete:
                 filters = ' AND '.join(['%s = ?' % key for key in del_keys])
@@ -1179,8 +1179,8 @@ class ContainerBroker(DatabaseBroker):
             curs.execute('BEGIN IMMEDIATE')
             if item_list:
                 _merge_items(curs, item_list)
-            if pivot_range_list:
-                _merge_items(curs, pivot_range_list, False)
+            if shard_range_list:
+                _merge_items(curs, shard_range_list, False)
             if source and item_list:
                 # for replication we rely on the remote end sending merges in
                 # order with no gaps to increment sync_points
@@ -1351,17 +1351,17 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    def get_pivot_ranges(self, connection=None):
+    def get_shard_ranges(self, connection=None):
         """
         :return:
         """
 
-        def _get_pivot_ranges(conn):
+        def _get_shard_ranges(conn):
             try:
                 sql = '''
                 SELECT name, created_at, lower, upper, object_count,
                     bytes_used, meta_timestamp
-                FROM pivot_ranges
+                FROM shard_ranges
                 WHERE deleted=0
                 ORDER BY lower, upper;
                 '''
@@ -1369,19 +1369,19 @@ class ContainerBroker(DatabaseBroker):
                 data.row_factory = None
                 return [row for row in data]
             except sqlite3.OperationalError as err:
-                if 'no such table: pivot_ranges' not in str(err):
+                if 'no such table: shard_ranges' not in str(err):
                     raise
-                self.create_pivot_ranges_table(conn)
+                self.create_shard_ranges_table(conn)
             return []
 
         self._commit_puts_stale_ok()
         if connection:
-            return _get_pivot_ranges(connection)
+            return _get_shard_ranges(connection)
         else:
             with self.get() as conn:
-                return _get_pivot_ranges(conn)
+                return _get_shard_ranges(conn)
 
-    def update_pivot_usage(self, item):
+    def update_shard_usage(self, item):
 
         def update_usage(current, new_data):
             if not current:
@@ -1401,7 +1401,7 @@ class ContainerBroker(DatabaseBroker):
             try:
                 sql = '''
                 SELECT object_count, bytes_used
-                FROM pivot_ranges
+                FROM shard_ranges
                 WHERE deleted=0 AND
                 created_at < ? AND
                 name == ?;
@@ -1416,13 +1416,13 @@ class ContainerBroker(DatabaseBroker):
             item['object_count'] = update_usage(row[0], item['object_count'])
             item['bytes_used'] = update_usage(row[1], item['bytes_used'])
 
-    def get_pivot_usage(self):
+    def get_shard_usage(self):
         self._commit_puts_stale_ok()
         with self.get() as conn:
             try:
                 sql = '''
                 SELECT sum(object_count), sum(bytes_used)
-                FROM pivot_ranges
+                FROM shard_ranges
                 WHERE deleted=0;
                 '''
                 data = conn.execute(sql)
@@ -1433,16 +1433,16 @@ class ContainerBroker(DatabaseBroker):
                 return {'bytes_used': bytes_used,
                         'object_count': object_count}
             except sqlite3.OperationalError as err:
-                if 'no such table: pivot_ranges' not in str(err):
+                if 'no such table: shard_ranges' not in str(err):
                     raise
-                self.create_pivot_ranges_table(conn)
+                self.create_shard_ranges_table(conn)
             return {'bytes_used': 0, 'object_count': 0}
 
-    def pivot_nodes_to_items(self, nodes):
+    def shard_nodes_to_items(self, nodes):
         # TODO: split this to separate helper method for each given type?
         result = list()
         for item in nodes:
-            if isinstance(item, PivotRange):
+            if isinstance(item, ShardRange):
                 obj = dict(item, deleted=0)
             else:
                 obj = {
@@ -1457,18 +1457,19 @@ class ContainerBroker(DatabaseBroker):
 
             obj.update({
                 'storage_policy_index': 0,
-                'record_type': RECORD_TYPE_PIVOT_NODE})
+                'record_type': RECORD_TYPE_SHARD_NODE})
             result.append(obj)
         return result
 
-    def build_pivot_ranges(self):
+    def build_shard_ranges(self):
         ranges = list()
 
-        for node in self.get_pivot_ranges():
-            ranges.append(PivotRange(*node))
+        for node in self.get_shard_ranges():
+            ranges.append(ShardRange(*node))
         return ranges
 
-    def _get_next_pivot_point(self, shard_container_size, last_upper, conn):
+    def _get_next_shard_range_upper(self, shard_container_size, last_upper,
+                                    conn):
         try:
             offset = int(shard_container_size) // 2
 
@@ -1486,29 +1487,29 @@ class ContainerBroker(DatabaseBroker):
         except Exception:
             return ''
 
-    def get_next_pivot_point(self, shard_container_size, last_upper=None,
-                             connection=None):
+    def get_next_shard_range_upper(self, shard_container_size, last_upper=None,
+                                   connection=None):
         """
-        Finds the next entry in the objects table to use as a pivot point
+        Finds the next entry in the shards table to use as a shard range
         when sharding.
 
         If there is an error or no objects in the container it will return an
-        emply string ('').
+        empty string ('').
 
         :return: The middle object in the container.
         """
 
         self._commit_puts_stale_ok()
         if connection:
-            return self._get_next_pivot_point(shard_container_size, last_upper,
-                                              connection)
+            return self._get_next_shard_range_upper(
+                shard_container_size, last_upper, connection)
         else:
             try:
                 if self.get_db_state() == DB_STATE_SHARDING:
                     self._create_connection(self._db_file)
                 with self.get() as conn:
-                    return self._get_next_pivot_point(shard_container_size,
-                                                      last_upper, conn)
+                    return self._get_next_shard_range_upper(
+                        shard_container_size, last_upper, conn)
             finally:
                 self._create_connection()
 
@@ -1561,30 +1562,31 @@ class ContainerBroker(DatabaseBroker):
             return False
 
         # firstly lets ensure we have a connection, otherwise we could start
-        # playing with the wrong database while setting up the pivot database
+        # playing with the wrong database while setting up the shard range
+        # database
         if not self.conn:
             with self.get():
                 pass
 
         # For this initial version, we'll create a new container along side.
-        # Later we will remove parts so the pivot DB only has what it really
-        # needs
-        sub_broker = ContainerBroker(self._pivot_db_file, self.timeout,
+        # Later we will remove parts so the shard range DB only has what it
+        # really needs
+        sub_broker = ContainerBroker(self._shard_db_file, self.timeout,
                                      self.logger, self.account, self.container,
                                      self.pending_timeout, self.stale_reads_ok)
         sub_broker.initialize(Timestamp.now().internal,
                               self.storage_policy_index)
         sub_broker.update_metadata(self.metadata)
 
-        # If there are pivot_ranges defined.. which can happen when the scanner
-        # node finds the first pivot then replicates out to the others who
-        # are still in the UNSHARDED state.
-        pivot_ranges = self.get_pivot_ranges()
-        if pivot_ranges:
-            pivot_ranges = \
-                [self._record_to_dict(list(r) + [0], RECORD_TYPE_PIVOT_NODE)
-                 for r in pivot_ranges]
-            sub_broker.merge_items(pivot_ranges)
+        # If there are shard_ranges defined.. which can happen when the scanner
+        # node finds the first shard range then replicates out to the others
+        # who are still in the UNSHARDED state.
+        shard_ranges = self.get_shard_ranges()
+        if shard_ranges:
+            shard_ranges = \
+                [self._record_to_dict(list(r) + [0], RECORD_TYPE_SHARD_NODE)
+                 for r in shard_ranges]
+            sub_broker.merge_items(shard_ranges)
 
         # We also need to sync the sync tables as we have no idea how long
         # sharding will take and we want to be able to continue replication
@@ -1606,7 +1608,7 @@ class ContainerBroker(DatabaseBroker):
                 conn.execute('DELETE FROM object WHERE ROWID = %d' % max_row)
                 conn.commit()
             except sqlite3.OperationalError as err:
-                self.logger.error('Failed to set the ROWID of the pivot '
+                self.logger.error('Failed to set the ROWID of the shard range '
                                   'database for %s/%s: %s', self.account,
                                   self.container, err)
 
@@ -1647,9 +1649,9 @@ class ContainerBroker(DatabaseBroker):
             brokers.append(ContainerBroker(
                 self._db_file, self.timeout, self.logger, self.account,
                 self.container, self.pending_timeout, self.stale_reads_ok))
-            brokers[0]._pivot_db_file = self._db_file
+            brokers[0]._shard_db_file = self._db_file
             brokers.append(ContainerBroker(
-                self._pivot_db_file, self.timeout, self.logger, self.account,
+                self._shard_db_file, self.timeout, self.logger, self.account,
                 self.container, self.pending_timeout, self.stale_reads_ok))
         return brokers
 
@@ -1669,7 +1671,7 @@ class ContainerBroker(DatabaseBroker):
             self._create_connection(self._db_file)
             old_max_row = self.get_max_row()
             if old_max_row <= start:
-                self._create_connection(self._pivot_db_file)
+                self._create_connection(self._shard_db_file)
                 return \
                     super(ContainerBroker, self).get_items_since(start, count)
 
@@ -1677,7 +1679,7 @@ class ContainerBroker(DatabaseBroker):
             if len(objs) == count:
                 return objs
 
-            self._create_connection(self._pivot_db_file)
+            self._create_connection(self._shard_db_file)
             objs.extend(super(ContainerBroker, self).get_items_since(
                 old_max_row, count - len(objs)))
             return objs

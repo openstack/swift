@@ -4197,11 +4197,11 @@ def get_md5_socket():
     return md5_sockfd
 
 
-class PivotRange(object):
+class ShardRange(object):
     def __init__(self, name=None, timestamp=None, lower='', upper='',
                  object_count=0, bytes_used=0, meta_timestamp=None):
         """
-        A PivotRange encapsulates state related to a container shard.
+        A ShardRange encapsulates state related to a container shard.
 
         :param name: the name of the shard.
         :param timestamp: the timestamp at which the shard was created.
@@ -4293,7 +4293,7 @@ class PivotRange(object):
     def __lt__(self, other):
         if not self.upper:
             return False
-        if isinstance(other, PivotRange):
+        if isinstance(other, ShardRange):
             if not other.lower:
                 return False
             lower = self.lower or ''
@@ -4306,7 +4306,7 @@ class PivotRange(object):
     def __gt__(self, other):
         if not self.lower:
             return False
-        if isinstance(other, PivotRange):
+        if isinstance(other, ShardRange):
             if not other.upper:
                 return False
             upper = self.upper or other.upper + '\x00'
@@ -4317,7 +4317,7 @@ class PivotRange(object):
             return self.lower >= other
 
     def __eq__(self, other):
-        if not isinstance(other, PivotRange):
+        if not isinstance(other, ShardRange):
             return False
         return self.lower == other.lower and self.upper == other.upper
 
@@ -4333,7 +4333,7 @@ class PivotRange(object):
         return self.lower == self.upper == ''
 
     def overlaps(self, other):
-        if not isinstance(other, PivotRange):
+        if not isinstance(other, ShardRange):
             return False
         if self.lower == other.lower == '':
             return True
@@ -4372,7 +4372,7 @@ class PivotRange(object):
         yield 'meta_timestamp', self.meta_timestamp.internal
 
 
-def find_pivot_range(item, ranges):
+def find_shard_range(item, ranges):
     """
 
     :param item: The item that needs to be placed
@@ -4385,53 +4385,10 @@ def find_pivot_range(item, ranges):
     return None
 
 
-def pivot_to_pivot_container(account, container, pivot=None):
-        """
-        Using a specified pivot range or pivot name and generate the required
-        sharded account and container name.
-
-        Given something like ``acc, cont, orange`` it will return::
-
-            .sharded_acc cont_orange
-
-        :param account: The root container's account
-        :param container: The root container
-        :param pivot: The pivot range object
-        :return: A tuple of (account, container) representing the sharded
-                 container.
-        """
-        if not pivot:
-            return account, container
-        acc = account_to_pivot_account(account)
-        return acc, pivot.name
-
-
-def account_to_pivot_account(account):
+def account_to_shard_account(account):
     if not account:
         return account
     return ".sharded_%s" % account
-
-
-def verify_pivot_usage_header(value):
-    """
-    Takes in the value of a pivot usage header (X-Backend-Pivot-Used-Bytes or
-    X-Backend-Pivot-Object-Count), which takes the form of:
-
-    "[+-]<int>"
-
-    The + or - allows to increment the existing count, without these it's
-    setting to total counts.
-
-    :param value: The header value.
-    :return: True if its a valid header, False otherwise.
-    """
-    if not isinstance(value, string_types):
-        return False
-    try:
-        int(value)
-    except ValueError:
-        return False
-    return True
 
 
 def modify_priority(conf, logger):

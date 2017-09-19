@@ -234,26 +234,26 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 1)
 
-    def test_delete_pivot(self):
+    def test_delete_shard(self):
         # Test ContainerBroker.delete_object
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_pivot('o', Timestamp(time()).internal)
+        broker.put_shard('o', Timestamp(time()).internal)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT count(*) FROM pivot_ranges "
+                "SELECT count(*) FROM shard_ranges "
                 "WHERE deleted = 0").fetchone()[0], 1)
             self.assertEqual(conn.execute(
-                "SELECT count(*) FROM pivot_ranges "
+                "SELECT count(*) FROM shard_ranges "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.delete_pivot('o', Timestamp(time()).internal)
+        broker.delete_shard('o', Timestamp(time()).internal)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT count(*) FROM pivot_ranges "
+                "SELECT count(*) FROM shard_ranges "
                 "WHERE deleted = 0").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT count(*) FROM pivot_ranges "
+                "SELECT count(*) FROM shard_ranges "
                 "WHERE deleted = 1").fetchone()[0], 1)
 
     def test_put_object(self):
@@ -455,7 +455,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(conn.execute(
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
-    def test_put_pivot(self):
+    def test_put_shard(self):
         # Test ContainerBroker.put_object
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
@@ -463,174 +463,176 @@ class TestContainerBroker(unittest.TestCase):
         # Create initial object
         timestamp = Timestamp(time()).internal
         meta_timestamp = Timestamp(time()).internal
-        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
-                         lower='low', upper='up')
+        broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
+                         meta_timestamp, lower='low', upper='up')
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'low')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'low')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'up')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'up')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 0)
 
         # Reput same event
-        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
-                         lower='low', upper='up')
+        broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
+                         meta_timestamp, lower='low', upper='up')
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'low')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'low')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'up')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'up')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 0)
 
         # Put new event
         sleep(.00001)
         timestamp = Timestamp(time()).internal
         meta_timestamp = Timestamp(time()).internal
-        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
-                         lower='lower', upper='upper', object_count=1,
-                         bytes_used=2)
+        broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
+                         meta_timestamp, lower='lower', upper='upper',
+                         object_count=1, bytes_used=2)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lower')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'lower')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upper')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'upper')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 1)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 1)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 2)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put old event
         otimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
-        broker.put_pivot('"{<pivot \'&\' name>}"', otimestamp, meta_timestamp,
-                         lower='lower', upper='upper', object_count=1,
-                         bytes_used=2)
+        broker.put_shard('"{<shardrange \'&\' name>}"', otimestamp,
+                         meta_timestamp, lower='lower', upper='upper',
+                         object_count=1, bytes_used=2)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lower')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'lower')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upper')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'upper')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 1)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 1)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 2)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put old delete event
         dtimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
-        broker.put_pivot('"{<pivot \'&\' name>}"', dtimestamp, meta_timestamp,
-                         lower='lower', upper='upper', deleted=1)
+        broker.put_shard('"{<shardrange \'&\' name>}"', dtimestamp,
+                         meta_timestamp, lower='lower', upper='upper',
+                         deleted=1)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lower')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'lower')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upper')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'upper')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 1)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 1)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 2)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put new delete event
         sleep(.00001)
         timestamp = Timestamp(time()).internal
-        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
-                         lower='lower', upper='upper', deleted=1)
+        broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
+                         meta_timestamp, lower='lower', upper='upper',
+                         deleted=1)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 1)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 1)
 
         # Put new event
         sleep(.00001)
         timestamp = Timestamp(time()).internal
         meta_timestamp = Timestamp(time()).internal
-        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
-                         lower='lowerer', upper='upperer', object_count=3,
-                         bytes_used=4)
+        broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
+                         meta_timestamp, lower='lowerer', upper='upperer',
+                         object_count=3, bytes_used=4)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lowerer')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'lowerer')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upperer')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'upperer')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 3)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 3)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 4)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 4)
 
         # We'll use this later
         sleep(.0001)
@@ -644,50 +646,50 @@ class TestContainerBroker(unittest.TestCase):
         meta_timestamp = Timestamp(time()).internal
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 previous_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 previous_meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lowerer')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'lowerer')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'upperer')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'upperer')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 3)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 3)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 4)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 4)
 
         # Put event from after last put but before last post
         timestamp = in_between_timestamp
-        broker.put_pivot('"{<pivot \'&\' name>}"', timestamp, meta_timestamp,
-                         lower='lowererer', upper='uppererer', object_count=5,
-                         bytes_used=6)
+        broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
+                         meta_timestamp, lower='lowererer', upper='uppererer',
+                         object_count=5, bytes_used=6)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
-                "SELECT name FROM pivot_ranges").fetchone()[0],
-                '"{<pivot \'&\' name>}"')
+                "SELECT name FROM shard_ranges").fetchone()[0],
+                '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
-                "SELECT created_at FROM pivot_ranges").fetchone()[0],
+                "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
             self.assertEqual(conn.execute(
-                "SELECT meta_timestamp FROM pivot_ranges").fetchone()[0],
+                "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
             self.assertEqual(conn.execute(
-                "SELECT lower FROM pivot_ranges").fetchone()[0], 'lowererer')
+                "SELECT lower FROM shard_ranges").fetchone()[0], 'lowererer')
             self.assertEqual(conn.execute(
-                "SELECT upper FROM pivot_ranges").fetchone()[0], 'uppererer')
+                "SELECT upper FROM shard_ranges").fetchone()[0], 'uppererer')
             self.assertEqual(conn.execute(
-                "SELECT deleted FROM pivot_ranges").fetchone()[0], 0)
+                "SELECT deleted FROM shard_ranges").fetchone()[0], 0)
             self.assertEqual(conn.execute(
-                "SELECT object_count FROM pivot_ranges").fetchone()[0], 5)
+                "SELECT object_count FROM shard_ranges").fetchone()[0], 5)
             self.assertEqual(conn.execute(
-                "SELECT bytes_used FROM pivot_ranges").fetchone()[0], 6)
+                "SELECT bytes_used FROM shard_ranges").fetchone()[0], 6)
 
     def test_make_tuple_for_pickle(self):
         record = {'name': 'obj',
@@ -882,14 +884,14 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_get_db_state(self, tempdir):
         # test that the get db state code. This checks for existence of the
-        # db_file and/or the pivot_db_file.
+        # db_file and/or the shard_db_file.
         acct = 'account'
         cont = 'continer'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        db_pivot_file = "%s_pivot.db" % hsh
+        db_shard_file = "%s_shard.db" % hsh
         db_path = os.path.join(tempdir, db_file)
-        db_pivot_path = os.path.join(tempdir, db_pivot_file)
+        db_shard_path = os.path.join(tempdir, db_shard_file)
         ts = Timestamp(time())
 
         # First test NOTFOUND state
@@ -897,21 +899,21 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(broker.get_db_state(), DB_STATE_NOTFOUND)
         self.assertEqual(DB_STATE[broker.get_db_state()], 'notfound')
 
-        # Test UNSHARDED state, that is when db_file exists and pivot_db_file
+        # Test UNSHARDED state, that is when db_file exists and shard_db_file
         # doesn't
         broker.initialize(ts.internal, 0)
         self.assertEqual(broker.get_db_state(), DB_STATE_UNSHARDED)
         self.assertEqual(DB_STATE[broker.get_db_state()], 'unsharded')
 
         # Test the SHARDING state, this is the period when both the db_file and
-        # the pivot_db_file exist
-        piv_broker = ContainerBroker(db_pivot_path, account=acct,
+        # the shard_db_file exist
+        piv_broker = ContainerBroker(db_shard_path, account=acct,
                                      container=cont)
         piv_broker.initialize(ts.internal, 0)
         self.assertEqual(broker.get_db_state(), DB_STATE_SHARDING)
         self.assertEqual(DB_STATE[broker.get_db_state()], 'sharding')
 
-        # Finally test the SHARDED state, this is when only pivot_db_file
+        # Finally test the SHARDED state, this is when only shard_db_file
         # exists.
         os.unlink(db_path)
         self.assertEqual(broker.get_db_state(), DB_STATE_SHARDED)
@@ -920,47 +922,47 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_db_file_property(self, tempdir):
         # test that the get db state code. This checks for existence of the
-        # db_file and/or the pivot_db_file.
+        # db_file and/or the shard_db_file.
         acct = 'account'
         cont = 'continer'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        db_pivot_file = "%s_pivot.db" % hsh
+        db_shard_file = "%s_shard.db" % hsh
         db_path = os.path.join(tempdir, db_file)
-        db_pivot_path = os.path.join(tempdir, db_pivot_file)
+        db_shard_path = os.path.join(tempdir, db_shard_file)
         ts = Timestamp(time())
 
         # First test NOTFOUND state, this will return the default db_file
         broker = ContainerBroker(db_path, account=acct, container=cont)
         self.assertEqual(broker.db_file, db_path)
 
-        # Test UNSHARDED state, that is when db_file exists and pivot_db_file
+        # Test UNSHARDED state, that is when db_file exists and shard_db_file
         # doesn't, so it should return the db_path
         broker.initialize(ts.internal, 0)
         self.assertEqual(broker.db_file, db_path)
 
         # Test the SHARDING state, this is the period when both the db_file and
-        # the pivot_db_file exist, in this case it should return the
-        # pivot_db_path
-        piv_broker = ContainerBroker(db_pivot_path, account=acct,
+        # the shard_db_file exist, in this case it should return the
+        # shard_db_path
+        piv_broker = ContainerBroker(db_shard_path, account=acct,
                                      container=cont)
         piv_broker.initialize(ts.internal, 0)
-        self.assertEqual(broker.db_file, db_pivot_path)
+        self.assertEqual(broker.db_file, db_shard_path)
 
-        # Finally test the SHARDED state, this is when only pivot_db_file
-        # exists, so obviously this should return the pivot_db_path
+        # Finally test the SHARDED state, this is when only shard_db_file
+        # exists, so obviously this should return the shard_db_path
         os.unlink(db_path)
-        self.assertEqual(broker.db_file, db_pivot_path)
+        self.assertEqual(broker.db_file, db_shard_path)
 
     @with_tempdir
-    def test_get_items_since_with_pivot_db(self, tempdir):
+    def test_get_items_since_with_shard_db(self, tempdir):
         acct = 'account'
         cont = 'continer'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
-        db_pivot_file = "%s_pivot.db" % hsh
+        db_shard_file = "%s_shard.db" % hsh
         db_path = os.path.join(tempdir, db_file)
-        db_pivot_path = os.path.join(tempdir, db_pivot_file)
+        db_shard_path = os.path.join(tempdir, db_shard_file)
         ts = make_timestamp_iter()
 
         broker = ContainerBroker(db_path, account=acct, container=cont)
@@ -975,7 +977,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Move to SHARDING state, then populate the holding table
         broker.set_sharding_state()
-        self.assertEqual(broker.db_file, db_pivot_path)
+        self.assertEqual(broker.db_file, db_shard_path)
         broker.delete_object('o4', next(ts).internal)
         broker.delete_object('o5', next(ts).internal)
         broker._commit_puts()
@@ -1004,23 +1006,24 @@ class TestContainerBroker(unittest.TestCase):
             # Should only hit the old broker
             items = broker.get_items_since(1, 2)
             self.assertEqual(len(broker_calls), 1)
-            self.assertFalse(broker_calls[0].endswith('pivot.db'))
+            self.assertFalse(broker_calls[0].endswith('shard.db'))
             self.assertEqual([2, 3], [item['ROWID'] for item in items])
 
             # Now well wrap around between 2 so we should call get_items_since
-            # twice, 1 old and 1 pivot broker.
+            # twice, 1 old and 1 shardrange broker.
             broker_calls = []
             items = broker.get_items_since(2, 2)
             self.assertEqual(len(broker_calls), 2)
-            self.assertFalse(broker_calls[0].endswith('pivot.db'))
-            self.assertTrue(broker_calls[1].endswith('pivot.db'))
+            self.assertFalse(broker_calls[0].endswith('shard.db'))
+            self.assertTrue(broker_calls[1].endswith('shard.db'))
             self.assertEqual([3, 4], [item['ROWID'] for item in items])
 
-            # Now only hit the pivot broker, so only call get_items_since once
+            # Now only hit the shard range broker, so only call get_items_since
+            # once
             broker_calls = []
             items = broker.get_items_since(3, 2)
             self.assertEqual(len(broker_calls), 1)
-            self.assertTrue(broker_calls[0].endswith('pivot.db'))
+            self.assertTrue(broker_calls[0].endswith('shard.db'))
             self.assertEqual([4, 5], [item['ROWID'] for item in items])
 
     @with_tempdir

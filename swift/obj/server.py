@@ -265,8 +265,8 @@ class ObjectController(BaseStorageServer):
             self.logger.thread_locals = logger_thread_locals
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (
-            headers_out.get('X-Backend-Pivot-Account', account),
-            headers_out.get('X-Backend-Pivot-Container', container), obj)
+            headers_out.get('X-Backend-Shard-Account', account),
+            headers_out.get('X-Backend-Shard-Container', container), obj)
         if all([host, partition, contdevice]):
             try:
                 with ConnectionTimeout(self.conn_timeout):

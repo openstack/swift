@@ -35,8 +35,8 @@ from swift.common.utils import (Timestamp, hash_path,
 
 
 def other_items_hook(broker):
-    pivot_ranges = broker.get_pivot_ranges()
-    return broker.pivot_nodes_to_items(pivot_ranges)
+    shard_ranges = broker.get_shard_ranges()
+    return broker.shard_nodes_to_items(shard_ranges)
 
 
 class ContainerReplicator(db_replicator.Replicator):
@@ -266,7 +266,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return rv
 
     def _in_sync(self, rinfo, info, broker, local_sync):
-        if len(broker.get_pivot_ranges()) > 0:
+        if len(broker.get_shard_ranges()) > 0:
             return False
 
         return super(ContainerReplicator, self)._in_sync(

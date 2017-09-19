@@ -45,7 +45,7 @@ from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
-    document_iters_to_http_response_body, PivotRange
+    document_iters_to_http_response_body, ShardRange
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout, RangeAlreadyComplete
@@ -1952,7 +1952,7 @@ class Controller(object):
 
         return resp
 
-    def _get_pivot_ranges(self, req, account, container, obj=None):
+    def _get_shard_ranges(self, req, account, container, obj=None):
         ranges = []
         part, nodes = self.app.container_ring.get_nodes(account, container)
 
@@ -1961,31 +1961,31 @@ class Controller(object):
             path = "%s/%s" % (path, obj)
         params = req.params.copy()
         params.update({
-            'items': 'pivot',
+            'items': 'shard',
             'format': 'json'})
 
         headers = [self.generate_request_headers(req, transfer=True)
                    for _junk in range(len(nodes))]
-        piv_resp = self.make_requests(req, self.app.container_ring,
-                                      part, "GET", path, headers,
-                                      urlencode(params))
-        if not is_success(piv_resp.status_int):
+        shard_resp = self.make_requests(req, self.app.container_ring,
+                                        part, "GET", path, headers,
+                                        urlencode(params))
+        if not is_success(shard_resp.status_int):
             return ranges
 
         try:
-            pivots = json.loads(piv_resp.body)
+            shards = json.loads(shard_resp.body)
         except ValueError:
             # Failed to decode the json response
             pass
 
-        for pivot in pivots:
-            lower = pivot.get('lower', '')
-            upper = pivot.get('upper', '')
-            created_at = pivot.get('created_at') or None
-            object_count = pivot.get('object_count') or 0
-            bytes_used = pivot.get('bytes_used') or 0
-            meta_timestamp = pivot.get('meta_timestamp') or None
-            ranges.append(PivotRange(pivot['name'], created_at, lower,
+        for shard in shards:
+            lower = shard.get('lower', '')
+            upper = shard.get('upper', '')
+            created_at = shard.get('created_at') or None
+            object_count = shard.get('object_count') or 0
+            bytes_used = shard.get('bytes_used') or 0
+            meta_timestamp = shard.get('meta_timestamp') or None
+            ranges.append(ShardRange(shard['name'], created_at, lower,
                                      upper, object_count, bytes_used,
                                      meta_timestamp))
 

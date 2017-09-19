@@ -18,7 +18,7 @@ from swift import gettext_ as _
 import json
 
 from swift.common.utils import public, csv_append, Timestamp, \
-    config_true_value, account_to_pivot_account
+    config_true_value, account_to_shard_account
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success, \
@@ -144,7 +144,7 @@ class ContainerController(Controller):
         return resp
 
     def _get_sharded(self, req, resp, sharding_state):
-        # if sharding, we need to visit all the pivots before the upto and
+        # if sharding, we need to visit all the shards before the upto and
         # merge with this response.
         # TODO: this results in a more up to date listing but currently
         # use staler data
@@ -158,10 +158,10 @@ class ContainerController(Controller):
         #         upto = max(uptos, key=lambda x: x[-1])[0]
 
         limit = req.params.get('limit', CONTAINER_LISTING_LIMIT)
-        piv_account = account_to_pivot_account(self.account_name)
-        # In whatever case we need the list of PivotRanges that contain this
+        piv_account = account_to_shard_account(self.account_name)
+        # In whatever case we need the list of ShardRanges that contain this
         # range
-        ranges = self._get_pivot_ranges(req, self.account_name,
+        ranges = self._get_shard_ranges(req, self.account_name,
                                         self.container_name)
         if not ranges:
             # can't find ranges or there was a problem getting the ranges. So
@@ -185,8 +185,8 @@ class ContainerController(Controller):
                     pass
             return None, None, piv_resp
 
-        def merge_old_new(pivot, params):
-            if pivot is None:
+        def merge_old_new(shard_range, params):
+            if shard_range is None:
                 return get_objects(self.account_name, self.container_name,
                                    params)
             try:
@@ -194,15 +194,15 @@ class ContainerController(Controller):
                 # need some extra limit because we are getting deleted objects
                 params['limit'] = min(limit * 2, CONTAINER_LISTING_LIMIT)
 
-                hdrs, objs, tmp_resp = get_objects(piv_account, pivot.name,
-                                                   params)
+                hdrs, objs, tmp_resp = get_objects(
+                    piv_account, shard_range.name, params)
                 if hdrs is None and tmp_resp:
                     return tmp_resp
             finally:
                 params.pop('items', None)
                 params['limit'] = limit
 
-            # now get the headers from the old db + holding (pivot) db.
+            # now get the headers from the old db + holding (shard range) db.
             old_hdrs, old_objs, old_resp = \
                 get_objects(self.account_name, self.container_name, params)
 
@@ -243,7 +243,7 @@ class ContainerController(Controller):
         sharding = sharding_state == DB_STATE_SHARDING
         params['format'] = 'json'
         num_pivs = len(ranges)
-        pivot = None
+        shard_range = None
         for i in range(num_pivs + 1):
             if sharding and reverse and i == 0:
                 # special case if we are still sharding as data may exist in
@@ -258,36 +258,37 @@ class ContainerController(Controller):
             elif sharding and not reverse and i == num_pivs:
                 # we are in another edge case where the we need to check more
                 # in the old DB
-                if end_marker and pivot and (end_marker < pivot.upper or
-                                             end_marker in pivot):
+                if (end_marker and shard_range and
+                        (end_marker < shard_range.upper or
+                         end_marker in shard_range)):
                     continue
                 params['end_marker'] = end_marker
-                params['marker'] = pivot.upper
-                pivot = None
+                params['marker'] = shard_range.upper
+                shard_range = None
             else:
                 try:
-                    pivot = ranges.pop(0)
+                    shard_range = ranges.pop(0)
                 except IndexError:
                     break
-                if marker and marker in pivot:
+                if marker and marker in shard_range:
                     params['marker'] = marker
                 else:
-                    params['marker'] = pivot.upper or '' if reverse else \
-                        pivot.lower or ''
-                if end_marker and end_marker in pivot:
+                    params['marker'] = shard_range.upper or '' if reverse \
+                        else shard_range.lower or ''
+                if end_marker and end_marker in shard_range:
                     params['end_marker'] = end_marker
                 else:
-                    params['end_marker'] = pivot.lower or '' if reverse else \
-                        pivot.upper or ''
+                    params['end_marker'] = shard_range.lower or '' if reverse \
+                        else shard_range.upper or ''
                     if params['end_marker']:
                         params['include_end_marker'] = True
 
             # now we have all those params set up. Let's get some objects
             if sharding:
-                hdrs, objs, tmp_resp = merge_old_new(pivot, params)
+                hdrs, objs, tmp_resp = merge_old_new(shard_range, params)
             else:
-                hdrs, objs, tmp_resp = get_objects(piv_account, pivot.name,
-                                                   params)
+                hdrs, objs, tmp_resp = get_objects(
+                    piv_account, shard_range.name, params)
 
             if hdrs is None and tmp_resp:
                 return tmp_resp

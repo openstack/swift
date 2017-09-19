@@ -47,7 +47,7 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads,
-    account_to_pivot_account)
+    account_to_shard_account)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -233,18 +233,18 @@ class BaseObjectController(Controller):
         db_state = container_info.get('sharding_state', DB_STATE_UNSHARDED)
         if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
             # find the sharded container to which we'll send the update.
-            ranges = self._get_pivot_ranges(
+            ranges = self._get_shard_ranges(
                 req, self.account_name, self.container_name, self.object_name)
 
             if ranges:
                 shard = ranges[0].name
-                piv_acct = account_to_pivot_account(self.account_name)
+                shard_acct = account_to_shard_account(self.account_name)
                 partition, nodes = self.app.container_ring.get_nodes(
-                    piv_acct, shard)
+                    shard_acct, shard)
                 overide_prefix = 'X-Backend-Container-Update-Override'
                 container_meta = {
-                    '%s-Backend-Pivot-Account' % overide_prefix: piv_acct,
-                    '%s-Backend-Pivot-Container' % overide_prefix: shard
+                    '%s-Backend-Shard-Account' % overide_prefix: shard_acct,
+                    '%s-Backend-Shard-Container' % overide_prefix: shard
                 }
 
                 return partition, nodes, container_meta

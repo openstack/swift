@@ -103,11 +103,12 @@ def roundrobin_datadirs(datadirs):
                     if not os.path.isdir(hash_dir):
                         continue
                     object_file = os.path.join(hash_dir, hsh + '.db')
-                    piv_object_file = os.path.join(hash_dir, hsh + '_pivot.db')
+                    shard_object_file = os.path.join(hash_dir,
+                                                     hsh + '_shard.db')
                     if os.path.exists(object_file):
                         yield (partition, object_file, node_id)
-                    elif os.path.exists(piv_object_file):
-                        yield (partition, piv_object_file, node_id)
+                    elif os.path.exists(shard_object_file):
+                        yield (partition, shard_object_file, node_id)
                     else:
                         try:
                             os.rmdir(hash_dir)
@@ -370,11 +371,10 @@ class Replicator(Daemon):
 
         # Attempt to sync other items
         # Note the following will have to be cleaned up at some point. The
-        # hook here is to grab other items (non-objects) to replicate,
-        # namely the pivot points stored in a container database. The
-        # number of these should always been _much_ less then normal
-        # objects, however for completeness we should probably have a
-        # limit and pointer here too.
+        # hook here is to grab other items (non-objects) to replicate, namely
+        # the shard ranges stored in a container database. The number of these
+        # should always be _much_ less than normal objects, however for
+        # completeness we should probably have a limit and pointer here too.
         other_items = self._other_items_hook(broker)
         if other_items:
             with Timeout(self.node_timeout):
@@ -914,7 +914,7 @@ class ReplicatorRpc(object):
         new_broker.newid(local_id)
         new_broker.update_metadata(existing_broker.metadata)
         if filenames and not db_file.endswith(filenames[0]):
-            # we have a different filename (ie pivoted container to
+            # we have a different filename (ie sharded container to
             # container) so we need to rename correctly.
             db_file_dir = os.path.dirname(db_file)
             db_file_new = os.path.join(db_file_dir, filenames[0])

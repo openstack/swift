@@ -109,8 +109,9 @@ complete the merge. To get more information, see the shrinking_ section below.
 
 The 2 batch variables are used when sharding and to understand what they mean,
 an understanding of how the container-sharder_ works is required. But suffice
-it to say the ``scanner_batch_size`` is how many pivots a scanner will find on
-each cycle and the ``batch_size`` is how many shards to shard on each cycle.
+it to say the ``scanner_batch_size`` is how many shard ranges a scanner will
+find on each cycle and the ``batch_size`` is how many shards to shard on
+ach cycle.
 
 -----------------------------
 Overview of sharding in Swift
@@ -126,12 +127,13 @@ to the container URL::
 Sharding cannot be disabled once it has been enabled for a particular container.
 
 If sharding has been enabled on a container that already exceeds
-`shard_container_size` then pivot points are found to split the container on.
+`shard_container_size` then shard ranges are found to split the container on.
 If it is a very large container, then it will be split multiple times. If
 sharding is enabled on a smaller container then when that container reaches
-`shard_container_size`, a single pivot point is found which will be used to
-split the container. In this latter scenario, the container will only need to
-be split once, meaning sharding is more efficient the sooner it is activated.
+`shard_container_size`, a single pivot is found which will be used to
+split the container into 2 shard ranges. In this latter scenario, the container
+will only need to be split once, meaning sharding is more efficient the sooner
+it is activated.
 
 Each split creates an additional container shard holding ``n`` objects, where ``n``
 is defined by::
@@ -167,11 +169,12 @@ To really see what's happening lets take a very large container:
 Here we have a container named 'cont' in an account named 'acct'. This
 container is large and will need to be sharded.
 
-The sharding daemon will find it and search for a pivot point to split it on:
+The sharding daemon will find it and search for shard ranges to split it on:
 
 .. image:: images/sharding_snip2.png
 
-Here the sharder has found that object 'f' would be a good first pivot point.
+Here the sharder has found that object 'f' would be good for end/upper value of
+the first shard range.
 So we mark it. The sharder can then shard at this point:
 
 .. image:: images/sharding_snip3.png
@@ -182,11 +185,11 @@ given a unique name and placed in a hidden account that maps to the account
 all the shards out of view from users of the account. Continuing on, we can see
 that there is now a shard covering a range, and the root container has now also
 shrunk, if we continue sharding this root container, we simply continue
-searching for pivots and splitting:
+searching for shard ranges and splitting:
 
 .. image:: /images/sharding_snip4.png
 
-Here we've found the next pivot point and then:
+Here we've found the end of the next range and then:
 
 .. image:: /images/sharding_snip5.png
 
@@ -213,7 +216,7 @@ possible.
 Batching
 ~~~~~~~~
 
-In the slicing example above, we would find 1 pivot point and then shard it.
+In the slicing example above, we would find 1 shard range and then shard it.
 This works well when sharding is turned on from the start, as you'll only ever
 need to make 1 slice. But on larger containers where more than 1 slice is
 required it just wont scale. The rule is we want to get to the sharded state as
@@ -223,15 +226,15 @@ batches.
 The sharder daemon lives on all the container servers. It will periodically
 scan all sharded containers to see if they need to be sharded. And if so, will
 try and shard. We wont tie up the sharder and shard a very large container in
-one go. Instead it will find pivots and/or shard in batches before moving to
-the next container. On the next run, it'll continue where it left off.
+one go. Instead it will find shard ranges and/or shard in batches before moving
+to the next container. On the next run, it'll continue where it left off.
 
-When a sharder finds a pivot, it'll go create that shard, even though the new
-shard database would be empty, this allows any new ingress requests for that
+When a sharder finds a new range, it'll go create that shard, even though the
+new shard database would be empty, this allows any new ingress requests for that
 range to be redirected to the new shard. Taking load off the large container.
 So scanning may take time, but the sooner you find it, less load will be
 happening on the large container in question, in this case batching the search
-for pivots also makes a lot of sense.
+for shard ranges also makes a lot of sense.
 
 The batch sizes are configurable through the ``scanner_batch_size`` and
 ``batch_size`` options of the container-sharder daemon.
@@ -253,13 +256,13 @@ container can be in:
 
 - UNSHARDED - There is just the standard container database, so all containers
   are by default in this state.
-- SHARDING - There are now 2 databases, the container database and a pivot
-  database. The pivot database will store any metadata, container level stats,
+- SHARDING - There are now 2 databases, the container database and a shard
+  database. The shard database will store any metadata, container level stats,
   an object holding table, and a table that stores references to container
   shards.
-- SHARDED - There is only 1 database, the pivot database. This state only
+- SHARDED - There is only 1 database, the shard database. This state only
   exists for a root container, as by the time a container shard being sharded
-  gets to this state, it'll be marked as deleted as all pivot references exist
+  gets to this state, it'll be marked as deleted as all shard references exist
   in the root container.
 
 So how does this work while sharding. Lets take a look:
@@ -277,32 +280,32 @@ container-sharder daemon on one of the primaries to find it, and then start to
 shard it.
 
 We want to get this container to the SHARDED state as soon as possible, so we
-don't want to waste the time it'll take for all primaries to scan for pivot
-points, instead we need to determine which primary would be the scanner node.
+don't want to waste the time it'll take for all primaries to scan for shard
+ranges, instead we need to determine which primary would be the scanner node.
 So assuming 3x replication, the sharder will talk to the other 2 primaries and
 try and get a majority quorum on who this scanner will be.
 
-The scanner's job is to find all the pivot points, using its primary copy of
-the database. The other primaries will only shard on pivots as they are
+The scanner's job is to find all the shard ranges, using its primary copy of
+the database. The other primaries will only shard on range as they are
 discovered, leaving them to continue to respond to ingress requests.
 
 The sharder works very serially, meaning it deals with one container at a time
 before moving onto the next. In the future we should break this down to happen
 concurrently, but that isn't happening in version 1. This gives rise to a
 balancing act, we want to get to the SHARDED state as soon as possible, so we
-both search for pivots and shard on pivots in batches.
+both search for and shard on ranges in batches.
 
-The scanner node will start by searching for a number of pivots. Once it's
-found as much as it can it'll move to the SHARDING state, add the pivots to the
-`privot_ranges` table and go create these shard containers as empty containers.
+The scanner node will start by searching for a number of shard ranges. Once it's
+found as much as it can it'll move to the SHARDING state, add the ranges to the
+`shard_ranges` table and go create these shard containers as empty containers.
 By creating these empty containers, we take load off the large container and
 they will start being responsible for ingress requests coming in for their
 respective ranges. The next picture will demonstrate this:
 
 .. image:: images/sharding_lock2.png
 
-Here, the sharder has found 3 pivots, cat, giraffe and igloo. Because it's
-found them it has created the container shards which have already started
+Here, the sharder has found 3 ranges ending in cat, giraffe and igloo. Because
+it's found them it has created the container shards which have already started
 dealing with ingress requests. These container shards are located in the
 .sharded_acct account, which is a hidden account that maps to the user's.
 Currently the container shards are empty and the actual data lies within the
@@ -317,41 +320,41 @@ root container:
 - cont_0_1eeb237 is dealing with anything <= cat;
 - cont_0_dd8328f is dealing with anything > cat and <= giraffe;
 - cont_0_ac00c6a is dealing with anything > giraffe and <= igloo;
-- Finally the pivot database has an object holding table and is dealing with
+- Finally the shard database has an object holding table and is dealing with
   anything > igloo.
 
 As you can see, the large container is not being written to. This means until
 it's fully sharded we never need to write to it again. Further, as the scanner
-node finds more and more pivots, the root container will deal with fewer and
+node finds more and more ranges, the root container will deal with fewer and
 fewer ingress requests.
 
-The pivot database will now deal will all other writes meant for the container
+The shard database will now deal will all other writes meant for the container
 being sharded, any user or system metadata updates, a place to store
 replication syncs, and maintain container level statistics.
 
 The scanner node, on each sharder cycle will find ``scanner_batch_size`` more
-pivots. Once it's found them all then it'll finally start sharding itself.
+ranges. Once it's found them all then it'll finally start sharding itself.
 
 Now we'll imagine one of the other primary nodes, one that wont be the scanner,
 has a turn:
 
 .. image:: images/sharding_lock3.png
 
-It'll know the list of currently found pivots because container replication
-will pass the found pivots around to all the primaries. It sees that there are
-pivots in the container to shard on, so it'll need to shard. Next, if its copy
+It'll know the list of currently found ranges because container replication
+will pass the found ranges around to all the primaries. It sees that there are
+ranges in the container to shard on, so it'll need to shard. Next, if its copy
 of the database isn't in the SHARDING state then it'll first switch into that
 state. And then it shards.
 
-The blue line represents where the sharding is up to, red are unsharded pivots
-(or found pivots). Each primary node keeps track of where it's up to, so it can
+The blue line represents where the sharding is up to, red are unsharded ranges
+(or found ranges). Each primary node keeps track of where it's up to, so it can
 continue where it left off in next and subsequent sharder cycles.
 
 Sharding itself is rather straight forward:
 
 1. Create an empty container database in a handoff location locally.
 2. Insert all the stale data from the locked (large) database.
-3. Check the pivot databases object holding table to see if there is anything
+3. Check the range databases object holding table to see if there is anything
    there that is related and merge it into the handoff database.
 4. Use container replication to push it to the container shard primaries.
 5. The shard's primary will get the database and merge it with any more-recent
@@ -360,7 +363,7 @@ Sharding itself is rather straight forward:
 .. image:: images/sharding_lock4.png
 
 This image just demonstrates that the process continues. The sharder is now
-sharding the next pivot. While the scanner node is still searching for pivots.
+sharding the next range. While the scanner node is still searching for ranges.
 See we have new one 'linux'. Now the root container only needs to deal with
 requests dealing with objects whose name is greater than linux. So load will
 continue to diminish.
@@ -369,7 +372,7 @@ Now this will continue until we get to the SHARDED state:
 
 .. image:: images/sharding_lock5.png
 
-Once we have found the last pivot, the last container shard will be from that
+Once we have found the last pivot, the last shard range will be from that
 pivot point to the end, so greater than 'linux' (> linux)
 
 And we can see all ingress request load goes to the container shards. The root
@@ -378,7 +381,7 @@ statistics, a reference to shards, and container level metadata.
 
 This was an example of sharding a root container. However as container shards
 grow, the same thing happens to them except for one small difference. We don't
-keep the sharded pivot container around. The references to shards are in the
+keep the sharded container around. The references to shards are in the
 root container only, so a container shard once it hits the SHARDED state, can
 be deleted.
 
@@ -401,7 +404,7 @@ Shard container  A container that holds sharded data, and
                  user's account.
 Pivot            A point in the object name namespace to split the
                  object metadata at.
-Pivot range      The range of objects a shard container holds.
+Shard range      The range of objects a shard container holds.
 Misplaced items  Items that don't belong in the current container
                  shard or root container. These will be moved by
                  the container-sharder.
@@ -410,16 +413,16 @@ Misplaced items  Items that don't belong in the current container
 Container Backend and sharding
 ------------------------------
 
-Pivot_ranges table
+shard_ranges table
 ~~~~~~~~~~~~~~~~~~
 
 A new table has been added to the container SQLite database, this table is
-called pivot_ranges. It stores reference to the shards. This table will be
+called shard_ranges. It stores reference to the shards. This table will be
 created on existing databases when first requested.
 
 The table schema is::
 
-  CREATE TABLE pivot_ranges (
+  CREATE TABLE shard_ranges (
       ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT,
       lower TEXT,
@@ -452,9 +455,9 @@ The ``get_db_state()`` method checks to see what SQLite databases exist in the
 directory:
 
 - UNSHARDED - only the standard container database (<hash>.db).
-- SHARDING - both the standard container database and a pivot one (<hash>.db
-  and <hash>_pivot.db).
-- SHARDED - only the pivot database (<hash>_pivot.db).
+- SHARDING - both the standard container database and a shard one (<hash>.db
+  and <hash>_shard.db).
+- SHARDED - only the shard database (<hash>_shard.db).
 
 To move through the states there are some methods that do the work.
 
@@ -462,18 +465,18 @@ set_sharding_state()
 ~~~~~~~~~~~~~~~~~~~~
 This method:
 
-- Creates the pivot database
+- Creates the shard database
 - Moves the current state of the read-only database's metadata over:
 
 .. code-block:: python
 
   sub_broker.update_metadata(self.metadata)
 
-- Move any defined pivot_ranges across, this can happen when not the scanner
-  node and pivot ranges come across via replication.
+- Move any defined shard_ranges across, this can happen when not the scanner
+  node and shard ranges come across via replication.
 - Sync the replication sync points, so replication can continue.
 - And to make the replication life easier set the rowid of object table in the
-  pivot database to match that of where the read-only database was up to, so it
+  shard database to match that of where the read-only database was up to, so it
   can continue where it left off. This makes continuing to replicate over the
   boundary of old and new databases much simpler.
 
@@ -488,62 +491,62 @@ that you must be in the sharding state.
 - We probably need to add checks to make sure we are ready to unlink. i.e check
   to see that sharding is complete.
 
-The PivotRange class
+The ShardRange class
 --------------------
 
-When we store pivot ranges, other than metadata and name, we only really store
-the lower and upper bounds to describe the range. So the PivotRange class was
+When we store shard ranges, other than metadata and name, we only really store
+the lower and upper bounds to describe the range. So the ShardRange class was
 created to make interactions between ranges easier.
 
 The class is pretty basic, it stores the timestamps, stats, lower and upper
 values. The _contains_, _lt_, _gt_, iter and _eq_ methods have been overridden
-so it can do checks against a string or another PivotRange.
+so it can do checks against a string or another ShardRange.
 
 The class also contains some extra helper methods:
 
 - newer(other) - is it newer than another range.
 - overlaps(other) - does this range overlap another range.
 
-The PivotRange class lives in swift.common.utils, and there are some other
+The ShardRange class lives in swift.common.utils, and there are some other
 helper methods there that are used:
 
-- find_pivot_range(item, ranges) - Finds what range from a list of ranges that
+- find_shard_range(item, ranges) - Finds what range from a list of ranges that
   an item belongs to.
-- pivot_to_pivot_container(...) - Given a root container and account or a
-  PivotRange, generate the required sharded name.
-- account_to_pivot_account(account) - Generate the sharded account from the
-  given account. This is where the name of pivot account that shadows the user
+- shard_to_shard_container(...) - Given a root container and account or a
+  ShardRange, generate the required sharded name.
+- account_to_shard_account(account) - Generate the sharded account from the
+  given account. This is where the name of shard account that shadows the user
   account comes from:
 
 .. code-block:: python
 
-  def account_to_pivot_account(account):
+  def account_to_shard_account(account):
     if not account:
         return account
     return ".sharded_%s" % account
 
 
-Getting PivotRanges
+Getting ShardRanges
 -------------------
 
-There are two ways of getting a list of PivotRanges and it depends on where you
+There are two ways of getting a list of ShardRanges and it depends on where you
 are in swift. The easiest and most obvious way is to use a new method in the
-ContainerBroker ``build_pivot_ranges()``.
+ContainerBroker ``build_shard_ranges()``.
 
-The second is to ask the container for a list of pivot nodes rather than
+The second is to ask the container for a list of shard ranges rather than
 objects. This is done with a GET to the container server, but with the
-items=pivot parameter set::
+items=shard parameter set::
 
-  GET /acc/cont?items=pivot&format=json
+  GET /acc/cont?items=shard&format=json
 
-You can then build a list of PivotRange objects. An example of how this is done
-can be seen in the _get_pivot_ranges method in the container sharder daemon.
+You can then build a list of shardRange objects. An example of how this is done
+can be seen in the _get_shard_ranges method in the container sharder daemon.
 
-Replication and replicating pivots
-----------------------------------
+Replication and replicating shard ranges
+----------------------------------------
 
 The container-replicator (and db_replicator as required) has been updated to
-replicate and sync the pivot_range table.
+replicate and sync the shard_range table.
 
 Swift is eventually consistent, meaning at some point we will have an unsharded
 version of a container replicated with a sharded one, and being eventually
@@ -558,8 +561,8 @@ pending and merge_items
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 The merge_items method in the container/backend.py has been modified to be
-pivot range aware. That is to say, the list of items passed to it can now
-contain a mix of objects and pivot_nodes. A new flag has been added to the
+shard range aware. That is to say, the list of items passed to it can now
+contain a mix of objects and shard ranges. A new flag has been added to the
 pending/pickle file format called record_type, which defaults to
 RECORD_TYPE_OBJECT in existing pickle/pending files when unpickled. Merge_items
 will sort into 2 different lists based on the record_type, then insert, update,
@@ -570,15 +573,15 @@ Container replication changes
 
 Because swift is an eventually consistent system, we need to make sure that
 when container databases are replicated, this doesn’t only replicate items in
-the objects table, but also the ranges in the pivot_ranges table as well. Most
+the objects table, but also the ranges in the shard_ranges table as well. Most
 of the database replication code is a part of the db_replicator which is a
 parent, and so shared by account and container replication. Because of this, an
 _other_items_hook(broker) hook has been added and the container replicator uses
-this hook to grab the items from the pivot_range table and return in the items
+this hook to grab the items from the shard_range table and return in the items
 format ready to be passed into merge_items.
 
 There is a caveat however, which is that currently the hook grabs all the
-objects from the pivot_points table on every replication.
+objects from the shard_ranges table on every replication.
 
 _rsync_{db,file} and rpc complete_rsync changes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -597,7 +600,7 @@ database files instead of 1. So now we need to:
 
 We are doing this, even if there is only 1 file sent, because on a rebalance a
 sharded root container could be moved to the new priamry. And this needs to
-maintain the ``<hash>_pivot.db`` name.
+maintain the ``<hash>_shard.db`` name.
 
 .. _container-sharder:
 
@@ -624,18 +627,18 @@ it will parse all sharded containers. On each it:
 
   - If the container is big enough:
 
-    - If the node is the scanner node, search for pivots or start pivoting. If
+    - If the node is the scanner node, search for ranges or start sharding. If
       scanner isn't defined it'll use group election to choose one.
-    - If the node isn't the scanner and pivots are defined then start splitting
-      on pivots.
+    - If the node isn't the scanner and ranges are defined then start splitting
+      on ranges.
 
   - If the container is small enough then it will shrink it.
   - If the container isn’t too big or small, just leave it.
 
 - Finally the containers object_count and bytes_used is sent to the root
-  container’s pivot_ranges table.
+  container’s shard_ranges table.
 
-Scanning for pivots and pivoting is done in batches, so the sharding daemon
+Scanning for ranges and sharding is done in batches, so the sharding daemon
 doesn't spend too much time on one particular container. Sharding is rather
 complicated, so we go into more detail below.
 
@@ -646,7 +649,7 @@ Audit
 ~~~~~
 
 The sharder performs a basic audit which simply makes sure the current shard’s
-range exists in the root’s pivot_ranges table. If it's the root container,
+range exists in the root’s shard_ranges table. If it's the root container,
 check to see if there are any overlapping or missing ranges.
 
 If a container is missing from the root container's ranges then we need to
@@ -674,7 +677,7 @@ A misplaced object is an object that is in the wrong shard. If it’s a deleted
 shard (a shard that has shrunk, or been sharded), then anything in the object
 table is misplaced and needs to be dealt with. On other nodes, a quick SQL
 statement is enough to find out all the objects that are on the wrong side of
-the pivot range in question.
+the shard range in question.
 
 A root container that is fully sharded, so in the SHARDED state. Has an object
 holding table. Any objects in this table are considered misplaced, and data is
@@ -691,8 +694,8 @@ Scanner node
 ~~~~~~~~~~~~
 
 To get us from the UNSHARDED to the SHARDED state as quickly as possible, we
-don't want all primary nodes scanning for pivots. Instead we choose one node to
-be the scanner node, whose job it'll be to scan itself for pivot points. This
+don't want all primary nodes scanning for ranges. Instead we choose one node to
+be the scanner node, whose job it'll be to scan itself for shard ranges. This
 leaves the other nodes to respond to requests and only worry about sharding
 when their sharder gets to it.
 
@@ -701,12 +704,12 @@ all the primaries and whoever has the biggest object table will win and become
 the scanner. The node id is written to the metadata of the container.
 
 The scanner node will look at the defined ``scanner_batch_size`` and find that
-many (at maximum) pivots. Once it's found some pivots, it'll ask for a majority
-quorum again to make sure it is still the scanner, and if so will write the
-found pivots to the pivot_ranges table. The other nodes will get these pivots
-via container replication.
+many (at maximum) pivots/ranges. Once it's found some ranges, it'll ask for a
+majority quorum again to make sure it is still the scanner, and if so will write
+the found ranges to the shard_ranges table. The other nodes will get these
+ranges via container replication.
 
-Once the scanner node has found all pivots, it'll set some metadata to say it
+Once the scanner node has found all ranges, it'll set some metadata to say it
 has::
 
   X-Container-Sysmeta-Sharding-Scan-Done
@@ -724,29 +727,29 @@ Sharding a container
 
 If the node isn't the scanner, or if the scanner has finished scanning, then
 it's time to shard. If the node is not the scanner and it's the first time to
-pivot, the database could still be in the UNSHARDED state, it will stay in this
-state and no sharding will happen until there is something in the pivot_ranges
+shard, the database could still be in the UNSHARDED state, it will stay in this
+state and no sharding will happen until there is something in the shard_ranges
 table. As soon as there is, it can ``set_sharding_state()``.
 
 If this isn't the first time sharding, there will be a piece of metadata
 telling the node where it's up to::
 
-  X-Container-Sysmeta-Shard-Last-<node_id>: <pivot>
+  X-Container-Sysmeta-Shard-Last-<node_id>: <pivot or shard_range.upper>
 
 Like the scanner, we want to get to the SHARDED state as quickly as possible,
 so it's also sharding in batches, this is defined by ``batch_size``. So for each
-pivot range up to batch_size, either starting from the beginning or where we
+shard range up to batch_size, either starting from the beginning or where we
 left off, we:
 
 #. Create a new container database locally in the handoff location.
 #. Set the sharding lock on it.
-#. Fill it up with the records for the pivot range from the read-only database.
-#. Update it with any related data from the pivot database object holding table.
+#. Fill it up with the records for the shard range from the read-only database.
+#. Update it with any related data from the shard database object holding table.
 #. Remove the sharding lock.
 #. Use container replication to push it to container shard.
 #. Update the container ``Shard-Last-<node_id>`` metadata.
 
-If we finish the last pivot, which we know if the scanner has set the metadata,
+If we finish the last range, which we know if the scanner has set the metadata,
 then we can unset this ``Shard-Last-<node_id>`` metadata and instead can mark it
 as SHARDED.
 
@@ -758,8 +761,8 @@ following sysmeta:
 - shard-container - Points to the root container
 - shard-lower - Lower range
 - shard-upper - Upper range
-- shard-timestamp - Pivot range metadata information when it's created.
-- shard-meta-timestamp - Pivot range metadata information when it's created.
+- shard-timestamp - shard range metadata information when it's created.
+- shard-meta-timestamp - shard range metadata information when it's created.
 - sharding - exists or is True only during sharding. This stops the sharding daemon to pick up empty
   container shards and shrink them back into neighbours.
 
@@ -844,7 +847,7 @@ So looks something like::
 
   <container>-<node_id>-<MD5 of pivot + timestamp>
 
-In the old versions we’d put the pivot point in the name, this though had the
+In the old versions we’d put the pivot in the name, this though had the
 side effect of potentially being reused on a very unlikely edge case, but more
 importantly would mean the size of the container name could easily get too
 large (depending on the pivot object's name). The MD5 helps keep the container
@@ -882,7 +885,7 @@ container. Which starts at phase 1:
 #. If there are few enough objects then check the neighbours to see if it’s
    possible to shrink/merge together, again this requires getting a quorum.
 #. If all comes back successful set some metadata on the 2 containers to mark
-   intention and so to stop other things shrinking or pivoting into the
+   intention and so to stop other things shrinking or sharding into the
    neighbour. The metadata set is:
 
 ::
@@ -944,11 +947,11 @@ again. Because we are dealing with container shards that are also replicated,
 there are a lot of counts out there to take into account, and this gets
 complicated when they all need to update a single count in the root container.
 
-This is why the pivot_ranges table now also stores the *current* count and
+This is why the shard_ranges table now also stores the *current* count and
 bytes_used for each range, as each range represents a sharded container, we now
 have a place to update individually::
 
-  CREATE TABLE pivot_ranges (
+  CREATE TABLE shard_ranges (
       ...
       object_count INTEGER DEFAULT 0,
       bytes_used INTEGER DEFAULT 0,
@@ -956,44 +959,44 @@ have a place to update individually::
   );
 
 When we container HEAD the root container all we need to do is sum up the
-columns. This is what the ContainerBroker’s ``get_pivot_usage`` method does with
+columns. This is what the ContainerBroker’s ``get_shard_usage`` method does with
 a simple SQL statement::
 
   SELECT sum(object_count), sum(bytes_used)
-  FROM pivot_ranges
+  FROM shard_ranges
   WHERE deleted=0;
 
 Some work has been done to be able to update these pivot_ranges so the stats
 can be updated. You can now update them through a simple PUT or DELETE via the
-container-server API. The pivot range API allows you to send a PUT/DELETE
-request with some headers to update the pivot range, these headers are:
+container-server API. The shard range API allows you to send a PUT/DELETE
+request with some headers to update the shard range, these headers are:
 
-- x-backend-record-type - which must be RECORD_TYPE_PIVOT_NODE, otherwise it’ll
+- x-backend-record-type - which must be RECORD_TYPE_SHARD_NODE, otherwise it’ll
   be treated as an object.
-- x-backend-pivot-objects - The object count, which can be prefixed with a - or
+- x-backend-shard-objects - The object count, which can be prefixed with a - or
   + (More on this next).
-- x-backend-pivot-bytes - The bytes used of the range, again can be prefixed
+- x-backend-shard-bytes - The bytes used of the range, again can be prefixed
   with - or +.
-- x-backend-pivot-lower - The lower range.
-- x-backend-pivot-upper - The upper range.
+- x-backend-shard-lower - The lower range.
+- x-backend-shard-upper - The upper range.
 
 **Note:** We use x-backend-* headers because these should only be used by swift’s backend.
 
-The name of the object in the request would be the name of the pivot range
+The name of the object in the request would be the name of the shard range
 container.
 
 The objects and bytes can optionally be prefixed with ‘-‘ or ‘+’. When they do
 they effect the count accordingly. For example, if we want to define a new
 value for the number of objects then we can::
 
-	x-backend-pivot-objects: 100
+	x-backend-shard-objects: 100
 
 This will set the number for the object_count stat for the range to 100. The
 sharder sets the new count and bytes like this during each cycle to reflect the
 current state of the world, seeing it knows best at the time. The API however
 allows a request of::
 
-	x-backend-pivot-object: +1
+	x-backend-shard-object: +1
 
 This would increment the current value. In this case it would make the new
 value 101. A ‘-‘ will decrement.
@@ -1010,7 +1013,7 @@ used anywhere in swift at the moment.
 **Comments/Discussion:**
 
 - The increment/decrement API was just an idea, and we could remove this
-  functionality simplifying the pivot merge items code.
+  functionality simplifying the shard merge items code.
 
 Container Updates and 300 redirects
 -----------------------------------
@@ -1018,8 +1021,8 @@ When a new object PUT or DELETE comes in to the proxy, if the root container
 has sharding enabled, then 2 additional headers are passed to the object
 servers that will do the container update:
 
-- X-Backend-Container-Update-Override-Backend-Pivot-Account
-- X-Backend-Container-Update-Override-Backend-Pivot-Container
+- X-Backend-Container-Update-Override-Backend-Shard-Account
+- X-Backend-Container-Update-Override-Backend-Shard-Container
 
 The nodes metadata that the object-server will use to know what container
 servers to update we be the shards. We leave the current Account and Container
@@ -1055,16 +1058,16 @@ send json GET requests to the containers in question and then build up the
 response and send it back to the user.
 
 It first needs to send a request to the root container asking for either all
-the pivot ranges or all the pivot ranges responsible responding to the request,
+the shard ranges or all the shard ranges responsible responding to the request,
 if marker and/or end-marker is given.
 
-The container-server API has grown a way of asking for pivot_ranges rather than
+The container-server API has grown a way of asking for shard_ranges rather than
 objects::
 
-  GET <account>/<container>?items=pivot&format=json
+  GET <account>/<container>?items=shard&format=json
 
 If the marker, 'end_marker' is included, the container-server is smart enough
-to only return the pivot ranges needed.
+to only return the shard ranges needed.
 
 Now let's take a look at the new states to see how this works. We'll start with
 SHARDED because that's an easier case.
@@ -1074,18 +1077,18 @@ SHARDED
 .. image:: images/sharding_lock_sharded_GET.png
 
 The collection of objects happens in the proxy. In the diagram above we can see
-the container GET request is asking for objects that extend over a pivot range
+the container GET request is asking for objects that extend over a shard range
 boundary, so lets follow the numbers:
 
 1. The request comes into the proxy. The request must have at least a marker,
    and also perhaps and end_marker.
-2. The proxy will ask the root container for a list of pivot ranges (shards)
+2. The proxy will ask the root container for a list of shard ranges (shards)
    that are responsible for the range in the initial request. This could be
    something like:
 
 ::
 
-  GET acc/cont?items=pivot&format=json&marker=frog&end_marker=hermit
+  GET acc/cont?items=shard&format=json&marker=frog&end_marker=hermit
 
 3. The proxy now has references to cont_0_dd8328f and cont_0_ac00c6a, so sends
    the request to the former first.
@@ -1111,10 +1114,10 @@ So let's follow the numbers again:
 1. Like before the request comes into the proxy and this time the marker must
    put it after 'igloo'.
 2. The proxy can see in container info that the container is sharding and where
-   it's up to. It asks for the pivot ranges, if there are any, and then sends a
+   it's up to. It asks for the shard ranges, if there are any, and then sends a
    GET request to the root container.
 3. The root container, knowing that is hasn't sharded that area yet will ask
-   the read-only database for the response, then ask the pivot database's object
+   the read-only database for the response, then ask the shard database's object
    holding table for the same response and merges the answers together and returns
    the response to the proxy.
 4. The proxy then asks the container shard, cont_0_84329c7, for what it has.
@@ -1132,11 +1135,11 @@ an 'include_deleted' to allow for this::
 Container PUT
 -------------
 As with container GET, the proxy is shard aware. When a container PUT comes in
-with an object, the proxy can just ask what pivot node should handle this
-request. In the PUT situation the proxy will again send a pivot GET to the
+with an object, the proxy can just ask what shard range should handle this
+request. In the PUT situation the proxy will again send a shard GET to the
 container server, but this time add the object as well::
 
-  GET <account>/<container>/<object>?items=pivot&format=json
+  GET <account>/<container>/<object>?items=shard&format=json
 
 The response will be a single range, the range responsible for holding this
 object.

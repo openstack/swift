@@ -41,7 +41,7 @@ from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
                                 storage_directory, lock_parent_directory,
-                                PivotRange)
+                                ShardRange)
 from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -88,18 +88,18 @@ class TestContainerController(unittest.TestCase):
         """
         pass
 
-    def _put_pivot_range(self, pivot_range):
+    def _put_shard_range(self, shard_range):
         headers = {
-            'x-timestamp': pivot_range.timestamp.normal,
+            'x-timestamp': shard_range.timestamp.normal,
             'x-backend-record-type': 1,
-            'x-backend-pivot-objects': pivot_range.object_count,
-            'x-backend-pivot-bytes': pivot_range.bytes_used,
-            'x-backend-pivot-lower': pivot_range.lower,
-            'x-backend-pivot-upper': pivot_range.upper,
-            'x-backend-timestamp': pivot_range.timestamp.normal,
-            'x-meta-timestamp': pivot_range.meta_timestamp.normal,
+            'x-backend-shard-objects': shard_range.object_count,
+            'x-backend-shard-bytes': shard_range.bytes_used,
+            'x-backend-shard-lower': shard_range.lower,
+            'x-backend-shard-upper': shard_range.upper,
+            'x-backend-timestamp': shard_range.timestamp.normal,
+            'x-meta-timestamp': shard_range.meta_timestamp.normal,
             'x-size': 0}
-        req = Request.blank('/sda1/p/a/c/%s' % pivot_range.name, method='PUT',
+        req = Request.blank('/sda1/p/a/c/%s' % shard_range.name, method='PUT',
                             headers=headers)
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
@@ -1478,7 +1478,7 @@ class TestContainerController(unittest.TestCase):
                 # be as careful as we might hope backend replication can be...
                 with lock_parent_directory(db_path, timeout=1):
                     os.rename(other_path, db_path)
-            if not db_path.endswith('_pivot.db'):
+            if not db_path.endswith('_shard.db'):
                 mock_called.append((rv, db_path))
             return rv
 
@@ -2050,7 +2050,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)
 
-    def test_PUT_GET_pivot_ranges(self):
+    def test_PUT_GET_shard_ranges(self):
         # make a container
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
@@ -2068,21 +2068,21 @@ class TestContainerController(unittest.TestCase):
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEqual(201, resp.status_int)
-        pivot_ranges = [PivotRange('pivot_%d' % i, next(ts_iter),
+        shard_ranges = [ShardRange('shard_%d' % i, next(ts_iter),
                                    'obj%d_lower' % i, 'obj%d_upper' % i,
                                    i * 100, i * 1000, None)
                         for i in range(3)]
-        for pivot_range in pivot_ranges:
-            self._put_pivot_range(pivot_range)
+        for shard_range in shard_ranges:
+            self._put_shard_range(shard_range)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        pivot_rows = broker.get_pivot_ranges()
+        shard_rows = broker.get_shard_ranges()
         self.assertEqual(
             [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
-              p.bytes_used, p.meta_timestamp) for p in pivot_ranges],
-            pivot_rows)
+              p.bytes_used, p.meta_timestamp) for p in shard_ranges],
+            shard_rows)
 
-        # sanity check - no pivot ranges when GET is only for objects
+        # sanity check - no shard ranges when GET is only for objects
         def check_object_GET(path):
             req = Request.blank(path, method='GET')
             resp = req.get_response(self.controller)
@@ -2098,66 +2098,66 @@ class TestContainerController(unittest.TestCase):
         check_object_GET('/sda1/p/a/c?format=json')
         check_object_GET('/sda1/p/a/c?items=blah&format=json')
 
-        # GET only pivot ranges
-        req = Request.blank('/sda1/p/a/c?items=pivot&format=json',
+        # GET only shard ranges
+        req = Request.blank('/sda1/p/a/c?items=shard&format=json',
                             method='GET')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.content_type, 'application/json')
         expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in pivot_ranges]
+                    for p in shard_ranges]
         self.assertEqual(expected, json.loads(resp.body))
 
-        # delete a pivot range
-        pivot_range = pivot_ranges[0]
+        # delete a shardrange range
+        shard_range = shard_ranges[0]
         headers = {
             'x-timestamp': next(ts_iter).internal,
             'x-backend-record-type': 1,
-            'x-backend-pivot-lower': pivot_range.lower,
-            'x-backend-pivot-upper': pivot_range.upper,
-            # TODO (acoles): should this be pivot.timestamp.internal?
+            'x-backend-shard-lower': shard_range.lower,
+            'x-backend-shard-upper': shard_range.upper,
+            # TODO (acoles): should this be shard_range.timestamp.internal?
             'x-backend-timestamp': next(ts_iter).internal,
-            'x-meta-timestamp': pivot_range.meta_timestamp.normal}
-        req = Request.blank('/sda1/p/a/c/%s' % pivot_range.name,
+            'x-meta-timestamp': shard_range.meta_timestamp.normal}
+        req = Request.blank('/sda1/p/a/c/%s' % shard_range.name,
                             method='DELETE', headers=headers)
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
 
-        pivot_rows = broker.get_pivot_ranges()
+        shard_rows = broker.get_shard_ranges()
         self.assertEqual(
             [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
-              p.bytes_used, p.meta_timestamp) for p in pivot_ranges[1:]],
-            pivot_rows)
+              p.bytes_used, p.meta_timestamp) for p in shard_ranges[1:]],
+            shard_rows)
 
-        # GET only pivot ranges
-        req = Request.blank('/sda1/p/a/c?items=pivot&format=json',
+        # GET only shard ranges
+        req = Request.blank('/sda1/p/a/c?items=shard&format=json',
                             method='GET')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.content_type, 'application/json')
         expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in pivot_ranges[1:]]
+                    for p in shard_ranges[1:]]
         self.assertEqual(expected, json.loads(resp.body))
 
-        # GET pivot range for obj1_test
-        req = Request.blank('/sda1/p/a/c/obj1_test?items=pivot&format=json',
+        # GET shard range for obj1_test
+        req = Request.blank('/sda1/p/a/c/obj1_test?items=shard&format=json',
                             method='GET')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.content_type, 'application/json')
         expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in pivot_ranges[1:2]]
+                    for p in shard_ranges[1:2]]
         self.assertEqual(expected, json.loads(resp.body))
-        # GET pivot range for obj2_test
-        req = Request.blank('/sda1/p/a/c/obj2_test?items=pivot&format=json',
+        # GET shard range for obj2_test
+        req = Request.blank('/sda1/p/a/c/obj2_test?items=shard&format=json',
                             method='GET')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.content_type, 'application/json')
         expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in pivot_ranges[2:]]
+                    for p in shard_ranges[2:]]
         self.assertEqual(expected, json.loads(resp.body))
-        # TODO: add case for obj name not in a pivot range
+        # TODO: add case for obj name not in a shard range
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 
