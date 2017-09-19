@@ -31,8 +31,7 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, get_listing_content_type, \
-    split_and_validate_path, is_sys_or_user_meta, get_sys_meta_prefix, \
-    create_container_listing
+    split_and_validate_path, is_sys_or_user_meta, create_container_listing
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
@@ -339,7 +338,11 @@ class ContainerController(BaseStorageServer):
             if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
                 resp = HTTPPreconditionFailed(request=req)
                 resp.headers['X-Backend-Sharding-State'] = db_state
-                self._add_metadata(resp.headers, broker.metadata)
+                resp.headers.update(
+                    (key, value)
+                    for key, (value, timestamp) in broker.metadata.items()
+                    if value != '' and (key.lower() in self.save_headers or
+                                        is_sys_or_user_meta('container', key)))
                 return resp
             existed = Timestamp(broker.get_info()['put_timestamp']) and \
                 not broker.is_deleted()
@@ -461,11 +464,6 @@ class ContainerController(BaseStorageServer):
                                              req_timestamp.internal,
                                              new_container_policy,
                                              requested_policy_index)
-            if req.headers.get('X-Container-Sharding'):
-                sharding_sysmeta = \
-                    get_sys_meta_prefix('container') + 'sharding'
-                req.headers[sharding_sysmeta] = \
-                    config_true_value(req.headers['X-Container-Sharding'])
             metadata = {}
             metadata.update(
                 (key, (value, req_timestamp.internal))
@@ -492,17 +490,6 @@ class ContainerController(BaseStorageServer):
                                     headers={'x-backend-storage-policy-index':
                                              broker.storage_policy_index})
 
-    def _add_metadata(self, headers, metadata):
-        headers.update(
-            (key, value)
-            for key, (value, timestamp) in metadata.items()
-            if value != '' and (key.lower() in self.save_headers or
-                                is_sys_or_user_meta('container', key)))
-
-        if headers.get('X-Container-Sysmeta-Sharding'):
-            headers['X-Container-Sharding'] = \
-                config_true_value(headers.get('X-Container-Sysmeta-Sharding'))
-
     @public
     @timing_stats(sample_rate=0.1)
     def HEAD(self, req):
@@ -519,7 +506,11 @@ class ContainerController(BaseStorageServer):
         headers = gen_resp_headers(info, is_deleted=is_deleted)
         if is_deleted:
             return HTTPNotFound(request=req, headers=headers)
-        self._add_metadata(headers, broker.metadata)
+        headers.update(
+            (key, value)
+            for key, (value, timestamp) in broker.metadata.items()
+            if value != '' and (key.lower() in self.save_headers or
+                                is_sys_or_user_meta('container', key)))
         headers['Content-Type'] = out_content_type
         resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
         resp.last_modified = math.ceil(float(headers['X-PUT-Timestamp']))
@@ -647,7 +638,11 @@ class ContainerController(BaseStorageServer):
                 storage_policy_index=info['storage_policy_index'],
                 reverse=reverse, include_deleted=include_deleted,
                 include_end_marker=include_end_marker)
-        self._add_metadata(resp_headers, broker.metadata)
+        resp_headers.update(
+            (key, value)
+            for key, (value, timestamp) in broker.metadata.items()
+            if value != '' and (key.lower() in self.save_headers or
+                                is_sys_or_user_meta('container', key)))
         return create_container_listing(
             req, out_content_type, resp_headers, container_list, container,
             logger=self.logger, include_deleted=include_deleted)
@@ -689,9 +684,6 @@ class ContainerController(BaseStorageServer):
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         broker.update_put_timestamp(req_timestamp.internal)
-        if req.headers.get('X-Container-Sharding'):
-            sharding_sysmeta = get_sys_meta_prefix('container') + 'sharding'
-            req.headers[sharding_sysmeta] = req.headers['X-Container-Sharding']
 
         metadata = {}
         metadata.update(

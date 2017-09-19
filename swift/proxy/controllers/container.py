@@ -24,7 +24,7 @@ from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success, \
     HTTP_PRECONDITION_FAILED
 from swift.common.request_helpers import get_listing_content_type, \
-    create_container_listing
+    create_container_listing, get_sys_meta_prefix
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
@@ -136,6 +136,11 @@ class ContainerController(Controller):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:
                     del resp.headers[key]
+        # Expose sharding state in reseller requests
+        if req.environ.get('reseller_request', False):
+            resp.headers['X-Container-Sharding'] = config_true_value(
+                resp.headers.get(get_sys_meta_prefix('container') + 'Sharding',
+                                 'False'))
         return resp
 
     def _get_sharded(self, req, resp, sharding_state):
@@ -225,6 +230,11 @@ class ContainerController(Controller):
             return result_hdrs, result_objs, old_resp
 
         headers = resp.headers.copy()
+        # Expose sharding state in reseller requests
+        if req.environ.get('reseller_request', False):
+            headers['X-Container-Sharding'] = config_true_value(
+                headers.get(get_sys_meta_prefix('container') + 'Sharding',
+                            'False'))
         objects = []
         params = req.params.copy()
         reverse = config_true_value(params.get('reverse'))
@@ -325,6 +335,10 @@ class ContainerController(Controller):
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
+        if req.environ.get('reseller_request', False) and \
+                'X-Container-Sharding' in req.headers:
+            req.headers[get_sys_meta_prefix('container') + 'Sharding'] = \
+                config_true_value(req.headers['X-Container-Sharding'])
         if len(self.container_name) > constraints.MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
@@ -372,6 +386,10 @@ class ContainerController(Controller):
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
+        if req.environ.get('reseller_request', False) and \
+                'X-Container-Sharding' in req.headers:
+            req.headers[get_sys_meta_prefix('container') + 'Sharding'] = \
+                config_true_value(req.headers['X-Container-Sharding'])
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts:

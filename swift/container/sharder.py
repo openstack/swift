@@ -457,6 +457,10 @@ class ContainerSharder(ContainerReplicator):
         :return: account, container of the root shard container or the brokers
                  if it can't be determined.
         """
+        if broker.container is None:
+            # Ensure account/container get populated
+            broker.get_info()
+
         account = broker.metadata.get('X-Container-Sysmeta-Shard-Account')
         if account:
             account = account[0]
