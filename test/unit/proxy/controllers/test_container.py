@@ -21,7 +21,7 @@ from eventlet import Timeout
 
 from swift.common.swob import Request
 from swift.proxy import server as proxy_server
-from swift.proxy.controllers.base import headers_to_container_info
+from swift.proxy.controllers.base import headers_to_container_info, Controller
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -110,6 +110,24 @@ class TestContainerController(TestRingBase):
             resp.environ['swift.infocache']['container/a/c'])
         from_memcache = self.app.memcache.get('container/a/c')
         self.assertTrue(from_memcache)
+
+    @mock.patch('swift.proxy.controllers.container.clear_info_cache')
+    @mock.patch.object(Controller, 'make_requests')
+    def test_container_cache_cleared_after_PUT(
+            self, mock_make_requests, mock_clear_info_cache):
+        parent_mock = mock.Mock()
+        parent_mock.attach_mock(mock_make_requests, 'make_requests')
+        parent_mock.attach_mock(mock_clear_info_cache, 'clear_info_cache')
+        controller = proxy_server.ContainerController(self.app, 'a', 'c')
+        callback = self._make_callback_func({})
+        req = Request.blank('/v1/a/c')
+        with mock.patch('swift.proxy.controllers.base.http_connect',
+                        fake_http_connect(200, 200, give_connect=callback)):
+            controller.PUT(req)
+
+        # Ensure cache is cleared after the PUT request
+        self.assertEqual(parent_mock.mock_calls[0][0], 'make_requests')
+        self.assertEqual(parent_mock.mock_calls[1][0], 'clear_info_cache')
 
     def test_swift_owner(self):
         owner_headers = {
