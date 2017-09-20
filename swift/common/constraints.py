@@ -15,6 +15,7 @@
 
 import functools
 import os
+from os.path import isdir  # tighter scoped import for mocking
 import time
 
 import six
@@ -102,11 +103,6 @@ reload_constraints()
 
 # Maximum slo segments in buffer
 MAX_BUFFERED_SLO_SEGMENTS = 10000
-
-
-#: Query string format= values to their corresponding content-type values
-FORMAT2CONTENT_TYPE = {'plain': 'text/plain', 'json': 'application/json',
-                       'xml': 'application/xml'}
 
 
 # By default the maximum number of allowed headers depends on the number of max
@@ -234,9 +230,9 @@ def check_dir(root, drive):
 
     :param root:  base path where the dir is
     :param drive: drive name to be checked
-    :returns: True if it is a valid directoy, False otherwise
+    :returns: full path to the device, or None if drive fails to validate
     """
-    return os.path.isdir(os.path.join(root, drive))
+    return check_drive(root, drive, False)
 
 
 def check_mount(root, drive):
@@ -248,12 +244,31 @@ def check_mount(root, drive):
 
     :param root:  base path where the devices are mounted
     :param drive: drive name to be checked
-    :returns: True if it is a valid mounted device, False otherwise
+    :returns: full path to the device, or None if drive fails to validate
+    """
+    return check_drive(root, drive, True)
+
+
+def check_drive(root, drive, mount_check):
+    """
+    Validate the path given by root and drive is a valid existing directory.
+
+    :param root:  base path where the devices are mounted
+    :param drive: drive name to be checked
+    :param mount_check: additionally require path is mounted
+
+    :returns: full path to the device, or None if drive fails to validate
     """
     if not (urllib.parse.quote_plus(drive) == drive):
-        return False
+        return None
     path = os.path.join(root, drive)
-    return utils.ismount(path)
+    if mount_check:
+        if utils.ismount(path):
+            return path
+    else:
+        if isdir(path):
+            return path
+    return None
 
 
 def check_float(string):

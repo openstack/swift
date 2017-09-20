@@ -209,7 +209,7 @@ class ReconMiddleware(object):
                 continue
 
             try:
-                mounted = check_mount(self.devices, entry)
+                mounted = bool(check_mount(self.devices, entry))
             except OSError as err:
                 mounted = str(err)
             mpoint = {'device': entry, 'mounted': mounted}
@@ -225,7 +225,7 @@ class ReconMiddleware(object):
                 continue
 
             try:
-                mounted = check_mount(self.devices, entry)
+                mounted = bool(check_mount(self.devices, entry))
             except OSError as err:
                 devices.append({'device': entry, 'mounted': str(err),
                                 'size': '', 'used': '', 'avail': ''})

@@ -104,8 +104,8 @@ can be found in the KeystoneMiddleware_ distribution.
 The :ref:`keystoneauth` middleware performs authorization and mapping the
 Keystone roles to Swift's ACLs.
 
-.. _KeystoneMiddleware: http://docs.openstack.org/developer/keystonemiddleware/
-.. _Keystone: http://docs.openstack.org/developer/keystone/
+.. _KeystoneMiddleware: https://docs.openstack.org/keystonemiddleware/latest/
+.. _Keystone: https://docs.openstack.org/keystone/latest/
 
 .. _configuring_keystone_auth:
 
@@ -167,7 +167,7 @@ your situation, but in short:
   service. The example values shown here assume a user named 'swift' with admin
   role on a project named 'service', both being in the Keystone domain with id
   'default'. Refer to the `KeystoneMiddleware documentation
-  <http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration>`_
+  <https://docs.openstack.org/keystonemiddleware/latest/middlewarearchitecture.html#configuration>`_
   for other examples.
 
 * ``cache`` is set to ``swift.cache``. This means that the middleware

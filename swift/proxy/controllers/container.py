@@ -23,8 +23,7 @@ from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success, \
     HTTP_PRECONDITION_FAILED
-from swift.common.request_helpers import get_listing_content_type, \
-    create_container_listing, get_sys_meta_prefix
+from swift.common.request_helpers import get_sys_meta_prefix
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
@@ -107,6 +106,9 @@ class ContainerController(Controller):
         concurrency = self.app.container_ring.replica_count \
             if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
+        params = req.params
+        params['format'] = 'json'
+        req.params = params
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
             req.swift_entity_path, concurrency)
@@ -305,9 +307,8 @@ class ContainerController(Controller):
                     objects[-1]['name']:
                 break
 
-        out_content_type = get_listing_content_type(req)
-        return create_container_listing(req, out_content_type, headers,
-                                        objects, self.container_name)
+        resp.body = json.dumps(objects)
+        return resp
 
     @public
     @delay_denial
@@ -368,11 +369,11 @@ class ContainerController(Controller):
         headers = self._backend_requests(req, len(containers),
                                          account_partition, accounts,
                                          policy_index)
-        clear_info_cache(self.app, req.environ,
-                         self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring,
             container_partition, 'PUT', req.swift_entity_path, headers)
+        clear_info_cache(self.app, req.environ,
+                         self.account_name, self.container_name)
         return resp
 
     @public

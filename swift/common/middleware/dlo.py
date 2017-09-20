@@ -151,7 +151,7 @@ class GetContext(WSGIContext):
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
             agent=('%(orig)s ' + 'DLO MultipartGET'), swift_source='DLO')
-        con_req.query_string = 'format=json&prefix=%s' % quote(prefix)
+        con_req.query_string = 'prefix=%s' % quote(prefix)
         if marker:
             con_req.query_string += '&marker=%s' % quote(marker)
 

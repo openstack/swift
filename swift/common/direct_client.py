@@ -88,23 +88,24 @@ def _get_direct_account_container(path, stype, node, part,
     Do not use directly use the get_direct_account or
     get_direct_container instead.
     """
-    qs = 'format=json'
+    params = ['format=json']
     if marker:
-        qs += '&marker=%s' % quote(marker)
+        params.append('marker=%s' % quote(marker))
     if limit:
-        qs += '&limit=%d' % limit
+        params.append('limit=%d' % limit)
     if prefix:
-        qs += '&prefix=%s' % quote(prefix)
+        params.append('prefix=%s' % quote(prefix))
     if delimiter:
-        qs += '&delimiter=%s' % quote(delimiter)
+        params.append('delimiter=%s' % quote(delimiter))
     if end_marker:
-        qs += '&end_marker=%s' % quote(end_marker)
+        params.append('end_marker=%s' % quote(end_marker))
     if reverse:
-        qs += '&reverse=%s' % quote(reverse)
+        params.append('reverse=%s' % quote(reverse))
     if items:
         if stype.lower() != 'container':
             raise ValueError("'items' is not valid for %s server" % stype)
-        qs += '&items=%s' % quote(items)
+        params.append('items=%s' % quote(items))
+    qs = '&'.join(params)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             'GET', path, query_string=qs,

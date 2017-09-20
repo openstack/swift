@@ -1884,7 +1884,6 @@ error_suppression_limit                 10               Error count to consider
                                                          node error limited
 allow_account_management                false            Whether account PUTs and DELETEs
                                                          are even callable
-object_post_as_copy                     false            Deprecated.
 account_autocreate                      false            If set to 'true' authorized
                                                          accounts that do not yet exist
                                                          within the Swift cluster will

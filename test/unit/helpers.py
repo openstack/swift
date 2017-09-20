@@ -37,7 +37,7 @@ from swift.account import server as account_server
 from swift.common import storage_policy
 from swift.common.ring import RingData
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
-from swift.common.middleware import proxy_logging
+from swift.common.middleware import listing_formats, proxy_logging
 from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.container import server as container_server
@@ -210,8 +210,8 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv, obj3srv,
          obj4srv, obj5srv, obj6srv)
     nl = NullLogger()
-    logging_prosv = proxy_logging.ProxyLoggingMiddleware(prosrv, conf,
-                                                         logger=prosrv.logger)
+    logging_prosv = proxy_logging.ProxyLoggingMiddleware(
+        listing_formats.ListingFilter(prosrv), conf, logger=prosrv.logger)
     prospa = spawn(wsgi.server, prolis, logging_prosv, nl)
     acc1spa = spawn(wsgi.server, acc1lis, acc1srv, nl)
     acc2spa = spawn(wsgi.server, acc2lis, acc2srv, nl)

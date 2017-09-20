@@ -94,7 +94,7 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
@@ -357,7 +357,7 @@ user_test5_tester5 = testing5 service
 # Following parameters are known to work with keystonemiddleware v2.3.0
 # (above v2.0.0), but checking the latest information in the wiki page[1]
 # is recommended.
-# 1. http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration
+# 1. https://docs.openstack.org/keystonemiddleware/latest/middlewarearchitecture.html#configuration
 #
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
@@ -860,8 +860,6 @@ use = egg:swift#copy
 # requests are transformed into COPY requests where source and destination are
 # the same. All client-visible behavior (save response time) should be
 # identical.
-# This option is deprecated and will be ignored in a future release.
-# object_post_as_copy = false
 
 # Note: To enable encryption, add the following 2 dependent pieces of crypto
 # middleware to the proxy-server pipeline. They should be to the right of all
@@ -915,3 +913,9 @@ use = egg:swift#encryption
 # disable_encryption to True. However, all encryption middleware should remain
 # in the pipeline in order for existing encrypted data to be read.
 # disable_encryption = False
+
+# listing_formats should be just right of the first proxy-logging middleware,
+# and left of most other middlewares. If it is not already present, it will
+# be automatically inserted for you.
+[filter:listing_formats]
+use = egg:swift#listing_formats

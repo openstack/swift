@@ -590,12 +590,61 @@ class TestDBReplicator(unittest.TestCase):
         self.assertFalse(
             replicator._usync_db(0, FakeBroker(), fake_http, '12345', '67890'))
 
-    def test_stats(self):
-        # I'm not sure how to test that this logs the right thing,
-        # but we can at least make sure it gets covered.
-        replicator = TestReplicator({})
+    @mock.patch('swift.common.db_replicator.dump_recon_cache')
+    @mock.patch('swift.common.db_replicator.time.time', return_value=1234.5678)
+    def test_stats(self, mock_time, mock_recon_cache):
+        logger = unit.debug_logger('test-replicator')
+        replicator = TestReplicator({}, logger=logger)
         replicator._zero_stats()
+        self.assertEqual(replicator.stats['start'], mock_time.return_value)
         replicator._report_stats()
+        self.assertEqual(logger.get_lines_for_level('info'), [
+            'Attempted to replicate 0 dbs in 0.00000 seconds (0.00000/s)',
+            'Removed 0 dbs',
+            '0 successes, 0 failures',
+            'diff:0 diff_capped:0 empty:0 hashmatch:0 no_change:0 '
+            'remote_merge:0 rsync:0 ts_repl:0',
+        ])
+        self.assertEqual(1, len(mock_recon_cache.mock_calls))
+        self.assertEqual(mock_recon_cache.mock_calls[0][1][0], {
+            'replication_time': 0.0,
+            'replication_last': mock_time.return_value,
+            'replication_stats': replicator.stats,
+        })
+
+        mock_recon_cache.reset_mock()
+        logger.clear()
+        replicator.stats.update({
+            'attempted': 30,
+            'success': 25,
+            'remove': 9,
+            'failure': 1,
+
+            'diff': 5,
+            'diff_capped': 4,
+            'empty': 7,
+            'hashmatch': 8,
+            'no_change': 6,
+            'remote_merge': 2,
+            'rsync': 3,
+            'ts_repl': 10,
+        })
+        mock_time.return_value += 246.813576
+        replicator._report_stats()
+        self.maxDiff = None
+        self.assertEqual(logger.get_lines_for_level('info'), [
+            'Attempted to replicate 30 dbs in 246.81358 seconds (0.12155/s)',
+            'Removed 9 dbs',
+            '25 successes, 1 failures',
+            'diff:5 diff_capped:4 empty:7 hashmatch:8 no_change:6 '
+            'remote_merge:2 rsync:3 ts_repl:10',
+        ])
+        self.assertEqual(1, len(mock_recon_cache.mock_calls))
+        self.assertEqual(mock_recon_cache.mock_calls[0][1][0], {
+            'replication_time': 246.813576,
+            'replication_last': mock_time.return_value,
+            'replication_stats': replicator.stats,
+        })
 
     def test_replicate_object(self):
         db_replicator.ring = FakeRingWithNodes()

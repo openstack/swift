@@ -329,8 +329,7 @@ class VersionedWritesContext(WSGIContext):
                 env, method='GET', swift_source='VW',
                 path='/v1/%s/%s' % (account_name, lcontainer))
             lreq.environ['QUERY_STRING'] = \
-                'format=json&prefix=%s&marker=%s' % (
-                    quote(lprefix), quote(marker))
+                'prefix=%s&marker=%s' % (quote(lprefix), quote(marker))
             if end_marker:
                 lreq.environ['QUERY_STRING'] += '&end_marker=%s' % (
                     quote(end_marker))
@@ -826,8 +825,7 @@ class VersionedWritesMiddleware(object):
                                               allow_versioned_writes)
             except HTTPException as error_response:
                 return error_response(env, start_response)
-        elif (obj and req.method in ('PUT', 'DELETE') and
-                not req.environ.get('swift.post_as_copy')):
+        elif (obj and req.method in ('PUT', 'DELETE')):
             try:
                 return self.object_request(
                     req, api_version, account, container, obj,
