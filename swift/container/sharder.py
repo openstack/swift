@@ -375,13 +375,14 @@ class ContainerSharder(ContainerReplicator):
 
             # We have a list of misplaced objects, so we better find a home
             # for them
-            if not self.ranges:
-                self.ranges = self._get_shard_ranges(
-                    root_account, root_container, newest=True)
+            # TODO - ranges was an instance var - is that significant e.g. for
+            # caching
+            ranges = self._get_shard_ranges(
+                root_account, root_container, newest=True)
 
             shard_to_obj = defaultdict(list)
             for obj in objs:
-                shard = find_shard_range(obj, self.ranges)
+                shard = find_shard_range(obj, ranges)
                 shard_to_obj[shard].append(obj)
                 qry['marker'] = obj[0]
 
@@ -424,7 +425,7 @@ class ContainerSharder(ContainerReplicator):
 
         # wipe out the cache to disable bypass in delete_db
         cleanups = self.shard_cleanups or {}
-        self.shard_cleanups = self.shard_brokers = None
+        self.shard_cleanups = None
         self.logger.info('Cleaning up %d replicated shard containers',
                          len(cleanups))
         for container in cleanups.values():
@@ -552,9 +553,9 @@ class ContainerSharder(ContainerReplicator):
             return continue_with_container
 
         # Get the root view of the world.
-        self.ranges = self._get_shard_ranges(root_account, root_container,
-                                             newest=True)
-        if self.ranges is None:
+        ranges = self._get_shard_ranges(root_account, root_container,
+                                        newest=True)
+        if ranges is None:
             # failed to get the root tree. Error out for now.. we may need to
             # quarantine the container.
             self.logger.warning("Failed to get a shard range tree from root "
@@ -564,7 +565,7 @@ class ContainerSharder(ContainerReplicator):
             self.stats['containers_failed'] += 1
             self.stats['containers_audit_failed'] += 1
             return False
-        if shard_range in self.ranges:
+        if shard_range in ranges:
             return continue_with_container
 
         # shard range isn't in ranges, if it overlaps with an item, we're in
@@ -573,7 +574,7 @@ class ContainerSharder(ContainerReplicator):
         # TODO(tburke): is ^^^ right? or better to consider it all misplaced?
         # if it's newer, then it might not be updated yet, so just let it
         # continue (or maybe we shouldn't?).
-        overlaps = [r for r in self.ranges if r.overlaps(shard_range)]
+        overlaps = [r for r in ranges if r.overlaps(shard_range)]
         if overlaps:
             if max(overlaps + [shard_range],
                    key=lambda x: x.timestamp) == shard_range:
@@ -641,9 +642,7 @@ class ContainerSharder(ContainerReplicator):
         """
         self.logger.info('Starting container sharding cycle')
         dirs = []
-        self.shard_brokers = dict()
         self.shard_cleanups = dict()
-        self._local_device_ids = set()
         self.ips = whataremyips()
         for node in self.ring.devs:
             if node and is_local_device(self.ips, self.port,
@@ -656,6 +655,7 @@ class ContainerSharder(ContainerReplicator):
                     continue
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
+                    # TODO: do we need self._local_device_ids?
                     self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
         for part, path, node_id, node_idx in self.roundrobin_datadirs(dirs):
@@ -665,7 +665,6 @@ class ContainerSharder(ContainerReplicator):
             if not sharded:
                 # Not a shard container
                 continue
-            self.ranges = []
             self.node_idx = node_idx
             self.node_id = node_id
             self.part = int(part)
@@ -695,11 +694,10 @@ class ContainerSharder(ContainerReplicator):
                 # have new objects sitting in them that may need to move.
                 continue
 
-            self.state = broker.get_db_state()
-            if self.state in (DB_STATE_SHARDED, DB_STATE_NOTFOUND):
+            state = broker.get_db_state()
+            if state in (DB_STATE_SHARDED, DB_STATE_NOTFOUND):
                 continue
 
-            self.shard_brokers = dict()
             self.shard_cleanups = dict()
 
             try:
@@ -716,7 +714,7 @@ class ContainerSharder(ContainerReplicator):
                 # shards to appear in the shard_ranges table
                 # (via replication). They will start the sharding process
 
-                if self.state == DB_STATE_UNSHARDED:
+                if state == DB_STATE_UNSHARDED:
                     skip_shrinking = self.get_metadata_item(
                         broker, 'X-Container-Sysmeta-Sharding')
                     obj_count = broker.get_info()['object_count']
@@ -1228,20 +1226,22 @@ class ContainerSharder(ContainerReplicator):
         #      directly before, because the upper is always included in
         #      the range. (use find_shard_range(lower, ranges).
         #   3. Upper + something is in the next range.
-        if not self.ranges:
-            self.ranges = self._get_shard_ranges(root_account, root_container,
-                                                 newest=True)
-            if self.ranges is None:
-                self.logger.error(
-                    "Since the audit run of this container and "
-                    "now we can't access the root container "
-                    "%s/%s aborting.",
-                    root_account, root_container)
-                return
+        # TODO: ranges were previously held as an instance var - perhaps this
+        # afforded some caching if shrink is called more than once for same set
+        # of ranges? revisit, but don't hang ranges off self
+        ranges = self._get_shard_ranges(root_account, root_container,
+                                        newest=True)
+        if ranges is None:
+            self.logger.error(
+                "Since the audit run of this container and "
+                "now we can't access the root container "
+                "%s/%s aborting.",
+                root_account, root_container)
+            return
         lower_n = upper_n = None
         lower_c = upper_c = self.shard_container_size
         if shard_range.lower:
-            lower_n = find_shard_range(shard_range.lower, self.ranges)
+            lower_n = find_shard_range(shard_range.lower, ranges)
 
             obj_count = [0]
 
@@ -1253,7 +1253,7 @@ class ContainerSharder(ContainerReplicator):
         if shard_range.upper:
             upper = str(shard_range.upper)[:-1] + \
                 chr(ord(str(shard_range.upper)[-1]) + 1)
-            upper_n = find_shard_range(upper, self.ranges)
+            upper_n = find_shard_range(upper, ranges)
 
             obj_count = [0]
 
