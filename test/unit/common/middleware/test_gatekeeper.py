@@ -215,5 +215,36 @@ class TestGatekeeper(unittest.TestCase):
             for app_hdrs in ({}, self.forbidden_headers_out):
                 self._test_duplicate_headers_not_removed(method, app_hdrs)
 
+    def _test_location_header(self, location_path):
+        headers = {'Location': location_path}
+        req = Request.blank(
+            '/v/a/c', environ={'REQUEST_METHOD': 'GET',
+                               'swift.leave_relative_location': True})
+
+        class SelfishApp(FakeApp):
+            def __call__(self, env, start_response):
+                self.req = Request(env)
+                resp = Response(request=self.req, body='FAKE APP',
+                                headers=self.headers)
+                # like webob, middlewares in the pipeline may rewrite
+                # location header from relative to absolute
+                resp.location = resp.absolute_location()
+                return resp(env, start_response)
+
+        selfish_app = SelfishApp(headers=headers)
+
+        app = self.get_app(selfish_app, {})
+        resp = req.get_response(app)
+        self.assertEqual('200 OK', resp.status)
+        self.assertIn('Location', resp.headers)
+        self.assertEqual(resp.headers['Location'], location_path)
+
+    def test_location_header_fixed(self):
+        self._test_location_header('/v/a/c/o2')
+        self._test_location_header('/v/a/c/o2?query=path&query2=doit')
+        self._test_location_header('/v/a/c/o2?query=path#test')
+        self._test_location_header('/v/a/c/o2;whatisparam?query=path#test')
+
+
 if __name__ == '__main__':
     unittest.main()
