@@ -158,7 +158,7 @@ class ContainerController(Controller):
         #         upto = max(uptos, key=lambda x: x[-1])[0]
 
         limit = req.params.get('limit', CONTAINER_LISTING_LIMIT)
-        piv_account = account_to_shard_account(self.account_name)
+        shard_account = account_to_shard_account(self.account_name)
         # In whatever case we need the list of ShardRanges that contain this
         # range
         ranges = self._get_shard_ranges(req, self.account_name,
@@ -173,17 +173,17 @@ class ContainerController(Controller):
             part, nodes = self.app.container_ring.get_nodes(account, container)
             req_headers = [self.generate_request_headers(req, transfer=True)
                            for _junk in range(len(nodes))]
-            piv_resp = self.make_requests(req, self.app.container_ring,
+            response = self.make_requests(req, self.app.container_ring,
                                           part, "GET", path, req_headers,
                                           urlencode(parameters))
 
-            if is_success(piv_resp.status_int):
+            if is_success(response.status_int):
                 try:
-                    return (piv_resp.headers, json.loads(piv_resp.body),
-                            piv_resp)
+                    return (response.headers, json.loads(response.body),
+                            response)
                 except ValueError:
                     pass
-            return None, None, piv_resp
+            return None, None, response
 
         def merge_old_new(shard_range, params):
             if shard_range is None:
@@ -195,7 +195,7 @@ class ContainerController(Controller):
                 params['limit'] = min(limit * 2, CONTAINER_LISTING_LIMIT)
 
                 hdrs, objs, tmp_resp = get_objects(
-                    piv_account, shard_range.name, params)
+                    shard_account, shard_range.name, params)
                 if hdrs is None and tmp_resp:
                     return tmp_resp
             finally:
@@ -242,9 +242,9 @@ class ContainerController(Controller):
         end_marker = params.get('end_marker')
         sharding = sharding_state == DB_STATE_SHARDING
         params['format'] = 'json'
-        num_pivs = len(ranges)
+        num_ranges = len(ranges)
         shard_range = None
-        for i in range(num_pivs + 1):
+        for i in range(num_ranges + 1):
             if sharding and reverse and i == 0:
                 # special case if we are still sharding as data may exist in
                 # the old DB after where we're up to (because reverse).
@@ -254,7 +254,7 @@ class ContainerController(Controller):
                     params['end_marker'] = end_marker
                 elif ranges[0].upper:
                     params['end_marker'] = ranges[0].upper + '\x00'
-            elif sharding and not reverse and i == num_pivs:
+            elif sharding and not reverse and i == num_ranges:
                 # we are in another edge case where the we need to check more
                 # in the old DB
                 if (end_marker and shard_range and
@@ -287,7 +287,7 @@ class ContainerController(Controller):
                 hdrs, objs, tmp_resp = merge_old_new(shard_range, params)
             else:
                 hdrs, objs, tmp_resp = get_objects(
-                    piv_account, shard_range.name, params)
+                    shard_account, shard_range.name, params)
 
             if hdrs is None and tmp_resp:
                 return tmp_resp
