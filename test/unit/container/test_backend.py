@@ -29,7 +29,7 @@ import json
 
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, DB_STATE_NOTFOUND, DB_STATE_UNSHARDED, \
-    DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE
+    DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE, RECORD_TYPE_SHARD_NODE
 from swift.common.db import DatabaseBroker
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange
@@ -2571,6 +2571,120 @@ class TestContainerBroker(unittest.TestCase):
         actual = broker.get_own_shard_range()
         self.assertIsInstance(actual, ShardRange)
         self.assertTrue(actual.entire_namespace())
+
+    @with_tempdir
+    def _check_find_shard_ranges(self, c_lower, c_upper, tempdir):
+        ts_iter = make_timestamp_iter()
+        now = time()
+        ts_now = Timestamp(now)
+        container_name = 'test_container'
+
+        def do_test(expected_bounds, expected_last_found, shard_size, limit):
+            # build expected shard range dicts
+            expected_range_dicts = []
+            for lower, upper in expected_bounds:
+                name = '%s-%s' % (
+                    container_name,
+                    hashlib.md5('%s-%s' % (upper, ts_now.internal)).hexdigest()
+                )
+                d = dict(name=name, created_at=ts_now.internal, lower=lower,
+                         upper=upper, object_count=0, bytes_used=0,
+                         meta_timestamp=ts_now.internal)
+                expected_range_dicts.append(d)
+            # call the method under test
+            with mock.patch('swift.common.utils.time.time',
+                            return_value=now):
+                ranges, last_found = broker.find_shard_ranges(shard_size,
+                                                              limit)
+            # verify results
+            self.assertEqual(expected_range_dicts,
+                             [dict(shard_range) for shard_range in ranges])
+            self.assertEqual(expected_last_found, last_found)
+
+        db_path = os.path.join(tempdir, 'test_container.db')
+        broker = ContainerBroker(
+            db_path, account='shard_a', container=container_name)
+        # shard size > object count, no objects
+        broker.initialize(next(ts_iter).internal, 0)
+
+        ts = next(ts_iter)
+        if c_lower or c_upper:
+            # testing a shard, so update it's metadata
+            broker.update_metadata({
+                'X-Container-Sysmeta-Shard-Lower': (c_lower, ts.internal),
+                'X-Container-Sysmeta-Shard-Upper': (c_upper, ts.internal),
+                'X-Container-Sysmeta-Shard-Timestamp':
+                    (ts.internal, ts.internal)})
+
+        self.assertEqual(([], False), broker.find_shard_ranges(10))
+
+        for i in range(10):
+            broker.put_object(
+                'obj%02d' % i, next(ts_iter).internal, 0, 'text/plain', 'etag')
+
+        expected_bounds = [(c_lower, 'obj04'), ('obj04', c_upper)]
+        do_test(expected_bounds, True, shard_size=5, limit=None)
+
+        expected = [(c_lower, 'obj06'), ('obj06', c_upper)]
+        do_test(expected, True, shard_size=7, limit=None)
+        expected = [(c_lower, 'obj08'), ('obj08', c_upper)]
+        do_test(expected, True, shard_size=9, limit=None)
+        # shard size >= object count
+        do_test([], False, shard_size=10, limit=None)
+        do_test([], False, shard_size=11, limit=None)
+
+        # check use of limit
+        do_test([], False, shard_size=4, limit=0)
+        expected = [(c_lower, 'obj03')]
+        do_test(expected, False, shard_size=4, limit=1)
+        expected = [(c_lower, 'obj03'), ('obj03', 'obj07')]
+        do_test(expected, False, shard_size=4, limit=2)
+        expected = [(c_lower, 'obj03'), ('obj03', 'obj07'), ('obj07', c_upper)]
+        do_test(expected, True, shard_size=4, limit=3)
+        do_test(expected, True, shard_size=4, limit=4)
+        do_test(expected, True, shard_size=4, limit=-1)
+
+        # increase object count to 11
+        broker.put_object(
+            'obj10', next(ts_iter).internal, 0, 'text/plain', 'etag')
+        expected = [(c_lower, 'obj03'), ('obj03', 'obj07'), ('obj07', c_upper)]
+        do_test(expected, True, shard_size=4, limit=None)
+
+        expected = [(c_lower, 'obj09'), ('obj09', c_upper)]
+        do_test(expected, True, shard_size=10, limit=None)
+        do_test([], False, shard_size=11, limit=None)
+
+        # now add a pre-existing shard ranges
+        shard_range = ShardRange('srange-0', Timestamp.now(), '', 'obj03')
+        item = dict(shard_range, deleted=0, storage_policy_index=0,
+                    record_type=RECORD_TYPE_SHARD_NODE)
+        broker.merge_items([item])
+
+        expected = [('obj03', 'obj07'), ('obj07', c_upper)]
+        do_test(expected, True, shard_size=4, limit=None)
+        expected = [('obj03', 'obj07')]
+        do_test(expected, False, shard_size=4, limit=1)
+
+        # add another...
+        shard_range = ShardRange('srange-1', Timestamp.now(), '', 'obj07')
+        item = dict(shard_range, deleted=0, storage_policy_index=0,
+                    record_type=RECORD_TYPE_SHARD_NODE)
+        broker.merge_items([item])
+        expected = [('obj07', c_upper)]
+        do_test(expected, True, shard_size=4, limit=None)
+
+        # add last shard range...
+        shard_range = ShardRange('srange-2', Timestamp.now(), 'obj07', c_upper)
+        item = dict(shard_range, deleted=0, storage_policy_index=0,
+                    record_type=RECORD_TYPE_SHARD_NODE)
+        broker.merge_items([item])
+        do_test([], True, shard_size=4, limit=None)
+
+    def test_find_shard_ranges(self):
+        self._check_find_shard_ranges('', '')
+        self._check_find_shard_ranges('', 'upper')
+        self._check_find_shard_ranges('lower', '')
+        self._check_find_shard_ranges('lower', 'upper')
 
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
