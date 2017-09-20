@@ -590,8 +590,6 @@ class ContainerController(BaseStorageServer):
             return HTTPPreconditionFailed(body='Bad delimiter')
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        include_end_marker = config_true_value(
-            get_param(req, 'include_end_marker'))
         limit = constraints.CONTAINER_LISTING_LIMIT
         given_limit = get_param(req, 'limit')
         reverse = config_true_value(get_param(req, 'reverse'))
@@ -643,8 +641,7 @@ class ContainerController(BaseStorageServer):
             container_list = broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
-                reverse=reverse, include_deleted=include_deleted,
-                include_end_marker=include_end_marker)
+                reverse=reverse, include_deleted=include_deleted)
         resp_headers.update(
             (key, value)
             for key, (value, timestamp) in broker.metadata.items()
