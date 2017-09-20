@@ -31,7 +31,8 @@ from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, DB_STATE_NOTFOUND, DB_STATE_UNSHARDED, \
     DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE
 from swift.common.db import DatabaseBroker
-from swift.common.utils import Timestamp, encode_timestamps, hash_path
+from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
+    ShardRange
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -2503,6 +2504,58 @@ class TestContainerBroker(unittest.TestCase):
 
         broker._commit_puts = mock_commit_puts
         broker.get_info()
+
+    @with_tempdir
+    def test_get_shard_root_path(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container_shard.db')
+        broker = ContainerBroker(
+            db_path, account='shard_a', container='shard_c')
+        broker.initialize(next(ts_iter).internal, 1)
+
+        self.assertEqual(('shard_a', 'shard_c'), broker.get_shard_root_path())
+        metadata = {
+            'X-Container-Sysmeta-Shard-Account':
+                ('root_a', next(ts_iter).internal),
+            'X-Container-Sysmeta-Shard-Container':
+                ('root_c', next(ts_iter).internal)}
+
+        broker.update_metadata(metadata)
+        self.assertEqual(('root_a', 'root_c'), broker.get_shard_root_path())
+
+    @with_tempdir
+    def test_get_shard_range(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(
+            db_path, account='shard_a', container='shard_c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        self.assertIsNone(broker.get_shard_range())
+        ts_1 = next(ts_iter)
+        metadata = {
+            'X-Container-Sysmeta-Shard-Timestamp':
+                (ts_1.internal, next(ts_iter).internal),
+            'X-Container-Sysmeta-Shard-Lower': ('l', next(ts_iter).internal),
+            'X-Container-Sysmeta-Shard-Upper': ('u', next(ts_iter).internal)}
+
+        now = Timestamp.now()
+        broker.update_metadata(metadata)
+        expected = ShardRange('shard_c', ts_1, 'l', 'u', 0, 0, now)
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=now):
+            actual = broker.get_shard_range()
+        self.assertEqual(dict(expected), dict(actual))
+
+        broker.put_object(
+            'o1', next(ts_iter).internal, 100, 'text/plain', 'etag1')
+        broker.put_object(
+            'o2', next(ts_iter).internal, 99, 'text/plain', 'etag2')
+        expected = ShardRange('shard_c', ts_1, 'l', 'u', 2, 199, now)
+        with mock.patch('swift.container.backend.Timestamp.now',
+                        return_value=now):
+            actual = broker.get_shard_range()
+        self.assertEqual(dict(expected), dict(actual))
 
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
