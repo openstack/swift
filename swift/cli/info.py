@@ -25,7 +25,8 @@ from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix, \
     is_object_transient_sysmeta
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
-from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
+from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR, \
+    DB_STATE
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy
 from swift.common.storage_policy import POLICIES
@@ -290,6 +291,26 @@ def print_db_info_metadata(db_type, info, metadata):
     else:
         print('No user metadata found in db file')
 
+    if info.get('db_state') is not None:
+        print('Sharding Metadata:')
+        shard_type = 'root' if info.get('is_root') else 'shard'
+        print('  Type: %s' % shard_type)
+        print('  State: %s' % DB_STATE[info['db_state']])
+    if info.get('shard_ranges'):
+        print('Shard Ranges:')
+        for srange in info['shard_ranges']:
+            srange = dict(srange)
+            print('  Name: %(name)s' % srange)
+            print('    lower: %(lower)r, upper: %(upper)r' % srange)
+            print('    Object Count: %(object_count)d, Bytes Used: '
+                  '%(bytes_used)d' % srange)
+            print('    Created at: %s (%s)'
+                  % (Timestamp(srange['created_at']).isoformat,
+                     srange['created_at']))
+            print('    Meta Timestamp: %s (%s)'
+                  % (Timestamp(srange['meta_timestamp']).isoformat,
+                     srange['meta_timestamp']))
+
 
 def print_obj_metadata(metadata):
     """
@@ -387,7 +408,13 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False):
             raise InfoSystemExit()
         raise
     account = info['account']
-    container = info['container'] if db_type == 'container' else None
+    container = None
+    if db_type == 'container':
+        container = info['container']
+        info['is_root'] = broker.is_root_container()
+        sranges = broker.build_shard_ranges()
+        if sranges:
+            info['shard_ranges'] = sranges
     print_db_info_metadata(db_type, info, broker.metadata)
     try:
         ring = Ring(swift_dir, ring_name=db_type)
