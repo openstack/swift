@@ -4199,7 +4199,7 @@ def get_md5_socket():
 
 class ShardRange(object):
     def __init__(self, name=None, timestamp=None, lower='', upper='',
-                 object_count=0, bytes_used=0, meta_timestamp=None):
+                 object_count=0, bytes_used=0, meta_timestamp=None, **kwargs):
         """
         A ShardRange encapsulates state related to a container shard.
 
@@ -4370,6 +4370,20 @@ class ShardRange(object):
         yield 'object_count', self.object_count
         yield 'bytes_used', self.bytes_used
         yield 'meta_timestamp', self.meta_timestamp.internal
+
+    @classmethod
+    def from_dict(cls, params):
+        """
+        Return an instance constructed using the given dict of params. This
+        method is deliberately less flexible than the class `__init__()` method
+        and requires all of the `__init__()` args to be given in the dict of
+        params.
+        :param params: a dict of parameters
+        :return: an instance of this class
+        """
+        return cls(params['name'], params['created_at'], params['lower'],
+                   params['upper'], params['object_count'],
+                   params['bytes_used'], params['meta_timestamp'])
 
 
 def find_shard_range(item, ranges):

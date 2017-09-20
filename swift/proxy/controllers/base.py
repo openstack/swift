@@ -1953,40 +1953,49 @@ class Controller(object):
         return resp
 
     def _get_shard_ranges(self, req, account, container, obj=None):
-        ranges = []
+        """
+        Fetch shard ranges from given `account/container`. If `obj` is given
+        then the shard range for that object name is requested, otherwise all
+        shard ranges are requested.
+
+        :param req: original Request instance.
+        :param account: account from which shard ranges should be fetched.
+        :param container: container from which shard ranges should be fetched.
+        :param obj: (optional) the object name for which a shard range should
+            be fetched.
+        :return: a list of instances of :class:`swift.common.utils.ShardRange`
+        """
         part, nodes = self.app.container_ring.get_nodes(account, container)
 
         path = "/%s/%s" % (account, container)
         if obj:
             path = "%s/%s" % (path, obj)
         params = req.params.copy()
-        params.update({
-            'items': 'shard',
-            'format': 'json'})
+        params.update({'items': 'shard',
+                       'format': 'json'})
 
-        headers = [self.generate_request_headers(req, transfer=True)
-                   for _junk in range(len(nodes))]
-        shard_resp = self.make_requests(req, self.app.container_ring,
-                                        part, "GET", path, headers,
-                                        urlencode(params))
-        if not is_success(shard_resp.status_int):
-            return ranges
+        headers_list = [self.generate_request_headers(req, transfer=True)
+                        for _node in nodes]
+        # TODO: why are we using make_requests (plural) when we only use one
+        # response?
+        response = self.make_requests(req, self.app.container_ring,
+                                      part, "GET", path, headers_list,
+                                      urlencode(params))
+
+        if not is_success(response.status_int):
+            self.app.logger.debug(
+                "Failed to fetch shard ranges from /%s; status=%s." %
+                (path, response.status_int))
+            # TODO: return [] or None to indicate failure?
+            return []
 
         try:
-            shards = json.loads(shard_resp.body)
-        except ValueError:
-            # Failed to decode the json response
-            pass
-
-        for shard in shards:
-            lower = shard.get('lower', '')
-            upper = shard.get('upper', '')
-            created_at = shard.get('created_at') or None
-            object_count = shard.get('object_count') or 0
-            bytes_used = shard.get('bytes_used') or 0
-            meta_timestamp = shard.get('meta_timestamp') or None
-            ranges.append(ShardRange(shard['name'], created_at, lower,
-                                     upper, object_count, bytes_used,
-                                     meta_timestamp))
-
-        return ranges
+            pivots = json.loads(response.body)
+            return [ShardRange.from_dict(pivot_range)
+                    for pivot_range in pivots]
+        except (ValueError, TypeError, KeyError) as err:
+            self.app.logger.exception(
+                "Problem decoding shard ranges in response from /%s: %s",
+                path, err)
+            # TODO: return [] or None to indicate failure? or raise exception?
+            return []

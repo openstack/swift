@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import itertools
+import json
 from collections import defaultdict
 import unittest
 import mock
@@ -23,11 +24,14 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, GetOrHeadHandler, bytes_to_skip
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS
 from swift.common import exceptions
-from swift.common.utils import split_path
+from swift.common.utils import split_path, ShardRange, Timestamp
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
-from test.unit import fake_http_connect, FakeRing, FakeMemcache, PatchPolicies
+from test.unit import (
+    fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, FakeLogger,
+    make_timestamp_iter
+)
 from swift.proxy import server as proxy_server
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
@@ -172,7 +176,8 @@ class TestFuncs(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing())
+                                            container_ring=FakeRing(),
+                                            logger=FakeLogger())
 
     def test_get_info_zero_recheck(self):
         mock_cache = mock.Mock()
@@ -1016,3 +1021,75 @@ class TestFuncs(unittest.TestCase):
         # prime numbers
         self.assertEqual(bytes_to_skip(11, 7), 4)
         self.assertEqual(bytes_to_skip(97, 7873823), 55)
+
+    def test_get_shard_ranges(self):
+        ts_iter = make_timestamp_iter()
+        shard_ranges = [dict(ShardRange(
+            'pr%d' % i, next(ts_iter), '%d_lower' % i, '%d_upper' % i,
+            object_count=i, bytes_used=1024 * i, meta_timestamp=next(ts_iter)))
+            for i in range(3)]
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+        req = Request.blank('/v1/a/c/o', method='PUT')
+        captured = []
+
+        def on_connect(*args, **kwargs):
+            captured.append((args, kwargs))
+
+        # get ranges
+        with mock.patch(
+                'swift.proxy.controllers.base.http_connect',
+                fake_http_connect(200, 200, 200,
+                                  body=json.dumps(shard_ranges),
+                                  give_connect=on_connect)):
+            actual = base._get_shard_ranges(req, 'a', 'c')
+
+        self.assertEqual(3, len(captured))
+        for call in captured:
+            self.assertEqual('GET', call[0][-2])
+            self.assertEqual('/a/c', call[0][-1])
+            params = sorted(call[1].get('query_string').split('&'))
+            self.assertEqual(['format=json', 'items=shard'], params)
+        self.assertEqual(shard_ranges, [dict(pr) for pr in actual])
+        self.assertFalse(self.app.logger.get_lines_for_level('error'))
+
+        # get range for object
+        captured = []
+        with mock.patch(
+                'swift.proxy.controllers.base.http_connect',
+                fake_http_connect(200, 200, 200,
+                                  body=json.dumps(shard_ranges[1:2]),
+                                  give_connect=on_connect)):
+            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+
+        self.assertEqual(3, len(captured))
+        for call in captured:
+            self.assertEqual('/a/c/1_test', call[0][-1])
+            params = sorted(call[1].get('query_string').split('&'))
+            self.assertEqual(['format=json', 'items=shard'], params)
+        self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
+        self.assertFalse(self.app.logger.get_lines_for_level('error'))
+
+        # empty response
+        with mock.patch(
+                'swift.proxy.controllers.base.http_connect',
+                fake_http_connect(200, 200, 200,
+                                  body=json.dumps({}),
+                                  give_connect=on_connect)):
+            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual([], actual)
+
+        # invalid response
+        invalid_range = {'created_at': Timestamp.now().internal}
+        with mock.patch(
+                'swift.proxy.controllers.base.http_connect',
+                fake_http_connect(200, 200, 200,
+                                  body=json.dumps([invalid_range]),
+                                  give_connect=on_connect)):
+            actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
+        self.assertEqual([], actual)
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertIn('Problem decoding shard ranges', error_lines[0])
+        self.assertIn('/a/c/1_test', error_lines[0])
+        self.assertFalse(error_lines[1:])
