@@ -2557,6 +2557,23 @@ class TestContainerBroker(unittest.TestCase):
             actual = broker.get_shard_range()
         self.assertEqual(dict(expected), dict(actual))
 
+        # Shards shrink to the point that there's a single shard left
+        metadata = {
+            'X-Container-Sysmeta-Shard-Lower': ('', next(ts_iter).internal),
+            'X-Container-Sysmeta-Shard-Upper': ('', next(ts_iter).internal)}
+        broker.update_metadata(metadata)
+        actual = broker.get_shard_range()
+        self.assertIsInstance(actual, ShardRange)
+        self.assertTrue(actual.entire_namespace())
+
+        # This still holds after reclaim_age
+        broker.reclaim(next(ts_iter).internal, next(ts_iter).internal)
+        self.assertNotIn('X-Container-Sysmeta-Shard-Lower', broker.metadata)
+        self.assertNotIn('X-Container-Sysmeta-Shard-Upper', broker.metadata)
+        actual = broker.get_shard_range()
+        self.assertIsInstance(actual, ShardRange)
+        self.assertTrue(actual.entire_namespace())
+
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
 

@@ -1687,17 +1687,18 @@ class ContainerBroker(DatabaseBroker):
             return super(ContainerBroker, self).get_items_since(start, count)
 
     def get_shard_range(self):
-        timestamp, ts = self.metadata.get(
+        metadata = self.metadata  # Single DB hit
+        created_at, ts = metadata.get(
             'X-Container-Sysmeta-Shard-Timestamp', (None, None))
-        lower, ts = self.metadata.get(
-            'X-Container-Sysmeta-Shard-Lower', (None, None))
-        upper, ts = self.metadata.get(
-            'X-Container-Sysmeta-Shard-Upper', (None, None))
-        if lower is None and upper is None:
+        lower, ts = metadata.get(
+            'X-Container-Sysmeta-Shard-Lower', ('', None))
+        upper, ts = metadata.get(
+            'X-Container-Sysmeta-Shard-Upper', ('', None))
+        if created_at is None:
             return None
 
-        tmp_info = self.get_info()
-        shard_range = ShardRange(self.container, timestamp, lower, upper,
+        tmp_info = self.get_info()  # Also ensures self.container is not None
+        shard_range = ShardRange(self.container, created_at, lower, upper,
                                  tmp_info.get('object_count', 0),
                                  tmp_info.get('bytes_used', 0),
                                  Timestamp.now())
