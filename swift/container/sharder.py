@@ -137,21 +137,6 @@ class ContainerSharder(ContainerReplicator):
         if (time.time() - self.reported) >= 3600:  # once an hour
             return self._report_stats()
 
-    def _get_local_devices(self):
-        self._local_device_ids = set()
-        results = set()
-        self.ips = whataremyips()
-        if not self.ips:
-            self.logger.error('ERROR Failed to get my own IPs?')
-            return
-        for node in self.ring.devs:
-            if node and is_local_device(self.ips, self.port,
-                                        node['replication_ip'],
-                                        node['replication_port']):
-                results.add(node['device'])
-                self._local_device_ids.add(node['id'])
-        return results
-
     def _get_shard_ranges(self, account, container, newest=False):
         # TODO: this surely doesn't work -- self.swift is an internal client,
         # and the proxy's container controller doesn't clients get pivots
@@ -600,7 +585,8 @@ class ContainerSharder(ContainerReplicator):
                     continue
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
-                    # TODO: do we need self._local_device_ids?
+                    # Populate self._local_device_ids so we can find
+                    # handoffs for shards later
                     self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
         for part, path, node_id, node_idx in self.roundrobin_datadirs(dirs):
