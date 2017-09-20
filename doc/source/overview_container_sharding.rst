@@ -111,7 +111,23 @@ The 2 batch variables are used when sharding and to understand what they mean,
 an understanding of how the container-sharder_ works is required. But suffice
 it to say the ``scanner_batch_size`` is how many shard ranges a scanner will
 find on each cycle and the ``batch_size`` is how many shards to shard on
-ach cycle.
+each cycle.
+
+Container sharding uses an instance of :ref:`InternalClient <internal_client>`.
+This requires a configuration file to be created as follows:
+
+#. Create a custom internal client configuration file (if one is not already in
+   use) based on the sample file `internal-client.conf-sample`. For example,
+   copy `internal-client.conf-sample` to
+   `/etc/swift/container-sharder-client.conf`.
+#. Modify this file to set ``account_autocreate=True`` in the
+   ``[app:proxy-server]`` section.
+#. Modify the ``[container-sharder]`` section of all container server config
+   files to point to this internal client config file using the
+   ``internal_client_conf_path`` option. For example::
+
+     internal_client_conf_path = /etc/swift/container-sharder-client.conf
+
 
 -----------------------------
 Overview of sharding in Swift
