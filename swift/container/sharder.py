@@ -264,16 +264,6 @@ class ContainerSharder(ContainerReplicator):
                 objs.append(obj)
         return objs
 
-    def _get_node_index(self):
-        # TODO: stop having node_id hang off self
-        if not hasattr(self, 'node_id'):
-            return None
-
-        nodes = self.ring.get_part_nodes(self.part)
-        indices = [node['index'] for node in nodes
-                   if node['id'] == self.node_id]
-        return indices[0] if indices else None
-
     def _add_shard_metadata(self, broker, root_account, root_container,
                             shard_range, force=False):
         if not broker.metadata.get('X-Container-Sysmeta-Shard-Account') \
@@ -293,7 +283,7 @@ class ContainerSharder(ContainerReplicator):
                     (shard_range.meta_timestamp.internal, timestamp),
                 'X-Container-Sysmeta-Sharding': (None, timestamp)})
 
-    def _misplaced_objects(self, broker, root_account, root_container,
+    def _misplaced_objects(self, broker, node, root_account, root_container,
                            shard_range):
         """
         Search for objects in the current broker that don't belong, and move
@@ -328,7 +318,7 @@ class ContainerSharder(ContainerReplicator):
             # object table that are less than (<) the shard range this node is
             # up to are considered misplaced, anything above is being held.
             last_shard = self.get_metadata_item(
-                broker, 'X-Container-Sysmeta-Shard-Last-%d' % self.node_id)
+                broker, 'X-Container-Sysmeta-Shard-Last-%d' % node['id'])
             if not last_shard:
                 # This node hasn't exploded/cleaved anything yet, so all
                 # objects in object table are suppose to be there (in holding).
@@ -546,16 +536,6 @@ class ContainerSharder(ContainerReplicator):
         item = broker.metadata.get(header)
         return None if item is None else item[0]
 
-    def roundrobin_datadirs(self, datadirs):
-        for part, path, node_id in db_replicator.roundrobin_datadirs(datadirs):
-            index = [node['index'] for node in
-                     self.ring.get_part_nodes(int(part))
-                     if node['id'] == node_id]
-            if not index:
-                # TODO Should probably log something here
-                continue
-            yield part, path, node_id, index[0]
-
     def _one_shard_cycle(self):
         """
         The main function, everything the sharder does forks from this method.
@@ -589,16 +569,24 @@ class ContainerSharder(ContainerReplicator):
                     # handoffs for shards later
                     self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
-        for part, path, node_id, node_idx in self.roundrobin_datadirs(dirs):
+        for part, path, node_id in db_replicator.roundrobin_datadirs(dirs):
+            # TODO: cache results in a local dict node_id -> node to avoid
+            # repeated calls to get_part_nodes for same part
+            for node in self.ring.get_part_nodes(int(part)):
+                if node['id'] == node_id:
+                    break
+            else:
+                # TODO: this would be a bug, a warning log may be too soft
+                self.logger.warning("Failed to find node to match id %s" %
+                                    node_id)
+                continue
+            # TODO: check that node has an index ?? would be a bug otherwise
             broker = ContainerBroker(path)
             sharded = broker.metadata.get('X-Container-Sysmeta-Sharding') or \
                 broker.metadata.get('X-Container-Sysmeta-Shard-Account')
             if not sharded:
                 # Not a shard container
                 continue
-            self.node_idx = node_idx
-            self.node_id = node_id
-            self.part = int(part)
             root_account, root_container = broker.get_shard_root_path()
             shard_range = broker.get_shard_range()
 
@@ -615,7 +603,7 @@ class ContainerSharder(ContainerReplicator):
             #     continue
 
             # now look and deal with misplaced objects.
-            self._misplaced_objects(broker, root_account, root_container,
+            self._misplaced_objects(broker, node, root_account, root_container,
                                     shard_range)
 
             if broker.is_deleted():
@@ -663,13 +651,13 @@ class ContainerSharder(ContainerReplicator):
                     broker, 'X-Container-Sysmeta-Sharding-Scan-Done'))
 
                 # TODO: bring back leader election (maybe?)
-                if self.node_idx == 0 and not scan_complete:
-                    scan_complete = self._find_shard_ranges(broker)
+                if node['index'] == 0 and not scan_complete:
+                    scan_complete = self._find_shard_ranges(broker, node, part)
                     if scan_complete:
-                        self._cleave(broker, root_account,
+                        self._cleave(broker, node, root_account,
                                      root_container)
                 else:
-                    self._cleave(broker, root_account,
+                    self._cleave(broker, node, root_account,
                                  root_container)
             finally:
                 self._update_shard_range_counts(root_account, root_container,
@@ -807,7 +795,7 @@ class ContainerSharder(ContainerReplicator):
                 continue
         return successes >= quorum
 
-    def _find_shard_ranges(self, broker):
+    def _find_shard_ranges(self, broker, node, part):
         """
         This function is the main work horse of a scanner node, it:
           - look at the shard_ranges table to see where to continue on from.
@@ -885,15 +873,15 @@ class ContainerSharder(ContainerReplicator):
             'X-Container-Sysmeta-Sharding': True}
         for i, shard_range in enumerate(found_ranges):
             timestamp = Timestamp(time.time()).internal
-            piv_name = self.generate_shard_range_name(
-                root_container, self.node_idx, shard_range or '', timestamp)
+            shard_name = self.generate_shard_range_name(
+                root_container, node['index'], shard_range or '', timestamp)
             try:
                 headers.update({
                     'X-Container-Sysmeta-Shard-Lower': lower,
                     'X-Container-Sysmeta-Shard-Upper': shard_range,
                     'X-Container-Sysmeta-Shard-Timestamp': timestamp,
                     'X-Container-Sysmeta-Shard-Meta-Timestamp': timestamp})
-                self.swift.create_container(shard_account, piv_name,
+                self.swift.create_container(shard_account, shard_name,
                                             headers=headers)
             except internal_client.UnexpectedResponse as ex:
                 self.logger.warning('Failed to put container: %s', str(ex))
@@ -902,7 +890,7 @@ class ContainerSharder(ContainerReplicator):
                                   'Will try again next cycle',
                                   broker.account, broker.container)
                 break
-            new_range = ShardRange(piv_name, timestamp, lower, shard_range,
+            new_range = ShardRange(shard_name, timestamp, lower, shard_range,
                                    0, 0, timestamp)
             shard_ranges.append(new_range)
             lower = shard_range
@@ -917,9 +905,9 @@ class ContainerSharder(ContainerReplicator):
         if found_last() and not last_found:
             # We need to add the final shard range range as well.
             timestamp = Timestamp(time.time()).internal
-            piv_name = self.generate_shard_range_name(
-                root_container, self.node_idx, '', timestamp)
-            new_range = ShardRange(piv_name, timestamp, lower, cont_upper, 0,
+            shard_name = self.generate_shard_range_name(
+                root_container, node['index'], '', timestamp)
+            new_range = ShardRange(shard_name, timestamp, lower, cont_upper, 0,
                                    0, timestamp)
             shard_ranges.append(new_range)
             # add something the found_ranges so the stats will be correct.
@@ -930,7 +918,7 @@ class ContainerSharder(ContainerReplicator):
                     'X-Container-Sysmeta-Shard-Upper': cont_upper,
                     'X-Container-Sysmeta-Shard-Timestamp': timestamp,
                     'X-Container-Sysmeta-Shard-Meta-Timestamp': timestamp})
-                self.swift.create_container(shard_account, piv_name,
+                self.swift.create_container(shard_account, shard_name,
                                             headers=headers)
             except internal_client.UnexpectedResponse as ex:
                 self.logger.warning('Failed to put container: %s', str(ex))
@@ -946,7 +934,7 @@ class ContainerSharder(ContainerReplicator):
         broker.merge_items(items)
 
         self.cpool.spawn(
-            self._replicate_object, self.part, broker.db_file, self.node_id)
+            self._replicate_object, part, broker.db_file, node['id'])
 
         if broker.get_db_state == DB_STATE_UNSHARDED:
             broker.set_sharding_state()
@@ -1288,9 +1276,9 @@ class ContainerSharder(ContainerReplicator):
                                       [shard_range])
             broker.delete_db(timestamp)
 
-    def _cleave(self, broker, root_account, root_container):
+    def _cleave(self, broker, node, root_account, root_container):
         last_range = self.get_metadata_item(
-            broker, 'X-Container-Sysmeta-Shard-Last-%d' % self.node_idx)
+            broker, 'X-Container-Sysmeta-Shard-Last-%d' % node['index'])
         scan_complete = self.get_metadata_item(
             broker, 'X-Container-Sysmeta-Sharding-Scan-Done')
 
@@ -1387,7 +1375,7 @@ class ContainerSharder(ContainerReplicator):
                 self._replicate_object, new_part, new_broker.db_file, node_id)
             last_range = shard_range.upper
             self.logger.info('Node %d sharded %s/%s at shard range %s.',
-                             self.node_id, broker.account, broker.container,
+                             node['id'], broker.account, broker.container,
                              shard_range.upper)
             self.logger.increment('sharded')
             self.stats['containers_sharded'] += 1
@@ -1398,13 +1386,13 @@ class ContainerSharder(ContainerReplicator):
         if scan_complete and not ranges_todo:
             # we've finished sharding this container.
             broker.update_metadata({
-                'X-Container-Sysmeta-Shard-Last-%d' % self.node_idx:
+                'X-Container-Sysmeta-Shard-Last-%d' % node['index']:
                     ('', Timestamp(time.time()).internal)})
             self._sharding_complete(root_account, root_container, broker)
             self.logger.increment('sharding_complete')
         else:
             broker.update_metadata({
-                'X-Container-Sysmeta-Shard-Last-%d' % self.node_idx:
+                'X-Container-Sysmeta-Shard-Last-%d' % node['index']:
                     (last_range, Timestamp(time.time()).internal)})
 
     # TODO: unused method - ok to delete?
