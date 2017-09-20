@@ -128,6 +128,11 @@ class TestContainerSharding(ReplProbeTest):
             self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
             self.assertLengthEqual(get_shard_ranges(broker), 0)
 
+        headers, pre_sharding_listing = client.get_container(
+            self.url, self.token, self.container_name)
+        self.assertEqual(obj_names, [x['name'].encode('utf-8')
+                                     for x in pre_sharding_listing])  # sanity
+
         # Shard it
         client.post_container(self.url, self.admin_token, self.container_name,
                               headers={'X-Container-Sharding': 'on'})
@@ -180,12 +185,17 @@ class TestContainerSharding(ReplProbeTest):
         # Check that entire listing is available
         headers, listing = client.get_container(self.url, self.token,
                                                 self.container_name)
-        self.assertEqual([x['name'].encode('utf-8') for x in listing],
-                         obj_names)
+        self.assertEqual(pre_sharding_listing, listing)
         # ... and has the right object count
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(headers['x-container-object-count'],
                          str(len(obj_names)))
+
+        # It even works in reverse!
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name,
+                                                query_string='reverse=on')
+        self.assertEqual(pre_sharding_listing[::-1], listing)
 
     def test_sharded_listing_no_replicators(self):
         self._test_sharded_listing()
