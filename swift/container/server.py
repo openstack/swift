@@ -19,7 +19,6 @@ import time
 import traceback
 import math
 from swift import gettext_ as _
-from xml.etree.cElementTree import Element, SubElement, tostring
 
 from eventlet import Timeout
 
@@ -29,7 +28,7 @@ from swift.container.backend import ContainerBroker, DATADIR
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
-from swift.common.request_helpers import get_param, get_listing_content_type, \
+from swift.common.request_helpers import get_param, \
     split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
@@ -40,6 +39,7 @@ from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.http import HTTP_NOT_FOUND, is_success
+from swift.common.middleware import listing_formats
 from swift.common.storage_policy import POLICIES
 from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
@@ -418,7 +418,7 @@ class ContainerController(BaseStorageServer):
         """Handle HTTP HEAD request."""
         drive, part, account, container, obj = split_and_validate_path(
             req, 4, 5, True)
-        out_content_type = get_listing_content_type(req)
+        out_content_type = listing_formats.get_listing_content_type(req)
         if not check_drive(self.root, drive, self.mount_check):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
@@ -451,8 +451,8 @@ class ContainerController(BaseStorageServer):
         """
         (name, created, size, content_type, etag) = record[:5]
         if content_type is None:
-            return {'subdir': name}
-        response = {'bytes': size, 'hash': etag, 'name': name,
+            return {'subdir': name.decode('utf8')}
+        response = {'bytes': size, 'hash': etag, 'name': name.decode('utf8'),
                     'content_type': content_type}
         response['last_modified'] = Timestamp(created).isoformat
         override_bytes_from_content_type(response, logger=self.logger)
@@ -482,7 +482,7 @@ class ContainerController(BaseStorageServer):
                     request=req,
                     body='Maximum limit is %d'
                     % constraints.CONTAINER_LISTING_LIMIT)
-        out_content_type = get_listing_content_type(req)
+        out_content_type = listing_formats.get_listing_content_type(req)
         if not check_drive(self.root, drive, self.mount_check):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_container_broker(drive, part, account, container,
@@ -504,36 +504,20 @@ class ContainerController(BaseStorageServer):
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
                 resp_headers[key] = value
-        ret = Response(request=req, headers=resp_headers,
-                       content_type=out_content_type, charset='utf-8')
-        if out_content_type == 'application/json':
-            ret.body = json.dumps([self.update_data_record(record)
-                                   for record in container_list])
-        elif out_content_type.endswith('/xml'):
-            doc = Element('container', name=container.decode('utf-8'))
-            for obj in container_list:
-                record = self.update_data_record(obj)
-                if 'subdir' in record:
-                    name = record['subdir'].decode('utf-8')
-                    sub = SubElement(doc, 'subdir', name=name)
-                    SubElement(sub, 'name').text = name
-                else:
-                    obj_element = SubElement(doc, 'object')
-                    for field in ["name", "hash", "bytes", "content_type",
-                                  "last_modified"]:
-                        SubElement(obj_element, field).text = str(
-                            record.pop(field)).decode('utf-8')
-                    for field in sorted(record):
-                        SubElement(obj_element, field).text = str(
-                            record[field]).decode('utf-8')
-            ret.body = tostring(doc, encoding='UTF-8').replace(
-                "<?xml version='1.0' encoding='UTF-8'?>",
-                '<?xml version="1.0" encoding="UTF-8"?>', 1)
+        listing = [self.update_data_record(record)
+                   for record in container_list]
+        if out_content_type.endswith('/xml'):
+            body = listing_formats.container_to_xml(listing, container)
+        elif out_content_type.endswith('/json'):
+            body = json.dumps(listing)
         else:
-            if not container_list:
-                return HTTPNoContent(request=req, headers=resp_headers)
-            ret.body = '\n'.join(rec[0] for rec in container_list) + '\n'
+            body = listing_formats.listing_to_text(listing)
+
+        ret = Response(request=req, headers=resp_headers, body=body,
+                       content_type=out_content_type, charset='utf-8')
         ret.last_modified = math.ceil(float(resp_headers['X-PUT-Timestamp']))
+        if not ret.body:
+            ret.status_int = 204
         return ret
 
     @public

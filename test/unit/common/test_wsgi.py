@@ -136,22 +136,26 @@ class TestWSGI(unittest.TestCase):
             _fake_rings(t)
             app, conf, logger, log_name = wsgi.init_request_processor(
                 conf_file, 'proxy-server')
-        # verify pipeline is catch_errors -> dlo -> proxy-server
+        # verify pipeline is: catch_errors -> gatekeeper -> listing_formats ->
+        #                     copy -> dlo -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
-        self.assertTrue(isinstance(app, expected))
+        self.assertIsInstance(app, expected)
 
         app = app.app
         expected = swift.common.middleware.gatekeeper.GatekeeperMiddleware
-        self.assertTrue(isinstance(app, expected))
+        self.assertIsInstance(app, expected)
 
         app = app.app
-        expected = \
-            swift.common.middleware.copy.ServerSideCopyMiddleware
+        expected = swift.common.middleware.listing_formats.ListingFilter
+        self.assertIsInstance(app, expected)
+
+        app = app.app
+        expected = swift.common.middleware.copy.ServerSideCopyMiddleware
         self.assertIsInstance(app, expected)
 
         app = app.app
         expected = swift.common.middleware.dlo.DynamicLargeObject
-        self.assertTrue(isinstance(app, expected))
+        self.assertIsInstance(app, expected)
 
         app = app.app
         expected = \
@@ -160,7 +164,7 @@ class TestWSGI(unittest.TestCase):
 
         app = app.app
         expected = swift.proxy.server.Application
-        self.assertTrue(isinstance(app, expected))
+        self.assertIsInstance(app, expected)
         # config settings applied to app instance
         self.assertEqual(0.2, app.conn_timeout)
         # appconfig returns values from 'proxy-server' section
@@ -1478,6 +1482,7 @@ class TestPipelineModification(unittest.TestCase):
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
                           'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.listing_formats',
                           'swift.common.middleware.copy',
                           'swift.common.middleware.dlo',
                           'swift.common.middleware.versioned_writes',
@@ -1510,6 +1515,7 @@ class TestPipelineModification(unittest.TestCase):
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
                           'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.listing_formats',
                           'swift.common.middleware.copy',
                           'swift.common.middleware.dlo',
                           'swift.common.middleware.versioned_writes',
@@ -1549,6 +1555,7 @@ class TestPipelineModification(unittest.TestCase):
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
                           'swift.common.middleware.gatekeeper',
+                          'swift.common.middleware.listing_formats',
                           'swift.common.middleware.copy',
                           'swift.common.middleware.slo',
                           'swift.common.middleware.dlo',
@@ -1649,6 +1656,7 @@ class TestPipelineModification(unittest.TestCase):
         self.assertEqual(self.pipeline_modules(app), [
             'swift.common.middleware.catch_errors',
             'swift.common.middleware.gatekeeper',
+            'swift.common.middleware.listing_formats',
             'swift.common.middleware.copy',
             'swift.common.middleware.dlo',
             'swift.common.middleware.versioned_writes',
@@ -1664,6 +1672,7 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.gatekeeper',
             'swift.common.middleware.healthcheck',
             'swift.common.middleware.catch_errors',
+            'swift.common.middleware.listing_formats',
             'swift.common.middleware.copy',
             'swift.common.middleware.dlo',
             'swift.common.middleware.versioned_writes',
@@ -1678,6 +1687,7 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.healthcheck',
             'swift.common.middleware.catch_errors',
             'swift.common.middleware.gatekeeper',
+            'swift.common.middleware.listing_formats',
             'swift.common.middleware.copy',
             'swift.common.middleware.dlo',
             'swift.common.middleware.versioned_writes',
@@ -1713,7 +1723,7 @@ class TestPipelineModification(unittest.TestCase):
                 tempdir, policy.ring_name + '.ring.gz')
 
         app = wsgi.loadapp(conf_path)
-        proxy_app = app.app.app.app.app.app.app
+        proxy_app = app.app.app.app.app.app.app.app
         self.assertEqual(proxy_app.account_ring.serialized_path,
                          account_ring_path)
         self.assertEqual(proxy_app.container_ring.serialized_path,

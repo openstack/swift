@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -2112,6 +2113,54 @@ class TestContainerController(unittest.TestCase):
                 resp.content_type, 'application/json',
                 'Invalid content_type for Accept: %s' % accept)
 
+    def test_GET_non_ascii(self):
+        # make a container
+        req = Request.blank(
+            '/sda1/p/a/jsonc', environ={'REQUEST_METHOD': 'PUT',
+                                        'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+
+        noodles = [u"Spätzle", u"ラーメン"]
+        for n in noodles:
+            req = Request.blank(
+                '/sda1/p/a/jsonc/%s' % n.encode("utf-8"),
+                environ={'REQUEST_METHOD': 'PUT',
+                         'HTTP_X_TIMESTAMP': '1',
+                         'HTTP_X_CONTENT_TYPE': 'text/plain',
+                         'HTTP_X_ETAG': 'x',
+                         'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)  # sanity check
+
+        json_body = [{"name": noodles[0],
+                      "hash": "x",
+                      "bytes": 0,
+                      "content_type": "text/plain",
+                      "last_modified": "1970-01-01T00:00:01.000000"},
+                     {"name": noodles[1],
+                      "hash": "x",
+                      "bytes": 0,
+                      "content_type": "text/plain",
+                      "last_modified": "1970-01-01T00:00:01.000000"}]
+
+        # JSON
+        req = Request.blank(
+            '/sda1/p/a/jsonc?format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)  # sanity check
+        self.assertEqual(json.loads(resp.body), json_body)
+
+        # Plain text
+        text_body = u''.join(n + u"\n" for n in noodles).encode('utf-8')
+        req = Request.blank(
+            '/sda1/p/a/jsonc?format=text',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)  # sanity check
+        self.assertEqual(resp.body, text_body)
+
     def test_GET_plain(self):
         # make a container
         req = Request.blank(
@@ -2495,6 +2544,39 @@ class TestContainerController(unittest.TestCase):
             [{"subdir": "US-OK-"},
              {"subdir": "US-TX-"},
              {"subdir": "US-UT-"}])
+
+    def test_GET_delimiter_non_ascii(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        for obj_name in [u"a/❥/1", u"a/❥/2", u"a/ꙮ/1", u"a/ꙮ/2"]:
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % obj_name.encode('utf-8'),
+                environ={
+                    'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
+                    'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x',
+                    'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+
+        # JSON
+        req = Request.blank(
+            '/sda1/p/a/c?prefix=a/&delimiter=/&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            json.loads(resp.body),
+            [{"subdir": u"a/❥/"},
+             {"subdir": u"a/ꙮ/"}])
+
+        # Plain text
+        req = Request.blank(
+            '/sda1/p/a/c?prefix=a/&delimiter=/&format=text',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.body, u"a/❥/\na/ꙮ/\n".encode("utf-8"))
 
     def test_GET_leading_delimiter(self):
         req = Request.blank(

@@ -59,7 +59,7 @@ from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.obj import server as object_server
 from swift.common.middleware import proxy_logging, versioned_writes, \
-    copy
+    copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
     APIVersionError, ChunkWriteTimeout
@@ -9176,10 +9176,11 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
     """
     def setUp(self):
         conf = {'account_autocreate': 'yes'}
-        self.app = proxy_server.Application(conf, FakeMemcache(),
-                                            account_ring=FakeRing(),
-                                            container_ring=FakeRing())
-        self.app.memcache = FakeMemcacheReturnsNone()
+        self.app = listing_formats.ListingFilter(
+            proxy_server.Application(conf, FakeMemcache(),
+                                     account_ring=FakeRing(),
+                                     container_ring=FakeRing()))
+        self.app.app.memcache = FakeMemcacheReturnsNone()
 
     def test_GET_autocreate_accept_json(self):
         with save_globals():
@@ -9569,12 +9570,15 @@ class TestSocketObjectVersions(unittest.TestCase):
         ])
         conf = {'devices': _testdir, 'swift_dir': _testdir,
                 'mount_check': 'false', 'allowed_headers': allowed_headers}
-        prosrv = versioned_writes.VersionedWritesMiddleware(
+        prosrv = listing_formats.ListingFilter(
             copy.ServerSideCopyMiddleware(
-                proxy_logging.ProxyLoggingMiddleware(
-                    _test_servers[0], conf,
-                    logger=_test_servers[0].logger), conf),
-            {})
+                versioned_writes.VersionedWritesMiddleware(
+                    proxy_logging.ProxyLoggingMiddleware(
+                        _test_servers[0], conf,
+                        logger=_test_servers[0].logger), {}),
+                {}
+            )
+        )
         self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger())
         # replace global prosrv with one that's filtered with version
         # middleware

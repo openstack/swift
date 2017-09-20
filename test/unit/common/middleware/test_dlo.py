@@ -129,11 +129,11 @@ class DloTestCase(unittest.TestCase):
                                           "last_modified": lm,
                                           "content_type": "application/png"}]
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json',
+            'GET', '/v1/AUTH_test/c',
             swob.HTTPOk, {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps(full_container_listing))
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=seg',
+            'GET', '/v1/AUTH_test/c?prefix=seg',
             swob.HTTPOk, {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps(segs))
 
@@ -148,11 +148,11 @@ class DloTestCase(unittest.TestCase):
                           'X-Object-Manifest': 'c/seg_'},
             'manyseg')
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=seg_',
+            'GET', '/v1/AUTH_test/c?prefix=seg_',
             swob.HTTPOk, {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps(segs[:3]))
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=seg_&marker=seg_03',
+            'GET', '/v1/AUTH_test/c?prefix=seg_&marker=seg_03',
             swob.HTTPOk, {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps(segs[3:]))
 
@@ -163,7 +163,7 @@ class DloTestCase(unittest.TestCase):
                           'X-Object-Manifest': 'c/noseg_'},
             'noseg')
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=noseg_',
+            'GET', '/v1/AUTH_test/c?prefix=noseg_',
             swob.HTTPOk, {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps([]))
 
@@ -278,7 +278,7 @@ class TestDloHeadManifest(DloTestCase):
         self.assertEqual(
             self.app.calls,
             [('HEAD', '/v1/AUTH_test/mancon/manifest-no-segments'),
-             ('GET', '/v1/AUTH_test/c?format=json&prefix=noseg_')])
+             ('GET', '/v1/AUTH_test/c?prefix=noseg_')])
 
 
 class TestDloGetManifest(DloTestCase):
@@ -444,7 +444,7 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/mancon/manifest-many-segments'),
-             ('GET', '/v1/AUTH_test/c?format=json&prefix=seg_'),
+             ('GET', '/v1/AUTH_test/c?prefix=seg_'),
              ('GET', '/v1/AUTH_test/c/seg_01?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/c/seg_02?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/c/seg_03?multipart-manifest=get')])
@@ -601,7 +601,7 @@ class TestDloGetManifest(DloTestCase):
 
     def test_error_listing_container_first_listing_request(self):
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=seg_',
+            'GET', '/v1/AUTH_test/c?prefix=seg_',
             swob.HTTPNotFound, {}, None)
 
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-many-segments',
@@ -613,7 +613,7 @@ class TestDloGetManifest(DloTestCase):
 
     def test_error_listing_container_second_listing_request(self):
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=seg_&marker=seg_03',
+            'GET', '/v1/AUTH_test/c?prefix=seg_&marker=seg_03',
             swob.HTTPNotFound, {}, None)
 
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-many-segments',
@@ -648,7 +648,7 @@ class TestDloGetManifest(DloTestCase):
             swob.HTTPOk, {'Content-Length': '0', 'Etag': 'blah',
                           'X-Object-Manifest': 'c/quotetags'}, None)
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=quotetags',
+            'GET', '/v1/AUTH_test/c?prefix=quotetags',
             swob.HTTPOk, {'Content-Type': 'application/json; charset=utf-8'},
             json.dumps([{"hash": "\"abc\"", "bytes": 5, "name": "quotetags1",
                          "last_modified": "2013-11-22T02:42:14.261620",
@@ -673,7 +673,7 @@ class TestDloGetManifest(DloTestCase):
         segs = [{"hash": md5hex("AAAAA"), "bytes": 5, "name": u"é1"},
                 {"hash": md5hex("AAAAA"), "bytes": 5, "name": u"é2"}]
         self.app.register(
-            'GET', '/v1/AUTH_test/c?format=json&prefix=%C3%A9',
+            'GET', '/v1/AUTH_test/c?prefix=%C3%A9',
             swob.HTTPOk, {'Content-Type': 'application/json'},
             json.dumps(segs))
 
@@ -745,7 +745,7 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/mancon/manifest'),
-             ('GET', '/v1/AUTH_test/c?format=json&prefix=seg'),
+             ('GET', '/v1/AUTH_test/c?prefix=seg'),
              ('GET', '/v1/AUTH_test/c/seg_01?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/c/seg_02?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/c/seg_03?multipart-manifest=get')])
