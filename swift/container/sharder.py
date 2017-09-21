@@ -266,13 +266,12 @@ class ContainerSharder(ContainerReplicator):
 
     def _add_shard_metadata(self, broker, root_account, root_container,
                             shard_range, force=False):
-        if not broker.metadata.get('X-Container-Sysmeta-Shard-Account') \
+        if not broker.metadata.get('X-Container-Sysmeta-Shard-Root') \
                 and shard_range or force:
             timestamp = Timestamp.now().internal
+            shard_root = '%s/%s' % (root_account, root_container)
             broker.update_metadata({
-                'X-Container-Sysmeta-Shard-Account': (root_account, timestamp),
-                'X-Container-Sysmeta-Shard-Container':
-                    (root_container, timestamp),
+                'X-Container-Sysmeta-Shard-Root': (shard_root, timestamp),
                 'X-Container-Sysmeta-Shard-Lower':
                     (shard_range.lower, timestamp),
                 'X-Container-Sysmeta-Shard-Upper':
@@ -583,7 +582,7 @@ class ContainerSharder(ContainerReplicator):
             # TODO: check that node has an index ?? would be a bug otherwise
             broker = ContainerBroker(path)
             sharded = broker.metadata.get('X-Container-Sysmeta-Sharding') or \
-                broker.metadata.get('X-Container-Sysmeta-Shard-Account')
+                broker.metadata.get('X-Container-Sysmeta-Shard-Root')
             if not sharded:
                 # Not a shard container
                 continue
@@ -868,8 +867,8 @@ class ContainerSharder(ContainerReplicator):
         policy = POLICIES.get_by_index(broker.storage_policy_index)
         headers = {
             'X-Storage-Policy': policy.name,
-            'X-Container-Sysmeta-Shard-Account': root_account,
-            'X-Container-Sysmeta-Shard-Container': root_container,
+            'X-Container-Sysmeta-Shard-Root':
+                '%s/%s' % (root_account, root_container),
             'X-Container-Sysmeta-Sharding': True}
         for i, shard_range in enumerate(found_ranges):
             timestamp = Timestamp(time.time()).internal
