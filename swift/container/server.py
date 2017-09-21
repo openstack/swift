@@ -31,11 +31,13 @@ from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, \
-    split_and_validate_path, is_sys_or_user_meta, create_container_listing
+    split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    get_log_line, find_shard_range, account_to_shard_account, whataremyips
+    override_bytes_from_content_type, get_log_line, find_shard_range, \
+    account_to_shard_account, whataremyips, ShardRange
+
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
@@ -47,7 +49,7 @@ from swift.common.base_storage_server import BaseStorageServer
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
-    HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, \
+    HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPException, HTTPMovedPermanently
 
 
@@ -576,6 +578,34 @@ class ContainerController(BaseStorageServer):
                 break
         return headers, results[:limit]
 
+    def update_data_record(self, record, include_deleted=False):
+        """
+        Perform any mutations to container listing records that are common to
+        all serialization formats, and returns it as a dict.
+        Converts created time to iso timestamp.
+        Replaces size with 'swift_bytes' content type parameter.
+        :params record: object entry record
+        :returns: modified record
+        """
+        if isinstance(record, dict):
+            # Conversion has already happened (e.g. from a sharded node)
+            return record
+        if isinstance(record, ShardRange):
+            created = record.timestamp
+            response = dict(record)
+        else:
+            (name, created, size, content_type, etag) = record[:5]
+            if content_type is None:
+                return {'subdir': name.decode('utf8')}
+            response = {
+                'bytes': size, 'hash': etag, 'name': name.decode('utf8'),
+                'content_type': content_type}
+            if include_deleted and len(record) > 5:
+                response['deleted'] = record[5]
+            override_bytes_from_content_type(response, logger=self.logger)
+        response['last_modified'] = Timestamp(created).isoformat
+        return response
+
     @public
     @timing_stats()
     def GET(self, req):
@@ -643,14 +673,33 @@ class ContainerController(BaseStorageServer):
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],
                 reverse=reverse, include_deleted=include_deleted)
-        resp_headers.update(
-            (key, value)
-            for key, (value, timestamp) in broker.metadata.items()
-            if value != '' and (key.lower() in self.save_headers or
-                                is_sys_or_user_meta('container', key)))
-        return create_container_listing(
-            req, out_content_type, resp_headers, container_list, container,
-            logger=self.logger, include_deleted=include_deleted)
+
+        return self.create_listing(req, out_content_type, info, resp_headers,
+                                   broker.metadata, container_list, container,
+                                   include_deleted)
+
+    def create_listing(self, req, out_content_type, info, resp_headers,
+                       metadata, container_list, container,
+                       include_deleted=False):
+        for key, (value, timestamp) in metadata.items():
+            if value and (key.lower() in self.save_headers or
+                          is_sys_or_user_meta('container', key)):
+                resp_headers[key] = value
+        listing = [self.update_data_record(record, include_deleted)
+                   for record in container_list]
+        if out_content_type.endswith('/xml'):
+            body = listing_formats.container_to_xml(listing, container)
+        elif out_content_type.endswith('/json'):
+            body = json.dumps(listing)
+        else:
+            body = listing_formats.listing_to_text(listing)
+
+        ret = Response(request=req, headers=resp_headers, body=body,
+                       content_type=out_content_type, charset='utf-8')
+        ret.last_modified = math.ceil(float(resp_headers['X-PUT-Timestamp']))
+        if not ret.body:
+            ret.status_int = 204
+        return ret
 
     @public
     @replication
@@ -689,7 +738,6 @@ class ContainerController(BaseStorageServer):
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         broker.update_put_timestamp(req_timestamp.internal)
-
         metadata = {}
         metadata.update(
             (key, (value, req_timestamp.internal))
