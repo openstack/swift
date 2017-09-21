@@ -35,12 +35,12 @@ from swift.common.db import DatabaseAlreadyExists
 from swift.common.exceptions import DeviceUnavailable, ConnectionTimeout, \
     RangeAnalyserException
 from swift.common.http import is_success
-from swift.common.constraints import CONTAINER_LISTING_LIMIT
+from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, hash_path, \
     storage_directory, Timestamp, ShardRange, \
-    find_shard_range, ismount, majority_size, GreenAsyncPile, \
+    find_shard_range, majority_size, GreenAsyncPile, \
     account_to_shard_account, config_float_value, config_positive_int_value
 from swift.common.storage_policy import POLICIES
 
@@ -260,19 +260,19 @@ class ContainerSharder(ContainerReplicator):
                             shard_range, force=False):
         if not broker.metadata.get('X-Container-Sysmeta-Shard-Root') \
                 and shard_range or force:
-            timestamp = Timestamp.now().internal
+            ts_str = Timestamp.now().internal
             shard_root = '%s/%s' % (root_account, root_container)
             broker.update_metadata({
-                'X-Container-Sysmeta-Shard-Root': (shard_root, timestamp),
+                'X-Container-Sysmeta-Shard-Root': (shard_root, ts_str),
                 'X-Container-Sysmeta-Shard-Lower':
-                    (shard_range.lower, timestamp),
+                    (shard_range.lower, ts_str),
                 'X-Container-Sysmeta-Shard-Upper':
-                    (shard_range.upper, timestamp),
+                    (shard_range.upper, ts_str),
                 'X-Container-Sysmeta-Shard-Timestamp':
-                    (shard_range.timestamp.internal, timestamp),
+                    (shard_range.timestamp.internal, ts_str),
                 'X-Container-Sysmeta-Shard-Meta-Timestamp':
-                    (shard_range.meta_timestamp.internal, timestamp),
-                'X-Container-Sysmeta-Sharding': (None, timestamp)})
+                    (shard_range.meta_timestamp.internal, ts_str),
+                'X-Container-Sysmeta-Sharding': (None, ts_str)})
 
     def _misplaced_objects(self, broker, node, root_account, root_container,
                            shard_range):
@@ -314,9 +314,7 @@ class ContainerSharder(ContainerReplicator):
                 # This node hasn't exploded/cleaved anything yet, so all
                 # objects in object table are suppose to be there (in holding).
                 return
-            tmp_q = query.copy()
-            tmp_q['end_marker'] = last_shard + '\x00'
-            queries.append(tmp_q)
+            queries.append(dict(query, end_marker=last_shard + '\x00'))
 
         elif shard_range is None or state == DB_STATE_NOTFOUND:
             # This is an unsharded root container, so we don't need to
@@ -326,13 +324,10 @@ class ContainerSharder(ContainerReplicator):
             # it hasn't been sharded and isn't the root container, so we need
             # to look for objects that shouldn't be in the object table.
             if shard_range.upper:
-                tmp_q = query.copy()
-                tmp_q['marker'] = shard_range.upper
-                queries.append(tmp_q)
+                queries.append(dict(query, marker=shard_range.upper))
             if shard_range.lower:
-                tmp_q = query.copy()
-                tmp_q['end_marker'] = shard_range.lower + '\x00'
-                queries.append(tmp_q)
+                queries.append(dict(query,
+                                    end_marker=shard_range.lower + '\x00'))
 
         def run_query(qry, found_misplaced_items):
             objs = broker.list_objects_iter(CONTAINER_LISTING_LIMIT, **qry)
@@ -377,9 +372,9 @@ class ContainerSharder(ContainerReplicator):
             any(self.cpool)
 
             # There could be more, so recurse my pretty
-            # TODO: can we restore condition?
-            # if len(objs) == CONTAINER_LISTING_LIMIT:
-            return run_query(qry, True)
+            if len(objs) == CONTAINER_LISTING_LIMIT:
+                return run_query(qry, True)
+            return True
 
         misplaced_items = False
         for query in queries:
@@ -514,7 +509,7 @@ class ContainerSharder(ContainerReplicator):
     def _update_shard_range_counts(self, root_account, root_container, broker):
         if broker.container == root_container:
             return
-        shard_range = broker.get_shard_range()
+        shard_range = broker.get_own_shard_range()
         if not shard_range:
             return
         self._update_shard_ranges(root_account, root_container, 'PUT',
@@ -549,8 +544,8 @@ class ContainerSharder(ContainerReplicator):
             if node and is_local_device(self.ips, self.port,
                                         node['replication_ip'],
                                         node['replication_port']):
-                if self.mount_check and not ismount(
-                        os.path.join(self.root, node['device'])):
+                if not check_drive(self.root, node['device'],
+                                   self.mount_check):
                     self.logger.warn(
                         'Skipping %(device)s as it is not mounted' % node)
                     continue
@@ -563,6 +558,7 @@ class ContainerSharder(ContainerReplicator):
         for part, path, node_id in db_replicator.roundrobin_datadirs(dirs):
             # TODO: cache results in a local dict node_id -> node to avoid
             # repeated calls to get_part_nodes for same part
+            # NB: get_part_nodes always provides an 'index' key
             for node in self.ring.get_part_nodes(int(part)):
                 if node['id'] == node_id:
                     break
@@ -571,7 +567,6 @@ class ContainerSharder(ContainerReplicator):
                 self.logger.warning("Failed to find node to match id %s" %
                                     node_id)
                 continue
-            # TODO: check that node has an index ?? would be a bug otherwise
             broker = ContainerBroker(path)
             sharded = broker.metadata.get('X-Container-Sysmeta-Sharding') or \
                 broker.metadata.get('X-Container-Sysmeta-Shard-Root')
@@ -579,7 +574,7 @@ class ContainerSharder(ContainerReplicator):
                 # Not a shard container
                 continue
             root_account, root_container = broker.get_shard_root_path()
-            shard_range = broker.get_shard_range()
+            shard_range = broker.get_own_shard_range()
 
             # Before we do any heavy lifting, lets do an audit on the shard
             # container. We grab the root's view of the shard_points and make
@@ -802,7 +797,7 @@ class ContainerSharder(ContainerReplicator):
                          broker.account, broker.container)
 
         # get the last shard found to continue from
-        cont_range = broker.get_shard_range()
+        cont_range = broker.get_own_shard_range()
         cont_lower = cont_range.lower if cont_range else ''
         cont_upper = cont_range.upper if cont_range else ''
 
@@ -984,7 +979,7 @@ class ContainerSharder(ContainerReplicator):
 
         self.logger.info('Sharded container %s/%s is a candidate for '
                          'shrinking', broker.account, broker.container)
-        shard_range = broker.get_shard_range()
+        shard_range = broker.get_own_shard_range()
 
         obj_count = [broker.get_info()['object_count']]
 
@@ -1151,7 +1146,7 @@ class ContainerSharder(ContainerReplicator):
 
         # OK so we agree, so now we can merge this container (shrink) into the
         # merge container neighbour. First lets build the new shard range
-        shrink_range = broker.get_shard_range()
+        shrink_range = broker.get_own_shard_range()
         merge_range = self._get_merge_range(broker.account, merge_shard)
         if merge_range > shrink_range:
             merge_range.lower = shrink_range.lower
@@ -1230,11 +1225,11 @@ class ContainerSharder(ContainerReplicator):
         if not ignore_state:
             db_state = broker.get_db_state()
             if db_state == DB_STATE_SHARDING:
-                brokers = broker.get_brokers()
-                for b in brokers:
-                    q = qry.copy()
-                    self._add_items(b, broker_to_update, q, ignore_state=True)
+                for sub_broker in broker.get_brokers():
+                    self._add_items(sub_broker, broker_to_update, qry,
+                                    ignore_state=True)
             return
+        qry = qry.copy()  # Since we're going to change marker in the loop...
         while True:
             new_items = broker.list_objects_iter(
                 CONTAINER_LISTING_LIMIT, **qry)
@@ -1256,7 +1251,7 @@ class ContainerSharder(ContainerReplicator):
             self._update_shard_ranges(root_account, root_container, 'PUT',
                                       broker.build_shard_ranges())
             timestamp = Timestamp(time.time()).internal
-            shard_range = broker.get_shard_range()
+            shard_range = broker.get_own_shard_range()
             shard_range.timestamp = timestamp
             self._update_shard_ranges(root_account, root_container, 'DELETE',
                                       [shard_range])
@@ -1315,8 +1310,6 @@ class ContainerSharder(ContainerReplicator):
 
         ranges_done = []
         policy_index = broker.storage_policy_index
-        query = dict(marker='', end_marker='', prefix='', delimiter='',
-                     storage_policy_index=policy_index)
         for i in range(self.shard_batch_size):
             if ranges_todo:
                 shard_range = ranges_todo.pop(0)
@@ -1327,10 +1320,16 @@ class ContainerSharder(ContainerReplicator):
                 'Sharding %s/%s on shard range %s',
                 broker.account, broker.container, shard_range.upper)
 
-            q = query.copy()
-            q['marker'] = shard_range.lower or ''
+            query = {
+                'marker': shard_range.lower,
+                'end_marker': '',
+                'prefix': '',
+                'delimiter': '',
+                'storage_policy_index': policy_index,
+            }
             if shard_range.upper:
-                q['end_marker'] = shard_range.upper + '\x00'
+                query['end_marker'] = shard_range.upper + '\x00'
+
             try:
                 acct = account_to_shard_account(root_account)
                 new_part, new_broker, node_id = self._get_shard_broker(
@@ -1340,7 +1339,7 @@ class ContainerSharder(ContainerReplicator):
                                          root_container, shard_range)
 
                 with new_broker.sharding_lock():
-                    self._add_items(broker, new_broker, q)
+                    self._add_items(broker, new_broker, query)
 
                 info = new_broker.get_info()
                 shard_range.object_count = info['object_count']

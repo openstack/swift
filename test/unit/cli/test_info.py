@@ -102,17 +102,18 @@ class TestCliInfo(TestCliInfoBase):
         self.assertRaisesMessage(ValueError, 'Info is incomplete',
                                  print_db_info_metadata, 'container', {}, {})
 
-        info = dict(
-            account='acct',
-            created_at=100.1,
-            put_timestamp=106.3,
-            delete_timestamp=107.9,
-            status_changed_at=108.3,
-            container_count='3',
-            object_count='20',
-            bytes_used='42')
-        info['hash'] = 'abaddeadbeefcafe'
-        info['id'] = 'abadf100d0ddba11'
+        info = {
+            'account': 'acct',
+            'created_at': 100.1,
+            'put_timestamp': 106.3,
+            'delete_timestamp': 107.9,
+            'status_changed_at': 108.3,
+            'container_count': '3',
+            'object_count': '20',
+            'bytes_used': '42',
+            'hash': 'abaddeadbeefcafe',
+            'id': 'abadf100d0ddba11',
+        }
         md = {'x-account-meta-mydata': ('swift', '0000000000.00000'),
               'x-other-something': ('boo', '0000000000.00000')}
         out = StringIO()
@@ -500,14 +501,8 @@ Shard Ranges:
                                    '1', 'b47',
                                    'dc5be2aa4347a22a0fee6bc7de505b47',
                                    'dc5be2aa4347a22a0fee6bc7de505b47.db')
-            try:
-                print_info('account', db_file, swift_dir=self.testdir)
-            except Exception:
-                exp_raised = True
-        if exp_raised:
-            self.fail("Unexpected exception raised")
-        else:
-            self.assertGreater(len(out.getvalue().strip()), 800)
+            print_info('account', db_file, swift_dir=self.testdir)
+        self.assertGreater(len(out.getvalue().strip()), 800)
 
         controller = ContainerController(
             {'devices': self.testdir, 'mount_check': 'false'})

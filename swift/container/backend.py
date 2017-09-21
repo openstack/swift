@@ -715,7 +715,7 @@ class ContainerBroker(DatabaseBroker):
                 except sqlite3.OperationalError as err:
                     err_msg = str(err)
                     if err_msg in errors:
-                        # only attempt migration once
+                        # only attempt each migration once
                         raise
                     errors.add(err_msg)
                     if 'no such column: storage_policy_index' in err_msg:
@@ -1682,7 +1682,7 @@ class ContainerBroker(DatabaseBroker):
         else:
             return super(ContainerBroker, self).get_items_since(start, count)
 
-    def get_shard_range(self):
+    def get_own_shard_range(self):
         metadata = self.metadata  # Single DB hit
         created_at, ts = metadata.get(
             'X-Container-Sysmeta-Shard-Timestamp', (None, None))
@@ -1719,6 +1719,10 @@ class ContainerBroker(DatabaseBroker):
             # Ensure account/container get populated
             self.get_info()
         path, ts = self.metadata.get('X-Container-Sysmeta-Shard-Root',
-                                     ('/', None))
-        account, container = path.split('/')
-        return account or self.account, container or self.container
+                                     (None, None))
+        if path is None:
+            return self.account, self.container
+        if path.count('/') != 1:
+            raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
+                             "of the form 'account/container', got %r" % path)
+        return tuple(path.split('/'))

@@ -291,9 +291,9 @@ def print_db_info_metadata(db_type, info, metadata):
     else:
         print('No user metadata found in db file')
 
-    if info.get('db_state') is not None:
+    if db_type == 'container':
         print('Sharding Metadata:')
-        shard_type = 'root' if info.get('is_root') else 'shard'
+        shard_type = 'root' if info['is_root'] else 'shard'
         print('  Type: %s' % shard_type)
         print('  State: %s' % DB_STATE[info['db_state']])
     if info.get('shard_ranges'):

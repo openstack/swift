@@ -1989,7 +1989,7 @@ class Controller(object):
 
         if not is_success(response.status_int):
             self.app.logger.debug(
-                "Failed to fetch shard ranges from /%s; status=%s." %
+                "Failed to fetch shard ranges from %s; status=%s." %
                 (path, response.status_int))
             # TODO: return [] or None to indicate failure?
             return []
@@ -2000,7 +2000,7 @@ class Controller(object):
                     for pivot_range in pivots]
         except (ValueError, TypeError, KeyError) as err:
             self.app.logger.exception(
-                "Problem decoding shard ranges in response from /%s: %s",
+                "Problem decoding shard ranges in response from %s: %s",
                 path, err)
             # TODO: return [] or None to indicate failure? or raise exception?
             return []

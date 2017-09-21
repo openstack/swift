@@ -264,10 +264,15 @@ class ObjectController(BaseStorageServer):
         if logger_thread_locals:
             self.logger.thread_locals = logger_thread_locals
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
-        acct = cont = None
-        if headers_out.get('X-Backend-Shard-Root'):
-            acct, cont = headers_out['X-Backend-Shard-Root'].split('/')
-        full_path = '/%s/%s/%s' % (acct or account, cont or container, obj)
+        root_path = headers_out.get('X-Backend-Shard-Root')
+        if root_path:
+            if root_path.count('/') != 1:
+                raise ValueError(
+                    'Expected X-Backend-Shard-Root to be of the '
+                    "form 'account/container', got %r" % root_path)
+            full_path = '/%s/%s' % (root_path, obj)
+        else:
+            full_path = '/%s/%s/%s' % (account, container, obj)
         if all([host, partition, contdevice]):
             try:
                 with ConnectionTimeout(self.conn_timeout):

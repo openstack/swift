@@ -2529,7 +2529,7 @@ class TestContainerBroker(unittest.TestCase):
             db_path, account='shard_a', container='shard_c')
         broker.initialize(next(ts_iter).internal, 0)
 
-        self.assertIsNone(broker.get_shard_range())
+        self.assertIsNone(broker.get_own_shard_range())
         ts_1 = next(ts_iter)
         metadata = {
             'X-Container-Sysmeta-Shard-Timestamp':
@@ -2542,7 +2542,7 @@ class TestContainerBroker(unittest.TestCase):
         expected = ShardRange('shard_c', ts_1, 'l', 'u', 0, 0, now)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
-            actual = broker.get_shard_range()
+            actual = broker.get_own_shard_range()
         self.assertEqual(dict(expected), dict(actual))
 
         broker.put_object(
@@ -2552,7 +2552,7 @@ class TestContainerBroker(unittest.TestCase):
         expected = ShardRange('shard_c', ts_1, 'l', 'u', 2, 199, now)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
-            actual = broker.get_shard_range()
+            actual = broker.get_own_shard_range()
         self.assertEqual(dict(expected), dict(actual))
 
         # Shards shrink to the point that there's a single shard left
@@ -2560,7 +2560,7 @@ class TestContainerBroker(unittest.TestCase):
             'X-Container-Sysmeta-Shard-Lower': ('', next(ts_iter).internal),
             'X-Container-Sysmeta-Shard-Upper': ('', next(ts_iter).internal)}
         broker.update_metadata(metadata)
-        actual = broker.get_shard_range()
+        actual = broker.get_own_shard_range()
         self.assertIsInstance(actual, ShardRange)
         self.assertTrue(actual.entire_namespace())
 
@@ -2568,7 +2568,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.reclaim(next(ts_iter).internal, next(ts_iter).internal)
         self.assertNotIn('X-Container-Sysmeta-Shard-Lower', broker.metadata)
         self.assertNotIn('X-Container-Sysmeta-Shard-Upper', broker.metadata)
-        actual = broker.get_shard_range()
+        actual = broker.get_own_shard_range()
         self.assertIsInstance(actual, ShardRange)
         self.assertTrue(actual.entire_namespace())
 
