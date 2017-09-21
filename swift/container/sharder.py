@@ -45,14 +45,6 @@ from swift.common.utils import get_logger, config_true_value, \
 from swift.common.storage_policy import POLICIES
 
 
-PR_NAME = 0
-PR_CREATED_AT = 1
-PR_LOWER = 2
-PR_UPPER = 3
-PR_OBJECT_COUNT = 4
-PR_BYTES_USED = 5
-
-
 class ContainerSharder(ContainerReplicator):
     """Shards containers."""
 
@@ -1253,11 +1245,6 @@ class ContainerSharder(ContainerReplicator):
                 new_items, broker.storage_policy_index)
             broker_to_update.merge_items(objects)
 
-            # Delete existing (while we have the same view of the items)
-            # delete_objs = self._generate_object_list(
-            #     new_items, broker.storage_policy_index, delete=True)
-            # broker.merge_items(delete_objs)
-
             if len(new_items) >= CONTAINER_LISTING_LIMIT:
                 qry['marker'] = new_items[-1][0]
             else:
@@ -1277,8 +1264,9 @@ class ContainerSharder(ContainerReplicator):
             broker.delete_db(timestamp)
 
     def _cleave(self, broker, node, root_account, root_container):
-        last_range = self.get_metadata_item(
+        last_pivot = self.get_metadata_item(
             broker, 'X-Container-Sysmeta-Shard-Last-%d' % node['index'])
+
         scan_complete = self.get_metadata_item(
             broker, 'X-Container-Sysmeta-Sharding-Scan-Done')
 
@@ -1291,13 +1279,13 @@ class ContainerSharder(ContainerReplicator):
             broker.set_sharding_state()
 
         last_piv_exists = False
-        if last_range:
-            last_range = find_shard_range(last_range, shard_ranges)
-            last_piv_exists = last_range and last_range.upper == last_range
+        if last_pivot:
+            last_range = find_shard_range(last_pivot, shard_ranges)
+            last_piv_exists = last_range and last_range.upper == last_pivot
 
         ranges_todo = [
-            p for p in shard_ranges
-            if p.upper > last_range or p.lower >= last_range]
+            srange for srange in shard_ranges
+            if srange.upper > last_pivot or srange.lower >= last_pivot]
         if not ranges_todo:
             # This means no new shard_ranges have been added since last cycle.
             # If the scanner is complete, then we have finished sharding.
@@ -1310,7 +1298,7 @@ class ContainerSharder(ContainerReplicator):
                 self._sharding_complete(root_account, root_container, broker)
                 return
             elif scan_complete and not last_piv_exists:
-                last_range.lower = last_range
+                last_range.lower = last_pivot
                 last_range.dont_save = True
                 ranges_todo.append(last_range)
             else:
@@ -1319,7 +1307,7 @@ class ContainerSharder(ContainerReplicator):
                                  broker.account, broker.container)
                 return
 
-        if last_range:
+        if last_pivot:
             self.logger.info('Continuing to shard %s/%s',
                              broker.account, broker.container)
         else:
@@ -1327,6 +1315,9 @@ class ContainerSharder(ContainerReplicator):
                              broker.account, broker.container)
 
         ranges_done = []
+        policy_index = broker.storage_policy_index
+        query = dict(marker='', end_marker='', prefix='', delimiter='',
+                     storage_policy_index=policy_index)
         for i in range(self.shard_batch_size):
             if ranges_todo:
                 shard_range = ranges_todo.pop(0)
@@ -1336,10 +1327,6 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info(
                 'Sharding %s/%s on shard range %s',
                 broker.account, broker.container, shard_range.upper)
-
-            policy_index = broker.storage_policy_index
-            query = dict(marker='', end_marker='', prefix='', delimiter='',
-                         storage_policy_index=policy_index)
 
             q = query.copy()
             q['marker'] = shard_range.lower or ''
@@ -1373,7 +1360,7 @@ class ContainerSharder(ContainerReplicator):
                              new_broker.account, new_broker.container)
             self.cpool.spawn(
                 self._replicate_object, new_part, new_broker.db_file, node_id)
-            last_range = shard_range.upper
+            last_pivot = shard_range.upper
             self.logger.info('Node %d sharded %s/%s at shard range %s.',
                              node['id'], broker.account, broker.container,
                              shard_range.upper)
@@ -1624,7 +1611,7 @@ class RangeAnalyser(object):
 
     def analyse(self, ranges):
         """Analyse the given list of ShardRanges for a list of paths,
-        newest first, and gops.
+        newest first, and gaps.
 
         Yields the determined paths from newest to oldest, in each case
         returning a set of unused ShardRanges and whether the path is complete.
