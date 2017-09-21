@@ -238,10 +238,8 @@ class ObjectUpdater(Daemon):
         for i in range(num_redirects):
             redirects = set()
             headers_out = HeaderKeyDict(update['headers'].copy())
-            if headers_out.get('X-Backend-Shard-Account') and \
-                    headers_out.get('X-Backend-Shard-Container'):
-                acct = headers_out['X-Backend-Shard-Account']
-                cont = headers_out['X-Backend-Shard-Container']
+            if headers_out.get('X-Backend-Shard-Root'):
+                acct, cont = headers_out['X-Backend-Shard-Root'].split('/')
             else:
                 acct, cont = update['account'], update['container']
             part, nodes = self.get_container_ring().get_nodes(

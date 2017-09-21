@@ -242,9 +242,9 @@ class BaseObjectController(Controller):
                 partition, nodes = self.app.container_ring.get_nodes(
                     shard_acct, shard)
                 overide_prefix = 'X-Backend-Container-Update-Override'
+                root_path = '%s/%s' % (shard_acct, shard)
                 container_meta = {
-                    '%s-Backend-Shard-Account' % overide_prefix: shard_acct,
-                    '%s-Backend-Shard-Container' % overide_prefix: shard
+                    '%s-Backend-Shard-Root' % overide_prefix: root_path
                 }
 
                 return partition, nodes, container_meta

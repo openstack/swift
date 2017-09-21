@@ -2515,10 +2515,8 @@ class TestContainerBroker(unittest.TestCase):
 
         self.assertEqual(('shard_a', 'shard_c'), broker.get_shard_root_path())
         metadata = {
-            'X-Container-Sysmeta-Shard-Account':
-                ('root_a', next(ts_iter).internal),
-            'X-Container-Sysmeta-Shard-Container':
-                ('root_c', next(ts_iter).internal)}
+            'X-Container-Sysmeta-Shard-Root':
+                ('root_a/root_c', next(ts_iter).internal)}
 
         broker.update_metadata(metadata)
         self.assertEqual(('root_a', 'root_c'), broker.get_shard_root_path())

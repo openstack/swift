@@ -1718,8 +1718,7 @@ class ContainerBroker(DatabaseBroker):
         if self.container is None:
             # Ensure account/container get populated
             self.get_info()
-        account, ts = self.metadata.get('X-Container-Sysmeta-Shard-Account',
-                                        (None, None))
-        container, ts = self.metadata.get(
-            'X-Container-Sysmeta-Shard-Container', (None, None))
+        path, ts = self.metadata.get('X-Container-Sysmeta-Shard-Root',
+                                     ('/', None))
+        account, container = path.split('/')
         return account or self.account, container or self.container
