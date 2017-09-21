@@ -28,7 +28,8 @@ from six.moves import range
 import sqlite3
 
 from swift.common.utils import Timestamp, encode_timestamps, \
-    decode_timestamps, extract_swift_bytes, ShardRange, find_shard_range
+    decode_timestamps, extract_swift_bytes, ShardRange, renamer, \
+    find_shard_range
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
 
 
@@ -1553,7 +1554,10 @@ class ContainerBroker(DatabaseBroker):
         # For this initial version, we'll create a new container along side.
         # Later we will remove parts so the shard range DB only has what it
         # really needs
-        sub_broker = ContainerBroker(self._shard_db_file, self.timeout,
+        # TODO: do we need to think about cleaning these tmp files?
+        tmp_db_file = os.path.join(os.path.dirname(self._shard_db_file),
+                                   str(uuid4()))
+        sub_broker = ContainerBroker(tmp_db_file, self.timeout,
                                      self.logger, self.account, self.container,
                                      self.pending_timeout, self.stale_reads_ok)
         sub_broker.initialize(Timestamp.now().internal,
@@ -1593,6 +1597,9 @@ class ContainerBroker(DatabaseBroker):
                 self.logger.error('Failed to set the ROWID of the shard range '
                                   'database for %s/%s: %s', self.account,
                                   self.container, err)
+
+        # Rename to the new database
+        renamer(tmp_db_file, self._shard_db_file)
 
         # Now we need to reset the connection so next time the correct database
         # will be in use.
