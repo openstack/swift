@@ -426,7 +426,7 @@ class ContainerSharder(ContainerReplicator):
         if root_container == broker.container:
             # This is the root container, and therefore the tome of knowledge,
             # all we can do is check there is nothing screwy with the range
-            ranges = broker.build_shard_ranges()
+            ranges = broker.get_shard_ranges()
             overlaps = ContainerSharder.find_overlapping_ranges(ranges)
             for overlap in overlaps:
                 self.logger.error('Range overlaps found, attempting to '
@@ -1179,7 +1179,7 @@ class ContainerSharder(ContainerReplicator):
         if root_container != broker.container:
             # We aren't in the root container.
             self._update_shard_ranges(root_account, root_container, 'PUT',
-                                      broker.build_shard_ranges())
+                                      broker.get_shard_ranges())
             timestamp = Timestamp(time.time()).internal
             shard_range = broker.get_own_shard_range()
             shard_range.timestamp = timestamp
@@ -1194,7 +1194,7 @@ class ContainerSharder(ContainerReplicator):
         scan_complete = self.get_metadata_item(
             broker, 'X-Container-Sysmeta-Sharding-Scan-Done')
 
-        shard_ranges = broker.build_shard_ranges()
+        shard_ranges = broker.get_shard_ranges()
         if not shard_ranges:
             # No shard ranges points yet defined.
             return

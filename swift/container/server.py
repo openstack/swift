@@ -35,7 +35,7 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    override_bytes_from_content_type, get_log_line, find_shard_range, \
+    override_bytes_from_content_type, get_log_line, \
     account_to_shard_account, whataremyips, ShardRange
 
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
@@ -273,9 +273,10 @@ class ContainerController(BaseStorageServer):
         :return: an instance of :class:`swift.common.swob.HTTPMovedPermanently`
             if a shard range exists for the given ``obj_name``, otherwise None.
         """
-        ranges = broker.build_shard_ranges()
-        containing_range = find_shard_range(obj_name, ranges)
-        if containing_range is None:
+        shard_ranges = broker.get_shard_ranges(includes=obj_name)
+        if shard_ranges:
+            containing_range = shard_ranges[0]
+        else:
             return None
 
         if broker.is_root_container():
@@ -639,25 +640,8 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
         if items and items.lower() == "shard":
-            container_list = broker.build_shard_ranges()
-            if reverse:
-                container_list.reverse()
-            if obj:
-                container_list = [find_shard_range(obj, container_list)]
-            elif marker or end_marker:
-                def piv_filter(piv):
-                    end = start = True
-                    if end_marker:
-                        end = piv < end_marker or end_marker in piv
-                    if marker:
-                        start = piv > marker or marker in piv
-                    return start and end
-
-                if reverse:
-                    marker, end_marker = end_marker, marker
-                container_list = list(filter(piv_filter, container_list))
-                if reverse:
-                    marker, end_marker = end_marker, marker
+            container_list = broker.get_shard_ranges(
+                marker, end_marker, obj, reverse)
         elif info.get('db_state') == DB_STATE_SHARDING:
             # Container is sharding, so we need to look at both brokers
             # TODO: will we ever want items=all to be supported in this case?

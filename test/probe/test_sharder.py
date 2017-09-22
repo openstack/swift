@@ -31,7 +31,7 @@ MAX_SHARD_CONTAINER_SIZE = 100
 
 
 def get_shard_ranges(broker, include_meta=False):
-    shard_ranges = broker.get_shard_ranges()
+    shard_ranges = broker.get_shard_range_rows()
     if not include_meta:
         shard_ranges = [row[:-1] for row in shard_ranges]
     return shard_ranges
