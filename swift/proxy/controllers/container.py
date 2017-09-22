@@ -268,20 +268,25 @@ class ContainerController(Controller):
                 shard_range = None
             else:
                 try:
+                    # TODO: how big can this be? pop(0) is quadratic...
                     shard_range = ranges.pop(0)
                 except IndexError:
                     break
+
                 if marker and marker in shard_range:
                     params['marker'] = marker
                 else:
                     params['marker'] = shard_range.upper or '' if reverse \
                         else shard_range.lower or ''
+                    if params['marker'] and reverse:
+                        params['marker'] += '\x00'
+
                 if end_marker and end_marker in shard_range:
                     params['end_marker'] = end_marker
                 else:
                     params['end_marker'] = shard_range.lower or '' if reverse \
                         else shard_range.upper or ''
-                    if params['end_marker']:
+                    if params['end_marker'] and not reverse:
                         params['end_marker'] += '\x00'
 
             # now we have all those params set up. Let's get some objects
@@ -294,10 +299,13 @@ class ContainerController(Controller):
             if hdrs is None and tmp_resp:
                 return tmp_resp
 
-            if objs:
-                objects.extend(objs)
-                limit -= len(objs)
-                params['limit'] = limit
+            if not objs:
+                # TODO: Can we be more aggressive here, and break instead?
+                continue
+
+            objects.extend(objs)
+            limit -= len(objs)
+            params['limit'] = limit
 
             if limit <= 0:
                 break

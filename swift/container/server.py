@@ -644,12 +644,11 @@ class ContainerController(BaseStorageServer):
         include_deleted = False
         if items and items.lower() == "shard":
             container_list = broker.build_shard_ranges()
+            if reverse:
+                container_list.reverse()
             if obj:
                 container_list = [find_shard_range(obj, container_list)]
             elif marker or end_marker:
-                if reverse:
-                    marker, end_marker = end_marker, marker
-
                 def piv_filter(piv):
                     end = start = True
                     if end_marker:
@@ -658,9 +657,10 @@ class ContainerController(BaseStorageServer):
                         start = piv > marker or marker in piv
                     return start and end
 
+                if reverse:
+                    marker, end_marker = end_marker, marker
                 container_list = list(filter(piv_filter, container_list))
                 if reverse:
-                    container_list.reverse()
                     marker, end_marker = end_marker, marker
         elif info.get('db_state') == DB_STATE_SHARDING:
             # Container is sharding, so we need to look at both brokers
