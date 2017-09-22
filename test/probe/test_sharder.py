@@ -111,7 +111,7 @@ class TestContainerSharding(ReplProbeTest):
 
     def _test_sharded_listing(self, run_replicators=False):
         sharders = Manager(['container-sharder'])
-        obj_names = ['obj%03d' % x for x in range(self.max_shard_size + 1)]
+        obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
 
         self.brain.put_container()
 

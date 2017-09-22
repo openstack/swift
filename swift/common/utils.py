@@ -4205,13 +4205,15 @@ class ShardRange(object):
 
         :param name: the name of the shard.
         :param timestamp: the timestamp at which the shard was created.
-        :param lower: the lower bound of object names contained in the shard.
-        :param upper: the upper bound of object names contained in the shard.
+        :param lower: the lower bound of object names contained in the shard;
+            the lower bound is not included in the shard namespace.
+        :param upper: the upper bound of object names contained in the shard;
+            the upper bound is included in the shard namespace.
         :param object_count: the number of objects in the shard, defaults to
             zero.
         :param bytes_used: the number of bytes in the shard; defaults to zero.
         :param meta_timestamp: the timestamp at which the shard state was last
-            updated; defaults to the value of `timestamp`.
+            updated; defaults to the value of ``timestamp``.
         """
         if name is None:
             raise ValueError('name cannot be None')

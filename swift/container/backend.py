@@ -20,6 +20,7 @@ import errno
 import os
 from uuid import uuid4
 from contextlib import contextmanager
+from hashlib import md5
 
 import six
 import six.moves.cPickle as pickle
@@ -748,7 +749,6 @@ class ContainerBroker(DatabaseBroker):
                   db_state.
         """
         data = self._get_info()
-
         if data['db_state'] == DB_STATE_SHARDING:
             # grab the obj_count, bytes used from locked DB. We need
             # obj_count for sharding.
@@ -1464,51 +1464,6 @@ class ContainerBroker(DatabaseBroker):
             ranges.append(ShardRange(*node))
         return ranges
 
-    def _get_next_shard_range_upper(self, shard_container_size, last_upper,
-                                    conn):
-        try:
-            offset = int(shard_container_size) // 2
-
-            sql = 'SELECT name FROM object WHERE deleted=0 '
-            args = []
-            if last_upper:
-                sql += "AND name > ? "
-                args.append(last_upper)
-            sql += "ORDER BY name LIMIT 1 OFFSET %d" % offset
-            data = conn.execute(sql, args)
-            data = data.fetchone()
-            if not data:
-                return None
-            return data['name']
-        except Exception:
-            return ''
-
-    def get_next_shard_range_upper(self, shard_container_size, last_upper=None,
-                                   connection=None):
-        """
-        Finds the next entry in the shards table to use as a shard range
-        when sharding.
-
-        If there is an error or no objects in the container it will return an
-        empty string ('').
-
-        :return: The middle object in the container.
-        """
-
-        self._commit_puts_stale_ok()
-        if connection:
-            return self._get_next_shard_range_upper(
-                shard_container_size, last_upper, connection)
-        else:
-            try:
-                if self.get_db_state() == DB_STATE_SHARDING:
-                    self._create_connection(self._db_file)
-                with self.get() as conn:
-                    return self._get_next_shard_range_upper(
-                        shard_container_size, last_upper, conn)
-            finally:
-                self._create_connection()
-
     def is_shrinking(self):
         return self.metadata.get('X-Container-Sysmeta-Shard-Merge') or \
             self.metadata.get('X-Container-Sysmeta-Shard-Shrink')
@@ -1693,10 +1648,10 @@ class ContainerBroker(DatabaseBroker):
         if created_at is None:
             return None
 
-        tmp_info = self.get_info()  # Also ensures self.container is not None
+        info = self.get_info()  # Also ensures self.container is not None
         shard_range = ShardRange(self.container, created_at, lower, upper,
-                                 tmp_info.get('object_count', 0),
-                                 tmp_info.get('bytes_used', 0),
+                                 info.get('object_count', 0),
+                                 info.get('bytes_used', 0),
                                  Timestamp.now())
 
         return shard_range
@@ -1726,3 +1681,120 @@ class ContainerBroker(DatabaseBroker):
             raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
                              "of the form 'account/container', got %r" % path)
         return tuple(path.split('/'))
+
+    def _get_next_shard_range_upper(self, shard_size, last_upper=None,
+                                    connection=None):
+        """
+        Finds the next entry in the shards table to use as a shard range
+        when sharding.
+
+        If there is an error or no objects in the container it will return an
+        empty string ('').
+
+        :return: The middle object in the container.
+        """
+
+        def do_query():
+            sql = 'SELECT name FROM object WHERE deleted=0 '
+            args = []
+            if last_upper:
+                sql += "AND name > ? "
+                args.append(last_upper)
+            sql += "ORDER BY name LIMIT 1 OFFSET %d" % (shard_size - 1)
+            row = connection.execute(sql, args).fetchone()
+            return row['name'] if row else None
+
+        self._commit_puts_stale_ok()
+        if connection:
+            return do_query()
+        else:
+            try:
+                if self.get_db_state() == DB_STATE_SHARDING:
+                    self._create_connection(self._db_file)
+                with self.get() as connection:
+                    return do_query()
+            finally:
+                self._create_connection()
+
+    def _generate_shard_range_name(self, shard_range, timestamp):
+        root_account, root_container = self.get_shard_root_path()
+        md5sum = md5("%s-%s" % (shard_range, timestamp.internal)).hexdigest()
+        return "%s-%s" % (root_container, md5sum)
+
+    def find_shard_ranges(self, shard_size, limit=-1):
+        """
+        Scans the container db for shard ranges that have not yet been found
+        and persisted in the shard_ranges table. Scanning will start at the
+        upper bound of the last persisted shard range, and finish when
+        ``limit`` shard ranges have been or when no more shard ranges can be
+        found or found. In the latter case, the upper bound of the final shard
+        range will be equal to the upper bound of the container namespace.
+
+        :param shard_size: the size of each shard range
+        :param limit: the maximum number of shard points to be found; a
+            negative value (default) implies no limit.
+        :return:  a tuple; the first value in the tuple is a list of
+            :class:`swift.common.utils.ShardRange` instances in object name
+            order, the second value is a boolean which is True if the last
+            shard range has been found, False otherwise.
+        """
+        cont_range = self.get_own_shard_range()
+        cont_upper = cont_range.upper if cont_range else ''
+        # TODO: we just made a call to get_info in get_own_shard_range! how
+        # about get_shard_range always returns a shard_range?
+        object_count = self.get_info().get('object_count', 0)
+        last_shard_upper = cont_range.lower if cont_range else ''
+        progress = 0
+        # update initial state to account for any existing shard ranges
+        existing_ranges = self.build_shard_ranges()
+        if existing_ranges:
+            # TODO: if config shard_size changes between calls to this method
+            # then this estimation of progress will be WRONG - we need to
+            # either record progress in db or record snapshot of shard_size in
+            # each ShardRange and sum them here, OR ditch progress altogether
+            # and lose the optimisation on finding last shard range
+            progress = len(existing_ranges) * shard_size
+            last_shard_upper = existing_ranges[-1].upper
+            if last_shard_upper == cont_upper:
+                # all ranges were previously found
+                # TODO: this assumes that cont_upper does not change - safe?
+                return [], True
+        elif shard_size >= object_count:
+            # container not big enough to shard
+            return [], False
+
+        last_found = False
+        found_ranges = []
+        while limit < 0 or len(found_ranges) < limit:
+            if progress + shard_size >= object_count:
+                # next shard point is at or beyond final object name so don't
+                # bother with db query
+                # TODO: should we refresh object count before this test or are
+                # we safe assuming that no updates to the container will be
+                # made while we're scanning?
+                next_shard_upper = None
+            else:
+                try:
+                    next_shard_upper = self._get_next_shard_range_upper(
+                        shard_size, last_shard_upper)
+                except sqlite3.OperationalError as err:
+                    self.logger.exception("Problem finding shard point: ", err)
+                    break
+
+            if next_shard_upper is None:
+                # We reached the end of the container
+                next_shard_upper = cont_upper
+                last_found = True
+
+            timestamp = Timestamp.now()
+            name = self._generate_shard_range_name(next_shard_upper, timestamp)
+            found_ranges.append(
+                ShardRange(name, timestamp, last_shard_upper, next_shard_upper)
+            )
+
+            if last_found:
+                break
+            progress += shard_size
+            last_shard_upper = next_shard_upper
+
+        return found_ranges, last_found

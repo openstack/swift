@@ -21,7 +21,6 @@ import time
 from collections import defaultdict
 
 from random import random
-from hashlib import md5
 
 from eventlet import Timeout
 
@@ -622,22 +621,33 @@ class ContainerSharder(ContainerReplicator):
                     skip_shrinking = self.get_metadata_item(
                         broker, 'X-Container-Sysmeta-Sharding')
                     obj_count = broker.get_info()['object_count']
-                    if not skip_shrinking and obj_count <= \
+                    if not skip_shrinking and obj_count < \
                             (self.shard_container_size *
                              self.shard_shrink_point):
                         # TODO: Shrink
                         # self._shrink(broker, root_account, root_container)
                         continue
-                    elif obj_count <= self.shard_container_size:
+                    elif obj_count < self.shard_container_size:
+                        self.logger.debug(
+                            'Skipping container %s/%s with object count %s' %
+                            (broker.account, broker.container, obj_count))
                         continue
 
                 # We are either in the sharding state or we need to start
                 # sharding.
                 scan_complete = config_true_value(self.get_metadata_item(
                     broker, 'X-Container-Sysmeta-Sharding-Scan-Done'))
-
                 # TODO: bring back leader election (maybe?)
                 if node['index'] == 0 and not scan_complete:
+                    if broker.get_db_state == DB_STATE_UNSHARDED:
+                        # TODO (acoles): I *think* this is the right place to
+                        # transition to SHARDING state - we are about to scan
+                        # for pivots so want the original db closed to new
+                        # updates. But, we seem to conditionally call this
+                        # method in other places too? Have we done all the
+                        # checks needed to know that this container is going to
+                        # shard?
+                        broker.set_sharding_state()
                     scan_complete = self._find_shard_ranges(broker, node, part)
                     if scan_complete:
                         self._cleave(broker, node, root_account,
@@ -793,54 +803,19 @@ class ContainerSharder(ContainerReplicator):
         :param broker:
         :return:
         """
-        self.logger.info('Started searching for shard ranges on %s/%s',
+        self.logger.info('Started scan for shard ranges on %s/%s',
                          broker.account, broker.container)
 
-        # get the last shard found to continue from
-        cont_range = broker.get_own_shard_range()
-        cont_lower = cont_range.lower if cont_range else ''
-        cont_upper = cont_range.upper if cont_range else ''
-
-        shard_ranges = broker.build_shard_ranges()
-        old_range = marker = shard_ranges[-1].upper if shard_ranges else ''
-        if old_range and broker.get_db_state() == DB_STATE_UNSHARDED:
-            broker.set_sharding_state()
-        progress = len(shard_ranges) * self.split_size
-        obj_count = broker.get_info().get('object_count', 0)
-        last_found = False
-
-        def found_last():
-            return progress + self.split_size >= obj_count or last_found
-
-        if found_last():
-            self.logger.info("Already found all shard ranges")
-            return
-
-        found_ranges = []
-
-        for i in range(self.scanner_batch_size):
-            next_upper = broker.get_next_shard_range_upper(
-                self.shard_container_size, marker)
-            if next_upper is None:
-                # We have hit passed the end of the container, make
-                # the last container.
-                last_found = True
-                next_upper = cont_upper
-            elif not next_upper:
-                # something happened and we couldn't find a new upper. Stop
-                # where we are but don't mark complete.
-                break
-
-            progress += self.split_size
-            marker = next_upper
-            found_ranges.append(next_upper)
-            if found_last():
-                break
+        found_ranges, last_found = broker.find_shard_ranges(
+            self.shard_container_size // 2)
 
         if not found_ranges:
-            # we didn't find anything
-            self.logger.warning("No shard ranges found, something went wrong. "
-                                "We will try again next cycle.")
+            if last_found:
+                self.logger.info("Already found all shard ranges")
+            else:
+                # we didn't find anything
+                self.logger.warning("No shard ranges found, something went "
+                                    "wrong. We will try again next cycle.")
             return
 
         # TODO: if we bring back leader election, this is about the spot where
@@ -850,7 +825,6 @@ class ContainerSharder(ContainerReplicator):
         shard_ranges = []
         root_account, root_container = broker.get_shard_root_path()
         shard_account = account_to_shard_account(root_account)
-        lower = old_range if old_range else cont_lower
         policy = POLICIES.get_by_index(broker.storage_policy_index)
         headers = {
             'X-Storage-Policy': policy.name,
@@ -858,91 +832,52 @@ class ContainerSharder(ContainerReplicator):
                 '%s/%s' % (root_account, root_container),
             'X-Container-Sysmeta-Sharding': True}
         for i, shard_range in enumerate(found_ranges):
-            timestamp = Timestamp(time.time()).internal
-            shard_name = self.generate_shard_range_name(
-                root_container, node['index'], shard_range or '', timestamp)
             try:
                 headers.update({
-                    'X-Container-Sysmeta-Shard-Lower': lower,
-                    'X-Container-Sysmeta-Shard-Upper': shard_range,
-                    'X-Container-Sysmeta-Shard-Timestamp': timestamp,
-                    'X-Container-Sysmeta-Shard-Meta-Timestamp': timestamp})
-                self.swift.create_container(shard_account, shard_name,
+                    'X-Container-Sysmeta-Shard-Lower': shard_range.lower,
+                    'X-Container-Sysmeta-Shard-Upper': shard_range.upper,
+                    'X-Container-Sysmeta-Shard-Timestamp':
+                        shard_range.timestamp.internal,
+                    'X-Container-Sysmeta-Shard-Meta-Timestamp':
+                        shard_range.timestamp.internal})
+                self.swift.create_container(shard_account, shard_range.name,
                                             headers=headers)
+                shard_ranges.append(shard_range)
             except internal_client.UnexpectedResponse as ex:
                 self.logger.warning('Failed to put container: %s', str(ex))
                 self.logger.error('PUT of new shard containers failed, '
-                                  'cancelling split of %s/%s. '
+                                  'aborting split of %s/%s. '
                                   'Will try again next cycle',
                                   broker.account, broker.container)
                 break
-            new_range = ShardRange(shard_name, timestamp, lower, shard_range,
-                                   0, 0, timestamp)
-            shard_ranges.append(new_range)
-            lower = shard_range
+            # TODO: increment here or in the try clause above?
             self.logger.increment('shard_ranges_found')
             self.stats['container_shard_ranges'] += 1
 
-        if i + 1 < len(found_ranges):
-            found_ranges = found_ranges[:i]
-            progress = ((len(shard_ranges) + len(found_ranges)) *
-                        self.split_size)
-
-        if found_last() and not last_found:
-            # We need to add the final shard range range as well.
-            timestamp = Timestamp(time.time()).internal
-            shard_name = self.generate_shard_range_name(
-                root_container, node['index'], '', timestamp)
-            new_range = ShardRange(shard_name, timestamp, lower, cont_upper, 0,
-                                   0, timestamp)
-            shard_ranges.append(new_range)
-            # add something the found_ranges so the stats will be correct.
-            found_ranges.append('last one')
-            try:
-                headers.update({
-                    'X-Container-Sysmeta-Shard-Lower': lower,
-                    'X-Container-Sysmeta-Shard-Upper': cont_upper,
-                    'X-Container-Sysmeta-Shard-Timestamp': timestamp,
-                    'X-Container-Sysmeta-Shard-Meta-Timestamp': timestamp})
-                self.swift.create_container(shard_account, shard_name,
-                                            headers=headers)
-            except internal_client.UnexpectedResponse as ex:
-                self.logger.warning('Failed to put container: %s', str(ex))
-                self.logger.error('PUT of new shard containers failed, '
-                                  'cancelling split of %s/%s. '
-                                  'Will try again next cycle',
-                                  broker.account, broker.container)
-
-            self.logger.increment('shard_ranges_found')
-            self.stats['container_shard_ranges'] += 1
-
+        # persist shard ranges for successfully created shard containers and
+        # replicate this container db
+        # TODO: better if we persist the found ranges even if we fail to create
+        # all the shard containers, so we do not waste the work done to find
+        # them. that implies havng a way to track if containers have been
+        # created or not for persisted shard ranges
         items = self._generate_object_list(shard_ranges, 0)
         broker.merge_items(items)
-
         self.cpool.spawn(
             self._replicate_object, part, broker.db_file, node['id'])
 
         if broker.get_db_state == DB_STATE_UNSHARDED:
             broker.set_sharding_state()
 
-        self.logger.info("Scan cycle completed, found %d new shard ranges.",
-                         len(found_ranges))
-        if found_last():
+        self.logger.info(
+            "Completed scan for shard ranges: %d found, %d created.",
+            len(found_ranges), len(shard_ranges))
+        if last_found:
             # We've found the last shard range, so mark that in metadata
             timestamp = Timestamp(time.time()).internal
             broker.update_metadata({
                 'X-Container-Sysmeta-Sharding-Scan-Done': (True, timestamp)})
-            self.logger.info(" Final shard range reached.")
+            self.logger.info("Final shard range reached.")
             return True
-
-    def generate_shard_range_name(self, container, node_id, shard_range,
-                                  timestamp=None):
-        if not timestamp:
-            timestamp = Timestamp(time.time()).internal
-
-        md5sum = md5()
-        md5sum.update("%s-%s" % (shard_range, timestamp))
-        return "%s-%d-%s" % (container, node_id, md5sum.hexdigest())
 
     def _shrink(self, broker, root_account, root_container):
         """shrinking is a 2 phase process
