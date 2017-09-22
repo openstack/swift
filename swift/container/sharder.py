@@ -555,14 +555,13 @@ class ContainerSharder(ContainerReplicator):
                     self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
         for part, path, node_id in db_replicator.roundrobin_datadirs(dirs):
-            # TODO: cache results in a local dict node_id -> node to avoid
-            # repeated calls to get_part_nodes for same part
             # NB: get_part_nodes always provides an 'index' key
             for node in self.ring.get_part_nodes(int(part)):
                 if node['id'] == node_id:
                     break
             else:
                 # TODO: this would be a bug, a warning log may be too soft
+                # tburke: or is it just a handoff? doesn't seem exceptional...
                 self.logger.warning("Failed to find node to match id %s" %
                                     node_id)
                 continue
@@ -839,7 +838,7 @@ class ContainerSharder(ContainerReplicator):
                     'X-Container-Sysmeta-Shard-Timestamp':
                         shard_range.timestamp.internal,
                     'X-Container-Sysmeta-Shard-Meta-Timestamp':
-                        shard_range.timestamp.internal})
+                        shard_range.meta_timestamp.internal})
                 self.swift.create_container(shard_account, shard_range.name,
                                             headers=headers)
                 shard_ranges.append(shard_range)
