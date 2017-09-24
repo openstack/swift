@@ -31,6 +31,7 @@ automatically inserted close to the start of the pipeline by the proxy server.
 """
 
 
+from swift.common.constraints import valid_api_version
 from swift.common.swob import Request
 from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import (
@@ -78,6 +79,21 @@ class GatekeeperMiddleware(object):
 
     def __call__(self, env, start_response):
         req = Request(env)
+
+        # Remove sharding-specific container-server query param.
+        # External clients shouldn't need to worry about shards.
+        try:
+            ver, _acct, _cont = req.split_path(3, 3)
+            if not valid_api_version(ver):
+                raise ValueError
+        except ValueError:
+            pass
+        else:
+            params = req.params
+            if params.get('items') in ('shard', 'all'):
+                del params['items']
+                req.params = params
+
         removed = remove_items(req.headers, self.inbound_condition)
         if removed:
             self.logger.debug('removed request headers: %s' % removed)

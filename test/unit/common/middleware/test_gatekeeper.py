@@ -245,6 +245,32 @@ class TestGatekeeper(unittest.TestCase):
         self._test_location_header('/v/a/c/o2?query=path#test')
         self._test_location_header('/v/a/c/o2;whatisparam?query=path#test')
 
+    def test_sharding_items_query_param(self):
+        def capturing_app(env, start_response):
+            req = Request(env)
+            capturing_app.params.append(req.params)
+            start_response('200 OK', [])
+
+        app = self.get_app(capturing_app, {})
+
+        def do_test(request_path, should_be_removed):
+            capturing_app.params = []
+            resp = Request.blank(request_path).get_response(app)
+            self.assertEqual('200 OK', resp.status)
+            self.assertEqual(1, len(capturing_app.params),
+                             'Expected one param dict, got %r' % (
+                                 capturing_app.params, ))
+            if should_be_removed:
+                self.assertNotIn('items', capturing_app.params[0])
+            else:
+                self.assertIn('items', capturing_app.params[0])
+
+        do_test('/v1/a/c?items=shard', True)
+        do_test('/v1.0/a/c/?items=all', True)
+        do_test('/v1/a/c?items=foo', False)
+        do_test('/v1/a?items=shard', False)
+        do_test('/auth/a/c?items=shard', False)
+        do_test('/v1/a/c/o?items=shard', False)
 
 if __name__ == '__main__':
     unittest.main()

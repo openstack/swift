@@ -115,8 +115,10 @@ class ContainerController(Controller):
         sharding_state = \
             int(resp.headers.get('X-Backend-Sharding-State',
                                  DB_STATE_UNSHARDED))
-        if req.method == "GET" and sharding_state in (DB_STATE_SHARDING,
-                                                      DB_STATE_SHARDED):
+        if req.method == "GET" and params.get('items') != 'shard' and \
+                sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
+            # TODO: think about whether this actually does what we want for
+            # items=all -- and whether we should even support that here
             new_resp = self._get_sharded(req, resp, sharding_state)
             if new_resp:
                 resp = new_resp
@@ -125,8 +127,11 @@ class ContainerController(Controller):
         # up-to-date information for the container.
         resp.headers['X-Backend-Recheck-Container-Existence'] = str(
             self.app.recheck_container_existence)
-        set_info_cache(self.app, req.environ, self.account_name,
-                       self.container_name, resp)
+        # TODO: seems like a good idea to not set cache for shard/all
+        # requests, but revisit this at some point
+        if params.get('items') not in ('shard', 'all'):
+            set_info_cache(self.app, req.environ, self.account_name,
+                           self.container_name, resp)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
             aresp = req.environ['swift.authorize'](req)
