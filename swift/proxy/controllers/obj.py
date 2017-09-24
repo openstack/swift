@@ -244,7 +244,7 @@ class BaseObjectController(Controller):
                 overide_prefix = 'X-Backend-Container-Update-Override'
                 root_path = '%s/%s' % (shard_acct, shard)
                 container_meta = {
-                    '%s-Backend-Shard-Root' % overide_prefix: root_path
+                    '%s-Backend-Shard-Path' % overide_prefix: root_path
                 }
 
                 return partition, nodes, container_meta

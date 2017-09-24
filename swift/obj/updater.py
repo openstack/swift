@@ -238,8 +238,8 @@ class ObjectUpdater(Daemon):
         for i in range(num_redirects):
             redirects = set()
             headers_out = HeaderKeyDict(update['headers'].copy())
-            if headers_out.get('X-Backend-Shard-Root'):
-                acct, cont = headers_out['X-Backend-Shard-Root'].split('/')
+            if headers_out.get('X-Backend-Shard-Path'):
+                acct, cont = headers_out['X-Backend-Shard-Path'].split('/')
             else:
                 acct, cont = update['account'], update['container']
             part, nodes = self.get_container_ring().get_nodes(
@@ -264,18 +264,16 @@ class ObjectUpdater(Daemon):
                 break
 
             redirect = max(redirects, key=lambda x: x[-1])
-            update['headers']['X-Backend-Pivot-Account'] = redirect[0]
-            update['headers']['X-Backend-Pivot-Container'] = redirect[1]
+            update['headers']['X-Backend-Shard-Path'] = redirect[0]
             if num_redirects == i + 1:
                 success = False
             else:
                 self.logger.increment("redirects")
                 self.logger.debug('Update sent for %(obj)s %(path)s '
                                   'triggered a redirect to '
-                                  '%(redir_acct)s/%(redir_cont)s',
+                                  '%(shard)s',
                                   {'obj': obj, 'path': update_path,
-                                   'redir_acct': redirect[0],
-                                   'redir_cont': redirect[1]})
+                                   'shard': redirect[0]})
 
         if success:
             self.successes += 1
@@ -337,7 +335,7 @@ class ObjectUpdater(Daemon):
                                       'find determine shard container '
                                       'location.' % obj)
                     return False, node['id'], redirect
-                redirect = (piv_acc, piv_cont,
+                redirect = ('%s/%s' % (piv_acc, piv_cont),
                             rheaders.get('X-Redirect-Timestamp'))
 
             elif not success:

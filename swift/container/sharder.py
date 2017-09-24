@@ -130,7 +130,7 @@ class ContainerSharder(ContainerReplicator):
 
     def _get_shard_ranges(self, account, container, newest=False):
         # TODO: this surely doesn't work -- self.swift is an internal client,
-        # and the proxy's container controller doesn't clients get pivots
+        # and the proxy's container controller doesn't let clients get pivots
         path = self.swift.make_path(account, container) + \
             '?items=shard&format=json'
         headers = dict()
@@ -145,20 +145,16 @@ class ContainerSharder(ContainerReplicator):
             return None
 
         ranges = list()
-        try:
-            for shard_range in json.loads(resp.body):
-                lower = shard_range.get('lower') or None
-                upper = shard_range.get('upper') or None
-                created_at = shard_range.get('created_at') or None
-                object_count = shard_range.get('object_count') or 0
-                bytes_used = shard_range.get('bytes_used') or 0
-                meta_timestamp = shard_range.get('meta_timestamp') or None
-                ranges.append(ShardRange(shard_range['name'], created_at,
-                                         lower, upper, object_count,
-                                         bytes_used, meta_timestamp))
-        except ValueError:
-            # Failed to decode the json response
-            return None
+        for shard_range in json.loads(resp.body):
+            lower = shard_range.get('lower') or None
+            upper = shard_range.get('upper') or None
+            created_at = shard_range.get('created_at') or None
+            object_count = shard_range.get('object_count') or 0
+            bytes_used = shard_range.get('bytes_used') or 0
+            meta_timestamp = shard_range.get('meta_timestamp') or None
+            ranges.append(ShardRange(shard_range['name'], created_at,
+                                     lower, upper, object_count,
+                                     bytes_used, meta_timestamp))
         return ranges
 
     def _get_shard_broker(self, account, container, policy_index):
@@ -1227,6 +1223,7 @@ class ContainerSharder(ContainerReplicator):
                 self._sharding_complete(root_account, root_container, broker)
                 return
             elif scan_complete and not last_piv_exists:
+                # TODO: are we sure last_range is not None?
                 last_range.lower = last_pivot
                 last_range.dont_save = True
                 ranges_todo.append(last_range)
@@ -1310,10 +1307,12 @@ class ContainerSharder(ContainerReplicator):
                     ('', Timestamp(time.time()).internal)})
             self._sharding_complete(root_account, root_container, broker)
             self.logger.increment('sharding_complete')
-        else:
+        elif ranges_done:
             broker.update_metadata({
                 'X-Container-Sysmeta-Shard-Last-%d' % node['index']:
-                    (last_range, Timestamp(time.time()).internal)})
+                    (ranges_done[-1].upper, Timestamp(time.time()).internal)})
+        else:
+            self.logger.warning('No progress made in _cleave()!')
 
     # TODO: unused method - ok to delete?
     def _push_shard_ranges_to_container(self, root_account,
