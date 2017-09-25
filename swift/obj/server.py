@@ -34,7 +34,7 @@ from swift.common.utils import public, get_logger, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
     get_expirer_container, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
-    config_auto_int_value
+    config_auto_int_value, split_path
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -242,7 +242,7 @@ class ObjectController(BaseStorageServer):
 
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice, policy,
-                     logger_thread_locals=None):
+                     logger_thread_locals=None, container_path=None):
         """
         Sends or saves an async update.
 
@@ -260,20 +260,19 @@ class ObjectController(BaseStorageServer):
         :param logger_thread_locals: The thread local values to be set on the
                                      self.logger to retain transaction
                                      logging information.
+        :param container_path: optional path in the form `<account/container>`
+            to which the update should be sent. If given this path will be used
+            instead of the constructing a path from the the ``account`` and
+            ``container`` params.
         """
         if logger_thread_locals:
             self.logger.thread_locals = logger_thread_locals
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
-        full_path = '/%s/%s/%s' % (account, container, obj)
-        shard_path = headers_out.get('X-Backend-Container-Path')
-        if shard_path:
-            if shard_path.count('/') != 1:
-                # TODO: this is quite late in handler to be validating a header
-                self.logger.error(
-                    'Expected X-Backend-Container-Path to be of the '
-                    "form 'account/container', got %r" % shard_path)
-            else:
-                full_path = '/%s/%s' % (shard_path, obj)
+        if container_path:
+            # use explicitly specified container path
+            full_path = '/%s/%s' % (container_path, obj)
+        else:
+            full_path = '/%s/%s/%s' % (account, container, obj)
 
         if all([host, partition, contdevice]):
             try:
@@ -300,6 +299,8 @@ class ObjectController(BaseStorageServer):
                     {'ip': ip, 'port': port, 'dev': contdevice})
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
+        if container_path:
+            data['container_path'] = container_path
         timestamp = headers_out.get('x-meta-timestamp',
                                     headers_out.get('x-timestamp'))
         self._diskfile_router[policy].pickle_async_update(
@@ -326,6 +327,7 @@ class ObjectController(BaseStorageServer):
         contdevices = [d.strip() for d in
                        headers_in.get('X-Container-Device', '').split(',')]
         contpartition = headers_in.get('X-Container-Partition', '')
+        contpath = headers_in.get('X-Backend-Container-Path')
 
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
@@ -338,6 +340,21 @@ class ObjectController(BaseStorageServer):
                     'devices': headers_in.get('X-Container-Device', '')})
             return
 
+        if contpath:
+            try:
+                # TODO: this is very late in request handling to be validating
+                # a header - if we did *not* check and the header was bad
+                # presumably the update would fail and we would fall back to an
+                # async update to the root container, which might be best
+                # course of action rather than aborting update altogether?
+                split_path('/' + contpath, minsegs=2, maxsegs=2)
+            except ValueError:
+                self.logger.error(
+                    "ERROR Invalid X-Backend-Container-Path, should be of the "
+                    "form 'account/container' but got %r." % contpath)
+                # fall back to updating root container
+                contpath = None
+
         if contpartition:
             updates = zip(conthosts, contdevices)
         else:
@@ -346,16 +363,14 @@ class ObjectController(BaseStorageServer):
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
         headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
-        if 'x-backend-container-path' in headers_in:
-            headers_out['X-Backend-Container-Path'] = \
-                headers_in.get('X-Backend-Container-Path')
 
         update_greenthreads = []
         for conthost, contdevice in updates:
             gt = spawn(self.async_update, op, account, container, obj,
                        conthost, contpartition, contdevice, headers_out,
                        objdevice, policy,
-                       logger_thread_locals=self.logger.thread_locals)
+                       logger_thread_locals=self.logger.thread_locals,
+                       container_path=contpath)
             update_greenthreads.append(gt)
         # Wait a little bit to see if the container updates are successful.
         # If we immediately return after firing off the greenthread above, then
