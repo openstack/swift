@@ -17,13 +17,3 @@ erasure coding capability. It is entirely possible to share devices between
 storage policies, but for erasure coding it may make more sense to use
 not only separate devices but possibly even entire nodes dedicated for erasure
 coding.
-
-.. important::
-
-   The erasure code support in Object Storage is considered beta in Kilo.
-   Most major functionality is included, but it has not been tested or
-   validated at large scale. This feature relies on ``ssync`` for durability.
-   We recommend deployers do extensive testing and not deploy production
-   data using an erasure code storage policy.
-   If any bugs are found during testing, please report them to
-   https://bugs.launchpad.net/swift
