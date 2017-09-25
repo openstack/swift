@@ -229,27 +229,21 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
-    def _get_container_meta(self, req, container_info):
+    def _get_update_target(self, req, container_info):
         db_state = container_info.get('sharding_state', DB_STATE_UNSHARDED)
         if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
             # find the sharded container to which we'll send the update.
             ranges = self._get_shard_ranges(
                 req, self.account_name, self.container_name, self.object_name)
-
             if ranges:
                 shard = ranges[0].name
                 shard_acct = account_to_shard_account(self.account_name)
                 partition, nodes = self.app.container_ring.get_nodes(
                     shard_acct, shard)
-                overide_prefix = 'X-Backend-Container-Update-Override'
-                root_path = '%s/%s' % (shard_acct, shard)
-                container_meta = {
-                    '%s-Backend-Shard-Path' % overide_prefix: root_path
-                }
+                shard_path = '%s/%s' % (shard_acct, shard)
+                return partition, nodes, shard_path
 
-                return partition, nodes, container_meta
-
-        return container_info['partition'], container_info['nodes'], {}
+        return container_info['partition'], container_info['nodes'], None
 
     @public
     @cors_validation
@@ -258,8 +252,8 @@ class BaseObjectController(Controller):
         """HTTP POST request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        container_partition, container_nodes, container_meta = \
-            self._get_container_meta(req, container_info)
+        container_partition, container_nodes, container_path = \
+            self._get_update_target(req, container_info)
         req.acl = container_info['write_acl']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
@@ -290,19 +284,17 @@ class BaseObjectController(Controller):
         headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes,
-            container_meta)
+            container_path=container_path)
         return self._post_object(req, obj_ring, partition, headers)
 
     def _backend_requests(self, req, n_outgoing,
                           container_partition, containers,
                           delete_at_container=None, delete_at_partition=None,
-                          delete_at_nodes=None, container_meta=None):
+                          delete_at_nodes=None, container_path=None):
         policy_index = req.headers['X-Backend-Storage-Policy-Index']
         policy = POLICIES.get_by_index(policy_index)
         headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
-        if container_meta is None:
-            container_meta = {}
 
         def set_container_update(index, container):
             headers[index]['X-Container-Partition'] = container_partition
@@ -312,7 +304,8 @@ class BaseObjectController(Controller):
             headers[index]['X-Container-Device'] = csv_append(
                 headers[index].get('X-Container-Device'),
                 container['device'])
-            headers[index].update(container_meta)
+            if container_path:
+                headers[index]['X-Backend-Container-Path'] = container_path
 
         for i, container in enumerate(containers):
             i = i % len(headers)
@@ -715,8 +708,8 @@ class BaseObjectController(Controller):
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
-        container_partition, container_nodes, container_meta = \
-            self._get_container_meta(req, container_info)
+        container_partition, container_nodes, container_path = \
+            self._get_update_target(req, container_info)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
@@ -764,7 +757,7 @@ class BaseObjectController(Controller):
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
             delete_at_container, delete_at_part, delete_at_nodes,
-            container_meta)
+            container_path=container_path)
 
         # send object to storage nodes
         resp = self._store_object(
@@ -787,8 +780,8 @@ class BaseObjectController(Controller):
         next_part_power = getattr(obj_ring, 'next_part_power', None)
         if next_part_power:
             req.headers['X-Backend-Next-Part-Power'] = next_part_power
-        container_partition, container_nodes, container_meta = \
-            self._get_container_meta(req, container_info)
+        container_partition, container_nodes, container_path = \
+            self._get_update_target(req, container_info)
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
         if 'swift.authorize' in req.environ:
@@ -826,7 +819,7 @@ class BaseObjectController(Controller):
 
         headers = self._backend_requests(
             req, node_count, container_partition, container_nodes,
-            container_meta=container_meta)
+            container_path=container_path)
         return self._delete_object(req, obj_ring, partition, headers)
 
 
