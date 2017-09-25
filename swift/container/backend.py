@@ -1716,9 +1716,9 @@ class ContainerBroker(DatabaseBroker):
             finally:
                 self._create_connection()
 
-    def _generate_shard_range_name(self, shard_range, timestamp):
+    def _generate_shard_range_name(self, range_upper, timestamp):
         root_account, root_container = self.get_shard_root_path()
-        md5sum = md5("%s-%s" % (shard_range, timestamp.internal)).hexdigest()
+        md5sum = md5("%s-%s" % (range_upper, timestamp.internal)).hexdigest()
         return "%s-%s" % (root_container, md5sum)
 
     def find_shard_ranges(self, shard_size, limit=-1):
