@@ -2275,7 +2275,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_update('bashful', timestamp=ts_bashful_orig)
         self.assertEqual(201, resp.status_int)
         self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
         self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
 
         shard_ranges = {
@@ -2293,7 +2293,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
 
         # set broker to sharding state
@@ -2305,7 +2305,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
 
         resp = do_update('happy')
@@ -2313,7 +2313,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_happy/happy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
 
         # no shard for this object yet
@@ -2321,7 +2321,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_update('dopey', timestamp=ts_dopey_orig)
         self.assertEqual(201, resp.status_int)
         self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
         self.assertEqual(['bashful', 'dopey'],
                          [obj['name'] for obj in get_listing()])
         self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat],
@@ -2334,13 +2334,13 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_dopey/bashful',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         resp = do_update('dopey')
         self.assertEqual(301, resp.status_int)
         self.assertEqual('http://localhost/.sharded_a/sr_dopey/dopey',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         # existing updates in this container were *not* updated
         self.assertEqual(['bashful', 'dopey'],
                          [obj['name'] for obj in get_listing()])
@@ -2352,7 +2352,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_update('sleepy', timestamp=ts_sleepy_orig)
         self.assertEqual(201, resp.status_int)
         self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
         self.assertEqual(['bashful', 'dopey', 'sleepy'],
                          [obj['name'] for obj in get_listing()])
         self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat,
@@ -2366,7 +2366,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_/sleepy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges[''].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(['bashful', 'dopey', 'sleepy'],
                          [obj['name'] for obj in get_listing()])
         self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat,
@@ -2410,7 +2410,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_update('sneezy', timestamp=obj_timestamps['sneezy'])
         self.assertEqual(204, resp.status_int)
         self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
         obj_names.remove('sneezy')
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
 
@@ -2429,7 +2429,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
 
         # set broker to sharding state
@@ -2441,7 +2441,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
 
         resp = do_update('happy')
@@ -2449,7 +2449,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_happy/happy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
 
         # no shard for this object yet
@@ -2457,7 +2457,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_update('dopey', timestamp=obj_timestamps['dopey'])
         self.assertEqual(204, resp.status_int)
         self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
         obj_names.remove('dopey')
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
         self.assertEqual(
@@ -2471,13 +2471,13 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_dopey/bashful',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         resp = do_update('dopey')
         self.assertEqual(301, resp.status_int)
         self.assertEqual('http://localhost/.sharded_a/sr_dopey/dopey',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         # existing updates in this container were *not* updated
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
         self.assertEqual(
@@ -2489,7 +2489,7 @@ class TestContainerController(unittest.TestCase):
         resp = do_update('sleepy', timestamp=obj_timestamps['sleepy'])
         self.assertEqual(204, resp.status_int)
         self.assertNotIn('Location', resp.headers)
-        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertNotIn('X-Backend-Redirect-Timestamp', resp.headers)
         obj_names.remove('sleepy')
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
         self.assertEqual(
@@ -2503,7 +2503,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('http://localhost/.sharded_a/sr_/sleepy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges[''].timestamp.internal,
-                         resp.headers['X-Redirect-Timestamp'])
+                         resp.headers['X-Backend-Redirect-Timestamp'])
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
         self.assertEqual(
             [obj_timestamps[name].isoformat for name in obj_names],

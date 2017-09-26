@@ -346,7 +346,7 @@ class ObjectUpdater(Daemon):
                         'redirect location: %s' % (obj, err))
                     return False, node['id'], redirect
                 redirect = ('%s/%s' % (shard_account, shard_cont),
-                            rheaders.get('X-Redirect-Timestamp'))
+                            rheaders.get('X-Backend-Redirect-Timestamp'))
 
             elif not success:
                 resp_dict = {'status': resp.status, 'ip': node['ip'],

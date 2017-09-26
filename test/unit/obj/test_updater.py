@@ -627,9 +627,9 @@ class TestObjectUpdater(unittest.TestCase):
             # first round of update attempts, newest redirect should be chosen
             (200, {}),
             (301, {'Location': '/.sharded_a/c_shard_new/o',
-                   'X-Redirect-Timestamp': ts_redirect_2.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_2.internal}),
             (301, {'Location': '/.sharded_a/c_shard_old/o',
-                   'X-Redirect-Timestamp': ts_redirect_1.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_1.internal}),
             # second round of update attempts
             (200, {}),
             (200, {}),
@@ -682,18 +682,18 @@ class TestObjectUpdater(unittest.TestCase):
         fake_responses = [
             # 1st round of redirects, newest redirect should be chosen
             (301, {'Location': '/.sharded_a/c_shard_old/o',
-                   'X-Redirect-Timestamp': ts_redirect_1.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_1.internal}),
             (301, {'Location': '/.sharded_a/c_shard_new/o',
-                   'X-Redirect-Timestamp': ts_redirect_2.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_2.internal}),
             (301, {'Location': '/.sharded_a/c_shard_old/o',
-                   'X-Redirect-Timestamp': ts_redirect_1.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_1.internal}),
             # 2nd round of redirects
             (301, {'Location': '/.sharded_a/c_shard_newer/o',
-                   'X-Redirect-Timestamp': ts_redirect_3.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_3.internal}),
             (301, {'Location': '/.sharded_a/c_shard_newer/o',
-                   'X-Redirect-Timestamp': ts_redirect_3.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_3.internal}),
             (301, {'Location': '/.sharded_a/c_shard_newer/o',
-                   'X-Redirect-Timestamp': ts_redirect_3.internal}),
+                   'X-Backend-Redirect-Timestamp': ts_redirect_3.internal}),
         ]
         fake_status_codes, fake_headers = zip(*fake_responses)
         with mocked_http_conn(*fake_status_codes, give_connect=capture,

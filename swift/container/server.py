@@ -263,34 +263,33 @@ class ContainerController(BaseStorageServer):
             self.logger.exception('Failed to update sync_store %s during %s' %
                                   (broker.db_file, method))
 
-    def _find_shard_location(self, req, broker, obj):
-        try:
-            # This is either a sharded root container or a container in the
-            # middle of sharding, so we need figure out where the obj should
-            # live and return a 301. If redirect_cont
-            # is given, then we know where to redirect to without having to
-            # look it up.
-            ranges = broker.build_shard_ranges()
-            containing_range = find_shard_range(obj, ranges)
-            if containing_range is None:
-                return  # TODO: what??
-            if broker.is_root_container():
-                acct = account_to_shard_account(broker.account)
-            else:
-                acct = broker.account
+    def _find_shard_location(self, broker, obj_name):
+        """
+        Look for a shard range that contains ``obj_name`` and if one exists
+        return a HTTPMovedPermanently response.
 
-            location = "/%s/%s/%s" % \
-                (acct, containing_range.name, obj)
-            headers = {'Location': location,
-                       'X-Redirect-Timestamp':
-                           containing_range.timestamp.internal}
+        :param broker: a container broker
+        :param obj_name: an object name
+        :return: an instance of :class:`swift.common.swob.HTTPMovedPermanently`
+            if a shard range exists for the given ``obj_name``, otherwise None.
+        """
+        ranges = broker.build_shard_ranges()
+        containing_range = find_shard_range(obj_name, ranges)
+        if containing_range is None:
+            return None
 
-            return HTTPMovedPermanently(headers=headers)
+        if broker.is_root_container():
+            acct = account_to_shard_account(broker.account)
+        else:
+            acct = broker.account
 
-        except Exception:
-            # TODO: think more about what kinds of errors we may encounter here
-            self.logger.exception('Error finding shard location')
-            return HTTPInternalServerError()
+        location = "/%s/%s/%s" % \
+            (acct, containing_range.name, obj_name)
+        headers = {'Location': location,
+                   'X-Backend-Redirect-Timestamp':
+                       containing_range.timestamp.internal}
+
+        return HTTPMovedPermanently(headers=headers)
 
     @public
     @timing_stats()
@@ -324,15 +323,10 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-shard-lower'),
                     req.headers.get('x-backend-shard-upper'))
             else:
-                if len(broker.get_shard_ranges()) > 0:
-                    # cannot put to a root shard container, find actual
-                    # container
-                    # TODO: what if this returns None? i.e., we have pivot
-                    # ranges, but they don't cover the whole namespace so we
-                    # can't find a pivot for this object
-                    res = self._find_shard_location(req, broker, obj)
-                    if res:
-                        return res
+                # redirect if a shard range exists for the object name
+                res = self._find_shard_location(broker, obj)
+                if res:
+                    return res
 
                 broker.delete_object(obj, req.headers.get('x-timestamp'),
                                      obj_policy_index)
@@ -446,11 +440,11 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-shard-bytes'))
 
             else:
-                if len(broker.get_shard_ranges()) > 0:
-                    # we shouldn't just PUT into a sharded container
-                    res = self._find_shard_location(req, broker, obj)
-                    if res:
-                        return res
+                # redirect if a shard exits for this object name
+                redirect = self._find_shard_location(broker, obj)
+                if redirect:
+                    return redirect
+
                 broker.put_object(obj, req_timestamp.internal,
                                   int(req.headers['x-size']),
                                   req.headers['x-content-type'],
@@ -666,6 +660,7 @@ class ContainerController(BaseStorageServer):
                     marker, end_marker = end_marker, marker
         elif info.get('db_state') == DB_STATE_SHARDING:
             # Container is sharding, so we need to look at both brokers
+            # TODO: will we ever want items=all to be supported in this case?
             resp_headers, container_list = self._check_local_brokers(
                 req, broker, resp_headers, marker, end_marker, prefix, limit)
         else:
