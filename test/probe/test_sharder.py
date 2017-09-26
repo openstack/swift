@@ -202,3 +202,125 @@ class TestContainerSharding(ReplProbeTest):
 
     def test_sharded_listing_with_replicators(self):
         self._test_sharded_listing(run_replicators=True)
+
+    def test_async_pendings(self):
+        sharders = Manager(['container-sharder'])
+        obj_names = ['obj%03d' % x for x in range(self.max_shard_size * 2)]
+
+        self.brain.put_container()
+
+        # There are some updates *everyone* gets
+        for obj in obj_names[::5]:
+            client.put_object(self.url, self.token, self.container_name, obj)
+        # But roll some outages so each container only get ~3/4 object records
+        # and async pendings pile up
+        for i, n in enumerate(self.brain.node_numbers, start=1):
+            self.brain.servers.stop(number=n)
+            for o in obj_names[i::5]:
+                client.put_object(self.url, self.token, self.container_name, o)
+            self.brain.servers.start(number=n)
+
+        # But there are also some updates *no one* gets
+        self.brain.servers.stop()
+        for obj in obj_names[4::5]:
+            client.put_object(self.url, self.token, self.container_name, obj)
+        self.brain.servers.start()
+
+        # Shard it
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        headers = client.head_container(self.url, self.admin_token,
+                                        self.container_name)
+        self.assertEqual('True', headers.get('x-container-sharding'))
+
+        # Only run the one in charge of scanning
+        sharders.once(number=self.brain.node_numbers[0])
+
+        # Verify that we have one shard db -- though the other normal DBs
+        # received the shard ranges that got defined
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 1)
+        node_index_zero_db = found['shard_dbs'][0]
+        broker = ContainerBroker(node_index_zero_db)
+        # TODO: assert the shard db is on replica 0
+        self.assertIs(True, broker.is_root_container())
+        # TODO: not sharding! shard DB thinks he's done!?
+        self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
+        expected_shard_ranges = get_shard_ranges(broker)
+        self.assertLengthEqual(expected_shard_ranges, 3)
+
+        # Still have all three big DBs -- we've only worked our way through
+        # 2 of the 3 ranges that got defined
+        self.assertLengthEqual(found['normal_dbs'], 3)
+        for db_file in found['normal_dbs']:
+            broker = ContainerBroker(db_file)
+            self.assertIs(True, broker.is_root_container())
+            self.assertEqual(expected_shard_ranges, get_shard_ranges(broker))
+            if db_file.startswith(os.path.dirname(node_index_zero_db)):
+                self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
+            else:
+                self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
+
+        # Run the other sharders so we're all in (roughly) the same state
+        for n in self.brain.node_numbers[1:]:
+            sharders.once(number=n)
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 3)
+        self.assertLengthEqual(found['normal_dbs'], 3)
+        for db_file in found['normal_dbs']:
+            broker = ContainerBroker(db_file)
+            self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
+            if db_file.startswith(os.path.dirname(node_index_zero_db)):
+                # Original scanner has no new info
+                self.assertEqual(len(obj_names) * 3 // 5,
+                                 broker.get_info()['object_count'])
+            else:
+                # TODO: But I guess we replicated to the other guys!?
+                # 'Cause everyone else is only missing the updates that didn't
+                # make it to any container server
+                self.assertEqual(len(obj_names) * 4 // 5,
+                                 broker.get_info()['object_count'])
+
+        # Run updaters to clear the async pendings
+        Manager(['object-updater']).once()
+
+        # Our "big" dbs didn't take updates
+        for db_file in found['normal_dbs']:
+            broker = ContainerBroker(db_file)
+            if db_file.startswith(os.path.dirname(node_index_zero_db)):
+                self.assertEqual(len(obj_names) * 3 // 5,
+                                 broker.get_info()['object_count'])
+            else:
+                self.assertEqual(len(obj_names) * 4 // 5,
+                                 broker.get_info()['object_count'])
+
+        # TODO: confirm that the updates got redirected to the shards
+
+        # Check that entire listing is available -- this requires splicing
+        # together the first two complete shards, the old records from the
+        # root, *and* the new records from the shard that only has missed
+        # updates
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertEqual([x['name'].encode('utf-8') for x in listing],
+                         obj_names)
+        self.assertIn('x-container-object-count', headers)
+        # Object count is hard to reason about though!
+        # TODO: nail down what this *should* be and make sure all containers
+        # respond with it! Depending on what you're looking at, this
+        # could be 0, 1/2, 7/12 (!?), 3/5, 2/3, or 4/5 or all objects!
+        # self.assertEqual(headers['x-container-object-count'],
+        #                  str(len(obj_names) - len(obj_names) // 6))
+
+        # TODO: Doesn't work in reverse, yet
+        # headers, listing = client.get_container(self.url, self.token,
+        #                                         self.container_name,
+        #                                         query_string='reverse=on')
+        # self.assertEqual([x['name'].encode('utf-8') for x in listing],
+        #                  obj_names[::-1])
+
+        # Run the sharders again to get everything to settle
+        sharders.once()
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 3)
+        self.assertLengthEqual(found['normal_dbs'], 0)
