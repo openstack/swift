@@ -2165,7 +2165,7 @@ class TestContainerController(unittest.TestCase):
 
     # TODO: fix implementation so that this test passes
     @unittest.expectedFailure
-    def test_GET_while_in_sharding_state_no_pivot_ranges(self):
+    def test_GET_while_in_sharding_state_no_shards(self):
         # verify that GET merges items from the old and new db's
         ts_iter = make_timestamp_iter()
         headers = {'X-Timestamp': next(ts_iter).normal}
@@ -2188,7 +2188,7 @@ class TestContainerController(unittest.TestCase):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         broker.set_sharding_state()
 
-        # these PUTS will land in the pivot db (no pivot ranges yet)
+        # these PUTS will land in the pivot db (no shard ranges yet)
         for obj in objects[5:]:
             req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
                                 headers=obj)
@@ -2210,7 +2210,7 @@ class TestContainerController(unittest.TestCase):
                  name=obj['name']) for obj in objects]
         check_object_GET('/sda1/p/a/c?format=json', expected)
 
-        # these DELETES will land in the pivot db (no pivot ranges yet)
+        # these DELETES will land in the shard db (no shard ranges yet)
         for obj in objects[2:4]:
             obj['x-timestamp'] = next(ts_iter).normal
             req = Request.blank('/sda1/p/a/c/%s' % obj['name'],
@@ -2234,8 +2234,8 @@ class TestContainerController(unittest.TestCase):
                          list(reversed(expected[:2])))
         # TODO: next assertion fails because the limit is applied to old_items,
         # which has 5 items but only 4 are listed due to limit=4. Then two of
-        # those are removed due to deletes in the pivot db, and replaced with
-        # items in the pivot db. The fifth old item is not listed but should
+        # those are removed due to deletes in the shard db, and replaced with
+        # items in the shard db. The fifth old item is not listed but should
         # be.
         check_object_GET('/sda1/p/a/c?format=json&limit=4',
                          expected[:2] + expected[4:6])
@@ -2244,6 +2244,283 @@ class TestContainerController(unittest.TestCase):
             # pivot db to replace old items that are found to be deleted
             check_object_GET('/sda1/p/a/c?format=json&marker=obj_1&limit=2',
                              [expected[1], expected[4]])
+
+    def test_PUT_object_update_redirected_to_shard(self):
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+
+        def do_update(name, timestamp=None):
+            # Make a PUT request to container controller to update an object
+            timestamp = timestamp or next(ts_iter)
+            headers = {'X-Timestamp': timestamp.internal,
+                       'X-Size': 17,
+                       'X-Content-Type': 'text/plain',
+                       'X-Etag': 'fake etag'}
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % name, method='PUT', headers=headers)
+            self._update_object_put_headers(req)
+            return req.get_response(self.controller)
+
+        def get_listing():
+            req = Request.blank(
+                '/sda1/p/a/c?format=json', method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(200, resp.status_int)
+            return json.loads(resp.body)
+
+        # sanity check
+        ts_bashful_orig = next(ts_iter)
+        resp = do_update('bashful', timestamp=ts_bashful_orig)
+        self.assertEqual(201, resp.status_int)
+        self.assertNotIn('Location', resp.headers)
+        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+
+        shard_ranges = {
+            'dopey': ShardRange('sr_dopey', next(ts_iter), '', 'dopey'),
+            'happy': ShardRange('sr_happy', next(ts_iter), 'dopey', 'happy'),
+            '': ShardRange('sr_', next(ts_iter), 'happy', '')
+        }
+        # start with only the middle shard range
+        self._put_shard_range(shard_ranges['happy'])
+
+        # TODO: shard ranges exist but broker is not yet in sharding state - we
+        # should probably *not* be redirecting...
+        resp = do_update('grumpy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['happy'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+
+        # set broker to sharding state
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        broker.set_sharding_state()
+        # TODO: also test broker in SHARDED state
+        resp = do_update('grumpy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['happy'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+
+        resp = do_update('happy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_happy/happy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['happy'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
+
+        # no shard for this object yet
+        ts_dopey_orig = next(ts_iter)
+        resp = do_update('dopey', timestamp=ts_dopey_orig)
+        self.assertEqual(201, resp.status_int)
+        self.assertNotIn('Location', resp.headers)
+        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertEqual(['bashful', 'dopey'],
+                         [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat],
+                         [obj['last_modified'] for obj in get_listing()])
+
+        # now PUT the first shard range
+        self._put_shard_range(shard_ranges['dopey'])  # newer timestamp
+        resp = do_update('bashful')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_dopey/bashful',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        resp = do_update('dopey')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_dopey/dopey',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        # existing updates in this container were *not* updated
+        self.assertEqual(['bashful', 'dopey'],
+                         [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat],
+                         [obj['last_modified'] for obj in get_listing()])
+
+        # no shard for this object yet
+        ts_sleepy_orig = next(ts_iter)
+        resp = do_update('sleepy', timestamp=ts_sleepy_orig)
+        self.assertEqual(201, resp.status_int)
+        self.assertNotIn('Location', resp.headers)
+        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        self.assertEqual(['bashful', 'dopey', 'sleepy'],
+                         [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat,
+                          ts_sleepy_orig.isoformat],
+                         [obj['last_modified'] for obj in get_listing()])
+
+        # now PUT the final shard
+        self._put_shard_range(shard_ranges[''])
+        resp = do_update('sleepy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_/sleepy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges[''].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(['bashful', 'dopey', 'sleepy'],
+                         [obj['name'] for obj in get_listing()])
+        self.assertEqual([ts_bashful_orig.isoformat, ts_dopey_orig.isoformat,
+                          ts_sleepy_orig.isoformat],
+                         [obj['last_modified'] for obj in get_listing()])
+
+    def test_DELETE_object_update_redirected_to_shard(self):
+        ts_iter = make_timestamp_iter()
+        headers = {'X-Timestamp': next(ts_iter).normal}
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+
+        def do_update(name, timestamp=None, method='DELETE'):
+            # Make request to container controller to update an object
+            timestamp = timestamp or next(ts_iter)
+            headers = {'X-Timestamp': timestamp.internal,
+                       'X-Size': 17,
+                       'X-Content-Type': 'text/plain',
+                       'X-Etag': 'fake etag'}
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % name, method=method, headers=headers)
+            self._update_object_put_headers(req)
+            return req.get_response(self.controller)
+
+        def get_listing(params=''):
+            req = Request.blank(
+                '/sda1/p/a/c?format=json%s' % params, method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(200, resp.status_int)
+            return json.loads(resp.body)
+
+        # PUT some updates and sanity check
+        obj_names = ['bashful', 'dopey', 'happy', 'sleepy', 'sneezy']
+        obj_timestamps = {}
+        for name in obj_names:
+            obj_timestamps[name] = next(ts_iter)
+            do_update(name, timestamp=obj_timestamps[name], method='PUT')
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        # delete - no shard ranges, not in sharding state
+        obj_timestamps['sneezy'] = next(ts_iter)
+        resp = do_update('sneezy', timestamp=obj_timestamps['sneezy'])
+        self.assertEqual(204, resp.status_int)
+        self.assertNotIn('Location', resp.headers)
+        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        obj_names.remove('sneezy')
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+
+        shard_ranges = {
+            'dopey': ShardRange('sr_dopey', next(ts_iter), '', 'dopey'),
+            'happy': ShardRange('sr_happy', next(ts_iter), 'dopey', 'happy'),
+            '': ShardRange('sr_', next(ts_iter), 'happy', '')
+        }
+        # start with only the middle shard range
+        self._put_shard_range(shard_ranges['happy'])
+
+        # TODO: shard ranges exist but broker is not yet in sharding state - we
+        # should probably *not* be redirecting...
+        resp = do_update('grumpy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['happy'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+
+        # set broker to sharding state
+        # TODO: also test broker in SHARDED state
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        broker.set_sharding_state()
+        resp = do_update('grumpy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['happy'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+
+        resp = do_update('happy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_happy/happy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['happy'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+
+        # no shard for this object yet
+        obj_timestamps['dopey'] = next(ts_iter)
+        resp = do_update('dopey', timestamp=obj_timestamps['dopey'])
+        self.assertEqual(204, resp.status_int)
+        self.assertNotIn('Location', resp.headers)
+        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        obj_names.remove('dopey')
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        self.assertEqual(
+            [obj_timestamps[name].isoformat for name in obj_names],
+            [obj['last_modified'] for obj in get_listing()])
+
+        # now PUT the first shard range
+        self._put_shard_range(shard_ranges['dopey'])  # newer timestamp
+        resp = do_update('bashful')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_dopey/bashful',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        resp = do_update('dopey')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_dopey/dopey',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges['dopey'].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        # existing updates in this container were *not* updated
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        self.assertEqual(
+            [obj_timestamps[name].isoformat for name in obj_names],
+            [obj['last_modified'] for obj in get_listing()])
+
+        # no shard for this object yet
+        obj_timestamps['sleepy'] = next(ts_iter)
+        resp = do_update('sleepy', timestamp=obj_timestamps['sleepy'])
+        self.assertEqual(204, resp.status_int)
+        self.assertNotIn('Location', resp.headers)
+        self.assertNotIn('X-Redirect-Timestamp', resp.headers)
+        obj_names.remove('sleepy')
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        self.assertEqual(
+            [obj_timestamps[name].isoformat for name in obj_names],
+            [obj['last_modified'] for obj in get_listing()])
+
+        # now PUT the final shard
+        self._put_shard_range(shard_ranges[''])
+        resp = do_update('sleepy')
+        self.assertEqual(301, resp.status_int)
+        self.assertEqual('http://localhost/.sharded_a/sr_/sleepy',
+                         resp.headers['Location'])
+        self.assertEqual(shard_ranges[''].timestamp.internal,
+                         resp.headers['X-Redirect-Timestamp'])
+        self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
+        self.assertEqual(
+            [obj_timestamps[name].isoformat for name in obj_names],
+            [obj['last_modified'] for obj in get_listing()])
+
+        # sanity check existence of rows for the delete updates that were
+        # accepted when no shard ranges; note that this queries only the
+        # misplaced objects table because the broker is in sharding state
+        container_rows = broker.list_objects_iter(
+            100, '', '', '', '', None,
+            storage_policy_index=broker.storage_policy_index,
+            include_deleted=True)
+        deleted_obj_names = ['dopey', 'sleepy']
+        self.assertEqual(deleted_obj_names, [obj[0] for obj in container_rows])
+        self.assertEqual(
+            [obj_timestamps[name].internal for name in deleted_obj_names],
+            [obj[1] for obj in container_rows])
 
     def test_GET_json_all_items(self):
         ts_iter = make_timestamp_iter()
