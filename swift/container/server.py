@@ -323,13 +323,17 @@ class ContainerController(BaseStorageServer):
                         'x-meta-timestamp', req_timestamp.internal),
                     req.headers.get('x-backend-shard-lower'),
                     req.headers.get('x-backend-shard-upper'))
-            elif len(broker.get_shard_ranges()) > 0:
-                # cannot put to a root shard container, find actual container
-                # TODO: what if this returns None? i.e., we have pivot ranges,
-                # but they don't cover the whole namespace so we can't find a
-                # pivot for this object
-                return self._find_shard_location(req, broker, obj)
             else:
+                if len(broker.get_shard_ranges()) > 0:
+                    # cannot put to a root shard container, find actual
+                    # container
+                    # TODO: what if this returns None? i.e., we have pivot
+                    # ranges, but they don't cover the whole namespace so we
+                    # can't find a pivot for this object
+                    res = self._find_shard_location(req, broker, obj)
+                    if res:
+                        return res
+
                 broker.delete_object(obj, req.headers.get('x-timestamp'),
                                      obj_policy_index)
             return HTTPNoContent(request=req)
@@ -441,14 +445,12 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-shard-objects'),
                     req.headers.get('x-backend-shard-bytes'))
 
-            elif len(broker.get_shard_ranges()) > 0:
-                # cannot put to a root shard container, find actual container
-                res = self._find_shard_location(req, broker, obj)
-                if res:
-                    return res
-                # TODO: else what? should not return HTTPCreated when the
-                # update was ignored
             else:
+                if len(broker.get_shard_ranges()) > 0:
+                    # we shouldn't just PUT into a sharded container
+                    res = self._find_shard_location(req, broker, obj)
+                    if res:
+                        return res
                 broker.put_object(obj, req_timestamp.internal,
                                   int(req.headers['x-size']),
                                   req.headers['x-content-type'],
