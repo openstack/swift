@@ -352,18 +352,18 @@ class TestMemcached(unittest.TestCase):
         # Now lets return an empty string, and make sure we aren't logging
         # the error.
         fake_stdout = six.StringIO()
-        not_expected = "Traceback"
-
-        # force the logging through the debug_handler instead of the nose
-        # handler. This will use stdout, so we can access the IndexError stack
-        # trace if there is one raised.
+        # force the logging through the DebugLogger instead of the nose
+        # handler. This will use stdout, so we can assert that no stack trace
+        # is logged.
         logger = debug_logger()
         with patch("sys.stdout", fake_stdout),\
-                patch('logging.exception', logger.exception),\
-                patch('logging.error', logger.error):
+                patch('swift.common.memcached.logging', logger):
             mock.read_return_empty_str = True
             self.assertEqual(memcache_client.get('some_key'), None)
-            self.assertNotIn(not_expected, fake_stdout.getvalue())
+        log_lines = logger.get_lines_for_level('error')
+        self.assertIn('Error talking to memcached', log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertNotIn("Traceback", fake_stdout.getvalue())
 
     def test_incr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -398,19 +398,19 @@ class TestMemcached(unittest.TestCase):
         # Now lets return an empty string, and make sure we aren't logging
         # the error.
         fake_stdout = six.StringIO()
-        not_expected = "IndexError: list index out of range"
-
-        # force the logging through the debug_handler instead of the nose
-        # handler. This will use stdout, so we can access the IndexError stack
-        # trace if there is one raised.
+        # force the logging through the DebugLogger instead of the nose
+        # handler. This will use stdout, so we can assert that no stack trace
+        # is logged.
         logger = debug_logger()
         with patch("sys.stdout", fake_stdout), \
-                patch('logging.exception', logger.exception), \
-                patch('logging.error', logger.error):
+                patch('swift.common.memcached.logging', logger):
             mock.read_return_empty_str = True
             self.assertRaises(memcached.MemcacheConnectionError,
                               memcache_client.incr, 'some_key', delta=1)
-            self.assertFalse(not_expected in fake_stdout.getvalue())
+        log_lines = logger.get_lines_for_level('error')
+        self.assertIn('Error talking to memcached', log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertNotIn('Traceback', fake_stdout.getvalue())
 
     def test_incr_w_timeout(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
