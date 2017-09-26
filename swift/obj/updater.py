@@ -233,13 +233,15 @@ class ObjectUpdater(Daemon):
             return
         successes = update.get('successes', [])
         success = True
-        new_successes = False
-        num_redirects = 2
-        for i in range(num_redirects):
+        rewrite_pickle = False
+        attempts_remaining = 2
+        while attempts_remaining > 0:
+            attempts_remaining -= 1
             redirects = set()
             headers_out = HeaderKeyDict(update['headers'].copy())
-            if headers_out.get('X-Backend-Container-Path'):
-                acct, cont = headers_out['X-Backend-Container-Path'].split('/')
+            container_path = update.get('container_path')
+            if container_path:
+                acct, cont = split_path('/' + container_path, minsegs=2)
             else:
                 acct, cont = update['account'], update['container']
             part, nodes = self.get_container_ring().get_nodes(
@@ -255,25 +257,33 @@ class ObjectUpdater(Daemon):
                 event_success, node_id, redirect = event.wait()
                 if event_success is True:
                     successes.append(node_id)
-                    new_successes = True
+                    rewrite_pickle = True
                 elif redirect:
                     redirects.add(redirect)
                 else:
                     success = False
-            if not redirects:
-                break
-
-            redirect = max(redirects, key=lambda x: x[-1])
-            update['headers']['X-Backend-Container-Path'] = redirect[0]
-            if num_redirects == i + 1:
-                success = False
+            if redirects:
+                # TODO: sanity check that redirect != container_path we just
+                # used
+                redirect = max(redirects, key=lambda x: x[-1])
+                update['container_path'] = redirect[0]
+                rewrite_pickle = True
+                if attempts_remaining > 0:
+                    self.logger.increment("redirects")
+                    self.logger.debug('Update sent for %(obj)s %(path)s '
+                                      'triggered a redirect to '
+                                      '%(shard)s',
+                                      {'obj': obj, 'path': update_path,
+                                       'shard': redirect[0]})
+                else:
+                    # got redirect but ran out of attempts
+                    # TODO: we increment failures, but not redirects?? may make
+                    # sense in terms of failure but we 'lose' a redirection
+                    # from the stats even though the next visit to this update
+                    # *will* target a redirection location
+                    success = False
             else:
-                self.logger.increment("redirects")
-                self.logger.debug('Update sent for %(obj)s %(path)s '
-                                  'triggered a redirect to '
-                                  '%(shard)s',
-                                  {'obj': obj, 'path': update_path,
-                                   'shard': redirect[0]})
+                break
 
         if success:
             self.successes += 1
@@ -287,7 +297,7 @@ class ObjectUpdater(Daemon):
             self.logger.increment('failures')
             self.logger.debug('Update failed for %(obj)s %(path)s',
                               {'obj': obj, 'path': update_path})
-            if new_successes:
+            if rewrite_pickle:
                 update['successes'] = successes
                 write_pickle(update, update_path, os.path.join(
                     device, get_tmp_dir(policy)))
@@ -332,7 +342,7 @@ class ObjectUpdater(Daemon):
                 except ValueError as err:
                     # there has been an error so log it and return
                     self.logger.error(
-                        'Container update failed for: %r; problem with '
+                        'Container update failed for %r; problem with '
                         'redirect location: %s' % (obj, err))
                     return False, node['id'], redirect
                 redirect = ('%s/%s' % (shard_account, shard_cont),

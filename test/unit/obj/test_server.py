@@ -5250,7 +5250,7 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_container_update_to_shard(self):
         # verify that alternate container update path is respected when
         # included in request headers
-        def do_test(container_path, expected_path):
+        def do_test(container_path, expected_path, expected_container_path):
             policy = random.choice(list(POLICIES))
             container_updates = []
 
@@ -5306,7 +5306,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(obj, 'o')
             self.assertEqual(timestamp, ts_put.internal)
             self.assertEqual(policy, policy)
-            self.assertEqual(data, {
+            expected_data = {
                 'headers': HeaderKeyDict({
                     'X-Size': '0',
                     'User-Agent': 'object-server %s' % os.getpid(),
@@ -5315,21 +5315,23 @@ class TestObjectController(unittest.TestCase):
                     'X-Trans-Id': '123',
                     'Referer': 'PUT http://localhost/sda1/0/a/c/o',
                     'X-Backend-Storage-Policy-Index': int(policy),
-                    'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
-                    'X-Backend-Container-Path': container_path}),
+                    'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}),
                 'obj': 'o',
                 'account': 'a',
                 'container': 'c',
-                'op': 'PUT'})
+                'op': 'PUT'}
+            if expected_container_path:
+                expected_data['container_path'] = expected_container_path
+            self.assertEqual(expected_data, data)
 
-        do_test('a_shard/c_shard', 'a_shard/c_shard')
-        do_test('', 'a/c')
-        do_test(None, 'a/c')
+        do_test('a_shard/c_shard', 'a_shard/c_shard', 'a_shard/c_shard')
+        do_test('', 'a/c', '')
+        do_test(None, 'a/c', None)
         # TODO: should these cases trigger a 400 response rather than
         # defaulting to root path?
-        do_test('garbage', 'a/c')
-        do_test('too/many/parts', 'a/c')
-        do_test('/leading/slash', 'a/c')
+        do_test('garbage', 'a/c', None)
+        do_test('too/many/parts', 'a/c', None)
+        do_test('/leading/slash', 'a/c', None)
 
     def test_container_update_async(self):
         policy = random.choice(list(POLICIES))
@@ -5428,7 +5430,8 @@ class TestObjectController(unittest.TestCase):
                        'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}
         expected = [('PUT', 'a', 'c', 'o', '1.2.3.4:5', '20', 'sdb1',
                      headers_out, 'sda1', POLICIES[0]),
-                    {'logger_thread_locals': (None, None)}]
+                    {'logger_thread_locals': (None, None),
+                     'container_path': None}]
         self.assertEqual(called_async_update_args, [expected])
 
     def test_container_update_as_greenthread_with_timeout(self):
