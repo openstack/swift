@@ -914,34 +914,31 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if newest:
             headers['X-Newest'] = 'true'
         try:
-            try:
-                resp = self.int_client.make_request(
-                    'GET', path, headers, acceptable_statuses=(2,),
-                    params=params)
-            except internal_client.UnexpectedResponse as err:
-                self.logger.warning("Failed to get shard ranges from %s: %s",
-                                    quote(broker.root_path), err)
-                return None
-            record_type = resp.headers.get('x-backend-record-type')
-            if record_type != 'shard':
-                err = 'unexpected record type %r' % record_type
-                self.logger.error("Failed to get shard ranges from %s: %s",
-                                  quote(broker.root_path), err)
-                return None
-
-            try:
-                data = json.loads(resp.body)
-                if not isinstance(data, list):
-                    raise ValueError('not a list')
-                return [ShardRange.from_dict(shard_range)
-                        for shard_range in data]
-            except (ValueError, TypeError, KeyError) as err:
-                self.logger.error(
-                    "Failed to get shard ranges from %s: invalid data: %r",
-                    quote(broker.root_path), err)
+            resp = self.int_client.make_request(
+                'GET', path, headers, acceptable_statuses=(2,),
+                params=params)
+        except internal_client.UnexpectedResponse as err:
+            self.logger.warning("Failed to get shard ranges from %s: %s",
+                                quote(broker.root_path), err)
             return None
-        finally:
-            self.logger.txn_id = None
+        record_type = resp.headers.get('x-backend-record-type')
+        if record_type != 'shard':
+            err = 'unexpected record type %r' % record_type
+            self.logger.error("Failed to get shard ranges from %s: %s",
+                              quote(broker.root_path), err)
+            return None
+
+        try:
+            data = json.loads(resp.body)
+            if not isinstance(data, list):
+                raise ValueError('not a list')
+            return [ShardRange.from_dict(shard_range)
+                    for shard_range in data]
+        except (ValueError, TypeError, KeyError) as err:
+            self.logger.error(
+                "Failed to get shard ranges from %s: invalid data: %r",
+                quote(broker.root_path), err)
+        return None
 
     def _put_container(self, node, part, account, container, headers, body):
         try:
