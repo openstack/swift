@@ -5247,6 +5247,90 @@ class TestObjectController(unittest.TestCase):
             'X-Backend-Container-Update-Override-Content-Type': 'ignored',
             'X-Backend-Container-Update-Override-Foo': 'ignored'})
 
+    def test_PUT_container_update_to_shard(self):
+        # verify that alternate container update path is respected when
+        # included in request headers
+        def do_test(container_path, expected_path):
+            policy = random.choice(list(POLICIES))
+            container_updates = []
+
+            def capture_updates(
+                    ip, port, method, path, headers, *args, **kwargs):
+                container_updates.append((ip, port, method, path, headers))
+
+            pickle_async_update_args = []
+
+            def fake_pickle_async_update(*args):
+                pickle_async_update_args.append(args)
+
+            diskfile_mgr = self.object_controller._diskfile_router[policy]
+            diskfile_mgr.pickle_async_update = fake_pickle_async_update
+
+            ts_put = next(self.ts)
+            headers = {
+                'X-Timestamp': ts_put.internal,
+                'X-Trans-Id': '123',
+                'X-Container-Host': 'chost:cport',
+                'X-Container-Partition': 'cpartition',
+                'X-Container-Device': 'cdevice',
+                'Content-Type': 'text/plain',
+                'X-Object-Sysmeta-Ec-Frag-Index': 0,
+                'X-Backend-Storage-Policy-Index': int(policy),
+            }
+            if container_path is not None:
+                headers['X-Backend-Container-Path'] = container_path
+
+            req = Request.blank('/sda1/0/a/c/o', method='PUT',
+                                headers=headers, body='')
+            with mocked_http_conn(
+                    500, give_connect=capture_updates) as fake_conn:
+                with fake_spawn():
+                    resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            self.assertEqual(resp.status_int, 201)
+            self.assertEqual(len(container_updates), 1)
+            # verify expected path used in update request
+            ip, port, method, path, headers = container_updates[0]
+            self.assertEqual(ip, 'chost')
+            self.assertEqual(port, 'cport')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/cdevice/cpartition/%s/o' % expected_path)
+
+            # verify that the picked update *always* has root container
+            self.assertEqual(1, len(pickle_async_update_args))
+            (objdevice, account, container, obj, data, timestamp,
+             policy) = pickle_async_update_args[0]
+            self.assertEqual(objdevice, 'sda1')
+            self.assertEqual(account, 'a')  # NB user account
+            self.assertEqual(container, 'c')  # NB root container
+            self.assertEqual(obj, 'o')
+            self.assertEqual(timestamp, ts_put.internal)
+            self.assertEqual(policy, policy)
+            self.assertEqual(data, {
+                'headers': HeaderKeyDict({
+                    'X-Size': '0',
+                    'User-Agent': 'object-server %s' % os.getpid(),
+                    'X-Content-Type': 'text/plain',
+                    'X-Timestamp': ts_put.internal,
+                    'X-Trans-Id': '123',
+                    'Referer': 'PUT http://localhost/sda1/0/a/c/o',
+                    'X-Backend-Storage-Policy-Index': int(policy),
+                    'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                    'X-Backend-Container-Path': container_path}),
+                'obj': 'o',
+                'account': 'a',
+                'container': 'c',
+                'op': 'PUT'})
+
+        do_test('a_shard/c_shard', 'a_shard/c_shard')
+        do_test('', 'a/c')
+        do_test(None, 'a/c')
+        # TODO: should these cases trigger a 400 response rather than
+        # defaulting to root path?
+        do_test('garbage', 'a/c')
+        do_test('too/many/parts', 'a/c')
+        do_test('/leading/slash', 'a/c')
+
     def test_container_update_async(self):
         policy = random.choice(list(POLICIES))
         req = Request.blank(

@@ -264,15 +264,17 @@ class ObjectController(BaseStorageServer):
         if logger_thread_locals:
             self.logger.thread_locals = logger_thread_locals
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
-        shard_path = headers_out.get('X-Backend-Shard-Path')
+        full_path = '/%s/%s/%s' % (account, container, obj)
+        shard_path = headers_out.get('X-Backend-Container-Path')
         if shard_path:
             if shard_path.count('/') != 1:
-                raise ValueError(
-                    'Expected X-Backend-Shard-Path to be of the '
+                # TODO: this is quite late in handler to be validating a header
+                self.logger.error(
+                    'Expected X-Backend-Container-Path to be of the '
                     "form 'account/container', got %r" % shard_path)
-            full_path = '/%s/%s' % (shard_path, obj)
-        else:
-            full_path = '/%s/%s/%s' % (account, container, obj)
+            else:
+                full_path = '/%s/%s' % (shard_path, obj)
+
         if all([host, partition, contdevice]):
             try:
                 with ConnectionTimeout(self.conn_timeout):
@@ -344,6 +346,10 @@ class ObjectController(BaseStorageServer):
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
         headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
+        if 'x-backend-container-path' in headers_in:
+            headers_out['X-Backend-Container-Path'] = \
+                headers_in.get('X-Backend-Container-Path')
+
         update_greenthreads = []
         for conthost, contdevice in updates:
             gt = spawn(self.async_update, op, account, container, obj,

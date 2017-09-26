@@ -238,8 +238,8 @@ class ObjectUpdater(Daemon):
         for i in range(num_redirects):
             redirects = set()
             headers_out = HeaderKeyDict(update['headers'].copy())
-            if headers_out.get('X-Backend-Shard-Path'):
-                acct, cont = headers_out['X-Backend-Shard-Path'].split('/')
+            if headers_out.get('X-Backend-Container-Path'):
+                acct, cont = headers_out['X-Backend-Container-Path'].split('/')
             else:
                 acct, cont = update['account'], update['container']
             part, nodes = self.get_container_ring().get_nodes(
@@ -264,7 +264,7 @@ class ObjectUpdater(Daemon):
                 break
 
             redirect = max(redirects, key=lambda x: x[-1])
-            update['headers']['X-Backend-Shard-Path'] = redirect[0]
+            update['headers']['X-Backend-Container-Path'] = redirect[0]
             if num_redirects == i + 1:
                 success = False
             else:
@@ -327,15 +327,15 @@ class ObjectUpdater(Daemon):
 
                 location = urlparse(location).path
                 try:
-                    piv_acc, piv_cont, _junk = split_path(location, 2, 3, True)
-                except ValueError:
+                    shard_account, shard_cont, _junk = split_path(
+                        location, 2, 3, True)
+                except ValueError as err:
                     # there has been an error so log it and return
-                    self.logger.error('Container update failed: %s '
-                                      'possibly sharded but couldn\'t '
-                                      'find determine shard container '
-                                      'location.' % obj)
+                    self.logger.error(
+                        'Container update failed for: %r; problem with '
+                        'redirect location: %s' % (obj, err))
                     return False, node['id'], redirect
-                redirect = ('%s/%s' % (piv_acc, piv_cont),
+                redirect = ('%s/%s' % (shard_account, shard_cont),
                             rheaders.get('X-Redirect-Timestamp'))
 
             elif not success:

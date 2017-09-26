@@ -35,6 +35,9 @@ from tempfile import mkdtemp, NamedTemporaryFile
 import weakref
 import operator
 import functools
+
+from swift.container.backend import DB_STATE_UNSHARDED, DB_STATE_SHARDED, \
+    DB_STATE_SHARDING
 from swift.obj import diskfile
 import re
 import random
@@ -3217,95 +3220,196 @@ class TestReplicatedObjectController(
         # reset the router post patch_policies
         self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
-        backend_requests = []
 
-        def capture_requests(ip, port, method, path, headers, *args,
-                             **kwargs):
-            backend_requests.append((method, path, headers))
+        def do_test(resp_headers):
+            self.app.memcache.store = {}
+            backend_requests = []
 
-        req = Request.blank('/v1/a/c/o', {}, method='POST',
-                            headers={'X-Object-Meta-Color': 'Blue',
-                                     'Content-Type': 'text/plain'})
+            def capture_requests(ip, port, method, path, headers, *args,
+                                 **kwargs):
+                backend_requests.append((method, path, headers))
 
-        # we want the container_info response to says a policy index of 1
-        resp_headers = {'X-Backend-Storage-Policy-Index': 1}
-        with mocked_http_conn(
-                200, 200, 202, 202, 202,
-                headers=resp_headers, give_connect=capture_requests
-        ) as fake_conn:
-            resp = req.get_response(self.app)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            req = Request.blank('/v1/a/c/o', {}, method='POST',
+                                headers={'X-Object-Meta-Color': 'Blue',
+                                         'Content-Type': 'text/plain'})
 
-        self.assertEqual(resp.status_int, 202)
-        self.assertEqual(len(backend_requests), 5)
+            # we want the container_info response to says a policy index of 1
+            with mocked_http_conn(
+                    200, 200, 202, 202, 202,
+                    headers=resp_headers, give_connect=capture_requests
+            ) as fake_conn:
+                resp = req.get_response(self.app)
+                self.assertRaises(StopIteration, fake_conn.code_iter.next)
 
-        def check_request(req, method, path, headers=None):
-            req_method, req_path, req_headers = req
-            self.assertEqual(method, req_method)
-            # caller can ignore leading path parts
-            self.assertTrue(req_path.endswith(path),
-                            'expected path to end with %s, it was %s' % (
-                                path, req_path))
-            headers = headers or {}
-            # caller can ignore some headers
-            for k, v in headers.items():
-                self.assertEqual(req_headers[k], v)
-        account_request = backend_requests.pop(0)
-        check_request(account_request, method='HEAD', path='/sda/0/a')
-        container_request = backend_requests.pop(0)
-        check_request(container_request, method='HEAD', path='/sda/0/a/c')
-        # make sure backend requests included expected container headers
-        container_headers = {}
-        for request in backend_requests:
-            req_headers = request[2]
-            device = req_headers['x-container-device']
-            host = req_headers['x-container-host']
-            container_headers[device] = host
-            expectations = {
-                'method': 'POST',
-                'path': '/0/a/c/o',
-                'headers': {
-                    'X-Container-Partition': '0',
-                    'Connection': 'close',
-                    'User-Agent': 'proxy-server %s' % os.getpid(),
-                    'Host': 'localhost:80',
-                    'Referer': 'POST http://localhost/v1/a/c/o',
-                    'X-Object-Meta-Color': 'Blue',
-                    'X-Backend-Storage-Policy-Index': '1'
-                },
-            }
-            check_request(request, **expectations)
+            self.assertEqual(resp.status_int, 202)
+            self.assertEqual(len(backend_requests), 5)
 
-        expected = {}
-        for i, device in enumerate(['sda', 'sdb', 'sdc']):
-            expected[device] = '10.0.0.%d:100%d' % (i, i)
-        self.assertEqual(container_headers, expected)
+            def check_request(req, method, path, headers=None):
+                req_method, req_path, req_headers = req
+                self.assertEqual(method, req_method)
+                # caller can ignore leading path parts
+                self.assertTrue(req_path.endswith(path),
+                                'expected path to end with %s, it was %s' % (
+                                    path, req_path))
+                headers = headers or {}
+                # caller can ignore some headers
+                for k, v in headers.items():
+                    self.assertEqual(req_headers[k], v)
+                self.assertNotIn('X-Backend-Container-Path', req_headers)
 
-        # and again with policy override
-        self.app.memcache.store = {}
-        backend_requests = []
-        req = Request.blank('/v1/a/c/o', {}, method='POST',
-                            headers={'X-Object-Meta-Color': 'Blue',
-                                     'Content-Type': 'text/plain',
-                                     'X-Backend-Storage-Policy-Index': 0})
-        with mocked_http_conn(
-                200, 200, 202, 202, 202,
-                headers=resp_headers, give_connect=capture_requests
-        ) as fake_conn:
-            resp = req.get_response(self.app)
-            self.assertRaises(StopIteration, fake_conn.code_iter.next)
-        self.assertEqual(resp.status_int, 202)
-        self.assertEqual(len(backend_requests), 5)
-        for request in backend_requests[2:]:
-            expectations = {
-                'method': 'POST',
-                'path': '/0/a/c/o',  # ignore device bit
-                'headers': {
-                    'X-Object-Meta-Color': 'Blue',
-                    'X-Backend-Storage-Policy-Index': '0',
+            account_request = backend_requests.pop(0)
+            check_request(account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests.pop(0)
+            check_request(container_request, method='HEAD', path='/sda/0/a/c')
+            # make sure backend requests included expected container headers
+            container_headers = {}
+            for request in backend_requests:
+                req_headers = request[2]
+                device = req_headers['x-container-device']
+                host = req_headers['x-container-host']
+                container_headers[device] = host
+                expectations = {
+                    'method': 'POST',
+                    'path': '/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Connection': 'close',
+                        'User-Agent': 'proxy-server %s' % os.getpid(),
+                        'Host': 'localhost:80',
+                        'Referer': 'POST http://localhost/v1/a/c/o',
+                        'X-Object-Meta-Color': 'Blue',
+                        'X-Backend-Storage-Policy-Index': '1'
+                    },
                 }
-            }
-            check_request(request, **expectations)
+                check_request(request, **expectations)
+
+            expected = {}
+            for i, device in enumerate(['sda', 'sdb', 'sdc']):
+                expected[device] = '10.0.0.%d:100%d' % (i, i)
+            self.assertEqual(container_headers, expected)
+
+            # and again with policy override
+            self.app.memcache.store = {}
+            backend_requests = []
+            req = Request.blank('/v1/a/c/o', {}, method='POST',
+                                headers={'X-Object-Meta-Color': 'Blue',
+                                         'Content-Type': 'text/plain',
+                                         'X-Backend-Storage-Policy-Index': 0})
+            with mocked_http_conn(
+                    200, 200, 202, 202, 202,
+                    headers=resp_headers, give_connect=capture_requests
+            ) as fake_conn:
+                resp = req.get_response(self.app)
+                self.assertRaises(StopIteration, fake_conn.code_iter.next)
+            self.assertEqual(resp.status_int, 202)
+            self.assertEqual(len(backend_requests), 5)
+            for request in backend_requests[2:]:
+                expectations = {
+                    'method': 'POST',
+                    'path': '/0/a/c/o',  # ignore device bit
+                    'headers': {
+                        'X-Object-Meta-Color': 'Blue',
+                        'X-Backend-Storage-Policy-Index': '0',
+                    }
+                }
+                check_request(request, **expectations)
+
+        resp_headers = {'X-Backend-Storage-Policy-Index': 1}
+        do_test(resp_headers)
+        resp_headers['X-Backend-Sharding-State'] = DB_STATE_UNSHARDED
+        do_test(resp_headers)
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', object_ring=FakeRing()),
+    ])
+    def test_POST_backend_headers_update_shard(self):
+        # reset the router post patch_policies
+        self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+
+        def do_test(sharding_state):
+            self.app.memcache.store = {}
+            backend_requests = []
+
+            def capture_requests(ip, port, method, path, headers, *args,
+                                 **kwargs):
+                backend_requests.append((method, path, headers))
+
+            req = Request.blank('/v1/a/c/o', {}, method='POST',
+                                headers={'Content-Type': 'text/plain'})
+
+            # we want the container_info response to say policy index of 1 and
+            # sharding state
+            # acc HEAD, cont HEAD, cont shard GETs, obj POSTs
+            status_codes = (200, 200, 200, 200, 200, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state}
+            shard_range = utils.ShardRange(
+                'c_shard', utils.Timestamp.now(), 'l', 'u')
+            body = json.dumps([dict(shard_range)])
+            with mocked_http_conn(*status_codes, headers=resp_headers,
+                                  give_connect=capture_requests, body=body) \
+                    as fake_conn:
+                resp = req.get_response(self.app)
+                self.assertRaises(StopIteration, fake_conn.code_iter.next)
+
+            self.assertEqual(resp.status_int, 202)
+            self.assertEqual(len(backend_requests), 8)
+
+            def check_request(req, method, path, headers=None):
+                req_method, req_path, req_headers = req
+                self.assertEqual(method, req_method)
+                # caller can ignore leading path parts
+                self.assertTrue(req_path.endswith(path),
+                                'expected path to end with %s, it was %s' % (
+                                    path, req_path))
+                headers = headers or {}
+                # caller can ignore some headers
+                for k, v in headers.items():
+                    self.assertEqual(req_headers[k], v,
+                                     'Expected %s but got %s for key %s' %
+                                     (v, req_headers[k], k))
+
+            account_request = backend_requests.pop(0)
+            check_request(account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests.pop(0)
+            check_request(container_request, method='HEAD', path='/sda/0/a/c')
+            container_request_shard = backend_requests.pop(0)
+            check_request(
+                container_request_shard, method='GET', path='/sda/0/a/c/o')
+            # TODO: why do we have these extra req's for shards? just one would
+            # suffice...
+            backend_requests.pop(0)
+            backend_requests.pop(0)
+
+            # make sure backend requests included expected container headers
+            container_headers = {}
+
+            for request in backend_requests:
+                req_headers = request[2]
+                device = req_headers['x-container-device']
+                container_headers[device] = req_headers['x-container-host']
+                expectations = {
+                    'method': 'POST',
+                    'path': '/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': 'POST http://localhost/v1/a/c/o',
+                        'X-Backend-Storage-Policy-Index': '1',
+                        'X-Backend-Container-Path': '.sharded_a/c_shard'
+                    },
+                }
+                check_request(request, **expectations)
+
+            expected = {}
+            for i, device in enumerate(['sda', 'sdb', 'sdc']):
+                expected[device] = '10.0.0.%d:100%d' % (i, i)
+            self.assertEqual(container_headers, expected)
+
+        do_test(DB_STATE_SHARDING)
+        do_test(DB_STATE_SHARDED)
 
     def test_DELETE(self):
         with save_globals():

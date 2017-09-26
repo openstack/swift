@@ -1983,6 +1983,8 @@ class Controller(object):
                         for _node in nodes]
         # TODO: why are we using make_requests (plural) when we only use one
         # response?
+        # TODO: should this be a subrequest? - as it is we're sending all the
+        # original object request headers to the container server
         response = self.make_requests(req, self.app.container_ring,
                                       part, "GET", path, headers_list,
                                       urlencode(params))
