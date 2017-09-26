@@ -1115,7 +1115,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
                 rb1.rebalance()
         self.assertEqual([rb1], update_calls)
         self.assertEqual([rb1], can_part_move_calls.keys())
-        self.assertEqual(512, len(can_part_move_calls[rb1]))
+        self.assertEqual(768, len(can_part_move_calls[rb1]))
 
         # two component builders with same parent builder
         cb = CompositeRingBuilder()
@@ -1139,8 +1139,8 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
 
         # rb1 is being rebalanced so gets checked, and rb2 also gets checked
         self.assertEqual(sorted([rb1, rb2]), sorted(can_part_move_calls))
-        self.assertEqual(512, len(can_part_move_calls[rb1]))
-        self.assertEqual(512, len(can_part_move_calls[rb2]))
+        self.assertEqual(768, len(can_part_move_calls[rb1]))
+        self.assertEqual(768, len(can_part_move_calls[rb2]))
 
     def test_save_then_load(self):
         cb = CompositeRingBuilder()
