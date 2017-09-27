@@ -1023,6 +1023,15 @@ The valid values for sorting_method are "affinity", "shuffle", and "timing".
 .IP \fBtiming_expiry\fR
 If the "timing" sorting_method is used, the timings will only be valid for
 the number of seconds configured by timing_expiry. The default is 300.
+.IP \fBconcurrent_gets\fR
+If "on" then use replica count number of threads concurrently during a GET/HEAD
+and return with the first successful response. In the EC case, this parameter
+only affects an EC HEAD as an EC GET behaves differently. Default is "off".
+.IP \fBconcurrency_timeout\fR
+This parameter controls how long to wait before firing off the next
+concurrent_get thread. A value of 0 would we fully concurrent, any other number
+will stagger the firing of the threads. This number should be between 0 and
+node_timeout. The default is the value of conn_timeout (0.5).
 .IP \fBrequest_node_count\fR
 Set to the number of nodes to contact for a normal request. You can use '* replicas'
 at the end to have it use the number given times the number of

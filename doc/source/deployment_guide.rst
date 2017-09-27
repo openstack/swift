@@ -1943,12 +1943,12 @@ concurrent_gets                         off              Use replica count numbe
                                                          GET/HEAD and return with the
                                                          first successful response. In
                                                          the EC case, this parameter only
-                                                         effects an EC HEAD as an EC GET
+                                                         affects an EC HEAD as an EC GET
                                                          behaves differently.
 concurrency_timeout                     conn_timeout     This parameter controls how long
                                                          to wait before firing off the
                                                          next concurrent_get thread. A
-                                                         value of 0 would we fully concurrent
+                                                         value of 0 would we fully concurrent,
                                                          any other number will stagger the
                                                          firing of the threads. This number
                                                          should be between 0 and node_timeout.
