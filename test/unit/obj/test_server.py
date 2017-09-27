@@ -5325,7 +5325,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(expected_data, data)
 
         do_test('a_shard/c_shard', 'a_shard/c_shard', 'a_shard/c_shard')
-        do_test('', 'a/c', '')
+        do_test('', 'a/c', None)
         do_test(None, 'a/c', None)
         # TODO: should these cases trigger a 400 response rather than
         # defaulting to root path?

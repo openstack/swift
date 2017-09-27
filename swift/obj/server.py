@@ -262,7 +262,7 @@ class ObjectController(BaseStorageServer):
                                      logging information.
         :param container_path: optional path in the form `<account/container>`
             to which the update should be sent. If given this path will be used
-            instead of the constructing a path from the the ``account`` and
+            instead of constructing a path from the the ``account`` and
             ``container`` params.
         """
         if logger_thread_locals:
@@ -350,8 +350,8 @@ class ObjectController(BaseStorageServer):
                 split_path('/' + contpath, minsegs=2, maxsegs=2)
             except ValueError:
                 self.logger.error(
-                    "ERROR Invalid X-Backend-Container-Path, should be of the "
-                    "form 'account/container' but got %r." % contpath)
+                    "Invalid X-Backend-Container-Path, should be of the form "
+                    "'account/container' but got %r." % contpath)
                 # fall back to updating root container
                 contpath = None
 

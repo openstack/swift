@@ -702,7 +702,7 @@ class TestObjectUpdater(unittest.TestCase):
                 daemon.run_once()
 
         self._check_update_requests(request_log, ts_obj, policies[0])
-        # TODO: Note only *one* redirected request is attempted
+        # only *one* set of redirected requests is attempted per cycle
         self.assertEqual(['/sda1/0/.sharded_a/c_shard_older/o'] * 3 +
                          ['/sda1/0/.sharded_a/c_shard_new/o'] * 3,
                          [args[0][3] for args in request_log])
