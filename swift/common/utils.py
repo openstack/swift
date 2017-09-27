@@ -4327,7 +4327,7 @@ class ShardRange(object):
         return not (self == other)
 
     def __repr__(self):
-        return '%s<%s to %s as of %s>' % (
+        return '%s<%r to %r as of %s>' % (
             self.__class__.__name__, self.lower, self.upper,
             self.timestamp.internal)
 
