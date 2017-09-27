@@ -44,9 +44,9 @@ You can also feed a list of urls to the script through stdin.
 
 Examples!
 
-    %(cmd)s SOSO_88ad0b83-b2c5-4fa1-b2d6-60c597202076
-    %(cmd)s SOSO_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container/object
-    %(cmd)s -e errors.txt SOSO_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container
+    %(cmd)s AUTH_88ad0b83-b2c5-4fa1-b2d6-60c597202076
+    %(cmd)s AUTH_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container/object
+    %(cmd)s -e errors.txt AUTH_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container
     %(cmd)s < errors.txt
     %(cmd)s -c 25 -d < errors.txt
 """ % {'cmd': sys.argv[0]}
