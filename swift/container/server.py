@@ -263,7 +263,7 @@ class ContainerController(BaseStorageServer):
             self.logger.exception('Failed to update sync_store %s during %s' %
                                   (broker.db_file, method))
 
-    def _find_shard_location(self, broker, obj_name):
+    def _find_shard_location(self, req, broker, obj_name):
         """
         Look for a shard range that contains ``obj_name`` and if one exists
         return a HTTPMovedPermanently response.
@@ -289,7 +289,9 @@ class ContainerController(BaseStorageServer):
                    'X-Backend-Redirect-Timestamp':
                        containing_range.timestamp.internal}
 
-        return HTTPMovedPermanently(headers=headers)
+        # we do not want the host added to the location
+        req.environ['swift.leave_relative_location'] = True
+        return HTTPMovedPermanently(headers=headers, request=req)
 
     @public
     @timing_stats()
@@ -324,7 +326,7 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-shard-upper'))
             else:
                 # redirect if a shard range exists for the object name
-                res = self._find_shard_location(broker, obj)
+                res = self._find_shard_location(req, broker, obj)
                 if res:
                     return res
 
@@ -441,7 +443,7 @@ class ContainerController(BaseStorageServer):
 
             else:
                 # redirect if a shard exits for this object name
-                redirect = self._find_shard_location(broker, obj)
+                redirect = self._find_shard_location(req, broker, obj)
                 if redirect:
                     return redirect
 
