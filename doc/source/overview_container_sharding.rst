@@ -728,7 +728,7 @@ ranges via container replication.
 Once the scanner node has found all ranges, it'll set some metadata to say it
 has::
 
-  X-Container-Sysmeta-Sharding-Scan-Done
+  X-Container-Sysmeta-Shard-Scan-Done
 
 This way the other nodes will know when they've finished sharding. And then
 it'll start sharding itself.
