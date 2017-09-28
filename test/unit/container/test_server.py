@@ -2349,7 +2349,7 @@ class TestContainerController(unittest.TestCase):
         # should probably *not* be redirecting...
         resp = do_update('grumpy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+        self.assertEqual('/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2361,7 +2361,7 @@ class TestContainerController(unittest.TestCase):
         # TODO: also test broker in SHARDED state
         resp = do_update('grumpy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+        self.assertEqual('/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2369,7 +2369,7 @@ class TestContainerController(unittest.TestCase):
 
         resp = do_update('happy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_happy/happy',
+        self.assertEqual('/.sharded_a/sr_happy/happy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2390,13 +2390,13 @@ class TestContainerController(unittest.TestCase):
         self._put_shard_range(shard_ranges['dopey'])  # newer timestamp
         resp = do_update('bashful')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_dopey/bashful',
+        self.assertEqual('/.sharded_a/sr_dopey/bashful',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
         resp = do_update('dopey')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_dopey/dopey',
+        self.assertEqual('/.sharded_a/sr_dopey/dopey',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2422,7 +2422,7 @@ class TestContainerController(unittest.TestCase):
         self._put_shard_range(shard_ranges[''])
         resp = do_update('sleepy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_/sleepy',
+        self.assertEqual('/.sharded_a/sr_/sleepy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges[''].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2450,9 +2450,8 @@ class TestContainerController(unittest.TestCase):
             self._update_object_put_headers(req)
             return req.get_response(self.controller)
 
-        def get_listing(params=''):
-            req = Request.blank(
-                '/sda1/p/a/c?format=json%s' % params, method='GET')
+        def get_listing():
+            req = Request.blank('/sda1/p/a/c?format=json', method='GET')
             resp = req.get_response(self.controller)
             self.assertEqual(200, resp.status_int)
             return json.loads(resp.body)
@@ -2485,7 +2484,7 @@ class TestContainerController(unittest.TestCase):
         # should probably *not* be redirecting...
         resp = do_update('grumpy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+        self.assertEqual('/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2497,7 +2496,7 @@ class TestContainerController(unittest.TestCase):
         broker.set_sharding_state()
         resp = do_update('grumpy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_happy/grumpy',
+        self.assertEqual('/.sharded_a/sr_happy/grumpy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2505,7 +2504,7 @@ class TestContainerController(unittest.TestCase):
 
         resp = do_update('happy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_happy/happy',
+        self.assertEqual('/.sharded_a/sr_happy/happy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['happy'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2527,13 +2526,13 @@ class TestContainerController(unittest.TestCase):
         self._put_shard_range(shard_ranges['dopey'])  # newer timestamp
         resp = do_update('bashful')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_dopey/bashful',
+        self.assertEqual('/.sharded_a/sr_dopey/bashful',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
         resp = do_update('dopey')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_dopey/dopey',
+        self.assertEqual('/.sharded_a/sr_dopey/dopey',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges['dopey'].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
@@ -2559,7 +2558,7 @@ class TestContainerController(unittest.TestCase):
         self._put_shard_range(shard_ranges[''])
         resp = do_update('sleepy')
         self.assertEqual(301, resp.status_int)
-        self.assertEqual('http://localhost/.sharded_a/sr_/sleepy',
+        self.assertEqual('/.sharded_a/sr_/sleepy',
                          resp.headers['Location'])
         self.assertEqual(shard_ranges[''].timestamp.internal,
                          resp.headers['X-Backend-Redirect-Timestamp'])
