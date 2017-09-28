@@ -2058,6 +2058,7 @@ class TestContainerController(unittest.TestCase):
         headers = {'X-Timestamp': next(ts_iter).normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
+        # PUT some objects
         objects = [{'name': 'obj_%d' % i,
                     'x-timestamp': next(ts_iter).normal,
                     'x-content-type': 'text/plain',
@@ -2070,15 +2071,17 @@ class TestContainerController(unittest.TestCase):
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEqual(201, resp.status_int)
-        shard_ranges = [ShardRange('shard_%d' % i, next(ts_iter),
-                                   'obj%d_lower' % i, 'obj%d_upper' % i,
+        # PUT some shard ranges
+        shard_bounds = [('', 'ham'), ('ham', 'salami'), ('salami', '')]
+        shard_ranges = [ShardRange('shard_%s' % upper, next(ts_iter),
+                                   lower, upper,
                                    i * 100, i * 1000, None)
-                        for i in range(3)]
+                        for i, (lower, upper) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        shard_rows = broker.get_shard_ranges()
+        shard_rows = broker.get_shard_range_rows()
         self.assertEqual(
             [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
               p.bytes_used, p.meta_timestamp) for p in shard_ranges],
@@ -2101,14 +2104,87 @@ class TestContainerController(unittest.TestCase):
         check_object_GET('/sda1/p/a/c?items=blah&format=json')
 
         # GET only shard ranges
-        req = Request.blank('/sda1/p/a/c?items=shard&format=json',
-                            method='GET')
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.content_type, 'application/json')
-        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in shard_ranges]
-        self.assertEqual(expected, json.loads(resp.body))
+        def check_shard_GET(expected_shard_ranges, path, params=''):
+            req = Request.blank('/sda1/p/%s?items=shard&format=json%s' %
+                                (path, params), method='GET')
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
+                        for p in expected_shard_ranges]
+            self.assertEqual(expected, json.loads(resp.body))
+
+        # all shards
+        check_shard_GET(shard_ranges, 'a/c')
+        check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
+        # specific object
+        check_shard_GET(shard_ranges[:1], 'a/c/cheese')
+        check_shard_GET(shard_ranges[:1], 'a/c/ham')
+        check_shard_GET(shard_ranges[1:2], 'a/c/pickle')
+        check_shard_GET(shard_ranges[1:2], 'a/c/salami')
+        check_shard_GET(shard_ranges[2:], 'a/c/walnut')
+        check_shard_GET(shard_ranges[2:], 'a/c/walnut', params='&reverse=true')
+        # with marker
+        check_shard_GET(shard_ranges, 'a/c', params='&marker=cheese')
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&marker=cheese&reverse=true')
+        check_shard_GET(shard_ranges, 'a/c', params='&marker=ham')
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&marker=ham&reverse=true')
+        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=pickle')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+                        params='&marker=pickle&reverse=true')
+        check_shard_GET(shard_ranges[1:], 'a/c', params='&marker=salami')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+                        params='&marker=salami&reverse=true')
+        check_shard_GET(shard_ranges[2:], 'a/c', params='&marker=walnut')
+        check_shard_GET(reversed(shard_ranges), 'a/c',
+                        params='&marker=walnut&reverse=true')
+        # with end marker
+        check_shard_GET(shard_ranges[:1], 'a/c', params='&end_marker=cheese')
+        check_shard_GET(reversed(shard_ranges), 'a/c',
+                        params='&end_marker=cheese&reverse=true')
+        # TODO: revisit - should the first range be included when the
+        # end_marker equals its upper? i.e. is end_marker inclusive or not
+        check_shard_GET(shard_ranges[:1], 'a/c', params='&end_marker=ham')
+        check_shard_GET(reversed(shard_ranges), 'a/c',
+                        params='&end_marker=ham&reverse=true')
+        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=pickle')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+                        params='&end_marker=pickle&reverse=true')
+        check_shard_GET(shard_ranges[:2], 'a/c', params='&end_marker=salami')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+                        params='&end_marker=salami&reverse=true')
+        check_shard_GET(shard_ranges, 'a/c', params='&end_marker=walnut')
+        check_shard_GET(shard_ranges[2:], 'a/c',
+                        params='&end_marker=walnut&reverse=true')
+        # with marker and end marker
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&marker=cheese&end_marker=egg')
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&end_marker=cheese&marker=egg&reverse=true')
+        check_shard_GET(shard_ranges[:2], 'a/c',
+                        params='&marker=egg&end_marker=jam')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+                        params='&end_marker=egg&marker=jam&reverse=true')
+        check_shard_GET(shard_ranges, 'a/c',
+                        params='&marker=cheese&end_marker=walnut')
+        check_shard_GET(reversed(shard_ranges), 'a/c',
+                        params='&end_marker=cheese&marker=walnut&reverse=true')
+        check_shard_GET(shard_ranges[1:], 'a/c',
+                        params='&marker=jam&end_marker=walnut')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c',
+                        params='&end_marker=jam&marker=walnut&reverse=true')
+        check_shard_GET(shard_ranges[2:], 'a/c',
+                        params='&marker=toast&end_marker=walnut')
+        check_shard_GET(shard_ranges[2:], 'a/c',
+                        params='&end_marker=toast&marker=walnut&reverse=true')
+        # TODO: should this return anything? marker > end_marker
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&marker=egg&end_marker=cheese')
+        # TODO: should this return anything? marker < end_marker and reverse
+        check_shard_GET(shard_ranges[:1], 'a/c',
+                        params='&marker=cheese&end_marker=egg&reverse=true')
 
         # delete a shardrange range
         shard_range = shard_ranges[0]
@@ -2125,41 +2201,24 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
 
-        shard_rows = broker.get_shard_ranges()
+        shard_rows = broker.get_shard_range_rows()
         self.assertEqual(
             [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
               p.bytes_used, p.meta_timestamp) for p in shard_ranges[1:]],
             shard_rows)
 
-        # GET only shard ranges
-        req = Request.blank('/sda1/p/a/c?items=shard&format=json',
-                            method='GET')
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.content_type, 'application/json')
-        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in shard_ranges[1:]]
-        self.assertEqual(expected, json.loads(resp.body))
+        check_shard_GET(shard_ranges[1:], 'a/c')
+        check_shard_GET(shard_ranges[1:2], 'a/c/jam')
+        # specify obj, marker or end_marker not in any shard range
+        check_shard_GET([], 'a/c/cheese')
+        check_shard_GET([], 'a/c/cheese', params='&reverse=true')
+        check_shard_GET([], 'a/c/ham')
+        check_shard_GET(shard_ranges[1:], 'a/c/', params='&marker=cheese')
+        check_shard_GET([], 'a/c/', params='&marker=cheese&reverse=true')
+        check_shard_GET([], 'a/c/', params='&end_marker=cheese')
+        check_shard_GET(reversed(shard_ranges[1:]), 'a/c/',
+                        params='&end_marker=cheese&reverse=true')
 
-        # GET shard range for obj1_test
-        req = Request.blank('/sda1/p/a/c/obj1_test?items=shard&format=json',
-                            method='GET')
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.content_type, 'application/json')
-        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in shard_ranges[1:2]]
-        self.assertEqual(expected, json.loads(resp.body))
-        # GET shard range for obj2_test
-        req = Request.blank('/sda1/p/a/c/obj2_test?items=shard&format=json',
-                            method='GET')
-        resp = req.get_response(self.controller)
-        self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.content_type, 'application/json')
-        expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
-                    for p in shard_ranges[2:]]
-        self.assertEqual(expected, json.loads(resp.body))
-        # TODO: add case for obj name not in a shard range
         self.assertFalse(self.controller.logger.get_lines_for_level('warning'))
         self.assertFalse(self.controller.logger.get_lines_for_level('error'))
 

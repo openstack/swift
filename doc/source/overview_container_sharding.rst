@@ -547,7 +547,7 @@ Getting ShardRanges
 
 There are two ways of getting a list of ShardRanges and it depends on where you
 are in swift. The easiest and most obvious way is to use a new method in the
-ContainerBroker ``build_shard_ranges()``.
+ContainerBroker ``get_shard_ranges()``.
 
 The second is to ask the container for a list of shard ranges rather than
 objects. This is done with a GET to the container server, but with the

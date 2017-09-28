@@ -412,7 +412,7 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False):
     if db_type == 'container':
         container = info['container']
         info['is_root'] = broker.is_root_container()
-        sranges = broker.build_shard_ranges()
+        sranges = broker.get_shard_ranges()
         if sranges:
             info['shard_ranges'] = sranges
     print_db_info_metadata(db_type, info, broker.metadata)

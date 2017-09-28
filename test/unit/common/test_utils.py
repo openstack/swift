@@ -3696,7 +3696,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             if tempdir:
                 shutil.rmtree(tempdir)
 
-    def test_find_pivot_range(self):
+    def test_find_shard_range(self):
         ts = utils.Timestamp(time.time()).internal
         start = utils.ShardRange('-a', ts, '', 'a')
         atof = utils.ShardRange('a-f', ts, 'a', 'f')
@@ -3722,7 +3722,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(found, end)
         found = utils.find_shard_range('}', ranges[:-1])
         self.assertEqual(found, None)
-        # remove ltor from list import and try and find a shard range for an
+        # remove l-r from list of ranges and try and find a shard range for an
         # item in that range.
         found = utils.find_shard_range('p', ranges[:-3] + ranges[-2:])
         self.assertEqual(found, None)

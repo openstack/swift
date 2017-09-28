@@ -28,7 +28,7 @@ from six.moves import range
 import sqlite3
 
 from swift.common.utils import Timestamp, encode_timestamps, \
-    decode_timestamps, extract_swift_bytes, ShardRange
+    decode_timestamps, extract_swift_bytes, ShardRange, find_shard_range
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
 
 
@@ -1347,12 +1347,14 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    def get_shard_ranges(self, connection=None):
+    # TODO: this can probably become a private method if we redirect external
+    # callers to get_shard_ranges()
+    def get_shard_range_rows(self, connection=None):
         """
         :return:
         """
 
-        def _get_shard_ranges(conn):
+        def do_query(conn):
             try:
                 sql = '''
                 SELECT name, created_at, lower, upper, object_count,
@@ -1372,10 +1374,10 @@ class ContainerBroker(DatabaseBroker):
 
         self._commit_puts_stale_ok()
         if connection:
-            return _get_shard_ranges(connection)
+            return do_query(connection)
         else:
             with self.get() as conn:
-                return _get_shard_ranges(conn)
+                return do_query(conn)
 
     def update_shard_usage(self, item):
 
@@ -1457,12 +1459,41 @@ class ContainerBroker(DatabaseBroker):
             result.append(obj)
         return result
 
-    def build_shard_ranges(self):
-        ranges = list()
+    def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
+                         reverse=False):
+        """
+        Returns a list of persisted shard ranges.
 
-        for node in self.get_shard_ranges():
-            ranges.append(ShardRange(*node))
-        return ranges
+        :param marker: restricts the returned list to shard ranges whose
+            namespace includes or is greater than the marker value.
+        :param end_marker: restricts the returned list to shard ranges whose
+            namespace includes or is less than the end_marker value.
+        :param includes: restricts the returned list to the shard range that
+            includes the given value; if ``includes`` is specified then
+            ``marker`` and ``end_marker`` are ignored.
+        :param reverse: reverse the result order.
+        :return: a list of instances of :class:`swift.common.utils.ShardRange`
+        """
+        shard_ranges = [ShardRange(*row)
+                        for row in self.get_shard_range_rows()]
+        if includes:
+            shard_range = find_shard_range(includes, shard_ranges)
+            return [shard_range] if shard_range else []
+
+        if reverse:
+            shard_ranges.reverse()
+            marker, end_marker = end_marker, marker
+        if marker or end_marker:
+            def shard_range_filter(shard_range):
+                end = start = True
+                if end_marker:
+                    end = shard_range < end_marker or end_marker in shard_range
+                if marker:
+                    start = shard_range > marker or marker in shard_range
+                return start and end
+
+            shard_ranges = list(filter(shard_range_filter, shard_ranges))
+        return shard_ranges
 
     def is_shrinking(self):
         return self.metadata.get('X-Container-Sysmeta-Shard-Merge') or \
@@ -1532,7 +1563,7 @@ class ContainerBroker(DatabaseBroker):
         # If there are shard_ranges defined.. which can happen when the scanner
         # node finds the first shard range then replicates out to the others
         # who are still in the UNSHARDED state.
-        shard_ranges = self.get_shard_ranges()
+        shard_ranges = self.get_shard_range_rows()
         if shard_ranges:
             shard_ranges = \
                 [self._record_to_dict(list(r) + [0], RECORD_TYPE_SHARD_NODE)
@@ -1746,7 +1777,7 @@ class ContainerBroker(DatabaseBroker):
         last_shard_upper = cont_range.lower if cont_range else ''
         progress = 0
         # update initial state to account for any existing shard ranges
-        existing_ranges = self.build_shard_ranges()
+        existing_ranges = self.get_shard_ranges()
         if existing_ranges:
             # TODO: if config shard_size changes between calls to this method
             # then this estimation of progress will be WRONG - we need to

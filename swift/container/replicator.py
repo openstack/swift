@@ -266,7 +266,7 @@ class ContainerReplicator(db_replicator.Replicator):
         return rv
 
     def _in_sync(self, rinfo, info, broker, local_sync):
-        if len(broker.get_shard_ranges()) > 0:
+        if broker.get_shard_ranges():
             return False
 
         return super(ContainerReplicator, self)._in_sync(
