@@ -169,8 +169,6 @@ class ContainerSharder(ContainerReplicator):
             return self._report_stats()
 
     def _get_shard_ranges(self, account, container, newest=False):
-        # TODO: this surely doesn't work -- self.swift is an internal client,
-        # and the proxy's container controller doesn't let clients get pivots
         path = self.swift.make_path(account, container) + \
             '?items=shard&format=json'
         headers = dict()
@@ -184,18 +182,10 @@ class ContainerSharder(ContainerReplicator):
                               account, container)
             return None
 
-        ranges = list()
-        for shard_range in json.loads(resp.body):
-            lower = shard_range.get('lower') or None
-            upper = shard_range.get('upper') or None
-            created_at = shard_range.get('created_at') or None
-            object_count = shard_range.get('object_count') or 0
-            bytes_used = shard_range.get('bytes_used') or 0
-            meta_timestamp = shard_range.get('meta_timestamp') or None
-            ranges.append(ShardRange(shard_range['name'], created_at,
-                                     lower, upper, object_count,
-                                     bytes_used, meta_timestamp))
-        return ranges
+        # TODO: can we unify this somewhat with _get_shard_ranges in
+        # proxy/controllers/base.py?
+        return [ShardRange.from_dict(shard_range)
+                for shard_range in json.loads(resp.body)]
 
     def _get_shard_broker(self, account, container, policy_index):
         """
@@ -318,8 +308,8 @@ class ContainerSharder(ContainerReplicator):
             if the current broker is for an unsharded or root container
         """
 
-        self.logger.info('Scanning %s/%s for misplaced objects',
-                         broker.account, broker.container)
+        self.logger.info('Scanning %s/%s (%s) for misplaced objects',
+                         broker.account, broker.container, broker.db_file)
         queries = []
         policy_index = broker.storage_policy_index
         query = dict(marker='', end_marker='', prefix='', delimiter='',
@@ -358,6 +348,8 @@ class ContainerSharder(ContainerReplicator):
                 queries.append(dict(query,
                                     end_marker=shard_range.lower + '\x00'))
 
+        outer = {'ranges': None}
+
         def run_query(qry, found_misplaced_items):
             objs = broker.list_objects_iter(CONTAINER_LISTING_LIMIT, **qry)
             if not objs:
@@ -365,20 +357,25 @@ class ContainerSharder(ContainerReplicator):
 
             # We have a list of misplaced objects, so we better find a home
             # for them
-            # TODO - ranges was an instance var - is that significant e.g. for
-            # caching
-            ranges = self._get_shard_ranges(
-                root_account, root_container, newest=True)
+            if outer['ranges'] is None:
+                outer['ranges'] = self._get_shard_ranges(
+                    root_account, root_container, newest=True)
 
             shard_to_obj = defaultdict(list)
             for obj in objs:
-                shard = find_shard_range(obj, ranges)
-                shard_to_obj[shard].append(obj)
-                qry['marker'] = obj[0]
+                shard = find_shard_range(obj[0], outer['ranges'])
+                if shard:
+                    shard_to_obj[shard].append(obj)
+                else:
+                    self.logger.warning(
+                        'Failed to find destination shard for %s/%s/%s',
+                        broker.account, broker.container, obj[0])
+            qry['marker'] = objs[-1][0]
 
             self.logger.info('preparing to move %d misplaced objects found '
-                             'in %s/%s', len(objs), broker.account,
-                             broker.container)
+                             'in %s/%s',
+                             sum(map(len, shard_to_obj.values())),
+                             broker.account, broker.container)
             for shard, obj_list in shard_to_obj.items():
                 acct = account_to_shard_account(root_account)
                 part, new_broker, node_id = \
