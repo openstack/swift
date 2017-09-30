@@ -30,21 +30,9 @@ from test.probe.common import ReplProbeTest, get_server_number
 MAX_SHARD_CONTAINER_SIZE = 100
 
 
-def get_shard_ranges(broker, include_meta=False):
-    shard_ranges = broker.get_shard_range_rows()
-    if not include_meta:
-        shard_ranges = [row[:-1] for row in shard_ranges]
-    return shard_ranges
-
-
 class TestContainerSharding(ReplProbeTest):
     def setUp(self):
         super(TestContainerSharding, self).setUp()
-        _, self.admin_token = get_auth(
-            'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
-        self.container_name = 'container-%s' % uuid.uuid4()
-        self.brain = BrainSplitter(self.url, self.token, self.container_name,
-                                   None, 'container')
         try:
             cont_configs = [utils.readconf(p, 'container-sharder')
                             for p in self.configs['container-server'].values()]
@@ -62,6 +50,15 @@ class TestContainerSharding(ReplProbeTest):
         if self.max_shard_size > MAX_SHARD_CONTAINER_SIZE:
             raise SkipTest('shard_container_size is too big! %d > %d' %
                            self.max_shard_size, MAX_SHARD_CONTAINER_SIZE)
+
+        _, self.admin_token = get_auth(
+            'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
+        self.container_name = 'container-%s' % uuid.uuid4()
+        self.brain = BrainSplitter(self.url, self.token, self.container_name,
+                                   None, 'container')
+        self.brain.put_container()
+
+        self.sharders = Manager(['container-sharder'])
 
     def categorize_container_dir_content(self, container=None):
         container = container or self.container_name
@@ -110,10 +107,7 @@ class TestContainerSharding(ReplProbeTest):
             obj, obj_len, length))
 
     def _test_sharded_listing(self, run_replicators=False):
-        sharders = Manager(['container-sharder'])
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
-
-        self.brain.put_container()
 
         for obj in obj_names:
             client.put_object(self.url, self.token, self.container_name, obj)
@@ -126,7 +120,7 @@ class TestContainerSharding(ReplProbeTest):
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
-            self.assertLengthEqual(get_shard_ranges(broker), 0)
+            self.assertLengthEqual(broker.get_shard_ranges(), 0)
 
         headers, pre_sharding_listing = client.get_container(
             self.url, self.token, self.container_name)
@@ -141,7 +135,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual('True', headers.get('x-container-sharding'))
 
         # Only run the one in charge of scanning
-        sharders.once(number=self.brain.node_numbers[0])
+        self.sharders.once(number=self.brain.node_numbers[0])
 
         # Verify that we have one shard db -- though the other normal DBs
         # received the shard ranges that got defined
@@ -151,7 +145,7 @@ class TestContainerSharding(ReplProbeTest):
         # TODO: assert the shard db is on replica 0
         self.assertIs(True, broker.is_root_container())
         self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
-        expected_shard_ranges = get_shard_ranges(broker)
+        expected_shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
         self.assertLengthEqual(expected_shard_ranges, 2)
 
         self.assertLengthEqual(found['normal_dbs'], 2)
@@ -159,7 +153,8 @@ class TestContainerSharding(ReplProbeTest):
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
-            self.assertEqual(expected_shard_ranges, get_shard_ranges(broker))
+            self.assertEqual(expected_shard_ranges,
+                             [dict(sr) for sr in broker.get_shard_ranges()])
 
         if run_replicators:
             Manager(['container-replicator']).once()
@@ -169,7 +164,7 @@ class TestContainerSharding(ReplProbeTest):
             self.assertLengthEqual(found['normal_dbs'], 3)
 
         # Now that everyone has shard ranges, run *everyone*
-        sharders.once()
+        self.sharders.once()
 
         # Verify that we only have shard dbs now
         found = self.categorize_container_dir_content()
@@ -180,7 +175,15 @@ class TestContainerSharding(ReplProbeTest):
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
-            self.assertEqual(expected_shard_ranges, get_shard_ranges(broker))
+            # Well, except for meta_timestamps, since the shards each reported
+            self.assertEqual([dict(sr, meta_timestamp=None)
+                              for sr in expected_shard_ranges],
+                             [dict(sr, meta_timestamp=None)
+                              for sr in broker.get_shard_ranges()])
+            for orig, updated in zip(expected_shard_ranges,
+                                     broker.get_shard_ranges()):
+                self.assertGreaterEqual(updated.meta_timestamp,
+                                        orig['meta_timestamp'])
 
         # Check that entire listing is available
         headers, listing = client.get_container(self.url, self.token,
@@ -204,10 +207,7 @@ class TestContainerSharding(ReplProbeTest):
         self._test_sharded_listing(run_replicators=True)
 
     def test_async_pendings(self):
-        sharders = Manager(['container-sharder'])
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size * 2)]
-
-        self.brain.put_container()
 
         # There are some updates *everyone* gets
         for obj in obj_names[::5]:
@@ -234,7 +234,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual('True', headers.get('x-container-sharding'))
 
         # Only run the one in charge of scanning
-        sharders.once(number=self.brain.node_numbers[0])
+        self.sharders.once(number=self.brain.node_numbers[0])
 
         # Verify that we have one shard db -- though the other normal DBs
         # received the shard ranges that got defined
@@ -246,7 +246,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertIs(True, broker.is_root_container())
         # TODO: not sharding! shard DB thinks he's done!?
         self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
-        expected_shard_ranges = get_shard_ranges(broker)
+        expected_shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
         self.assertLengthEqual(expected_shard_ranges, 3)
 
         # Still have all three big DBs -- we've only worked our way through
@@ -255,7 +255,8 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual(expected_shard_ranges, get_shard_ranges(broker))
+            self.assertEqual(expected_shard_ranges,
+                             [dict(sr) for sr in broker.get_shard_ranges()])
             if db_file.startswith(os.path.dirname(node_index_zero_db)):
                 self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
             else:
@@ -263,7 +264,7 @@ class TestContainerSharding(ReplProbeTest):
 
         # Run the other sharders so we're all in (roughly) the same state
         for n in self.brain.node_numbers[1:]:
-            sharders.once(number=n)
+            self.sharders.once(number=n)
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 3)
         self.assertLengthEqual(found['normal_dbs'], 3)
@@ -320,7 +321,7 @@ class TestContainerSharding(ReplProbeTest):
         #                  obj_names[::-1])
 
         # Run the sharders again to get everything to settle
-        sharders.once()
+        self.sharders.once()
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 3)
         self.assertLengthEqual(found['normal_dbs'], 0)
