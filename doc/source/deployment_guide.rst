@@ -1650,7 +1650,15 @@ delay_reaping       0                Normally, the reaper begins deleting
                                      account information for deleted accounts
                                      immediately; you can set this to delay
                                      its work however. The value is in seconds,
-                                     2592000 = 30 days, for example.
+                                     2592000 = 30 days, for example. The sum of
+                                     this value and the container-updater
+                                     ``interval`` should be less than the
+                                     account-replicator ``reclaim_age``. This
+                                     ensures that once the account-reaper has
+                                     deleted a container there is sufficient
+                                     time for the container-updater to report
+                                     to the account before the account DB is
+                                     removed.
 reap_warn_after     2892000          If the account fails to be be reaped due
                                      to a persistent error, the account reaper
                                      will log a message such as:
@@ -1943,12 +1951,12 @@ concurrent_gets                         off              Use replica count numbe
                                                          GET/HEAD and return with the
                                                          first successful response. In
                                                          the EC case, this parameter only
-                                                         effects an EC HEAD as an EC GET
+                                                         affects an EC HEAD as an EC GET
                                                          behaves differently.
 concurrency_timeout                     conn_timeout     This parameter controls how long
                                                          to wait before firing off the
                                                          next concurrent_get thread. A
-                                                         value of 0 would we fully concurrent
+                                                         value of 0 would we fully concurrent,
                                                          any other number will stagger the
                                                          firing of the threads. This number
                                                          should be between 0 and node_timeout.

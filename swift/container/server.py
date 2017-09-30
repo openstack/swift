@@ -118,6 +118,11 @@ class ContainerController(BaseStorageServer):
             conf.get('auto_create_account_prefix') or '.'
         if config_true_value(conf.get('allow_versions', 'f')):
             self.save_headers.append('x-versions-location')
+        if 'allow_versions' in conf:
+            self.logger.warning('Option allow_versions is deprecated. '
+                                'Configure the versioned_writes middleware in '
+                                'the proxy-server instead. This option will '
+                                'be ignored in a future release.')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.sync_store = ContainerSyncStore(self.root,
