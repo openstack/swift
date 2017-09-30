@@ -25,20 +25,18 @@ from random import random
 from eventlet import Timeout
 
 from swift.container.replicator import ContainerReplicator
-from swift.container.backend import ContainerBroker, DATADIR, \
+from swift.container.backend import ContainerBroker, \
     RECORD_TYPE_SHARD_NODE, RECORD_TYPE_OBJECT, DB_STATE_NOTFOUND, \
     DB_STATE_UNSHARDED, DB_STATE_SHARDING, DB_STATE_SHARDED
 from swift.common import internal_client, db_replicator
 from swift.common.bufferedhttp import http_connect
-from swift.common.db import DatabaseAlreadyExists
 from swift.common.exceptions import DeviceUnavailable, ConnectionTimeout, \
     RangeAnalyserException
 from swift.common.http import is_success
 from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
-    dump_recon_cache, whataremyips, hash_path, \
-    storage_directory, Timestamp, ShardRange, \
+    dump_recon_cache, whataremyips, Timestamp, ShardRange, \
     find_shard_range, majority_size, GreenAsyncPile, \
     account_to_shard_account, config_float_value, config_positive_int_value
 from swift.common.storage_policy import POLICIES
@@ -206,24 +204,21 @@ class ContainerSharder(ContainerReplicator):
 
         :param account: the account
         :param container: the container
+        :param policy_index: the storage policy index
         :returns: a local shard container broker
         """
         part = self.ring.get_part(account, container)
         node = self.find_local_handoff_for_part(part)
         if not node:
+            # TODO: and when *do* we cleave? maybe we should just be picking
+            # one of the local devs
             raise DeviceUnavailable(
                 'No mounted devices found suitable to Handoff sharded '
                 'container %s in partition %s' % (container, part))
-        hsh = hash_path(account, container)
-        db_dir = storage_directory(DATADIR, part, hsh)
-        db_path = os.path.join(self.root, node['device'], db_dir, hsh + '.db')
-        broker = ContainerBroker(db_path, account=account, container=container,
-                                 logger=self.logger)
-        if not os.path.exists(broker.db_file):
-            try:
-                broker.initialize(storage_policy_index=policy_index)
-            except DatabaseAlreadyExists:
-                pass
+
+        broker = self._initialize_broker(
+            node['device'], part, account, container,
+            storage_policy_index=policy_index)
 
         # Get the valid info into the broker.container, etc
         broker.get_info()
@@ -1222,27 +1217,45 @@ class ContainerSharder(ContainerReplicator):
             broker.delete_db(timestamp)
 
     def _cleave(self, broker, node, root_account, root_container):
-        sharding_info = get_sharding_info(broker)
-        last_pivot = sharding_info.get('Last-%d' % node['index'])
-        scan_complete = sharding_info.get('Scan-Done')
-
         shard_ranges = broker.get_shard_ranges()
         if not shard_ranges:
-            # No shard ranges points yet defined.
             return
-        elif broker.get_db_state() == DB_STATE_UNSHARDED:
-            # We have a shard range, which means its time to start sharding
+
+        state = broker.get_db_state()
+        if state == DB_STATE_SHARDED:
+            self.logger.info('Passing over already sharded container %s/%s',
+                             broker.account, broker.container)
+            return
+
+        if state == DB_STATE_UNSHARDED:
             broker.set_sharding_state()
 
+        sharding_info = get_sharding_info(broker)
+        scan_complete = sharding_info.get('Scan-Done')
+        last_pivot = sharding_info.get('Last-%d' % node['index'])
         last_piv_exists = False
         if last_pivot:
             last_range = find_shard_range(last_pivot, shard_ranges)
             last_piv_exists = last_range and last_range.upper == last_pivot
+            self.logger.info('Continuing to shard %s/%s',
+                             broker.account, broker.container)
+        else:
+            self.logger.info('Starting to shard %s/%s',
+                             broker.account, broker.container)
 
+        # TODO: use get_shard_ranges with marker?
         ranges_todo = [
             srange for srange in shard_ranges
             if srange.upper > last_pivot or srange.lower >= last_pivot]
-        if not ranges_todo:
+        if not ranges_todo and scan_complete and not last_piv_exists:
+            # TODO (acoles): I need to understand this better.
+            # 1. The last recorded pivot does not line up with a range upper,
+            # so we slide that range's lower up to the pivot...to avoid copying
+            # rows again? but if the range has changed then don't we need to
+            # get all rows into the new range?
+            # 2. why does this edge case only occur when scan_complete is true?
+            # 3. we don't save this range, so next time round..what happens?
+            # the same again?
             # This means no new shard_ranges have been added since last cycle.
             # If the scanner is complete, then we have finished sharding.
             # However there is an edge case where the scan could be complete,
@@ -1250,38 +1263,38 @@ class ContainerSharder(ContainerReplicator):
             # or other sharding has taken place. If this is the case and the
             # last range doesn't exist, then we need find the last real shard
             # range and send the rest of the objects to it so nothing is lost.
-            if scan_complete and last_piv_exists:
-                self._sharding_complete(root_account, root_container, broker)
-                return
-            elif scan_complete and not last_piv_exists:
                 # TODO: are we sure last_range is not None?
                 last_range.lower = last_pivot
                 last_range.dont_save = True
                 ranges_todo.append(last_range)
+
+        if not ranges_todo:
+            if scan_complete:
+                self._sharding_complete(root_account, root_container, broker)
             else:
                 self.logger.info('No new shard range for %s/%s found, will '
                                  'try again next cycle',
                                  broker.account, broker.container)
-                return
-
-        if last_pivot:
-            self.logger.info('Continuing to shard %s/%s',
-                             broker.account, broker.container)
-        else:
-            self.logger.info('Starting to shard %s/%s',
-                             broker.account, broker.container)
+            return
 
         ranges_done = []
         policy_index = broker.storage_policy_index
-        for i in range(self.shard_batch_size):
-            if ranges_todo:
-                shard_range = ranges_todo.pop(0)
-            else:
-                break
-
+        for shard_range in ranges_todo[:self.shard_batch_size]:
             self.logger.info(
-                'Sharding %s/%s on shard range %s',
-                broker.account, broker.container, shard_range.upper)
+                "Sharding '%s/%s': %r",
+                broker.account, broker.container, shard_range)
+            try:
+                acct = account_to_shard_account(root_account)
+                new_part, new_broker, node_id = self._get_shard_broker(
+                    acct, shard_range.name, policy_index)
+            except DeviceUnavailable as duex:
+                self.logger.warning(str(duex))
+                self.logger.increment('failure')
+                self.stats['containers_failed'] += 1
+                return
+
+            self._add_shard_metadata(new_broker, root_account,
+                                     root_container, shard_range)
 
             query = {
                 'marker': shard_range.lower,
@@ -1293,54 +1306,40 @@ class ContainerSharder(ContainerReplicator):
             if shard_range.upper:
                 query['end_marker'] = shard_range.upper + '\x00'
 
-            try:
-                acct = account_to_shard_account(root_account)
-                new_part, new_broker, node_id = self._get_shard_broker(
-                    acct, shard_range.name, policy_index)
+            with new_broker.sharding_lock():
+                self._add_items(broker, new_broker, query)
 
-                self._add_shard_metadata(new_broker, root_account,
-                                         root_container, shard_range)
-
-                with new_broker.sharding_lock():
-                    self._add_items(broker, new_broker, query)
-
-                info = new_broker.get_info()
-                shard_range.object_count = info['object_count']
-                shard_range.bytes_used = info['bytes_used']
-                shard_range.meta_timestamp = Timestamp(time.time())
-                if not hasattr(shard_range, 'dont_save'):
-                    ranges_done.append(shard_range)
-
-            except DeviceUnavailable as duex:
-                self.logger.warning(str(duex))
-                self.logger.increment('failure')
-                self.stats['containers_failed'] += 1
-                return
+            info = new_broker.get_info()
+            shard_range.object_count = info['object_count']
+            shard_range.bytes_used = info['bytes_used']
+            shard_range.meta_timestamp = Timestamp(time.time())
+            if not hasattr(shard_range, 'dont_save'):
+                ranges_done.append(shard_range)
 
             self.logger.info('Replicating new shard container %s/%s',
                              new_broker.account, new_broker.container)
             self.cpool.spawn(
                 self._replicate_object, new_part, new_broker.db_file, node_id)
-            last_pivot = shard_range.upper
             self.logger.info('Node %d sharded %s/%s at shard range %s.',
                              node['id'], broker.account, broker.container,
                              shard_range.upper)
             self.logger.increment('sharded')
             self.stats['containers_sharded'] += 1
+
         if ranges_done:
             broker.merge_items(broker.shard_nodes_to_items(ranges_done))
-        any(self.cpool)
-
-        if scan_complete and not ranges_todo:
-            # we've finished sharding this container.
-            update_sharding_info(broker, {'Last': ''}, node)
-            self._sharding_complete(root_account, root_container, broker)
-            self.logger.increment('sharding_complete')
-        elif ranges_done:
-            update_sharding_info(
-                broker, {'Last': ranges_done[-1].upper}, node)
+            update_sharding_info(broker, {'Last': ranges_done[-1].upper}, node)
         else:
             self.logger.warning('No progress made in _cleave()!')
+
+        any(self.cpool)
+
+        if scan_complete and len(ranges_done) == len(ranges_todo):
+            # we've finished sharding this container.
+            self.logger.info('Completed sharding of %s/%s',
+                             broker.account, broker.container)
+            self._sharding_complete(root_account, root_container, broker)
+            self.logger.increment('sharding_complete')
 
     # TODO: unused method - ok to delete?
     def _push_shard_ranges_to_container(self, root_account,

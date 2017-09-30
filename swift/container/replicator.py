@@ -85,6 +85,18 @@ class ContainerReplicator(db_replicator.Replicator):
             node, response, info, broker, http, different_region)
         return rv
 
+    def _initialize_broker(self, device, part, account, container, **kwargs):
+        hsh = hash_path(account, container)
+        db_dir = storage_directory(DATADIR, part, hsh)
+        db_path = os.path.join(self.root, device, db_dir, hsh + '.db')
+        broker = ContainerBroker(db_path, account=account, container=container)
+        if not os.path.exists(broker.db_file):
+            try:
+                broker.initialize(**kwargs)
+            except DatabaseAlreadyExists:
+                pass
+        return broker
+
     def find_local_handoff_for_part(self, part):
         """
         Look through devices in the ring for the first handoff device that was
@@ -120,15 +132,9 @@ class ContainerReplicator(db_replicator.Replicator):
             raise DeviceUnavailable(
                 'No mounted devices found suitable to Handoff reconciler '
                 'container %s in partition %s' % (container, part))
-        hsh = hash_path(account, container)
-        db_dir = storage_directory(DATADIR, part, hsh)
-        db_path = os.path.join(self.root, node['device'], db_dir, hsh + '.db')
-        broker = ContainerBroker(db_path, account=account, container=container)
-        if not os.path.exists(broker.db_file):
-            try:
-                broker.initialize(timestamp, 0)
-            except DatabaseAlreadyExists:
-                pass
+        broker = self._initialize_broker(
+            node['device'], part, account, container,
+            put_timestamp=timestamp, storage_policy_index=0)
         if self.reconciler_containers is not None:
             self.reconciler_containers[container] = part, broker, node['id']
         return broker
