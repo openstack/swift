@@ -1332,6 +1332,9 @@ class ContainerSharder(ContainerReplicator):
         else:
             self.logger.warning('No progress made in _cleave()!')
 
+        # since _replicate_object returns None, any() is effectively a wait for
+        # all results
+        # TODO: why not use waitall? plus a timeout might be a good idea
         any(self.cpool)
 
         if scan_complete and len(ranges_done) == len(ranges_todo):

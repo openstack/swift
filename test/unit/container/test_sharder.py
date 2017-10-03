@@ -543,13 +543,6 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(dict(initial_shard_ranges[2]),
                          dict(updated_shard_ranges[2]))
 
-        # first 2 shard ranges should have updated object count, bytes used and
-        # meta_timestamp
-        initial_shard_ranges[0].bytes_used = 20
-        initial_shard_ranges[0].object_count = 2
-        initial_shard_ranges[1].bytes_used = 6
-        initial_shard_ranges[1].object_count = 3
-
         def check_shard_range(expected, actual):
             expected_dict = dict(expected)
             actual_dict = dict(actual)
@@ -557,7 +550,13 @@ class TestSharder(unittest.TestCase):
                                expected_dict.pop('meta_timestamp'))
             self.assertEqual(expected_dict, actual_dict)
 
+        # first 2 shard ranges should have updated object count, bytes used and
+        # meta_timestamp
+        initial_shard_ranges[0].bytes_used = 20
+        initial_shard_ranges[0].object_count = 2
         check_shard_range(initial_shard_ranges[0], updated_shard_ranges[0])
+        initial_shard_ranges[1].bytes_used = 6
+        initial_shard_ranges[1].object_count = 3
         check_shard_range(initial_shard_ranges[1], updated_shard_ranges[1])
 
         def check_shard_objects(expected_objs, shard_db):
@@ -624,6 +623,7 @@ class TestSharder(unittest.TestCase):
         # fourth shard range should now have update object count, bytes used
         initial_shard_ranges[3].bytes_used = 1000
         initial_shard_ranges[3].object_count = 1
+        check_shard_range(initial_shard_ranges[3], updated_shard_ranges[3])
         check_shard_objects(objects[7:], expected_shard_dbs[3])
 
         # run cleave - should be a no-op
