@@ -19,14 +19,14 @@ from contextlib import contextmanager
 from tempfile import mkdtemp
 
 import mock
+import unittest
+
 
 from swift.container.backend import ContainerBroker, DB_STATE_UNSHARDED, \
     RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_SHARDED
 from swift.container.sharder import ContainerSharder, RangeAnalyser, \
     update_sharding_info
 from swift.common.utils import ShardRange, Timestamp, hash_path
-
-import unittest
 
 from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter
 
@@ -304,6 +304,9 @@ class TestSharder(unittest.TestCase):
         self.tempdir = mkdtemp()
         self.ts_iter = make_timestamp_iter()
 
+    def ts_internal(self):
+        return next(self.ts_iter).internal
+
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
@@ -476,7 +479,16 @@ class TestSharder(unittest.TestCase):
                     logger=debug_logger())
                 sharder._local_device_ids = {0, 1, 2}
                 sharder._replicate_object = mock.MagicMock()
+                sharder.shard_cleanups = dict()  # TODO: try to eliminate this
                 yield sharder
+
+    def _check_objects(self, expected_objs, shard_db,
+                       include_deleted=False):
+        shard_broker = ContainerBroker(shard_db)
+        shard_objs = [list(obj) for obj in shard_broker.list_objects_iter(
+            10, '', '', '', '', include_deleted=include_deleted)]
+        expected_objs = [list(obj) for obj in expected_objs]
+        self.assertEqual(expected_objs, shard_objs)
 
     def test_cleave(self):
         logger = debug_logger()
@@ -485,19 +497,17 @@ class TestSharder(unittest.TestCase):
             db_file, account='a', container='c', logger=logger)
         broker.initialize()
 
-        def ts_internal():
-            return next(self.ts_iter).internal
-
         # TODO: test with some deleted, different ctype and meta timestamps
         objects = [
-            ('a', ts_internal(), 10, 'text/plain', 'etag_a', 0),
-            ('here', ts_internal(), 10, 'text/plain', 'etag_here', 0),
-            ('m', ts_internal(), 1, 'text/plain', 'etag_m', 0),
-            ('n', ts_internal(), 2, 'text/plain', 'etag_n', 0),
-            ('there', ts_internal(), 3, 'text/plain', 'etag_there', 0),
-            ('x', ts_internal(), 10, 'text/plain', 'etag_x', 1),  # deleted
-            ('where', ts_internal(), 100, 'text/plain', 'etag_where', 0),
-            ('z', ts_internal(), 1000, 'text/plain', 'etag_z', 0)
+            ('a', self.ts_internal(), 10, 'text/plain', 'etag_a', 0),
+            ('here', self.ts_internal(), 10, 'text/plain', 'etag_here', 0),
+            ('m', self.ts_internal(), 1, 'text/plain', 'etag_m', 0),
+            ('n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0),
+            ('there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0),
+            ('where', self.ts_internal(), 100, 'text/plain', 'etag_where', 0),
+            # deleted...
+            ('x', self.ts_internal(), 10, 'text/plain', 'etag_x', 1),
+            ('z', self.ts_internal(), 1000, 'text/plain', 'etag_z', 0)
         ]
         for obj in objects:
             broker.put_object(*obj)
@@ -558,14 +568,8 @@ class TestSharder(unittest.TestCase):
         initial_shard_ranges[1].bytes_used = 6
         initial_shard_ranges[1].object_count = 3
         check_shard_range(initial_shard_ranges[1], updated_shard_ranges[1])
-
-        def check_shard_objects(expected_objs, shard_db):
-            shard_broker = ContainerBroker(shard_db)
-            shard_objs = shard_broker.list_objects_iter(10, '', '', '', '')
-            self.assertEqual(expected_objs, shard_objs)
-
-        check_shard_objects(objects[:2], expected_shard_dbs[0])
-        check_shard_objects(objects[2:5], expected_shard_dbs[1])
+        self._check_objects(objects[:2], expected_shard_dbs[0])
+        self._check_objects(objects[2:5], expected_shard_dbs[1])
 
         metadata = broker.metadata
         self.assertIn('X-Container-Sysmeta-Shard-Last-1', metadata)
@@ -588,8 +592,8 @@ class TestSharder(unittest.TestCase):
         initial_shard_ranges[2].object_count = 1
         check_shard_range(initial_shard_ranges[2], updated_shard_ranges[2])
         # TODO: should we expect the deleted row to be cleaved?
-        check_shard_objects(objects[6:7], expected_shard_dbs[2])
-        # check_shard_objects(objects[5:], expected_shard_dbs[2])
+        self._check_objects(objects[5:6], expected_shard_dbs[2])
+        # self._check_shard_objects(objects[5:7], expected_shard_dbs[2])
 
         metadata = broker.metadata
         self.assertIn('X-Container-Sysmeta-Shard-Last-1', metadata)
@@ -624,7 +628,7 @@ class TestSharder(unittest.TestCase):
         initial_shard_ranges[3].bytes_used = 1000
         initial_shard_ranges[3].object_count = 1
         check_shard_range(initial_shard_ranges[3], updated_shard_ranges[3])
-        check_shard_objects(objects[7:], expected_shard_dbs[3])
+        self._check_objects(objects[7:], expected_shard_dbs[3])
 
         # run cleave - should be a no-op
         with self._mock_sharder() as sharder:
@@ -632,3 +636,441 @@ class TestSharder(unittest.TestCase):
 
         self.assertEqual(DB_STATE_SHARDED, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
+
+    # TODO: add test for container that has only deleted object rows
+    def test_misplaced_objects_root_container(self):
+        logger = debug_logger()
+        db_file = os.path.join(self.tempdir, 'test_db')
+        broker = ContainerBroker(
+            db_file, account='a', container='c', logger=logger)
+        broker.initialize()
+        node = {'id': 2, 'index': 1}
+
+        objects = [
+            # misplaced objects in second and third shard ranges
+            ['n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0],
+            ['there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0],
+            ['where', self.ts_internal(), 100, 'text/plain', 'etag_where', 0],
+            # deleted
+            ['x', self.ts_internal(), 10, 'text/plain', 'etag_x', 1],
+        ]
+
+        shard_bounds = (('', 'here'), ('here', 'there'),
+                        ('there', 'where'), ('where', 'yonder'),
+                        ('yonder', ''))
+        initial_shard_ranges = [
+            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds
+        ]
+        expected_shard_dbs = []
+        for shard_range in initial_shard_ranges:
+            db_hash = hash_path('.sharded_a', shard_range.name)
+            expected_shard_dbs.append(
+                os.path.join(self.tempdir, 'sda', 'containers', '0',
+                             db_hash[-3:], db_hash, db_hash + '.db'))
+        broker.merge_items(
+            [dict(shard_range, deleted=0, storage_policy_index=0,
+                  record_type=RECORD_TYPE_SHARD_NODE)
+             for shard_range in initial_shard_ranges])
+
+        # unsharded
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # sharding - no misplaced objects
+        broker.set_sharding_state()
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # pretend we cleaved up to end of second shard range
+        update_sharding_info(broker, {'Last': 'there'}, node)
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # sharding - misplaced objects
+        for obj in objects:
+            broker.put_object(*obj)
+        # pretend we have not cleaved any ranges
+        update_sharding_info(broker, {'Last': None}, node)
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # pretend we cleaved up to end of second shard range
+        update_sharding_info(broker, {'Last': 'there'}, node)
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+
+        sharder._replicate_object.assert_called_once_with(
+            0, expected_shard_dbs[1], 0)
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+        # check misplaced objects were moved
+        self._check_objects(objects[:2], expected_shard_dbs[1], True)
+        # ... and deleted in the source db
+        expected_source_objects = list(objects)
+        for obj in expected_source_objects[:2]:
+            obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+            obj[5] = 1  # deleted
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        # pretend we cleaved up to end of fourth shard range
+        update_sharding_info(broker, {'Last': 'yonder'}, node)
+        # and some new misplaced updates arrived in the first shard range
+        new_objects = [
+            ['b', self.ts_internal(), 10, 'text/plain', 'etag_b', 0],
+            ['c', self.ts_internal(), 20, 'text/plain', 'etag_c', 0],
+        ]
+        for obj in new_objects:
+            broker.put_object(*obj)
+
+        with mock.patch('swift.container.sharder.CONTAINER_LISTING_LIMIT', 2):
+            # check that *all* misplaced objects are moved despite exceeding
+            # the listing limit
+            with self._mock_sharder() as sharder:
+                sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        # TODO: the deleted misplaced row in fourth range should also be moved?
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, db, 0) for db in expected_shard_dbs[2:3]],
+            any_order=True
+        )
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check misplaced objects were moved
+        self._check_objects(new_objects, expected_shard_dbs[0], True)
+        self._check_objects(objects[2:3], expected_shard_dbs[2], True)
+        # ... and deleted in the source db
+        for obj in expected_source_objects[2:3]:
+            obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+            obj[5] = 1  # deleted
+        expected_source_objects = [list(obj) for obj in new_objects] + \
+            expected_source_objects
+        for obj in expected_source_objects[:2]:
+            obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+            obj[5] = 1  # deleted
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        # pretend we cleaved all ranges - sharded state
+        update_sharding_info(broker, {'Last': ''}, node)
+        broker.set_sharded_state()
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # and then more misplaced updates arrive
+        newer_objects = [
+            ['a', self.ts_internal(), 51, 'text/plain', 'etag_a', 0],
+            ['z', self.ts_internal(), 52, 'text/plain', 'etag_z', 0],
+        ]
+        expected_source_objects = \
+            [list(newer_objects[0])] + expected_source_objects
+        expected_source_objects += [list(newer_objects[1])]
+        for obj in newer_objects:
+            broker.put_object(*obj)
+        broker.get_info()  # force updates to be committed
+        # sanity check the puts landed in sharded broker
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, db, 0)
+             for db in (expected_shard_dbs[0], expected_shard_dbs[-1])],
+            any_order=True
+        )
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check misplaced objects were moved
+        self._check_objects(
+            newer_objects[:1] + new_objects, expected_shard_dbs[0], True)
+        self._check_objects(newer_objects[1:], expected_shard_dbs[4], True)
+        # ... and deleted in the source db
+        for obj in (expected_source_objects[0], expected_source_objects[-1]):
+            obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+            obj[5] = 1  # deleted
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+    def test_misplaced_objects_shard_container_unsharded(self):
+        logger = debug_logger()
+        db_file = os.path.join(self.tempdir, 'test_db')
+        broker = ContainerBroker(
+            db_file, account='.sharded_a', container='shard_c', logger=logger)
+        broker.initialize()
+        ts_shard = next(self.ts_iter)
+        own_sr = ShardRange('shard_c', ts_shard, 'here', 'there')
+        update_sharding_info(broker, {'Lower': own_sr.lower,
+                                      'Upper': own_sr.upper,
+                                      'Timestamp': own_sr.timestamp.internal,
+                                      'Container': True})
+        self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
+        self.assertEqual(DB_STATE_UNSHARDED, broker.get_db_state())
+        node = {'id': 2, 'index': 1}
+
+        objects = [
+            # some of these are misplaced objects
+            ['b', self.ts_internal(), 2, 'text/plain', 'etag_b', 0],
+            ['here', self.ts_internal(), 2, 'text/plain', 'etag_here', 0],
+            ['n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0],
+            ['there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0],
+            #  deleted
+            ['x', self.ts_internal(), 10, 'text/plain', 'etag_x', 1],
+            ['y', self.ts_internal(), 10, 'text/plain', 'etag_y', 0],
+        ]
+
+        shard_bounds = (('', 'here'), ('here', 'there'),
+                        ('there', 'where'), ('where', ''))
+        root_shard_ranges = [
+            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds
+        ]
+        expected_shard_dbs = []
+        for sr in root_shard_ranges:
+            db_hash = hash_path('.sharded_a', sr.name)
+            expected_shard_dbs.append(
+                os.path.join(self.tempdir, 'sda', 'containers', '0',
+                             db_hash[-3:], db_hash, db_hash + '.db'))
+
+        # no objects
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # now put objects
+        for obj in objects:
+            broker.put_object(*obj)
+        self._check_objects(objects, broker.db_file, True)  # sanity check
+
+        # NB final shard range not available
+        with self._mock_sharder() as sharder:
+            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges[:-1]
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+
+        sharder._replicate_object.assert_called_with(
+            0, expected_shard_dbs[0], 0),
+
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check misplaced objects were moved
+        self._check_objects(objects[:2], expected_shard_dbs[0], True)
+        # ... and deleted in the source db
+        expected_source_objects = [list(obj) for obj in objects]
+        for obj in expected_source_objects[:2]:
+            if not obj[5]:
+                obj[5] = 1  # deleted
+                obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        # repeat with final shard range available
+        with self._mock_sharder() as sharder:
+            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+
+        sharder._replicate_object.assert_called_with(
+            0, expected_shard_dbs[-1], 0),
+
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check misplaced objects were moved
+        self._check_objects(objects[:2], expected_shard_dbs[0], True)
+        # TODO: expect deleted object 'x' to be moved
+        self._check_objects(objects[5:], expected_shard_dbs[-1], True)
+        # ... and deleted in the source db
+        for obj in expected_source_objects[-2:]:
+            if not obj[5]:
+                obj[5] = 1  # deleted
+                obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        # repeat - no work remaining
+        with self._mock_sharder() as sharder:
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+        sharder._replicate_object.assert_not_called()
+        self.assertEqual(0, sharder.stats['containers_misplaced'])
+        self.assertFalse(
+            sharder.logger.get_increment_counts().get('misplaced_items_found'))
+
+        # and then more misplaced updates arrive
+        new_objects = [
+            ['a', self.ts_internal(), 51, 'text/plain', 'etag_a', 0],
+            ['z', self.ts_internal(), 52, 'text/plain', 'etag_z', 0],
+        ]
+        expected_source_objects = \
+            [list(new_objects[0])] + expected_source_objects
+        expected_source_objects += [list(new_objects[1])]
+        for obj in new_objects:
+            broker.put_object(*obj)
+        broker.get_info()  # force updates to be committed
+        # sanity check the puts landed in sharded broker
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        with self._mock_sharder() as sharder:
+            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, db, 0)
+             for db in (expected_shard_dbs[0], expected_shard_dbs[-1])],
+            any_order=True
+        )
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check new misplaced objects were moved
+        self._check_objects(
+            new_objects[:1] + objects[:2], expected_shard_dbs[0], True)
+        self._check_objects(
+            objects[5:] + new_objects[1:], expected_shard_dbs[-1], True)
+        # ... and deleted in the source db
+        for obj in (expected_source_objects[0], expected_source_objects[-1]):
+            obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+            obj[5] = 1  # deleted
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+    def test_misplaced_objects_shard_container_sharding(self):
+        logger = debug_logger()
+        db_file = os.path.join(self.tempdir, 'test_db')
+        broker = ContainerBroker(
+            db_file, account='.sharded_a', container='shard_c', logger=logger)
+        broker.initialize()
+        ts_shard = next(self.ts_iter)
+        # note that own_sr spans two root shard ranges
+        own_sr = ShardRange('shard_c', ts_shard, 'here', 'where')
+        update_sharding_info(broker, {'Lower': own_sr.lower,
+                                      'Upper': own_sr.upper,
+                                      'Timestamp': own_sr.timestamp.internal,
+                                      'Container': True})
+        self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
+        self.assertEqual(DB_STATE_UNSHARDED, broker.get_db_state())
+        node = {'id': 2, 'index': 1}
+
+        objects = [
+            # some of these are misplaced objects
+            ['b', self.ts_internal(), 2, 'text/plain', 'etag_b', 0],
+            ['here', self.ts_internal(), 2, 'text/plain', 'etag_here', 0],
+            ['n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0],
+            ['there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0],
+            ['v', self.ts_internal(), 10, 'text/plain', 'etag_v', 0],
+            ['y', self.ts_internal(), 10, 'text/plain', 'etag_y', 0],
+        ]
+
+        shard_bounds = (('', 'here'), ('here', 'there'),
+                        ('there', 'where'), ('where', ''))
+        root_shard_ranges = [
+            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            for lower, upper in shard_bounds
+        ]
+        expected_shard_dbs = []
+        for sr in root_shard_ranges:
+            db_hash = hash_path('.sharded_a', sr.name)
+            expected_shard_dbs.append(
+                os.path.join(self.tempdir, 'sda', 'containers', '0',
+                             db_hash[-3:], db_hash, db_hash + '.db'))
+
+        # pretend broker is sharding but not yet cleaved a shard
+        broker.set_sharding_state()
+        # TODO: should probably be merging two of the shard ranges into the
+        # shard broker
+        # then some updates arrive
+        for obj in objects:
+            broker.put_object(*obj)
+        broker.get_info()
+        self._check_objects(objects, broker.db_file, True)  # sanity check
+        with self._mock_sharder() as sharder:
+            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
+                                            expected_shard_dbs[-1])],
+            any_order=True
+        )
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check misplaced objects were moved
+        self._check_objects(objects[:2], expected_shard_dbs[0], True)
+        self._check_objects(objects[5:], expected_shard_dbs[-1], True)
+        # ... and deleted in the source db
+        expected_source_objects = [list(obj) for obj in objects]
+        for obj in expected_source_objects[:2] + expected_source_objects[5:]:
+            if not obj[5]:
+                obj[5] = 1  # deleted
+                obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+        self._check_objects(expected_source_objects, broker.db_file, True)
+
+        # pretend first shard has been cleaved
+        update_sharding_info(broker, {'Last': 'there'}, node)
+        # and then more misplaced updates arrive
+        new_objects = [
+            ['a', self.ts_internal(), 51, 'text/plain', 'etag_a', 0],
+            # this one is in the now cleaved shard range...
+            ['k', self.ts_internal(), 52, 'text/plain', 'etag_k', 0],
+            ['z', self.ts_internal(), 53, 'text/plain', 'etag_z', 0],
+        ]
+        expected_source_objects.insert(2, list(new_objects[1]))
+        expected_source_objects.insert(0, list(new_objects[0]))
+        expected_source_objects.append(list(new_objects[2]))
+        for obj in new_objects:
+            broker.put_object(*obj)
+        broker.get_info()  # force updates to be committed
+        # sanity check the puts landed in sharded broker
+        self._check_objects(expected_source_objects, broker.db_file, True)
+        with self._mock_sharder() as sharder:
+            sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
+            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+
+        sharder._replicate_object.assert_has_calls(
+            [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
+                                            expected_shard_dbs[1],
+                                            expected_shard_dbs[-1])],
+            any_order=True
+        )
+
+        self.assertEqual(1, sharder.stats['containers_misplaced'])
+        self.assertEqual(
+            1, sharder.logger.get_increment_counts()['misplaced_items_found'])
+
+        # check *all* the misplaced objects were moved
+        self._check_objects(new_objects[:1] + objects[:2],
+                            expected_shard_dbs[0], True)
+        self._check_objects(new_objects[1:2] + objects[2:4],
+                            expected_shard_dbs[1], True)
+        self._check_objects(objects[5:] + new_objects[2:],
+                            expected_shard_dbs[-1], True)
+        # ... and deleted in the source db
+        for obj in expected_source_objects[:6] + expected_source_objects[7:]:
+            if not obj[5]:
+                obj[5] = 1  # deleted
+                obj[1] = Timestamp(obj[1], 1).internal  # bumped timestamp
+        self._check_objects(expected_source_objects, broker.db_file, True)

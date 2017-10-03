@@ -65,13 +65,15 @@ def update_sharding_info(broker, info, node=None):
 
 
 # TODO: needs unit test
-def get_sharding_info(broker, key=None):
+def get_sharding_info(broker, key=None, node=None):
     """
     Returns sharding specific info from the broker's metadata.
 
     :param broker: an instance of :class:`swift.common.db.DatabaseBroker`.
     :param key: if given the value stored under ``key`` in the sharding info
         will be returned, or None if ``key`` is not found in the info.
+    :param node: an optional dict describing a node; if given the node's index
+        will be appended to ``key``
     :return: either a dict of sharding info or the value stored under ``key``
         in that dict.
     """
@@ -80,6 +82,8 @@ def get_sharding_info(broker, key=None):
     info = dict((k[len(prefix):], v[0]) for
                 k, v in metadata.items() if k.startswith(prefix))
     if key:
+        if node:
+            key += '-%s' % node['index']
         return info.get(key)
     return info
 
@@ -295,21 +299,25 @@ class ContainerSharder(ContainerReplicator):
                     (None, Timestamp.now().internal)})
 
     def _misplaced_objects(self, broker, node, root_account, root_container,
-                           shard_range):
+                           own_shard_range):
         """
-        Search for objects in the current broker that don't belong, and move
-        to the container shards they do.
+        Search for objects in the given broker that do not belong in that
+        broker's namespace and move those objects to their correct shard
+        container.
 
-        :param broker: The parent broker to update once misplaced objects have
-            been moved.
+        :param broker: An instance of :class:`swift.container.ContainerBroker`
+        :param node: The node being processed
         :param root_account: The root account
         :param root_container: The root container
-        :param shard_range: The ShardRange appropriate for this broker, or None
-            if the current broker is for an unsharded or root container
+        :param own_shard_range: A ShardRange describing the namespace for this
+            broker, or None if the current broker is for a root container
         """
 
         self.logger.info('Scanning %s/%s (%s) for misplaced objects',
                          broker.account, broker.container, broker.db_file)
+        if broker.is_deleted():
+            return
+
         queries = []
         policy_index = broker.storage_policy_index
         query = dict(marker='', end_marker='', prefix='', delimiter='',
@@ -317,38 +325,41 @@ class ContainerSharder(ContainerReplicator):
         # TODO: what about records for objects in the wrong storage policy?
         state = broker.get_db_state()
 
-        if state == DB_STATE_SHARDED or broker.is_deleted():
-            # It's a sharded node or deleted, so anything in the object table
-            # is treated as a misplaced object.
-            if broker.get_info()['object_count'] > 0:
-                queries.append(query.copy())
-            else:
-                return
-        elif state == DB_STATE_SHARDING:
-            # This state is a little more complicated. Only objects in the
-            # object table that are less than (<) the shard range this node is
-            # up to are considered misplaced, anything above is being held.
-            last_shard = get_sharding_info(broker, 'Last-%d' % node['id'])
-            if not last_shard:
-                # This node hasn't exploded/cleaved anything yet, so all
-                # objects in object table are suppose to be there (in holding).
-                return
-            queries.append(dict(query, end_marker=last_shard + '\x00'))
-
-        elif shard_range is None or state == DB_STATE_NOTFOUND:
-            # This is an unsharded root container, so we don't need to
-            # query anything.
+        if state == DB_STATE_NOTFOUND:
             return
-        else:
-            # it hasn't been sharded and isn't the root container, so we need
-            # to look for objects that shouldn't be in the object table.
-            if shard_range.upper:
-                queries.append(dict(query, marker=shard_range.upper))
-            if shard_range.lower:
-                queries.append(dict(query,
-                                    end_marker=shard_range.lower + '\x00'))
 
-        outer = {'ranges': None}
+        # TODO: this hits the db, potentially unnecessarily, but perhaps we can
+        # start to cache the sharding info anyway?
+        last_shard = get_sharding_info(broker, 'Last', node)
+        if state == DB_STATE_SHARDED:
+            # Anything in the object table is treated as a misplaced object.
+            # TODO: rename broker._get_info() to be a public method (note
+            # we need object count from object table not shard table) OR drop
+            # this condition - which maybe we should because object_count will
+            # not include deleted objects
+            if broker._get_info()['object_count'] > 0:
+                queries.append(query.copy())
+        elif state == DB_STATE_SHARDING and last_shard:
+            # Objects outside of this container's own range are misplaced.
+            # Objects in already cleaved shard ranges are also misplaced.
+            queries.append(dict(query, end_marker=last_shard + '\x00'))
+            if own_shard_range and own_shard_range.upper:
+                queries.append(dict(query, marker=own_shard_range.upper))
+        elif own_shard_range:
+            # Objects outside of this container's own range are misplaced.
+            if own_shard_range.lower:
+                queries.append(dict(query,
+                                    end_marker=own_shard_range.lower + '\x00'))
+            if own_shard_range.upper:
+                queries.append(dict(query, marker=own_shard_range.upper))
+
+        if not queries:
+            return
+
+        if broker.is_root_container():
+            outer = {'ranges': broker.get_shard_ranges()}
+        else:
+            outer = {'ranges': None}
 
         def run_query(qry, found_misplaced_items):
             objs = broker.list_objects_iter(CONTAINER_LISTING_LIMIT, **qry)
@@ -363,10 +374,11 @@ class ContainerSharder(ContainerReplicator):
 
             shard_to_obj = defaultdict(list)
             for obj in objs:
-                shard = find_shard_range(obj[0], outer['ranges'])
-                if shard:
-                    shard_to_obj[shard].append(obj)
+                shard_range = find_shard_range(obj[0], outer['ranges'])
+                if shard_range:
+                    shard_to_obj[shard_range].append(obj)
                 else:
+                    # TODO: don't log for *every* object
                     self.logger.warning(
                         'Failed to find destination shard for %s/%s/%s',
                         broker.account, broker.container, obj[0])
@@ -376,14 +388,12 @@ class ContainerSharder(ContainerReplicator):
                              'in %s/%s',
                              sum(map(len, shard_to_obj.values())),
                              broker.account, broker.container)
-            for shard, obj_list in shard_to_obj.items():
+            for shard_range, obj_list in shard_to_obj.items():
                 acct = account_to_shard_account(root_account)
-                part, new_broker, node_id = \
-                    self._get_shard_broker(acct, shard.name, policy_index)
-
+                part, new_broker, node_id = self._get_shard_broker(
+                    acct, shard_range.name, policy_index)
                 self._add_shard_metadata(new_broker, root_account,
-                                         root_container, shard)
-
+                                         root_container, shard_range)
                 objects = self._generate_object_list(obj_list, policy_index)
                 new_broker.merge_items(objects)
 
@@ -394,6 +404,7 @@ class ContainerSharder(ContainerReplicator):
                 items = self._generate_object_list(obj_list, policy_index,
                                                    delete=True)
                 broker.merge_items(items)
+
             # wait for one of these to error, or all to complete successfully
             any(self.cpool)
 
