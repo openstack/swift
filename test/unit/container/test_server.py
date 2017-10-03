@@ -2081,7 +2081,7 @@ class TestContainerController(unittest.TestCase):
             self._put_shard_range(shard_range)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        shard_rows = broker.get_shard_range_rows()
+        shard_rows = broker._get_shard_range_rows()
         self.assertEqual(
             [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
               p.bytes_used, p.meta_timestamp) for p in shard_ranges],
@@ -2201,7 +2201,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
 
-        shard_rows = broker.get_shard_range_rows()
+        shard_rows = broker._get_shard_range_rows()
         self.assertEqual(
             [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
               p.bytes_used, p.meta_timestamp) for p in shard_ranges[1:]],
