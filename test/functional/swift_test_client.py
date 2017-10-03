@@ -347,6 +347,8 @@ class Connection(object):
             self.connection.send('0\r\n\r\n')
 
         self.response = self.connection.getresponse()
+        # Hope it isn't big!
+        self.response.body = self.response.read()
         self.connection.close()
         return self.response.status
 
