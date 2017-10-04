@@ -1347,13 +1347,7 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    # TODO: this can probably become a private method if we redirect external
-    # callers to get_shard_ranges()
-    def get_shard_range_rows(self, connection=None):
-        """
-        :return:
-        """
-
+    def _get_shard_range_rows(self, connection=None):
         def do_query(conn):
             try:
                 sql = '''
@@ -1475,7 +1469,7 @@ class ContainerBroker(DatabaseBroker):
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         shard_ranges = [ShardRange(*row)
-                        for row in self.get_shard_range_rows()]
+                        for row in self._get_shard_range_rows()]
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []
@@ -1563,7 +1557,7 @@ class ContainerBroker(DatabaseBroker):
         # If there are shard_ranges defined.. which can happen when the scanner
         # node finds the first shard range then replicates out to the others
         # who are still in the UNSHARDED state.
-        shard_ranges = self.get_shard_range_rows()
+        shard_ranges = self._get_shard_range_rows()
         if shard_ranges:
             shard_ranges = \
                 [self._record_to_dict(list(r) + [0], RECORD_TYPE_SHARD_NODE)
