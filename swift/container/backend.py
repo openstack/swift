@@ -616,6 +616,29 @@ class ContainerBroker(DatabaseBroker):
                   'record_type': RECORD_TYPE_OBJECT}
         self.put_record(record)
 
+    def remove_objects(self, lower, upper, storage_policy_index):
+        """
+        Removes items in the given namespace range from the object table.
+
+        :param lower: defines the lower bound of object names that will be
+            removed; names greater than this value will be removed; names less
+            than or equal to this value will not be removed.
+        :param upper: defines the upper bound of object names that will be
+            removed; names less than or equal to this value will be removed;
+            names greater than this value will not be removed.
+        :param storage_policy_index: only object names with this storage
+            policy index will be removed
+        """
+        query = ('DELETE FROM object WHERE deleted in (0, 1) '
+                 'AND storage_policy_index = ? AND name > ?')
+        query_args = [storage_policy_index, lower]
+        if upper:
+            query += ' AND name <= ?'
+            query_args.append(upper)
+        with self.get() as conn:
+            conn.execute(query, query_args)
+            conn.commit()
+
     def delete_shard(self, name, timestamp, meta_timestamp=None,
                      lower=None, upper=None):
         """

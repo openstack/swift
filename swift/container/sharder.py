@@ -318,34 +318,30 @@ class ContainerSharder(ContainerReplicator):
         if broker.is_deleted():
             return
 
-        queries = []
-        policy_index = broker.storage_policy_index
-        query = dict(marker='', end_marker='', prefix='', delimiter='',
-                     storage_policy_index=policy_index)
-        # TODO: what about records for objects in the wrong storage policy?
         state = broker.get_db_state()
-
         if state == DB_STATE_NOTFOUND:
             return
 
-        # TODO: this hits the db, potentially unnecessarily, but perhaps we can
-        # start to cache the sharding info anyway?
-        last_shard = get_sharding_info(broker, 'Last', node)
+        queries = []
+        policy_index = broker.storage_policy_index
+        query = dict(marker='', end_marker='', prefix='', delimiter='',
+                     storage_policy_index=policy_index, include_deleted=True)
+        # TODO: what about records for objects in the wrong storage policy?
+
         if state == DB_STATE_SHARDED:
             # Anything in the object table is treated as a misplaced object.
-            # TODO: rename broker._get_info() to be a public method (note
-            # we need object count from object table not shard table) OR drop
-            # this condition - which maybe we should because object_count will
-            # not include deleted objects
-            if broker._get_info()['object_count'] > 0:
-                queries.append(query.copy())
-        elif state == DB_STATE_SHARDING and last_shard:
+            queries.append(query.copy())
+
+        if not queries and state == DB_STATE_SHARDING:
             # Objects outside of this container's own range are misplaced.
             # Objects in already cleaved shard ranges are also misplaced.
-            queries.append(dict(query, end_marker=last_shard + '\x00'))
-            if own_shard_range and own_shard_range.upper:
-                queries.append(dict(query, marker=own_shard_range.upper))
-        elif own_shard_range:
+            last_shard = get_sharding_info(broker, 'Last', node)
+            if last_shard:
+                queries.append(dict(query, end_marker=last_shard + '\x00'))
+                if own_shard_range and own_shard_range.upper:
+                    queries.append(dict(query, marker=own_shard_range.upper))
+
+        if not queries and own_shard_range:
             # Objects outside of this container's own range are misplaced.
             if own_shard_range.lower:
                 queries.append(dict(query,
@@ -382,7 +378,6 @@ class ContainerSharder(ContainerReplicator):
                     self.logger.warning(
                         'Failed to find destination shard for %s/%s/%s',
                         broker.account, broker.container, obj[0])
-            qry['marker'] = objs[-1][0]
 
             self.logger.info('preparing to move %d misplaced objects found '
                              'in %s/%s',
@@ -394,22 +389,25 @@ class ContainerSharder(ContainerReplicator):
                     acct, shard_range.name, policy_index)
                 self._add_shard_metadata(new_broker, root_account,
                                          root_container, shard_range)
-                objects = self._generate_object_list(obj_list, policy_index)
+                objects = [broker._record_to_dict(obj) for obj in obj_list]
                 new_broker.merge_items(objects)
 
                 self.cpool.spawn(
                     self._replicate_object, part, new_broker.db_file, node_id)
 
-                # Remove the now relocated misplaced items.
-                items = self._generate_object_list(obj_list, policy_index,
-                                                   delete=True)
-                broker.merge_items(items)
-
             # wait for one of these to error, or all to complete successfully
             any(self.cpool)
+            # TODO: we need to be confident that replication succeeded before
+            # removing misplaced items from source - if not then just leave the
+            # misplaced items in source, but do not mark them as deleted, and
+            # leave for next cycle to try again
+            for shard_range in shard_to_obj:
+                broker.remove_objects(shard_range.lower, shard_range.upper,
+                                      policy_index)
 
             # There could be more, so recurse my pretty
             if len(objs) == CONTAINER_LISTING_LIMIT:
+                qry['marker'] = objs[-1][0]
                 return run_query(qry, True)
             return True
 
