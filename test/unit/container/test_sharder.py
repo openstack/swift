@@ -26,7 +26,8 @@ from swift.container.backend import ContainerBroker, DB_STATE_UNSHARDED, \
     RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_SHARDED
 from swift.container.sharder import ContainerSharder, RangeAnalyser, \
     update_sharding_info
-from swift.common.utils import ShardRange, Timestamp, hash_path
+from swift.common.utils import ShardRange, Timestamp, hash_path, \
+    encode_timestamps
 
 from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter
 
@@ -307,6 +308,13 @@ class TestSharder(unittest.TestCase):
     def ts_internal(self):
         return next(self.ts_iter).internal
 
+    def ts_encoded(self):
+        # make a unique timestamp string with multiple timestamps encoded;
+        # use different deltas between component timestamps
+        timestamps = [next(self.ts_iter) for i in range(4)]
+        return encode_timestamps(
+            timestamps[0], timestamps[1], timestamps[3])
+
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
@@ -485,8 +493,11 @@ class TestSharder(unittest.TestCase):
     def _check_objects(self, expected_objs, shard_db,
                        include_deleted=False):
         shard_broker = ContainerBroker(shard_db)
+        # use list_objects_iter with no-op transform_func to get back actual
+        # un-transformed rows with encoded timestamps
         shard_objs = [list(obj) for obj in shard_broker.list_objects_iter(
-            10, '', '', '', '', include_deleted=include_deleted)]
+            10, '', '', '', '', include_deleted=include_deleted,
+            transform_func=lambda record, policy_index: record)]
         expected_objs = [list(obj) for obj in expected_objs]
         self.assertEqual(expected_objs, shard_objs)
 
@@ -637,7 +648,6 @@ class TestSharder(unittest.TestCase):
         self.assertEqual(DB_STATE_SHARDED, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
 
-    # TODO: add test for container that has only deleted object rows
     def test_misplaced_objects_root_container(self):
         logger = debug_logger()
         db_file = os.path.join(self.tempdir, 'test_db')
@@ -648,11 +658,11 @@ class TestSharder(unittest.TestCase):
 
         objects = [
             # misplaced objects in second and third shard ranges
-            ['n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0],
-            ['there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0],
-            ['where', self.ts_internal(), 100, 'text/plain', 'etag_where', 0],
+            ['n', self.ts_encoded(), 2, 'text/plain', 'etag_n', 0],
+            ['there', self.ts_encoded(), 3, 'text/plain', 'etag_there', 0],
+            ['where', self.ts_encoded(), 100, 'text/plain', 'etag_where', 0],
             # deleted
-            ['x', self.ts_internal(), 10, 'text/plain', 'etag_x', 1],
+            ['x', self.ts_encoded(), 10, 'text/plain', 'etag_x', 1],
         ]
 
         shard_bounds = (('', 'here'), ('here', 'there'),
@@ -740,8 +750,8 @@ class TestSharder(unittest.TestCase):
         update_sharding_info(broker, {'Last': 'yonder'}, node)
         # and some new misplaced updates arrived in the first shard range
         new_objects = [
-            ['b', self.ts_internal(), 10, 'text/plain', 'etag_b', 0],
-            ['c', self.ts_internal(), 20, 'text/plain', 'etag_c', 0],
+            ['b', self.ts_encoded(), 10, 'text/plain', 'etag_b', 0],
+            ['c', self.ts_encoded(), 20, 'text/plain', 'etag_c', 0],
         ]
         for obj in new_objects:
             broker.put_object(*obj)
@@ -781,8 +791,8 @@ class TestSharder(unittest.TestCase):
 
         # and then more misplaced updates arrive
         newer_objects = [
-            ['a', self.ts_internal(), 51, 'text/plain', 'etag_a', 0],
-            ['z', self.ts_internal(), 52, 'text/plain', 'etag_z', 0],
+            ['a', self.ts_encoded(), 51, 'text/plain', 'etag_a', 0],
+            ['z', self.ts_encoded(), 52, 'text/plain', 'etag_z', 0],
         ]
         for obj in newer_objects:
             broker.put_object(*obj)
@@ -830,13 +840,13 @@ class TestSharder(unittest.TestCase):
 
         objects = [
             # some of these are misplaced objects
-            ['b', self.ts_internal(), 2, 'text/plain', 'etag_b', 0],
-            ['here', self.ts_internal(), 2, 'text/plain', 'etag_here', 0],
-            ['n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0],
-            ['there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0],
+            ['b', self.ts_encoded(), 2, 'text/plain', 'etag_b', 0],
+            ['here', self.ts_encoded(), 2, 'text/plain', 'etag_here', 0],
+            ['n', self.ts_encoded(), 2, 'text/plain', 'etag_n', 0],
+            ['there', self.ts_encoded(), 3, 'text/plain', 'etag_there', 0],
             #  deleted
-            ['x', self.ts_internal(), 10, 'text/plain', 'etag_x', 1],
-            ['y', self.ts_internal(), 10, 'text/plain', 'etag_y', 0],
+            ['x', self.ts_encoded(), 10, 'text/plain', 'etag_x', 1],
+            ['y', self.ts_encoded(), 10, 'text/plain', 'etag_y', 0],
         ]
 
         shard_bounds = (('', 'here'), ('here', 'there'),
@@ -917,8 +927,8 @@ class TestSharder(unittest.TestCase):
 
         # and then more misplaced updates arrive
         new_objects = [
-            ['a', self.ts_internal(), 51, 'text/plain', 'etag_a', 0],
-            ['z', self.ts_internal(), 52, 'text/plain', 'etag_z', 0],
+            ['a', self.ts_encoded(), 51, 'text/plain', 'etag_a', 0],
+            ['z', self.ts_encoded(), 52, 'text/plain', 'etag_z', 0],
         ]
         for obj in new_objects:
             broker.put_object(*obj)
@@ -968,12 +978,12 @@ class TestSharder(unittest.TestCase):
 
         objects = [
             # some of these are misplaced objects
-            ['b', self.ts_internal(), 2, 'text/plain', 'etag_b', 0],
-            ['here', self.ts_internal(), 2, 'text/plain', 'etag_here', 0],
-            ['n', self.ts_internal(), 2, 'text/plain', 'etag_n', 0],
-            ['there', self.ts_internal(), 3, 'text/plain', 'etag_there', 0],
-            ['v', self.ts_internal(), 10, 'text/plain', 'etag_v', 0],
-            ['y', self.ts_internal(), 10, 'text/plain', 'etag_y', 0],
+            ['b', self.ts_encoded(), 2, 'text/plain', 'etag_b', 0],
+            ['here', self.ts_encoded(), 2, 'text/plain', 'etag_here', 0],
+            ['n', self.ts_encoded(), 2, 'text/plain', 'etag_n', 0],
+            ['there', self.ts_encoded(), 3, 'text/plain', 'etag_there', 0],
+            ['v', self.ts_encoded(), 10, 'text/plain', 'etag_v', 0],
+            ['y', self.ts_encoded(), 10, 'text/plain', 'etag_y', 0],
         ]
 
         shard_bounds = (('', 'here'), ('here', 'there'),
@@ -1023,10 +1033,10 @@ class TestSharder(unittest.TestCase):
         update_sharding_info(broker, {'Last': 'there'}, node)
         # and then more misplaced updates arrive
         new_objects = [
-            ['a', self.ts_internal(), 51, 'text/plain', 'etag_a', 0],
+            ['a', self.ts_encoded(), 51, 'text/plain', 'etag_a', 0],
             # this one is in the now cleaved shard range...
-            ['k', self.ts_internal(), 52, 'text/plain', 'etag_k', 0],
-            ['z', self.ts_internal(), 53, 'text/plain', 'etag_z', 0],
+            ['k', self.ts_encoded(), 52, 'text/plain', 'etag_k', 0],
+            ['z', self.ts_encoded(), 53, 'text/plain', 'etag_z', 0],
         ]
         for obj in new_objects:
             broker.put_object(*obj)
@@ -1085,11 +1095,11 @@ class TestSharder(unittest.TestCase):
              for shard_range in root_shard_ranges])
 
         broker.set_sharding_state()
-        ts_older_internal = self.ts_internal()
+        ts_older_internal = self.ts_encoded()
         # put deleted objects into source
         objects = [
-            ['b', self.ts_internal(), 2, 'text/plain', 'etag_b', 1],
-            ['x', self.ts_internal(), 4, 'text/plain', 'etag_x', 1]
+            ['b', self.ts_encoded(), 2, 'text/plain', 'etag_b', 1],
+            ['x', self.ts_encoded(), 4, 'text/plain', 'etag_x', 1]
         ]
         for obj in objects:
             broker.put_object(*obj)
@@ -1146,8 +1156,8 @@ class TestSharder(unittest.TestCase):
 
         # update source db with newer deleted versions of same objects
         new_objects = [
-            ['b', self.ts_internal(), 6, 'text/plain', 'etag_b', 1],
-            ['x', self.ts_internal(), 8, 'text/plain', 'etag_x', 1]
+            ['b', self.ts_encoded(), 6, 'text/plain', 'etag_b', 1],
+            ['x', self.ts_encoded(), 8, 'text/plain', 'etag_x', 1]
         ]
         for obj in new_objects:
             broker.put_object(*obj)
@@ -1157,7 +1167,7 @@ class TestSharder(unittest.TestCase):
             expected_shard_dbs[0], account='.sharded_a',
             container=root_shard_ranges[0].name, logger=logger)
         # update one shard container with even newer version of object
-        newer_object = ('b', self.ts_internal(), 10, 'text/plain', 'etag_b', 0)
+        newer_object = ('b', self.ts_encoded(), 10, 'text/plain', 'etag_b', 0)
         shard_broker.put_object(*newer_object)
 
         with self._mock_sharder() as sharder:
