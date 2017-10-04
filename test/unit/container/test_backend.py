@@ -2686,6 +2686,83 @@ class TestContainerBroker(unittest.TestCase):
         self._check_find_shard_ranges('lower', '')
         self._check_find_shard_ranges('lower', 'upper')
 
+    @with_tempdir
+    def test_set_sharding_states(self, tempdir):
+        ts_iter = make_timestamp_iter()
+        db_path = os.path.join(tempdir, 'container.db')
+        broker = ContainerBroker(
+            db_path, account='shard_a', container='shard_c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        # load up the broker with some objects
+        objects = [{'name': 'obj_%d' % i,
+                    'created_at': next(ts_iter).normal,
+                    'content_type': 'text/plain',
+                    'etag': 'etag_%d' % i,
+                    'size': 1024 * i,
+                    'deleted': 0,
+                    'storage_policy_index': 0,
+                    'record_type': 0
+                    } for i in range(5)]
+        broker.merge_items(objects)
+
+        # Add some syncs
+        incoming_sync = {'remote_id': 'incoming_123', 'sync_point': 1}
+        outgoing_sync = {'remote_id': 'outgoing_123', 'sync_point': 2}
+        broker.merge_syncs([outgoing_sync], incoming=False)
+        broker.merge_syncs([incoming_sync], incoming=True)
+
+        # Add some ShardRanges
+        shard_ranges = [ShardRange(
+            name='shard_range_%s' % i,
+            timestamp=Timestamp(i), lower='%da' % i,
+            upper='%dz' % i, object_count=i, bytes_used=i,
+            meta_timestamp=Timestamp(i)) for i in range(1, 4)]
+
+        broker.merge_items(broker.shard_nodes_to_items(shard_ranges))
+
+        # Sanity checks
+        self.assertEqual(broker.get_max_row(), 5)
+        self.assertDictEqual(broker.get_syncs(True)[0], incoming_sync)
+        self.assertDictEqual(broker.get_syncs(False)[0], outgoing_sync)
+        self.assertEqual(broker.get_shard_ranges(), shard_ranges)
+        self.assertEqual(len(broker.get_brokers()), 1)
+        self.assertEqual(broker.get_db_state(), DB_STATE_UNSHARDED)
+        self.assertTrue(os.path.exists(os.path.join(tempdir, 'container.db')))
+        self.assertFalse(os.path.exists(os.path.join(tempdir,
+                                                     'container_shard.db')))
+
+        # first test that moving from UNSHARDED to SHARDED doesn't work
+        self.assertFalse(broker.set_sharded_state())
+
+        # now set sharding state and make sure everything moves.
+        broker.set_sharding_state()
+        self.assertEqual(broker.get_max_row(), 5)
+        self.assertDictEqual(broker.get_syncs(True)[0], incoming_sync)
+        self.assertDictEqual(broker.get_syncs(False)[0], outgoing_sync)
+        self.assertEqual(broker.get_shard_ranges(), shard_ranges)
+        self.assertEqual(len(broker.get_brokers()), 2)
+        self.assertEqual(broker.get_db_state(), DB_STATE_SHARDING)
+        self.assertTrue(os.path.exists(os.path.join(tempdir, 'container.db')))
+        self.assertTrue(os.path.exists(os.path.join(tempdir,
+                                                    'container_shard.db')))
+
+        # to confirm were definitely looking at the shard db
+        broker2 = ContainerBroker(broker._shard_db_file)
+        self.assertEqual(broker2.get_max_row(), 5)
+        self.assertDictEqual(broker2.get_syncs(True)[0], incoming_sync)
+        self.assertDictEqual(broker2.get_syncs(False)[0], outgoing_sync)
+        self.assertEqual(broker2.get_shard_ranges(), shard_ranges)
+
+        # Try to set sharding state again
+        self.assertFalse(broker.set_sharding_state())
+
+        # Now move to the final state
+        self.assertTrue(broker.set_sharded_state())
+        self.assertFalse(os.path.exists(os.path.join(tempdir, 'container.db')))
+        self.assertTrue(os.path.exists(os.path.join(tempdir,
+                                                    'container_shard.db')))
+
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
 
