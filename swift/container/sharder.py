@@ -26,7 +26,7 @@ from eventlet import Timeout
 
 from swift.container.replicator import ContainerReplicator
 from swift.container.backend import ContainerBroker, \
-    RECORD_TYPE_SHARD_NODE, RECORD_TYPE_OBJECT, DB_STATE_NOTFOUND, \
+    RECORD_TYPE_SHARD_NODE, DB_STATE_NOTFOUND, \
     DB_STATE_UNSHARDED, DB_STATE_SHARDING, DB_STATE_SHARDED
 from swift.common import internal_client, db_replicator
 from swift.common.bufferedhttp import http_connect
@@ -218,70 +218,6 @@ class ContainerSharder(ContainerReplicator):
         broker.get_info()
         return part, broker, node['id']
 
-    def _generate_object_list(self, items, policy_index, delete=False):
-        """
-        Create a list of dictionary items ready to be consumed by
-        Broker.merge_items()
-
-        :param items: list of objects or pivots
-        :param policy_index: the Policy index of the container
-        :param delete: mark the objects as deleted; default False
-
-        :return: A list of item dictionaries ready to be consumed by
-                 merge_items.
-        """
-        objs = list()
-        for item in items:
-            try:
-                if isinstance(item, ShardRange):
-                    item = (
-                        item.name, item.timestamp.internal, item.lower,
-                        item.upper, item.object_count, item.bytes_used,
-                        item.meta_timestamp.internal)
-                if delete:
-                    # Generate a new delete timestamp based off the existing
-                    # created_at, this way we don't clobber other objects that
-                    # may exist out there. The idea is, newer object out there
-                    # will replace the deleted record, which will be picked up
-                    # as a misplaced object and then be pushed and compared to
-                    # where it needs to be.
-                    created_at = Timestamp(item[1], offset=1).internal
-                else:
-                    created_at = item[1]
-                if not isinstance(item[2], int):
-                    # shard node
-                    obj = {
-                        'name': item[0],
-                        'created_at': created_at,
-                        'lower': item[2],
-                        'upper': item[3],
-                        'object_count': item[4],
-                        'bytes_used': item[5],
-                        'meta_timestamp': item[6],
-                        'deleted': 1 if delete else 0,
-                        'storage_policy_index': 0,
-                        'record_type': RECORD_TYPE_SHARD_NODE}
-                else:
-                    # object item
-                    obj = {
-                        'name': item[0],
-                        'created_at': created_at,
-                        'size': item[2],
-                        'content_type': item[3],
-                        'etag': item[4],
-                        'deleted': 1 if delete else 0,
-                        'storage_policy_index': policy_index,
-                        'record_type': RECORD_TYPE_OBJECT}
-            except Exception:
-                # TODO: narrow exception type
-                # TODO: would this be a bug? is just logging appropriate?
-                self.logger.warning("Failed to add object %s, not in the"
-                                    'right format',
-                                    item[0] if item[0] else str(item))
-            else:
-                objs.append(obj)
-        return objs
-
     def _add_shard_metadata(self, broker, root_account, root_container,
                             shard_range, force=False):
 
@@ -358,6 +294,9 @@ class ContainerSharder(ContainerReplicator):
             outer = {'ranges': None}
 
         def run_query(qry, found_misplaced_items):
+            # TODO: list_objects_iter transforms the timestamp, losing info
+            # that we want to copy - see _transform_record - we need to
+            # override that behaviour
             objs = broker.list_objects_iter(CONTAINER_LISTING_LIMIT, **qry)
             if not objs:
                 return found_misplaced_items
@@ -895,7 +834,10 @@ class ContainerSharder(ContainerReplicator):
         # all the shard containers, so we do not waste the work done to find
         # them. that implies havng a way to track if containers have been
         # created or not for persisted shard ranges
-        items = self._generate_object_list(shard_ranges, 0)
+        # TODO: the record_type is only necessary to steer merge_items - may be
+        # better to have separate merge_shards_ranges method
+        items = [dict(sr, deleted=0, record_type=RECORD_TYPE_SHARD_NODE)
+                 for sr in shard_ranges]
         broker.merge_items(items)
         self.cpool.spawn(
             self._replicate_object, part, broker.db_file, node['id'])
@@ -1200,8 +1142,11 @@ class ContainerSharder(ContainerReplicator):
                 CONTAINER_LISTING_LIMIT, **qry)
 
             # Add new items
-            objects = self._generate_object_list(
-                new_items, broker.storage_policy_index)
+            objects = []
+            for record in new_items:
+                item = broker._record_to_dict(record)
+                item['storage_policy_index'] = broker.storage_policy_index
+                objects.append(item)
             broker_to_update.merge_items(objects)
 
             if len(new_items) >= CONTAINER_LISTING_LIMIT:
@@ -1351,18 +1296,19 @@ class ContainerSharder(ContainerReplicator):
             self.logger.increment('sharding_complete')
 
     # TODO: unused method - ok to delete?
-    def _push_shard_ranges_to_container(self, root_account,
-                                        root_container, shard_range,
-                                        storage_policy_index):
-        # Push the new distributed node to the container.
-        part, root_broker, node_id = \
-            self._get_shard_broker(root_account, root_container,
-                                   storage_policy_index)
-        objects = self._generate_object_list(shard_range, storage_policy_index)
-        root_broker.merge_items(objects)
-        self.cpool.spawn(
-            self._replicate_object, part, root_broker.db_file, node_id)
-        any(self.cpool)
+    # def _push_shard_ranges_to_container(self, root_account,
+    #                                     root_container, shard_range,
+    #                                     storage_policy_index):
+    #     # Push the new distributed node to the container.
+    #     part, root_broker, node_id = \
+    #         self._get_shard_broker(root_account, root_container,
+    #                                storage_policy_index)
+    #     objects = self._generate_object_list(
+    #         shard_range, storage_policy_index)
+    #     root_broker.merge_items(objects)
+    #     self.cpool.spawn(
+    #         self._replicate_object, part, root_broker.db_file, node_id)
+    #     any(self.cpool)
 
     def run_forever(self, *args, **kwargs):
         """Run the container sharder until stopped."""
