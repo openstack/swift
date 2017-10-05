@@ -1244,6 +1244,7 @@ class ContainerSharder(ContainerReplicator):
                 'prefix': '',
                 'delimiter': '',
                 'storage_policy_index': policy_index,
+                'include_deleted': True
             }
             if shard_range.upper:
                 query['end_marker'] = shard_range.upper + '\x00'
