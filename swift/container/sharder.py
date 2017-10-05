@@ -1516,15 +1516,15 @@ class RangeAnalyser(object):
                 idx.startswith('c')
 
     def analyse(self, ranges):
-        """Analyse the given list of ShardRanges for a list of paths,
-        newest first, and gaps.
+        """Analyse a list of ShardRanges for a list of paths and gaps.
 
-        Yields the determined paths from newest to oldest, in each case
-        returning a set of unused ShardRanges and whether the path is complete.
+        Yields a tuple comprising the determined paths from newest to oldest,
+        a set of any unused ShardRanges and a boolean indicating if the path
+        is complete or not.
 
-           (<path list>, <set of other ShardRanges>, <bool complete>)
         :param ranges:
-        :return: Tuple of (path, other_shard_ranges, complete).
+        :return: Tuple of the form
+            (<path list>, <set of other ShardRanges>, <bool complete>).
         """
         self._reset()
         self._ranges = set(ranges)
