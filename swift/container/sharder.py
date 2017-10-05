@@ -1295,21 +1295,6 @@ class ContainerSharder(ContainerReplicator):
             self._sharding_complete(root_account, root_container, broker)
             self.logger.increment('sharding_complete')
 
-    # TODO: unused method - ok to delete?
-    # def _push_shard_ranges_to_container(self, root_account,
-    #                                     root_container, shard_range,
-    #                                     storage_policy_index):
-    #     # Push the new distributed node to the container.
-    #     part, root_broker, node_id = \
-    #         self._get_shard_broker(root_account, root_container,
-    #                                storage_policy_index)
-    #     objects = self._generate_object_list(
-    #         shard_range, storage_policy_index)
-    #     root_broker.merge_items(objects)
-    #     self.cpool.spawn(
-    #         self._replicate_object, part, root_broker.db_file, node_id)
-    #     any(self.cpool)
-
     def run_forever(self, *args, **kwargs):
         """Run the container sharder until stopped."""
         self._zero_stats()
