@@ -1800,7 +1800,7 @@ class ContainerBroker(DatabaseBroker):
                                      (None, None))
         if path is None:
             return self.account, self.container
-        if path.count('/') != 1:
+        if path.count('/') != 1 or path.strip('/').count('/') == 0:
             raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
                              "of the form 'account/container', got %r" % path)
         return tuple(path.split('/'))
@@ -1857,7 +1857,7 @@ class ContainerBroker(DatabaseBroker):
         :param limit: the maximum number of shard points to be found; a
             negative value (default) implies no limit.
         :return:  a tuple; the first value in the tuple is a list of
-            :class:`swift.common.utils.ShardRange` instances in object name
+            :class:`~swift.common.utils.ShardRange` instances in object name
             order, the second value is a boolean which is True if the last
             shard range has been found, False otherwise.
         """

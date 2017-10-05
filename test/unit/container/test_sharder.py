@@ -14,7 +14,6 @@
 # limitations under the License.
 import os
 import shutil
-import time
 from contextlib import contextmanager
 from tempfile import mkdtemp
 
@@ -34,10 +33,11 @@ from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter
 
 class TestRangeAnalyser(unittest.TestCase):
     def setUp(self):
+        self.ts_iter = make_timestamp_iter()
         self.ranges = self._default_ranges()
 
     def _default_ranges(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         ranges = [
             ShardRange('-d', ts, '', 'd'),
@@ -53,7 +53,7 @@ class TestRangeAnalyser(unittest.TestCase):
         return ranges
 
     def test_simple_shard(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # This simulate a shard sharding by having an older 'n-p' and
         # newer split 'n-o' and 'o-p'
@@ -81,7 +81,7 @@ class TestRangeAnalyser(unittest.TestCase):
         self.assertSetEqual(expected_best_path, set(path))
 
     def test_2_paths_diverge_and_then_join(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # second scanner that joins back up ( ie runs and dumps into
         # ShardRanges before the other scanner has a go and so takes off where
@@ -111,7 +111,7 @@ class TestRangeAnalyser(unittest.TestCase):
         self.assertSetEqual(expected_best_path, set(path))
 
     def test_2_paths_diverge_older_ends_in_gap(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # second scanner that joins back up ( ie runs and dumps into
         # ShardRanges before the other scanner has a go and so takes off where
@@ -143,7 +143,7 @@ class TestRangeAnalyser(unittest.TestCase):
         self.assertSetEqual(expected_best_path, set(path))
 
     def test_2_paths_diverge_newer_ends_in_gap(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # second scanner that joins back up ( ie runs and dumps into
         # ShardRanges before the other scanner has a go and so takes off where
@@ -175,7 +175,7 @@ class TestRangeAnalyser(unittest.TestCase):
             self.assertSetEqual(expected_best_path[i], set(path))
 
     def test_2_paths_diverge_different_ends(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # To the end with different paths
         overlap_without_gaps = [
@@ -205,7 +205,7 @@ class TestRangeAnalyser(unittest.TestCase):
             self.assertSetEqual(expected_best_path[i], set(path))
 
     def test_2_paths_diverge_different_ends_gap_in_newer(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # To the end with different paths
         overlap_without_gaps = [
@@ -234,7 +234,7 @@ class TestRangeAnalyser(unittest.TestCase):
             self.assertSetEqual(expected_best_path[i], set(path))
 
     def test_tiebreak_newest_difference_wins(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # second scanner that joins back up ( ie runs and dumps into
         # ShardRange before the other scanner has a go and so takes off where
@@ -252,7 +252,7 @@ class TestRangeAnalyser(unittest.TestCase):
 
         # make a shard range in both paths newer then any of the difference to
         # force a tie break situation
-        self.ranges[2].timestamp = Timestamp(time.time()).internal
+        self.ranges[2].timestamp = next(self.ts_iter).internal
         self.ranges.extend(overlap_without_gaps)
         self.ranges.sort()
 
@@ -267,7 +267,7 @@ class TestRangeAnalyser(unittest.TestCase):
             self.assertSetEqual(expected_best_path[i], set(path))
 
     def test_tiebreak_newest_difference_wins_1_with_gap(self):
-        ts = Timestamp(time.time()).internal
+        ts = next(self.ts_iter).internal
 
         # second scanner that joins back up ( ie runs and dumps into
         # ShardRanges before the other scanner has a go and so takes off where
@@ -285,7 +285,7 @@ class TestRangeAnalyser(unittest.TestCase):
 
         # make a shard range in both paths newer then any of the difference to
         # force a tie break situation
-        self.ranges[2].timestamp = Timestamp(time.time()).internal
+        self.ranges[2].timestamp = next(self.ts_iter).internal
         self.ranges.extend(overlap_with_gaps)
         self.ranges.sort()
 
@@ -546,7 +546,7 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[3]))
 
         broker.merge_items(
-            [dict(shard_range, deleted=0, storage_policy_index=0,
+            [dict(shard_range, deleted=0,
                   record_type=RECORD_TYPE_SHARD_NODE)
              for shard_range in initial_shard_ranges[:3]])
 
@@ -1056,8 +1056,7 @@ class TestSharder(unittest.TestCase):
             broker.put_object(*obj)
         broker.get_info()  # force updates to be committed
         # sanity check the puts landed in sharded broker
-        self._check_objects(new_objects[:2] + objects[2:5] + new_objects[2:],
-                            broker.db_file)
+        self._check_objects(sorted(new_objects + objects[2:5]), broker.db_file)
         with self._mock_sharder() as sharder:
             sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
             sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)

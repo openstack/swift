@@ -262,7 +262,7 @@ class ObjectController(BaseStorageServer):
                                      logging information.
         :param container_path: optional path in the form `<account/container>`
             to which the update should be sent. If given this path will be used
-            instead of constructing a path from the the ``account`` and
+            instead of constructing a path from the ``account`` and
             ``container`` params.
         """
         if logger_thread_locals:

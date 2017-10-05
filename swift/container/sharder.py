@@ -657,7 +657,7 @@ class ContainerSharder(ContainerReplicator):
             headers_out['user-agent'] = 'container-sharder %s' % \
                                         os.getpid()
         if 'X-Timestamp' not in headers_out:
-            headers_out['X-Timestamp'] = Timestamp(time.time()).normal
+            headers_out['X-Timestamp'] = Timestamp.now().normal
         try:
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(ip, port, contdevice, partition,
@@ -1019,7 +1019,7 @@ class ContainerSharder(ContainerReplicator):
             upper = None
 
         return ShardRange(container, timestamp, lower, upper,
-                          meta_timestamp=Timestamp(time.time()).internal)
+                          meta_timestamp=Timestamp.now().internal)
 
     def _shrink_phase_2(self, broker, root_account, root_container):
         # We've set metadata last phase. lets make sure it's still the case.
@@ -1080,7 +1080,7 @@ class ContainerSharder(ContainerReplicator):
             self.logger.warning(str(duex))
             return
 
-        timestamp = Timestamp(time.time()).internal
+        timestamp = Timestamp.now().internal
         info = new_broker.get_info()
         merge_piv = ShardRange(
             merge_range.name, timestamp, merge_range.lower,
@@ -1139,11 +1139,9 @@ class ContainerSharder(ContainerReplicator):
         while True:
             objects = broker.get_objects(CONTAINER_LISTING_LIMIT, **qry)
             broker_to_update.merge_items(objects)
-
-            if len(objects) >= CONTAINER_LISTING_LIMIT:
-                qry['marker'] = objects[-1]['name']
-            else:
+            if len(objects) < CONTAINER_LISTING_LIMIT:
                 break
+            qry['marker'] = objects[-1]['name']
 
     def _sharding_complete(self, root_account, root_container, broker):
         broker.set_sharded_state()
@@ -1151,7 +1149,7 @@ class ContainerSharder(ContainerReplicator):
             # We aren't in the root container.
             self._update_shard_ranges(root_account, root_container, 'PUT',
                                       broker.get_shard_ranges())
-            timestamp = Timestamp(time.time()).internal
+            timestamp = Timestamp.now().internal
             shard_range = broker.get_own_shard_range()
             shard_range.timestamp = timestamp
             self._update_shard_ranges(root_account, root_container, 'DELETE',
@@ -1255,7 +1253,7 @@ class ContainerSharder(ContainerReplicator):
             info = new_broker.get_info()
             shard_range.object_count = info['object_count']
             shard_range.bytes_used = info['bytes_used']
-            shard_range.meta_timestamp = Timestamp(time.time())
+            shard_range.meta_timestamp = Timestamp.now()
             if not hasattr(shard_range, 'dont_save'):
                 ranges_done.append(shard_range)
 

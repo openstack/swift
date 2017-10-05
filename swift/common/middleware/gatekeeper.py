@@ -83,7 +83,7 @@ class GatekeeperMiddleware(object):
         # Remove sharding-specific container-server query param.
         # External clients shouldn't need to worry about shards.
         try:
-            ver, _acct, _cont = req.split_path(3, 3)
+            ver, _acct, _cont = req.split_path(3)
             if not valid_api_version(ver):
                 raise ValueError
         except ValueError:
