@@ -297,7 +297,7 @@ class ContainerSharder(ContainerReplicator):
             # TODO: list_objects_iter transforms the timestamp, losing info
             # that we want to copy - see _transform_record - we need to
             # override that behaviour
-            objs = broker.list_objects_iter(CONTAINER_LISTING_LIMIT, **qry)
+            objs = broker.get_objects(CONTAINER_LISTING_LIMIT, **qry)
             if not objs:
                 return found_misplaced_items
 
@@ -309,14 +309,14 @@ class ContainerSharder(ContainerReplicator):
 
             shard_to_obj = defaultdict(list)
             for obj in objs:
-                shard_range = find_shard_range(obj[0], outer['ranges'])
+                shard_range = find_shard_range(obj['name'], outer['ranges'])
                 if shard_range:
                     shard_to_obj[shard_range].append(obj)
                 else:
                     # TODO: don't log for *every* object
                     self.logger.warning(
                         'Failed to find destination shard for %s/%s/%s',
-                        broker.account, broker.container, obj[0])
+                        broker.account, broker.container, obj['name'])
 
             self.logger.info('preparing to move %d misplaced objects found '
                              'in %s/%s',
@@ -328,8 +328,7 @@ class ContainerSharder(ContainerReplicator):
                     acct, shard_range.name, policy_index)
                 self._add_shard_metadata(new_broker, root_account,
                                          root_container, shard_range)
-                objects = [broker._record_to_dict(obj) for obj in obj_list]
-                new_broker.merge_items(objects)
+                new_broker.merge_items(obj_list)
 
                 self.cpool.spawn(
                     self._replicate_object, part, new_broker.db_file, node_id)
@@ -346,7 +345,7 @@ class ContainerSharder(ContainerReplicator):
 
             # There could be more, so recurse my pretty
             if len(objs) == CONTAINER_LISTING_LIMIT:
-                qry['marker'] = objs[-1][0]
+                qry['marker'] = objs[-1]['name']
                 return run_query(qry, True)
             return True
 
@@ -1123,7 +1122,7 @@ class ContainerSharder(ContainerReplicator):
 
     def _add_items(self, broker, broker_to_update, qry, ignore_state=False):
         """
-        Move items from one broker to another.
+        Copy objects from one broker to another.
 
         The qry is a query dict in the form of:
             dict(marker='', end_marker='', prefix='', delimiter='',
@@ -1138,19 +1137,11 @@ class ContainerSharder(ContainerReplicator):
             return
         qry = qry.copy()  # Since we're going to change marker in the loop...
         while True:
-            new_items = broker.list_objects_iter(
-                CONTAINER_LISTING_LIMIT, **qry)
-
-            # Add new items
-            objects = []
-            for record in new_items:
-                item = broker._record_to_dict(record)
-                item['storage_policy_index'] = broker.storage_policy_index
-                objects.append(item)
+            objects = broker.get_objects(CONTAINER_LISTING_LIMIT, **qry)
             broker_to_update.merge_items(objects)
 
-            if len(new_items) >= CONTAINER_LISTING_LIMIT:
-                qry['marker'] = new_items[-1][0]
+            if len(objects) >= CONTAINER_LISTING_LIMIT:
+                qry['marker'] = objects[-1]['name']
             else:
                 break
 

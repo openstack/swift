@@ -909,7 +909,7 @@ class ContainerBroker(DatabaseBroker):
 
     def list_objects_iter(self, limit, marker, end_marker, prefix, delimiter,
                           path=None, storage_policy_index=0, reverse=False,
-                          include_deleted=False):
+                          include_deleted=False, transform_func=None):
         """
         Get a list of objects sorted by name starting at marker onward, up
         to limit entries.  Entries will begin with the prefix and will not
@@ -925,10 +925,15 @@ class ContainerBroker(DatabaseBroker):
         :param storage_policy_index: storage policy index for query
         :param reverse: reverse the result order.
         :param include_deleted: Include items that have the delete marker set
-
+        :param transform_func: an optional function that if given will be
+            called for each object to get a transformed version of the object
+            to include in the listing; should have same signature as
+            :meth:`~_transform_record`; defaults to :meth:`~_transform_record`.
         :returns: list of tuples of (name, created_at, size, content_type,
                   etag, deleted)
         """
+        if transform_func is None:
+            transform_func = self._transform_record
         delim_force_gte = False
         (marker, end_marker, prefix, delimiter, path) = utf8encode(
             marker, end_marker, prefix, delimiter, path)
@@ -1009,7 +1014,8 @@ class ContainerBroker(DatabaseBroker):
                 # is no delimiter then we can simply return the result as
                 # prefixes are now handled in the SQL statement.
                 if prefix is None or not delimiter:
-                    return [self._transform_record(r) for r in curs]
+                    return [transform_func(r, storage_policy_index)
+                            for r in curs]
 
                 # We have a delimiter and a prefix (possibly empty string) to
                 # handle
@@ -1048,12 +1054,44 @@ class ContainerBroker(DatabaseBroker):
                             results.append([dir_name, '0', 0, None, ''])
                         curs.close()
                         break
-                    results.append(self._transform_record(row))
+                    results.append(transform_func(row, storage_policy_index))
                 if not rowcount:
                     break
             return results
 
-    def _transform_record(self, record):
+    # TODO: needs unit test
+    def get_objects(self, limit, marker, end_marker, prefix, delimiter,
+                    path=None, storage_policy_index=0, reverse=False,
+                    include_deleted=False):
+        """
+        Return a list of objects.
+
+        :param limit: maximum number of entries to get
+        :param marker: if set, objects with names less than or equal to this
+            value will not be included in the list.
+        :param end_marker: if set, objects with names greater than or equal to
+            this value will not be included in the list.
+        :param prefix: prefix query
+        :param delimiter: delimiter for query
+        :param path: if defined, will set the prefix and delimiter based on
+                     the path
+        :param storage_policy_index: storage policy index for query
+        :param reverse: reverse the result order.
+        :param include_deleted: include items that have the delete marker set
+        :return: a list of dicts, each describing an object.
+        """
+        def transform_record(record, policy_index):
+            result = self._record_to_dict(record)
+            result['storage_policy_index'] = policy_index
+            return result
+
+        return self.list_objects_iter(
+            limit, marker, end_marker, prefix, delimiter, path=path,
+            storage_policy_index=storage_policy_index, reverse=reverse,
+            include_deleted=include_deleted, transform_func=transform_record
+        )
+
+    def _transform_record(self, record, storage_policy_index):
         """
         Decode the created_at timestamp into separate data, content-type and
         meta timestamps and replace the created_at timestamp with the
