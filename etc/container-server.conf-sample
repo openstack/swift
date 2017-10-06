@@ -338,9 +338,9 @@ use = egg:swift#xprofile
 # shard_shrink_merge_point = 75
 #
 # When sharding, one primary node becomes the scanner and scans for pivot
-# points. In one shard pass a scanner will search for up to
-# shard_scanner_batch_size pivots before moving to the next container and
-# will find more on the next pass.
+# points. In one shard pass a scanner identifies up to shard_scanner_batch_size
+# shard ranges before moving to the next container and will find more on the
+# next pass.
 # shard_scanner_batch_size = 10
 #
 # When sharding how many pivots should it shard in one shard pass before moving

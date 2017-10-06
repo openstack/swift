@@ -5330,6 +5330,9 @@ class TestObjectController(unittest.TestCase):
         # TODO: should these cases trigger a 400 response rather than
         # defaulting to root path?
         do_test('garbage', 'a/c', None)
+        do_test('/', 'a/c', None)
+        do_test('/no-acct', 'a/c', None)
+        do_test('no-cont/', 'a/c', None)
         do_test('too/many/parts', 'a/c', None)
         do_test('/leading/slash', 'a/c', None)
 

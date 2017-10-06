@@ -2247,7 +2247,7 @@ class TestContainerController(unittest.TestCase):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         broker.set_sharding_state()
 
-        # these PUTS will land in the pivot db (no shard ranges yet)
+        # these PUTS will land in the shard db (no shard ranges yet)
         for obj in objects[5:]:
             req = Request.blank('/sda1/p/a/c/%s' % obj['name'], method='PUT',
                                 headers=obj)
@@ -2300,7 +2300,7 @@ class TestContainerController(unittest.TestCase):
                          expected[:2] + expected[4:6])
         with mock.patch('swift.common.constraints.CONTAINER_LISTING_LIMIT', 2):
             # mock listing limit to check that repeated calls are made to the
-            # pivot db to replace old items that are found to be deleted
+            # shard db to replace old items that are found to be deleted
             check_object_GET('/sda1/p/a/c?format=json&marker=obj_1&limit=2',
                              [expected[1], expected[4]])
 

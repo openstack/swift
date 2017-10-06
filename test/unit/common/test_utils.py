@@ -3697,7 +3697,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 shutil.rmtree(tempdir)
 
     def test_find_shard_range(self):
-        ts = utils.Timestamp(time.time()).internal
+        ts = utils.Timestamp.now().internal
         start = utils.ShardRange('-a', ts, '', 'a')
         atof = utils.ShardRange('a-f', ts, 'a', 'f')
         ftol = utils.ShardRange('f-l', ts, 'f', 'l')
@@ -6510,7 +6510,7 @@ class TestShardRange(unittest.TestCase):
     def setUp(self):
         self.ts_iter = make_timestamp_iter()
 
-    def test_pivot_range_initialisation(self):
+    def test_shard_range_initialisation(self):
         def assert_initialisation_ok(params, expected):
             pr = utils.ShardRange(**params)
             self.assertDictEqual(dict(pr), expected)
@@ -6631,7 +6631,7 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual(ts_4, pr.timestamp)
         self.assertEqual(ts_4, pr.meta_timestamp)
 
-    def test_pivot_range(self):
+    def test_shard_range(self):
         # first test infinite range (no boundries)
         inf_pr = utils.ShardRange(name='test', timestamp=utils.Timestamp.now())
         self.assertEqual('', inf_pr.upper)
@@ -6646,7 +6646,7 @@ class TestShardRange(unittest.TestCase):
         for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
             self.assertTrue(x in inf_pr)
 
-        ts = utils.Timestamp(time.time()).internal
+        ts = utils.Timestamp.now().internal
 
         # upper (if provided) *must* be greater than lower
         with self.assertRaises(ValueError):

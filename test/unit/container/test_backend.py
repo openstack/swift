@@ -237,9 +237,10 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_delete_shard(self):
         # Test ContainerBroker.delete_object
+        ts_iter = make_timestamp_iter()
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_shard('o', Timestamp(time()).internal)
+        broker.put_shard('o', next(ts_iter).internal)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM shard_ranges "
@@ -247,8 +248,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM shard_ranges "
                 "WHERE deleted = 1").fetchone()[0], 0)
-        sleep(.00001)
-        broker.delete_shard('o', Timestamp(time()).internal)
+        broker.delete_shard('o', next(ts_iter).internal)
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM shard_ranges "
@@ -461,9 +461,14 @@ class TestContainerBroker(unittest.TestCase):
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
 
+        ts_iter = make_timestamp_iter()
+        # Stash these for later
+        old_put_timestamp = next(ts_iter).internal
+        old_delete_timestamp = next(ts_iter).internal
+
         # Create initial object
-        timestamp = Timestamp(time()).internal
-        meta_timestamp = Timestamp(time()).internal
+        timestamp = next(ts_iter).internal
+        meta_timestamp = next(ts_iter).internal
         broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
                          meta_timestamp, lower='low', upper='up')
         with broker.get() as conn:
@@ -512,9 +517,8 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 0)
 
         # Put new event
-        sleep(.00001)
-        timestamp = Timestamp(time()).internal
-        meta_timestamp = Timestamp(time()).internal
+        timestamp = next(ts_iter).internal
+        meta_timestamp = next(ts_iter).internal
         broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
                          meta_timestamp, lower='lower', upper='upper',
                          object_count=1, bytes_used=2)
@@ -540,8 +544,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put old event
-        otimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
-        broker.put_shard('"{<shardrange \'&\' name>}"', otimestamp,
+        broker.put_shard('"{<shardrange \'&\' name>}"', old_put_timestamp,
                          meta_timestamp, lower='lower', upper='upper',
                          object_count=1, bytes_used=2)
         with broker.get() as conn:
@@ -550,7 +553,7 @@ class TestContainerBroker(unittest.TestCase):
                 '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
-                timestamp)
+                timestamp)  # Not old_put_timestamp!
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
@@ -566,8 +569,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put old delete event
-        dtimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
-        broker.put_shard('"{<shardrange \'&\' name>}"', dtimestamp,
+        broker.put_shard('"{<shardrange \'&\' name>}"', old_delete_timestamp,
                          meta_timestamp, lower='lower', upper='upper',
                          deleted=1)
         with broker.get() as conn:
@@ -576,7 +578,7 @@ class TestContainerBroker(unittest.TestCase):
                 '"{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
-                timestamp)
+                timestamp)  # Not old_delete_timestamp!
             self.assertEqual(conn.execute(
                 "SELECT meta_timestamp FROM shard_ranges").fetchone()[0],
                 meta_timestamp)
@@ -592,8 +594,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 2)
 
         # Put new delete event
-        sleep(.00001)
-        timestamp = Timestamp(time()).internal
+        timestamp = next(ts_iter).internal
         broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
                          meta_timestamp, lower='lower', upper='upper',
                          deleted=1)
@@ -608,9 +609,8 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT deleted FROM shard_ranges").fetchone()[0], 1)
 
         # Put new event
-        sleep(.00001)
-        timestamp = Timestamp(time()).internal
-        meta_timestamp = Timestamp(time()).internal
+        timestamp = next(ts_iter).internal
+        meta_timestamp = next(ts_iter).internal
         broker.put_shard('"{<shardrange \'&\' name>}"', timestamp,
                          meta_timestamp, lower='lowerer', upper='upperer',
                          object_count=3, bytes_used=4)
@@ -636,15 +636,13 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT bytes_used FROM shard_ranges").fetchone()[0], 4)
 
         # We'll use this later
-        sleep(.0001)
-        in_between_timestamp = Timestamp(time()).internal
+        in_between_timestamp = next(ts_iter).internal
 
         # New post event
-        sleep(.0001)
         previous_timestamp = timestamp
-        timestamp = Timestamp(time()).internal
+        timestamp = next(ts_iter).internal
         previous_meta_timestamp = meta_timestamp
-        meta_timestamp = Timestamp(time()).internal
+        meta_timestamp = next(ts_iter).internal
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
@@ -893,7 +891,7 @@ class TestContainerBroker(unittest.TestCase):
         db_shard_file = "%s_shard.db" % hsh
         db_path = os.path.join(tempdir, db_file)
         db_shard_path = os.path.join(tempdir, db_shard_file)
-        ts = Timestamp(time())
+        ts = Timestamp.now()
 
         # First test NOTFOUND state
         broker = ContainerBroker(db_path, account=acct, container=cont)
@@ -931,7 +929,7 @@ class TestContainerBroker(unittest.TestCase):
         db_shard_file = "%s_shard.db" % hsh
         db_path = os.path.join(tempdir, db_file)
         db_shard_path = os.path.join(tempdir, db_shard_file)
-        ts = Timestamp(time())
+        ts = Timestamp.now()
 
         # First test NOTFOUND state, this will return the default db_file
         broker = ContainerBroker(db_path, account=acct, container=cont)
@@ -2575,8 +2573,7 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def _check_find_shard_ranges(self, c_lower, c_upper, tempdir):
         ts_iter = make_timestamp_iter()
-        now = time()
-        ts_now = Timestamp(now)
+        ts_now = Timestamp.now()
         container_name = 'test_container'
 
         def do_test(expected_bounds, expected_last_found, shard_size, limit):
@@ -2593,7 +2590,7 @@ class TestContainerBroker(unittest.TestCase):
                 expected_range_dicts.append(d)
             # call the method under test
             with mock.patch('swift.common.utils.time.time',
-                            return_value=now):
+                            return_value=float(ts_now.normal)):
                 ranges, last_found = broker.find_shard_ranges(shard_size,
                                                               limit)
             # verify results
@@ -2690,6 +2687,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_sharding_states(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
+        new_db_path = os.path.join(tempdir, 'container_shard.db')
         broker = ContainerBroker(
             db_path, account='shard_a', container='shard_c')
         broker.initialize(next(ts_iter).internal, 0)
@@ -2706,6 +2704,14 @@ class TestContainerBroker(unittest.TestCase):
                     } for i in range(5)]
         broker.merge_items(objects)
 
+        # Add some metadata
+        meta = {
+            'X-Container-Meta-Color': ['Blue', next(ts_iter).normal],
+            'X-Container-Meta-Cleared': ['', next(ts_iter).normal],
+            'X-Container-Sysmeta-Shape': ['Circle', next(ts_iter).normal],
+        }
+        broker.update_metadata(meta)
+
         # Add some syncs
         incoming_sync = {'remote_id': 'incoming_123', 'sync_point': 1}
         outgoing_sync = {'remote_id': 'outgoing_123', 'sync_point': 2}
@@ -2721,47 +2727,79 @@ class TestContainerBroker(unittest.TestCase):
 
         broker.merge_items(broker.shard_nodes_to_items(shard_ranges))
 
+        def check_broker_properties(broker):
+            # these broker properties should remain unchanged as state changes
+            self.assertEqual(broker.get_max_row(), 5)
+            self.assertEqual(broker.metadata, meta)
+            self.assertEqual(broker.get_syncs(True)[0], incoming_sync)
+            self.assertEqual(broker.get_syncs(False)[0], outgoing_sync)
+            self.assertEqual(broker.get_shard_ranges(), shard_ranges)
+
+        def check_unsharded_state(broker):
+            # this are expected properties in unsharded state
+            self.assertEqual(len(broker.get_brokers()), 1)
+            self.assertEqual(broker.get_db_state(), DB_STATE_UNSHARDED)
+            self.assertTrue(os.path.exists(db_path))
+            self.assertFalse(os.path.exists(new_db_path))
+            self.assertEqual(5, len(broker.list_objects_iter(
+                100, None, None, None, None, include_deleted=True)))
+
         # Sanity checks
-        self.assertEqual(broker.get_max_row(), 5)
-        self.assertDictEqual(broker.get_syncs(True)[0], incoming_sync)
-        self.assertDictEqual(broker.get_syncs(False)[0], outgoing_sync)
-        self.assertEqual(broker.get_shard_ranges(), shard_ranges)
-        self.assertEqual(len(broker.get_brokers()), 1)
-        self.assertEqual(broker.get_db_state(), DB_STATE_UNSHARDED)
-        self.assertTrue(os.path.exists(os.path.join(tempdir, 'container.db')))
-        self.assertFalse(os.path.exists(os.path.join(tempdir,
-                                                     'container_shard.db')))
+        check_broker_properties(broker)
+        check_unsharded_state(broker)
 
         # first test that moving from UNSHARDED to SHARDED doesn't work
         self.assertFalse(broker.set_sharded_state())
+        # check nothing changed
+        check_broker_properties(broker)
+        check_unsharded_state(broker)
 
         # now set sharding state and make sure everything moves.
         broker.set_sharding_state()
-        self.assertEqual(broker.get_max_row(), 5)
-        self.assertDictEqual(broker.get_syncs(True)[0], incoming_sync)
-        self.assertDictEqual(broker.get_syncs(False)[0], outgoing_sync)
-        self.assertEqual(broker.get_shard_ranges(), shard_ranges)
-        self.assertEqual(len(broker.get_brokers()), 2)
-        self.assertEqual(broker.get_db_state(), DB_STATE_SHARDING)
-        self.assertTrue(os.path.exists(os.path.join(tempdir, 'container.db')))
-        self.assertTrue(os.path.exists(os.path.join(tempdir,
-                                                    'container_shard.db')))
+        check_broker_properties(broker)
 
-        # to confirm were definitely looking at the shard db
-        broker2 = ContainerBroker(broker._shard_db_file)
-        self.assertEqual(broker2.get_max_row(), 5)
-        self.assertDictEqual(broker2.get_syncs(True)[0], incoming_sync)
-        self.assertDictEqual(broker2.get_syncs(False)[0], outgoing_sync)
-        self.assertEqual(broker2.get_shard_ranges(), shard_ranges)
+        def check_sharding_state(broker):
+            self.assertEqual(len(broker.get_brokers()), 2)
+            self.assertEqual(broker.get_db_state(), DB_STATE_SHARDING)
+            self.assertTrue(os.path.exists(db_path))
+            self.assertTrue(os.path.exists(new_db_path))
+            self.assertEqual([], broker.list_objects_iter(
+                100, None, None, None, None, include_deleted=True))
+        check_sharding_state(broker)
+
+        # to confirm we're definitely looking at the shard db
+        broker2 = ContainerBroker(new_db_path)
+        # this one thinks it is already in DB_STATE_SHARDED because we opened
+        # it with the _shard.db file
+        self.assertEqual(broker2.get_db_state(), DB_STATE_SHARDED)
+        check_broker_properties(broker2)
+        self.assertEqual([], broker2.list_objects_iter(
+            100, None, None, None, None, include_deleted=True))
 
         # Try to set sharding state again
         self.assertFalse(broker.set_sharding_state())
+        # check nothing changed
+        check_broker_properties(broker)
+        check_sharding_state(broker)
 
         # Now move to the final state
         self.assertTrue(broker.set_sharded_state())
-        self.assertFalse(os.path.exists(os.path.join(tempdir, 'container.db')))
-        self.assertTrue(os.path.exists(os.path.join(tempdir,
-                                                    'container_shard.db')))
+        check_broker_properties(broker)
+
+        def check_sharded_state(broker):
+            self.assertEqual(broker.get_db_state(), DB_STATE_SHARDED)
+            self.assertEqual(len(broker.get_brokers()), 1)
+            self.assertFalse(os.path.exists(db_path))
+            self.assertTrue(os.path.exists(new_db_path))
+            self.assertEqual([], broker.list_objects_iter(
+                100, None, None, None, None, include_deleted=True))
+        check_sharded_state(broker)
+
+        # Try to set sharded state again
+        self.assertFalse(broker.set_sharded_state())
+        # check nothing changed
+        check_broker_properties(broker)
+        check_sharded_state(broker)
 
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):

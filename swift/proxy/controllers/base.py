@@ -1997,9 +1997,9 @@ class Controller(object):
             return []
 
         try:
-            pivots = json.loads(response.body)
-            return [ShardRange.from_dict(pivot_range)
-                    for pivot_range in pivots]
+            shard_ranges = json.loads(response.body)
+            return [ShardRange.from_dict(shard_range)
+                    for shard_range in shard_ranges]
         except (ValueError, TypeError, KeyError) as err:
             self.app.logger.exception(
                 "Problem decoding shard ranges in response from %s: %s",

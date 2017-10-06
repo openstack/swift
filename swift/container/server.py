@@ -332,9 +332,9 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-shard-upper'))
             else:
                 # redirect if a shard range exists for the object name
-                res = self._find_shard_location(req, broker, obj)
-                if res:
-                    return res
+                redirect = self._find_shard_location(req, broker, obj)
+                if redirect:
+                    return redirect
 
                 broker.delete_object(obj, req.headers.get('x-timestamp'),
                                      obj_policy_index)
@@ -448,7 +448,7 @@ class ContainerController(BaseStorageServer):
                     req.headers.get('x-backend-shard-bytes'))
 
             else:
-                # redirect if a shard exits for this object name
+                # redirect if a shard exists for this object name
                 redirect = self._find_shard_location(req, broker, obj)
                 if redirect:
                     return redirect
@@ -530,7 +530,7 @@ class ContainerController(BaseStorageServer):
 
         def merge_items(old_items, new_items, reverse=False):
             # TODO: this method should compare timestamps and not assume that
-            # any item in the pivot db is newer (across data, content-type and
+            # any item in the shard db is newer (across data, content-type and
             # metadata) than an item in the old db.
             if old_items and isinstance(old_items[0], dict):
                 # TODO (acoles): does this condition ever occur?
@@ -652,6 +652,7 @@ class ContainerController(BaseStorageServer):
         elif info.get('db_state') == DB_STATE_SHARDING:
             # Container is sharding, so we need to look at both brokers
             # TODO: will we ever want items=all to be supported in this case?
+            # TODO: what happened to reverse?
             resp_headers, container_list = self._check_local_brokers(
                 req, broker, resp_headers, marker, end_marker, prefix, limit)
         else:
