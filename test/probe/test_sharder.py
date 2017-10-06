@@ -200,6 +200,26 @@ class TestContainerSharding(ReplProbeTest):
                                                 query_string='reverse=on')
         self.assertEqual(pre_sharding_listing[::-1], listing)
 
+        # Now put another object
+        client.put_object(self.url, self.token, self.container_name, 'alpha')
+
+        # The listing includes new object...
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertEqual(pre_sharding_listing, listing[1:])
+        self.assertEqual('alpha', listing[0]['name'])
+        # ...but object count is out of date
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(headers['x-container-object-count'],
+                         str(len(obj_names)))
+        # ...until the sharders run and update the root
+        self.sharders.once()
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(headers['x-container-object-count'],
+                         str(len(obj_names) + 1))
+
     def test_sharded_listing_no_replicators(self):
         self._test_sharded_listing()
 
