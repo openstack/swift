@@ -2701,8 +2701,9 @@ class TestContainerBroker(unittest.TestCase):
                     'deleted': 0,
                     'storage_policy_index': 0,
                     'record_type': 0
-                    } for i in range(5)]
+                    } for i in range(1, 6)]
         broker.merge_items(objects)
+        original_info = broker.get_info()
 
         # Add some metadata
         meta = {
@@ -2719,11 +2720,15 @@ class TestContainerBroker(unittest.TestCase):
         broker.merge_syncs([incoming_sync], incoming=True)
 
         # Add some ShardRanges
+        # TODO: note these are initialised with expected object count and bytes
+        # used - check that reality catches up with this assumption
         shard_ranges = [ShardRange(
             name='shard_range_%s' % i,
-            timestamp=Timestamp(i), lower='%da' % i,
-            upper='%dz' % i, object_count=i, bytes_used=i,
-            meta_timestamp=Timestamp(i)) for i in range(1, 4)]
+            timestamp=next(ts_iter), lower='obj_%d' % i,
+            upper='obj_%d' % (i + 2),
+            object_count=len(objects[i:i + 2]),
+            bytes_used=sum(obj['size'] for obj in objects[i:i + 2]),
+            meta_timestamp=next(ts_iter)) for i in range(0, 6, 2)]
 
         broker.merge_items(broker.shard_nodes_to_items(shard_ranges))
 
@@ -2734,6 +2739,13 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(broker.get_syncs(True)[0], incoming_sync)
             self.assertEqual(broker.get_syncs(False)[0], outgoing_sync)
             self.assertEqual(broker.get_shard_ranges(), shard_ranges)
+
+        def check_broker_info(actual_info):
+            # TODO: created_at and hash should not be exceptions
+            for key in ('created_at', 'hash', 'db_state', 'id'):
+                actual_info.pop(key, None)
+                original_info.pop(key, None)
+            self.assertEqual(actual_info, original_info)
 
         def check_unsharded_state(broker):
             # this are expected properties in unsharded state
@@ -2747,16 +2759,19 @@ class TestContainerBroker(unittest.TestCase):
         # Sanity checks
         check_broker_properties(broker)
         check_unsharded_state(broker)
+        check_broker_info(broker.get_info())
 
         # first test that moving from UNSHARDED to SHARDED doesn't work
         self.assertFalse(broker.set_sharded_state())
         # check nothing changed
         check_broker_properties(broker)
+        check_broker_info(broker.get_info())
         check_unsharded_state(broker)
 
         # now set sharding state and make sure everything moves.
         broker.set_sharding_state()
         check_broker_properties(broker)
+        check_broker_info(broker.get_info())
 
         def check_sharding_state(broker):
             self.assertEqual(len(broker.get_brokers()), 2)
@@ -2773,6 +2788,7 @@ class TestContainerBroker(unittest.TestCase):
         # it with the _shard.db file
         self.assertEqual(broker2.get_db_state(), DB_STATE_SHARDED)
         check_broker_properties(broker2)
+        check_broker_info(broker2.get_info())
         self.assertEqual([], broker2.list_objects_iter(
             100, None, None, None, None, include_deleted=True))
 
@@ -2780,11 +2796,13 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(broker.set_sharding_state())
         # check nothing changed
         check_broker_properties(broker)
+        check_broker_info(broker.get_info())
         check_sharding_state(broker)
 
         # Now move to the final state
         self.assertTrue(broker.set_sharded_state())
         check_broker_properties(broker)
+        check_broker_info(broker.get_info())
 
         def check_sharded_state(broker):
             self.assertEqual(broker.get_db_state(), DB_STATE_SHARDED)
@@ -2799,6 +2817,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(broker.set_sharded_state())
         # check nothing changed
         check_broker_properties(broker)
+        check_broker_info(broker.get_info())
         check_sharded_state(broker)
 
 

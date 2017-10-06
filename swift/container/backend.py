@@ -1546,13 +1546,14 @@ class ContainerBroker(DatabaseBroker):
         # Later we will remove parts so the shard range DB only has what it
         # really needs
         # TODO: do we need to think about cleaning these tmp files?
+        info = self.get_info()
         tmp_db_file = os.path.join(os.path.dirname(self._shard_db_file),
                                    str(uuid4()))
         sub_broker = ContainerBroker(tmp_db_file, self.timeout,
                                      self.logger, self.account, self.container,
                                      self.pending_timeout, self.stale_reads_ok)
-        sub_broker.initialize(Timestamp.now().internal,
-                              self.storage_policy_index)
+        sub_broker.initialize(info['put_timestamp'],
+                              info['storage_policy_index'])
         sub_broker.update_metadata(self.metadata)
 
         # If there are shard_ranges defined.. which can happen when the scanner
@@ -1581,6 +1582,7 @@ class ContainerBroker(DatabaseBroker):
                     "values (?, 'pivted_remove', ?, 0, '', ?)"
                 conn.execute(sql, (max_row, Timestamp.now().internal,
                                    '68b329da9893e34099c7d8ad5cb9c940'))
+                # TODO: what is this hash ^^^^^ ?
                 conn.execute('DELETE FROM object WHERE ROWID = %d' % max_row)
                 conn.commit()
             except sqlite3.OperationalError as err:

@@ -130,9 +130,10 @@ class TestContainerSharding(ReplProbeTest):
         # Shard it
         client.post_container(self.url, self.admin_token, self.container_name,
                               headers={'X-Container-Sharding': 'on'})
-        headers = client.head_container(self.url, self.admin_token,
-                                        self.container_name)
-        self.assertEqual('True', headers.get('x-container-sharding'))
+        pre_sharding_headers = client.head_container(
+            self.url, self.admin_token, self.container_name)
+        self.assertEqual('True',
+                         pre_sharding_headers.get('x-container-sharding'))
 
         # Only run the one in charge of scanning
         self.sharders.once(number=self.brain.node_numbers[0])
@@ -193,6 +194,9 @@ class TestContainerSharding(ReplProbeTest):
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(headers['x-container-object-count'],
                          str(len(obj_names)))
+        # ... and check some other container properties
+        self.assertEqual(headers['last-modified'],
+                         pre_sharding_headers['last-modified'])
 
         # It even works in reverse!
         headers, listing = client.get_container(self.url, self.token,
