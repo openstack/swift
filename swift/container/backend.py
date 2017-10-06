@@ -238,41 +238,11 @@ def update_new_item_from_existing(new_item, existing):
     return any(newer_than_existing)
 
 
-def merge_data(item, existing):
-    # The Parameters match one of the following:
-    #  1. Prefix + item, existing = existing + item
-    #  2. Prefix + item, prefix + existing = prefix + exiting + item
-    #  3. item, existing = item
-    #  4. item, prefix + existing = item
-    if item and existing:
-        # Merge
-        prefix = False
-        prefix_str = ''
-        if '+' not in item and '-' not in item:
-            # no item prefix, short circuit to item (No. 3 or 4).
-            return item, False
-
-        if '+' in existing or '-' in existing:
-            prefix = True
-
-        item = int(existing) + int(item)
-        if prefix:
-            prefix_str = '-' if item < 0 else '+'
-        else:
-            # Can't be -'ve
-            if item < 0:
-                item = 0
-        return ("%s%d" % (prefix_str, item), prefix)
-    elif item:
-        return item, None
-    elif existing:
-        return existing, None
-    else:
-        # Both missing
-        return '', True
-
-
 def merge_shards(item, existing):
+    # TODO: do we need to consider taking object_count and bytes_used from
+    # whichever has newest meta_timestamp regardless of created time? If we had
+    # two shard_ranges on two nodes with same created at and name, then one
+    # may have been updated with meta independently of the other.
     if not existing:
         return True
     if existing['created_at'] < item['created_at']:
@@ -281,23 +251,9 @@ def merge_shards(item, existing):
         return False
 
     # created_at must be the same, now we need to look for meta data updates
-    if existing['meta_timestamp'] > item['meta_timestamp']:
-        item, existing = existing, item
-    if existing['meta_timestamp'] == item['meta_timestamp']:
-        return False
-    for col in ('object_count', 'bytes_used'):
-        item[col] = str(item[col])
-        existing[col] = str(existing[col])
-        if '-' not in item[col] and '+' not in item[col]:
-            # existing is a definite definition, so just use it.
-            continue
-        # It is an increment/decrement so we need to merge with item
-        item[col], prefixed = merge_data(item[col], existing[col])
-        if prefixed:
-            item['prefixed'] = True
-        else:
-            item.pop('prefixed', None)
-    return True
+    if existing['meta_timestamp'] < item['meta_timestamp']:
+        return True
+    return False
 
 
 class ContainerBroker(DatabaseBroker):
@@ -1258,15 +1214,6 @@ class ContainerBroker(DatabaseBroker):
                         merge_shards(item, to_add[item_ident])
                     to_add[item_ident] = item
 
-            # TODO: not relevant? ...
-            # Now that all the to_add items are merged, they are either in
-            # the form of incremented '+|-<count>' or absolute
-            # '<count>'. If the former we need to increment before
-            # we delete the current values.
-            items = [i for i in to_add.values() if i.get('prefixed')]
-            for item in items:
-                self.update_shard_usage(item)
-
             if to_delete:
                 curs.executemany(
                     'DELETE FROM shard_ranges WHERE deleted in (0, 1) '
@@ -1465,41 +1412,6 @@ class ContainerBroker(DatabaseBroker):
         else:
             with self.get() as conn:
                 return do_query(conn)
-
-    def update_shard_usage(self, item):
-
-        def update_usage(current, new_data):
-            if not current:
-                current = '0'
-
-            if new_data.startswith('-') or new_data.startswith('+'):
-                new_data = int(new_data)
-                current = int(current)
-                new_data += current
-                if new_data < 0:
-                    new_data = 0
-
-            return int(new_data)
-
-        with self.get() as conn:
-            # we need the current value.
-            try:
-                sql = '''
-                SELECT object_count, bytes_used
-                FROM shard_ranges
-                WHERE deleted=0 AND
-                created_at < ? AND
-                name == ?;
-                '''
-                data = conn.execute(sql, item['created_at'], item['name'])
-                row = data.fetchone()
-                if not row:
-                    row = (0, 0)
-            except sqlite3.OperationalError:
-                row = (0, 0)
-
-            item['object_count'] = update_usage(row[0], item['object_count'])
-            item['bytes_used'] = update_usage(row[1], item['bytes_used'])
 
     def get_shard_usage(self):
         self._commit_puts_stale_ok()
