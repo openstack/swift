@@ -1113,133 +1113,69 @@ class ContainerBroker(DatabaseBroker):
             return result
         return None
 
-    def merge_items(self, item_list, source=None):
+    def merge_objects(self, item_list, source=None):
         """
-        Merge items into the object or shard ranges tables.
+        Merge items into the object table.
 
         :param item_list: list of dictionaries of {'name', 'created_at',
                           'size', 'content_type', 'etag', 'deleted',
                           'storage_policy_index', 'ctype_timestamp',
-                          'meta_timestamp', 'record_type'}
+                          'meta_timestamp'}
         :param source: if defined, update incoming_sync with the source
         """
         for item in item_list:
-            item.setdefault('record_type', RECORD_TYPE_OBJECT)
-            cols = ['name']
-            if item['record_type'] == RECORD_TYPE_SHARD_NODE:
-                cols += ['lower', 'upper']
-            for col in cols:
-                if isinstance(item[col], six.text_type):
-                    item[col] = item[col].encode('utf-8')
+            if isinstance(item['name'], six.text_type):
+                item['name'] = item['name'].encode('utf-8')
 
-        shard_range_list = [item for item in item_list
-                            if item['record_type'] == RECORD_TYPE_SHARD_NODE]
-
-        item_list = [item for item in item_list
-                     if item['record_type'] == RECORD_TYPE_OBJECT]
-
-        def get_records_object(curs, chunk, query_mod):
-            sql = (('SELECT name, created_at, size, content_type,'
-                    'etag, deleted, storage_policy_index '
-                    'FROM object '
-                    'WHERE %s name IN (%s)')
-                   % (query_mod, ','.join('?' * len(chunk))))
-            return (((record[0], record[6]), record)
-                    for record in curs.execute(sql, chunk))
-
-        def get_records_shard(curs, chunk, query_mod):
-            sql = (('SELECT name, created_at, lower, upper, object_count, '
-                    'bytes_used, meta_timestamp, deleted '
-                    'FROM shard_ranges '
-                    'WHERE %s name IN (%s)')
-                   % (query_mod,
-                      ','.join('?' * len(chunk))))
-            return (((rec[0],), rec)
-                    for rec in curs.execute(sql, chunk))
-
-        def _merge_items(curs, rec_list, is_object=True):
-            query_mod = ''
+        def _really_merge_items(conn):
+            curs = conn.cursor()
             if self.get_db_version(conn) >= 1:
                 query_mod = ' deleted IN (0, 1) AND '
-
-            if is_object:
-                get_records = get_records_object
-                keys = ('name', 'storage_policy_index')
-                del_keys = ('name', 'storage_policy_index')
-                add_keys = ('name', 'created_at', 'size', 'content_type',
-                            'etag', 'deleted', 'storage_policy_index')
-                transform_item = update_new_item_from_existing
-                table = 'object'
-                record_type = RECORD_TYPE_OBJECT
             else:
-                get_records = get_records_shard
-                keys = ('name',)
-                del_keys = ('name',)
-                add_keys = ('name', 'created_at', 'lower', 'upper',
-                            'object_count', 'bytes_used', 'meta_timestamp',
-                            'deleted')
-                transform_item = merge_shards
-                table = 'shard_ranges'
-                record_type = RECORD_TYPE_SHARD_NODE
-
-            # Get created_at times for objects in rec_list that already exist.
+                query_mod = ''
+            curs.execute('BEGIN IMMEDIATE')
+            # Get sqlite records for objects in item_list that already exist.
             # We must chunk it up to avoid sqlite's limit of 999 args.
             records = {}
-            for offset in range(0, len(rec_list), SQLITE_ARG_LIMIT):
-                chunk = [record['name'] for record
-                         in rec_list[offset:offset + SQLITE_ARG_LIMIT]]
+            for offset in range(0, len(item_list), SQLITE_ARG_LIMIT):
+                chunk = [rec['name'] for rec in
+                         item_list[offset:offset + SQLITE_ARG_LIMIT]]
                 records.update(
-                    get_records(curs, chunk, query_mod))
-
+                    ((rec[0], rec[6]), rec) for rec in curs.execute(
+                        'SELECT name, created_at, size, content_type,'
+                        'etag, deleted, storage_policy_index '
+                        'FROM object WHERE ' + query_mod + ' name IN (%s)' %
+                        ','.join('?' * len(chunk)), chunk))
             # Sort item_list into things that need adding and deleting, based
             # on results of created_at query.
             to_delete = {}
             to_add = {}
-            for item in rec_list:
+            for item in item_list:
                 item.setdefault('storage_policy_index', 0)  # legacy
-                item_ident = tuple(item[key] for key in keys)
-                existing = self._record_to_dict(records.get(item_ident),
-                                                record_type=record_type)
-                if transform_item(item, existing):
-                    # exists with older timestamp
-                    if item_ident in records:
+                item_ident = (item['name'], item['storage_policy_index'])
+                existing = self._record_to_dict(records.get(item_ident))
+                if update_new_item_from_existing(item, existing):
+                    if item_ident in records:  # exists with older timestamp
                         to_delete[item_ident] = item
-                    # duplicate entries in item_list
-                    if item_ident in to_add:
-                        transform_item(item, to_add[item_ident])
+                    if item_ident in to_add:  # duplicate entries in item_list
+                        update_new_item_from_existing(item, to_add[item_ident])
                     to_add[item_ident] = item
-
-            if not is_object:
-                # Now that all the to_add items are merged, they are either in
-                # the form of incremented '+|-<count>' or absolute
-                # '<count>'. If the former we need to increment before
-                # we delete the current values.
-                items = [i for i in to_add.values() if i.get('prefixed')]
-                for item in items:
-                    self.update_shard_usage(item)
-
             if to_delete:
-                filters = ' AND '.join(['%s = ?' % key for key in del_keys])
-                sql = 'DELETE FROM %s WHERE %s%s' % (table, query_mod, filters)
-                del_generator = (tuple([record[key] for key in del_keys])
-                                 for record in to_delete.values())
-                curs.executemany(sql, del_generator)
-
+                curs.executemany(
+                    'DELETE FROM object WHERE ' + query_mod +
+                    'name=? AND storage_policy_index=?',
+                    ((rec['name'], rec['storage_policy_index'])
+                     for rec in to_delete.values()))
             if to_add:
-                vals = ','.join('?' * len(add_keys))
-                sql = 'INSERT INTO %s %s VALUES (%s)' % (table, add_keys, vals)
-                add_generator = (tuple([record[key] for key in add_keys])
-                                 for record in to_add.values())
-                curs.executemany(sql, add_generator)
-
-        def _really_merge_items(conn):
-            curs = conn.cursor()
-            curs.execute('BEGIN IMMEDIATE')
-            if item_list:
-                _merge_items(curs, item_list)
-            if shard_range_list:
-                _merge_items(curs, shard_range_list, False)
-            if source and item_list:
+                curs.executemany(
+                    'INSERT INTO object (name, created_at, size, content_type,'
+                    'etag, deleted, storage_policy_index)'
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    ((rec['name'], rec['created_at'], rec['size'],
+                      rec['content_type'], rec['etag'], rec['deleted'],
+                      rec['storage_policy_index'])
+                     for rec in to_add.values()))
+            if source:
                 # for replication we rely on the remote end sending merges in
                 # order with no gaps to increment sync_points
                 sync_point = item_list[-1]['ROWID']
@@ -1271,6 +1207,93 @@ class ContainerBroker(DatabaseBroker):
                         self.create_shard_ranges_table(conn)
                     else:
                         raise
+
+    def merge_shard_ranges(self, item_list):
+        """
+        Merge items into the object or shard ranges tables.
+
+        :param item_list: list of dictionaries of {'name', 'created_at',
+                          'lower', 'upper', 'object_count', 'bytes_used',
+                          'meta_timestamp', 'deleted'}
+        """
+        for item in item_list:
+            for col in ('name', 'lower', 'upper'):
+                if isinstance(item[col], six.text_type):
+                    item[col] = item[col].encode('utf-8')
+
+        def _really_merge_items(conn):
+            curs = conn.cursor()
+            curs.execute('BEGIN IMMEDIATE')
+
+            keys = ('name', 'created_at', 'lower', 'upper', 'object_count',
+                    'bytes_used', 'meta_timestamp', 'deleted')
+
+            # Get rows for items that already exist.
+            # We must chunk it up to avoid sqlite's limit of 999 args.
+            records = {}
+            for offset in range(0, len(item_list), SQLITE_ARG_LIMIT):
+                chunk = [record['name'] for record
+                         in item_list[offset:offset + SQLITE_ARG_LIMIT]]
+                records.update(
+                    (rec[0], rec) for rec in curs.execute(
+                        'SELECT %s FROM shard_ranges '
+                        'WHERE deleted IN (0, 1) AND name IN (%s)' %
+                        (', '.join(keys), ','.join('?' * len(chunk))), chunk))
+
+            # Sort item_list into things that need adding and deleting, based
+            # on results of created_at query.
+            to_delete = {}
+            to_add = {}
+            for item in item_list:
+                item_ident = item['name']
+                existing = records.get(item_ident)
+                if existing:
+                    existing = dict(zip(keys, existing))
+                if merge_shards(item, existing):
+                    # exists with older timestamp
+                    if item_ident in records:
+                        to_delete[item_ident] = item
+                    # duplicate entries in item_list
+                    if item_ident in to_add:
+                        merge_shards(item, to_add[item_ident])
+                    to_add[item_ident] = item
+
+            # TODO: not relevant? ...
+            # Now that all the to_add items are merged, they are either in
+            # the form of incremented '+|-<count>' or absolute
+            # '<count>'. If the former we need to increment before
+            # we delete the current values.
+            items = [i for i in to_add.values() if i.get('prefixed')]
+            for item in items:
+                self.update_shard_usage(item)
+
+            if to_delete:
+                curs.executemany(
+                    'DELETE FROM shard_ranges WHERE deleted in (0, 1) '
+                    'AND name = ?',
+                    ((item['name'],) for item in to_delete.values()))
+            if to_add:
+                vals = ','.join('?' * len(keys))
+                curs.executemany(
+                    'INSERT INTO shard_ranges %s VALUES (%s)' % (keys, vals),
+                    tuple([item[k] for k in keys] for item in to_add.values()))
+            conn.commit()
+
+        with self.get() as conn:
+            return _really_merge_items(conn)
+
+    def merge_items(self, item_list, source=None):
+        shard_range_list = []
+        object_list = []
+        for item in item_list:
+            if item.get('record_type') == RECORD_TYPE_SHARD_NODE:
+                shard_range_list.append(item)
+            else:
+                object_list.append(item)
+        if object_list:
+            self.merge_objects(object_list, source)
+        if shard_range_list:
+            self.merge_shard_ranges(shard_range_list)
 
     def get_reconciler_sync(self):
         with self.get() as conn:
