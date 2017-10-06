@@ -108,9 +108,9 @@ combined size of the the small container and its neighbour is small enough to
 complete the merge. To get more information, see the shrinking_ section below.
 
 The 2 batch variables are used when sharding and to understand what they mean,
-an understanding of how the container-sharder_ works is required. But suffice
-it to say the ``scanner_batch_size`` is how many shard ranges a scanner will
-find on each cycle and the ``batch_size`` is how many shards to shard on
+an understanding of how the container-sharder-daemon_ works is required. But
+suffice it to say the ``scanner_batch_size`` is how many shard ranges a scanner
+will find on each cycle and the ``batch_size`` is how many shards to shard on
 each cycle.
 
 Container sharding uses an instance of :ref:`InternalClient <internal_client>`.
@@ -618,7 +618,7 @@ We are doing this, even if there is only 1 file sent, because on a rebalance a
 sharded root container could be moved to the new priamry. And this needs to
 maintain the ``<hash>_shard.db`` name.
 
-.. _container-sharder:
+.. _container-sharder-daemon:
 
 Container-Sharder
 -----------------
