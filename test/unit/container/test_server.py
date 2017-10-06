@@ -2081,11 +2081,10 @@ class TestContainerController(unittest.TestCase):
             self._put_shard_range(shard_range)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        shard_rows = broker._get_shard_range_rows()
+        actual_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(
-            [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
-              p.bytes_used, p.meta_timestamp) for p in shard_ranges],
-            shard_rows)
+            [dict(sr) for sr in shard_ranges],
+            [dict(actual_sr) for actual_sr in actual_shard_ranges])
 
         # sanity check - no shard ranges when GET is only for objects
         def check_object_GET(path):
@@ -2201,11 +2200,10 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
 
-        shard_rows = broker._get_shard_range_rows()
+        actual_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(
-            [(p.name, p.timestamp.internal, p.lower, p.upper, p.object_count,
-              p.bytes_used, p.meta_timestamp) for p in shard_ranges[1:]],
-            shard_rows)
+            [dict(sr) for sr in shard_ranges[1:]],
+            [dict(actual_sr) for actual_sr in actual_shard_ranges])
 
         check_shard_GET(shard_ranges[1:], 'a/c')
         check_shard_GET(shard_ranges[1:2], 'a/c/jam')

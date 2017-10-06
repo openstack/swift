@@ -1056,17 +1056,11 @@ class ContainerBroker(DatabaseBroker):
         t_data, t_ctype, t_meta = decode_timestamps(record[1])
         return (record[0], t_meta.internal) + record[2:]
 
-    def _record_to_dict(self, rec, record_type=RECORD_TYPE_OBJECT):
+    def _record_to_dict(self, rec):
         if rec:
-            if record_type == RECORD_TYPE_OBJECT:
-                keys = ('name', 'created_at', 'size', 'content_type', 'etag',
-                        'deleted', 'storage_policy_index')
-            else:
-                keys = ('name', 'created_at', 'lower', 'upper', 'object_count',
-                        'bytes_used', 'meta_timestamp', 'deleted')
-            result = dict(zip(keys, rec))
-            result.update({'record_type': record_type})
-            return result
+            keys = ('name', 'created_at', 'size', 'content_type', 'etag',
+                    'deleted', 'storage_policy_index')
+            return dict(zip(keys, rec))
         return None
 
     def merge_objects(self, item_list, source=None):
@@ -1388,31 +1382,6 @@ class ContainerBroker(DatabaseBroker):
             CONTAINER_STAT_VIEW_SCRIPT +
             'COMMIT;')
 
-    def _get_shard_range_rows(self, connection=None):
-        def do_query(conn):
-            try:
-                sql = '''
-                SELECT name, created_at, lower, upper, object_count,
-                    bytes_used, meta_timestamp
-                FROM shard_ranges
-                WHERE deleted=0
-                ORDER BY lower, upper;
-                '''
-                data = conn.execute(sql)
-                data.row_factory = None
-                return [row for row in data]
-            except sqlite3.OperationalError as err:
-                if 'no such table: shard_ranges' not in str(err):
-                    raise
-                return []
-
-        self._commit_puts_stale_ok()
-        if connection:
-            return do_query(connection)
-        else:
-            with self.get() as conn:
-                return do_query(conn)
-
     def get_shard_usage(self):
         self._commit_puts_stale_ok()
         with self.get() as conn:
@@ -1456,6 +1425,31 @@ class ContainerBroker(DatabaseBroker):
                 'record_type': RECORD_TYPE_SHARD_NODE})
             result.append(obj)
         return result
+
+    def _get_shard_range_rows(self, connection=None):
+        def do_query(conn):
+            try:
+                sql = '''
+                SELECT name, created_at, lower, upper, object_count,
+                    bytes_used, meta_timestamp
+                FROM shard_ranges
+                WHERE deleted=0
+                ORDER BY lower, upper;
+                '''
+                data = conn.execute(sql)
+                data.row_factory = None
+                return [row for row in data]
+            except sqlite3.OperationalError as err:
+                if 'no such table: shard_ranges' not in str(err):
+                    raise
+                return []
+
+        self._commit_puts_stale_ok()
+        if connection:
+            return do_query(connection)
+        else:
+            with self.get() as conn:
+                return do_query(conn)
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
                          reverse=False):
@@ -1564,12 +1558,11 @@ class ContainerBroker(DatabaseBroker):
         # If there are shard_ranges defined.. which can happen when the scanner
         # node finds the first shard range then replicates out to the others
         # who are still in the UNSHARDED state.
-        shard_ranges = self._get_shard_range_rows()
-        if shard_ranges:
-            shard_ranges = \
-                [self._record_to_dict(list(r) + [0], RECORD_TYPE_SHARD_NODE)
-                 for r in shard_ranges]
-            sub_broker.merge_items(shard_ranges)
+        # TODO: should we include deleted shard ranges here...just in case it
+        # ever happened and mattered?
+        sub_broker.merge_shard_ranges(
+            [dict(shard_range, deleted=0)
+             for shard_range in self.get_shard_ranges()])
 
         # We also need to sync the sync tables as we have no idea how long
         # sharding will take and we want to be able to continue replication
