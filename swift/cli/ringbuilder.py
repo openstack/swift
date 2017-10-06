@@ -218,7 +218,6 @@ def _parse_set_weight_values(argvish):
     # --options format,
     # but not both. If both are specified, raise an error.
     try:
-        devs = []
         if not new_cmd_format:
             if len(args) % 2 != 0:
                 print(Commands.set_weight.__doc__.strip())
@@ -227,7 +226,7 @@ def _parse_set_weight_values(argvish):
             devs_and_weights = izip(islice(argvish, 0, len(argvish), 2),
                                     islice(argvish, 1, len(argvish), 2))
             for devstr, weightstr in devs_and_weights:
-                devs.extend(builder.search_devs(
+                devs = (builder.search_devs(
                     parse_search_value(devstr)) or [])
                 weight = float(weightstr)
                 _set_weight_values(devs, weight, opts)
@@ -236,7 +235,7 @@ def _parse_set_weight_values(argvish):
                 print(Commands.set_weight.__doc__.strip())
                 exit(EXIT_ERROR)
 
-            devs.extend(builder.search_devs(
+            devs = (builder.search_devs(
                 parse_search_values_from_opts(opts)) or [])
             weight = float(args[0])
             _set_weight_values(devs, weight, opts)
