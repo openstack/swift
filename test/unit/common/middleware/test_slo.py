@@ -389,37 +389,35 @@ class TestSloPutManifest(SloTestCase):
             'PUT', '/v1/AUTH_test/checktest/man_3', swob.HTTPCreated, {}, None)
 
     def test_put_manifest_too_quick_fail(self):
-        req = Request.blank('/v1/a/c/o')
+        req = Request.blank('/v1/a/c/o?multipart-manifest=put', method='PUT')
         req.content_length = self.slo.max_manifest_size + 1
-        try:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        except HTTPException as e:
-            pass
-        self.assertEqual(e.status_int, 413)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '413 Request Entity Too Large')
 
         with patch.object(self.slo, 'max_manifest_segments', 0):
-            req = Request.blank('/v1/a/c/o', body=test_json_data)
-            e = None
-            try:
-                self.slo.handle_multipart_put(req, fake_start_response)
-            except HTTPException as e:
-                pass
-            self.assertEqual(e.status_int, 413)
+            req = Request.blank('/v1/a/c/o?multipart-manifest=put',
+                                method='PUT', body=test_json_data)
+            status, headers, body = self.call_slo(req)
+            self.assertEqual(status, '413 Request Entity Too Large')
 
-        req = Request.blank('/v1/a/c/o', headers={'X-Copy-From': 'lala'})
-        try:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        except HTTPException as e:
-            pass
-        self.assertEqual(e.status_int, 405)
+        req = Request.blank('/v1/a/c/o?multipart-manifest=put', method='PUT',
+                            headers={'X-Copy-From': 'lala'})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '405 Method Not Allowed')
 
-        # ignores requests to /
-        req = Request.blank(
-            '/?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, body=test_json_data)
-        self.assertEqual(
-            list(self.slo.handle_multipart_put(req, fake_start_response)),
-            ['passed'])
+        # we already validated that there are enough path segments in __call__
+        for path in ('/', '/v1/', '/v1/a/', '/v1/a/c/'):
+            req = Request.blank(
+                path + '?multipart-manifest=put',
+                environ={'REQUEST_METHOD': 'PUT'}, body=test_json_data)
+            with self.assertRaises(ValueError):
+                list(self.slo.handle_multipart_put(req, fake_start_response))
+
+            req = Request.blank(
+                path.rstrip('/') + '?multipart-manifest=put',
+                environ={'REQUEST_METHOD': 'PUT'}, body=test_json_data)
+            with self.assertRaises(ValueError):
+                list(self.slo.handle_multipart_put(req, fake_start_response))
 
     def test_handle_multipart_put_success(self):
         req = Request.blank(
@@ -430,11 +428,9 @@ class TestSloPutManifest(SloTestCase):
                   'X-Object-Sysmeta-Slo-Size'):
             self.assertNotIn(h, req.headers)
 
-        def my_fake_start_response(*args, **kwargs):
-            gen_etag = '"' + md5hex('etagoftheobjectsegment') + '"'
-            self.assertIn(('Etag', gen_etag), args[1])
-
-        self.slo(req.environ, my_fake_start_response)
+        status, headers, body = self.call_slo(req)
+        gen_etag = '"' + md5hex('etagoftheobjectsegment') + '"'
+        self.assertIn(('Etag', gen_etag), headers)
         self.assertIn('X-Static-Large-Object', req.headers)
         self.assertEqual(req.headers['X-Static-Large-Object'], 'True')
         self.assertIn('X-Object-Sysmeta-Slo-Etag', req.headers)
@@ -486,10 +482,10 @@ class TestSloPutManifest(SloTestCase):
                                      {'path': '/cont/small_object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 100}])
-        req = Request.blank('/v1/a/c/o', body=test_json_data)
-        with self.assertRaises(HTTPException) as catcher:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        self.assertEqual(catcher.exception.status_int, 400)
+        req = Request.blank('/v1/a/c/o?multipart-manifest=put',
+                            method='PUT', body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
 
     def test_handle_multipart_put_disallow_empty_last_segment(self):
         test_json_data = json.dumps([{'path': '/cont/object',
@@ -498,10 +494,10 @@ class TestSloPutManifest(SloTestCase):
                                      {'path': '/cont/small_object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 0}])
-        req = Request.blank('/v1/a/c/o', body=test_json_data)
-        with self.assertRaises(HTTPException) as catcher:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        self.assertEqual(catcher.exception.status_int, 400)
+        req = Request.blank('/v1/a/c/o?multipart-manifest=put',
+                            method='PUT', body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
 
     def test_handle_multipart_put_success_unicode(self):
         test_json_data = json.dumps([{'path': u'/cont/object\u2661',
@@ -512,7 +508,7 @@ class TestSloPutManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
             body=test_json_data)
         self.assertNotIn('X-Static-Large-Object', req.headers)
-        self.slo(req.environ, fake_start_response)
+        self.call_slo(req)
         self.assertIn('X-Static-Large-Object', req.headers)
         self.assertEqual(req.environ['PATH_INFO'], '/v1/AUTH_test/c/man')
         self.assertIn(('HEAD', '/v1/AUTH_test/cont/object\xe2\x99\xa1'),
@@ -523,7 +519,7 @@ class TestSloPutManifest(SloTestCase):
             '/test_good/AUTH_test/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
             body=test_xml_data)
-        no_xml = self.slo(req.environ, fake_start_response)
+        no_xml = list(self.slo(req.environ, fake_start_response))
         self.assertEqual(no_xml, ['Manifest must be valid JSON.\n'])
 
     def test_handle_multipart_put_bad_data(self):
@@ -533,14 +529,15 @@ class TestSloPutManifest(SloTestCase):
         req = Request.blank(
             '/test_good/AUTH_test/c/man?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=bad_data)
-        self.assertRaises(HTTPException, self.slo.handle_multipart_put, req,
-                          fake_start_response)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertIn('invalid size_bytes', body)
 
         for bad_data in [
                 json.dumps([{'path': '/cont', 'etag': 'etagoftheobj',
                              'size_bytes': 100}]),
                 json.dumps('asdf'), json.dumps(None), json.dumps(5),
-                'not json', '1234', None, '', json.dumps({'path': None}),
+                'not json', '1234', '', json.dumps({'path': None}),
                 json.dumps([{'path': '/cont/object', 'etag': None,
                              'size_bytes': 12}]),
                 json.dumps([{'path': '/cont/object', 'etag': 'asdf',
@@ -557,8 +554,14 @@ class TestSloPutManifest(SloTestCase):
             req = Request.blank(
                 '/v1/AUTH_test/c/man?multipart-manifest=put',
                 environ={'REQUEST_METHOD': 'PUT'}, body=bad_data)
-            self.assertRaises(HTTPException, self.slo.handle_multipart_put,
-                              req, fake_start_response)
+            status, headers, body = self.call_slo(req)
+            self.assertEqual(status, '400 Bad Request')
+
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, body=None)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '411 Length Required')
 
     def test_handle_multipart_put_check_data(self):
         good_data = json.dumps(
@@ -642,10 +645,11 @@ class TestSloPutManifest(SloTestCase):
                                      {'path': '/cont/small_object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 100}])
-        req = Request.blank('/v1/AUTH_test/c/o', body=test_json_data)
-        with self.assertRaises(HTTPException) as cm:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        self.assertEqual(cm.exception.status_int, 400)
+        req = Request.blank('/v1/AUTH_test/c/o?multipart-manifest=put',
+                            method='PUT', body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertIn('Too small; each segment must be at least 1 byte', body)
 
     def test_handle_multipart_put_skip_size_check_no_early_bailout(self):
         # The first is too small (it's 0 bytes), and
@@ -657,12 +661,12 @@ class TestSloPutManifest(SloTestCase):
                                      {'path': '/cont/object2',
                                       'etag': 'wrong wrong wrong',
                                       'size_bytes': 100}])
-        req = Request.blank('/v1/AUTH_test/c/o', body=test_json_data)
-        with self.assertRaises(HTTPException) as cm:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        self.assertEqual(cm.exception.status_int, 400)
-        self.assertIn('at least 1 byte', cm.exception.body)
-        self.assertIn('Etag Mismatch', cm.exception.body)
+        req = Request.blank('/v1/AUTH_test/c/o?multipart-manifest=put',
+                            method='PUT', body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertIn('at least 1 byte', body)
+        self.assertIn('Etag Mismatch', body)
 
     def test_handle_multipart_put_skip_etag_check(self):
         good_data = json.dumps([
@@ -694,10 +698,9 @@ class TestSloPutManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=bad_data)
-        with self.assertRaises(HTTPException) as catcher:
-            self.slo.handle_multipart_put(req, fake_start_response)
-        self.assertEqual(400, catcher.exception.status_int)
-        self.assertIn("Unsatisfiable Range", catcher.exception.body)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('400 Bad Request', status)
+        self.assertIn("Unsatisfiable Range", body)
 
     def test_handle_multipart_put_success_conditional(self):
         test_json_data = json.dumps([{'path': u'/cont/object',
@@ -2771,29 +2774,25 @@ class TestSloGetManifest(SloTestCase):
         self.assertTrue(error_lines[0].startswith(
             'ERROR: An error occurred while retrieving segments'))
 
-    def test_download_takes_too_long(self):
-        the_time = [time.time()]
-
-        def mock_time():
-            return the_time[0]
-
-        # this is just a convenient place to hang a time jump; there's nothing
-        # special about the choice of is_success().
-        def mock_is_success(status_int):
-            the_time[0] += 7 * 3600
-            return status_int // 100 == 2
-
+    @patch('swift.common.request_helpers.time')
+    def test_download_takes_too_long(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            1,  # just building the first segment request; purely local
+            2,  # build the second segment request object, too, so we know we
+                # can't coalesce and should instead go fetch the first segment
+            7 * 3600,  # that takes a while, but gets serviced; we build the
+                       # third request and service the second
+            21 * 3600,  # which takes *even longer* (ostensibly something to
+                        # do with submanifests), but we build the fourth...
+            28 * 3600,  # and before we go to service it we time out
+        ]
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
 
-        with patch.object(slo, 'is_success', mock_is_success), \
-                patch('swift.common.request_helpers.time.time',
-                      mock_time), \
-                patch('swift.common.request_helpers.is_success',
-                      mock_is_success):
-            status, headers, body, exc = self.call_slo(
-                req, expect_exception=True)
+        status, headers, body, exc = self.call_slo(
+            req, expect_exception=True)
 
         self.assertIsInstance(exc, SegmentError)
         self.assertEqual(status, '200 OK')
