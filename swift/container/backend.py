@@ -1141,22 +1141,13 @@ class ContainerBroker(DatabaseBroker):
             conn.commit()
 
         with self.get() as conn:
-            errs = set()
-            while True:
-                try:
-                    return _really_merge_items(conn)
-                except sqlite3.OperationalError as err:
-                    # Try each migration only once
-                    err_msg = str(err)
-                    if err_msg in errs:
-                        raise
-                    errs.add(err_msg)
-                    if 'no such column: storage_policy_index' in err_msg:
-                        self._migrate_add_storage_policy(conn)
-                    elif 'no such table: shard_ranges' in err_msg:
-                        self.create_shard_ranges_table(conn)
-                    else:
-                        raise
+            try:
+                return _really_merge_items(conn)
+            except sqlite3.OperationalError as err:
+                if 'no such column: storage_policy_index' not in str(err):
+                    raise
+                self._migrate_add_storage_policy(conn)
+                return _really_merge_items(conn)
 
     def merge_shard_ranges(self, item_list):
         """
@@ -1221,7 +1212,13 @@ class ContainerBroker(DatabaseBroker):
             conn.commit()
 
         with self.get() as conn:
-            return _really_merge_items(conn)
+            try:
+                return _really_merge_items(conn)
+            except sqlite3.OperationalError as err:
+                if 'no such table: shard_ranges' not in str(err):
+                    raise
+                self.create_shard_ranges_table(conn)
+                return _really_merge_items(conn)
 
     def merge_items(self, item_list, source=None):
         shard_range_list = []

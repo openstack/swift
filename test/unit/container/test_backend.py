@@ -17,6 +17,7 @@
 
 import os
 import hashlib
+import inspect
 import unittest
 from time import sleep, time
 from uuid import uuid4
@@ -182,7 +183,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
                               TestContainerBrokerBeforeXSync,
-                              TestContainerBrokerBeforeSPI):
+                              TestContainerBrokerBeforeSPI,
+                              TestContainerBrokerBeforeShardRanges):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
@@ -1375,7 +1377,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
                               TestContainerBrokerBeforeXSync,
-                              TestContainerBrokerBeforeSPI):
+                              TestContainerBrokerBeforeSPI,
+                              TestContainerBrokerBeforeShardRanges):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
@@ -2344,7 +2347,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(0, info['bytes_used'])
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
                               TestContainerBrokerBeforeXSync,
-                              TestContainerBrokerBeforeSPI):
+                              TestContainerBrokerBeforeSPI,
+                              TestContainerBrokerBeforeShardRanges):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(timestamp.internal, info['status_changed_at'])
@@ -2848,6 +2852,8 @@ class ContainerBrokerMigrationMixin(object):
             ContainerBroker.create_object_table
         ContainerBroker.create_object_table = \
             prespi_create_object_table
+        self._imported_create_shard_ranges_table = \
+            ContainerBroker.create_shard_ranges_table
         self._imported_create_container_info_table = \
             ContainerBroker.create_container_info_table
         ContainerBroker.create_container_info_table = \
@@ -2872,6 +2878,8 @@ class ContainerBrokerMigrationMixin(object):
             self._imported_create_container_info_table
         ContainerBroker.create_object_table = \
             self._imported_create_object_table
+        ContainerBroker.create_shard_ranges_table = \
+            self._imported_create_shard_ranges_table
         ContainerBroker.create_policy_stat_table = \
             self._imported_create_policy_stat_table
 
@@ -3313,6 +3321,46 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         info = broker.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 456)
+
+
+class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
+                                           TestContainerBroker):
+    """
+    Tests for ContainerBroker against databases created
+    before the shard_ranges table was added.
+    """
+
+    class Override(object):
+        def __init__(self, func):
+            self.func = func
+
+        def __get__(self, obj, obj_type):
+            if inspect.stack()[1][3] == '_initialize':
+                return lambda *a, **kw: None
+            return self.func.__get__(obj, obj_type)
+
+    def setUp(self):
+        super(TestContainerBrokerBeforeShardRanges, self).setUp()
+        ContainerBroker.create_shard_ranges_table = self.Override(
+            ContainerBroker.create_shard_ranges_table)
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        exc = None
+        with broker.get() as conn:
+            try:
+                conn.execute('''SELECT *
+                                FROM shard_ranges''')
+            except BaseException as err:
+                exc = err
+        self.assertTrue('no such table: shard_ranges' in str(exc))
+
+    def tearDown(self):
+        super(TestContainerBrokerBeforeShardRanges, self).tearDown()
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(Timestamp('1').internal, 0)
+        with broker.get() as conn:
+            conn.execute('''SELECT *
+                            FROM shard_ranges''')
 
 
 class TestUpdateNewItemFromExisting(unittest.TestCase):
