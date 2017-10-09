@@ -131,6 +131,12 @@ class TestDomainRemap(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, ['/v1/AUTH_a/c/obj'])
 
+    def test_domain_remap_with_path_root_and_path_no_slash(self):
+        req = Request.blank('/v1obj', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c/v1obj'])
+
     def test_domain_remap_account_matching_ending_not_domain(self):
         req = Request.blank('/dontchange', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.aexample.com'})
