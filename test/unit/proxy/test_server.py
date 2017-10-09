@@ -7639,7 +7639,7 @@ class TestContainerController(unittest.TestCase):
             # cache a 204 for the account because it's sort of like it
             # exists
             self.app.account_autocreate = True
-            test_status_map((404, 404, 404), 404, None, 204)
+            test_status_map((404, 404, 404), 404, None, 200)
 
     def test_PUT_policy_headers(self):
         backend_requests = []
@@ -8810,9 +8810,9 @@ class TestAccountController(unittest.TestCase):
             # If successful, the GET request is repeated.
             controller.app.account_autocreate = True
             self.assert_status_map(controller.GET,
-                                   (404, 404, 404), 204)
+                                   (404, 404, 404), 200)
             self.assert_status_map(controller.GET,
-                                   (404, 503, 404), 204)
+                                   (404, 503, 404), 200)
 
             # We always return 503 if no majority between 4xx, 3xx or 2xx found
             self.assert_status_map(controller.GET,
@@ -8846,9 +8846,9 @@ class TestAccountController(unittest.TestCase):
                                    (404, 404, 404), 404)
             controller.app.account_autocreate = True
             self.assert_status_map(controller.HEAD,
-                                   (404, 404, 404), 204)
+                                   (404, 404, 404), 200)
             self.assert_status_map(controller.HEAD,
-                                   (500, 404, 404), 204)
+                                   (500, 404, 404), 200)
             # We always return 503 if no majority between 4xx, 3xx or 2xx found
             self.assert_status_map(controller.HEAD,
                                    (500, 500, 400), 503)
