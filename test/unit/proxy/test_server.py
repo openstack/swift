@@ -7636,8 +7636,7 @@ class TestContainerController(unittest.TestCase):
             # return 404 (as account is not found) and don't cache container
             test_status_map((404, 404, 404), 404, None, 404)
 
-            # cache a 204 for the account because it's sort of like it
-            # exists
+            # cache a 200 for the account because it appears to be created
             self.app.account_autocreate = True
             test_status_map((404, 404, 404), 404, None, 200)
 
@@ -8809,14 +8808,38 @@ class TestAccountController(unittest.TestCase):
             # ALL nodes are asked to create the account
             # If successful, the GET request is repeated.
             controller.app.account_autocreate = True
-            self.assert_status_map(controller.GET,
-                                   (404, 404, 404), 200)
-            self.assert_status_map(controller.GET,
-                                   (404, 503, 404), 200)
-
+            expected = 200
+            self.assert_status_map(controller.GET, (404, 404, 404), expected)
+            self.assert_status_map(controller.GET, (404, 503, 404), expected)
             # We always return 503 if no majority between 4xx, 3xx or 2xx found
             self.assert_status_map(controller.GET,
                                    (500, 500, 400), 503)
+
+    def _check_autocreate_listing_with_query_string(self, query_string):
+        controller = proxy_server.AccountController(self.app, 'a')
+        controller.app.account_autocreate = True
+        statuses = (404, 404, 404)
+        expected = 200
+        # get the response to check it has json content
+        with save_globals():
+            set_http_connect(*statuses)
+            req = Request.blank('/v1/a' + query_string)
+            self.app.update_request(req)
+            res = controller.GET(req)
+            headers = res.headers
+            self.assertEqual(
+                'yes', headers.get('X-Backend-Fake-Account-Listing'))
+            self.assertEqual(
+                'application/json; charset=utf-8',
+                headers.get('Content-Type'))
+            self.assertEqual([], json.loads(res.body))
+            self.assertEqual(res.status_int, expected)
+
+    def test_auto_create_account_listing_response_is_json(self):
+        self._check_autocreate_listing_with_query_string('')
+        self._check_autocreate_listing_with_query_string('?format=plain')
+        self._check_autocreate_listing_with_query_string('?format=json')
+        self._check_autocreate_listing_with_query_string('?format=xml')
 
     def test_HEAD(self):
         # Same behaviour as GET
