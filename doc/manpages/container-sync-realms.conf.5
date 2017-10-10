@@ -102,7 +102,26 @@ key to key2 and make a new key value.
 .RE
 .PD
 
+.SH EXAMPLE
+.nf
+.RS 0
+[DEFAULT]
+mtime_check_interval = 300
 
+
+[realm1]
+key = realm1key
+key2 = realm1key2
+cluster_clustername1 = https://host1/v1/
+cluster_clustername2 = https://host2/v1/
+
+[realm2]
+key = realm2key
+key2 = realm2key2
+cluster_clustername3 = https://host3/v1/
+cluster_clustername4 = https://host4/v1/
+.RE
+.fi
 
 
 .SH DOCUMENTATION
