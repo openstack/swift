@@ -1444,23 +1444,6 @@ class ContainerBroker(DatabaseBroker):
         return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE)
                 for sr in self.get_shard_ranges(include_deleted=True)]
 
-    def is_shrinking(self):
-        return self.metadata.get('X-Container-Sysmeta-Shard-Merge') or \
-            self.metadata.get('X-Container-Sysmeta-Shard-Shrink')
-
-    def get_shrinking_containers(self):
-        res = dict()
-        if self.is_shrinking():
-            shard_shrink = \
-                self.metadata.get('X-Container-Sysmeta-Shard-Shrink')
-            if shard_shrink:
-                res['shrink'] = shard_shrink[0]
-            shard_merge = \
-                self.metadata.get('X-Container-Sysmeta-Shard-Merge')
-            if shard_merge:
-                res['merge'] = shard_merge[0]
-        return res
-
     @contextmanager
     def sharding_lock(self):
         lockpath = '%s/.sharding' % self.db_dir
@@ -1658,6 +1641,13 @@ class ContainerBroker(DatabaseBroker):
             self._root_container = self.container
             return
 
+        # this is a horrible hack to workaround X-Container-Sysmeta-Shard-Root
+        # being set to '' when a shard container is deleted. We still want
+        # is_root_container to be False.
+        if not path:
+            self._root_account = self._root_container = ''
+            return
+
         if path.count('/') != 1 or path.strip('/').count('/') == 0:
             raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
                              "of the form 'account/container', got %r" % path)
@@ -1760,8 +1750,14 @@ class ContainerBroker(DatabaseBroker):
             # and lose the optimisation on finding last shard range
             progress = len(existing_ranges) * shard_size
             last_shard_upper = existing_ranges[-1].upper
-            if last_shard_upper == cont_upper:
-                # all ranges were previously found
+            if (last_shard_upper == cont_upper or
+                    (cont_upper and last_shard_upper > cont_upper)):
+                # TODO: moe complex condition than it should be because
+                # cont_upper == '' is *less* than any intermediate bound :(
+                # last_shard_upper == cont_upper implies all ranges were
+                # previously found
+                # last_shard_upper > cont_upper implies an acceptor range has
+                # been set into which this shard should cleave itself
                 # TODO: this assumes that cont_upper does not change - safe?
                 return [], True
         elif shard_size >= object_count:

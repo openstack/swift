@@ -32,12 +32,11 @@ from swift.common import internal_client, db_replicator
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import DeviceUnavailable, ConnectionTimeout, \
     RangeAnalyserException
-from swift.common.http import is_success
 from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, \
-    find_shard_range, majority_size, GreenAsyncPile, config_float_value, \
+    find_shard_range, GreenAsyncPile, config_float_value,\
     config_positive_int_value
 from swift.common.storage_policy import POLICIES
 
@@ -108,6 +107,8 @@ class ContainerSharder(ContainerReplicator):
             raise ValueError(err.message + ": shard_shrink_merge_point")
         self.shard_container_size = config_positive_int_value(
             conf.get('shard_container_size', 10000000))
+        self.shrink_size = self.shard_container_size * self.shard_shrink_point
+        self.merge_size = self.shard_container_size * self.shrink_merge_point
         self.split_size = self.shard_container_size // 2
         self.cpool = GreenAsyncPile(self.cpool)
         self.scanner_batch_size = config_positive_int_value(
@@ -316,6 +317,10 @@ class ContainerSharder(ContainerReplicator):
                              sum(map(len, shard_to_obj.values())),
                              broker.account, broker.container)
             for shard_range, obj_list in shard_to_obj.items():
+                # TODO: in shrinking context, the misplaced objects might
+                # actually be correctly placed if the root has expanded this
+                # shard but this broker did not get updated - so add a check
+                # here that shard_range.name != own shard name
                 part, new_broker, node_id = self._get_shard_broker(
                     shard_range, policy_index)
                 self._add_shard_metadata(new_broker, broker.root_path,
@@ -404,7 +409,9 @@ class ContainerSharder(ContainerReplicator):
                 timestamp = Timestamp(newest.timestamp, offset=1)
                 for range in older:
                     range.timestamp = timestamp
-                self._update_shard_ranges(broker, 'DELETE', older)
+                self._update_shard_ranges(
+                    broker.root_account, broker.root_container, 'DELETE', older
+                )
                 continue_with_container = False
             missing_ranges = ContainerSharder.check_complete_ranges(ranges)
             if missing_ranges:
@@ -467,6 +474,8 @@ class ContainerSharder(ContainerReplicator):
 
     def _process_broker(self, broker, node, part):
         own_shard_range = broker.get_own_shard_range()
+        # TODO: sigh, we should get the info cached *once*, somehow
+        broker.get_info()  # make sure account/container are populated
 
         # Before we do any heavy lifting, lets do an audit on the shard
         # container. We grab the root's view of the shard_points and make
@@ -528,17 +537,20 @@ class ContainerSharder(ContainerReplicator):
                     self.logger.increment('sharding_complete')
 
             if state == DB_STATE_SHARDED:
-                # TODO: nesting the broker.is_root_container condition inside
-                # state == DB_STATE_SHARDED will make more sense when the
-                # shrink phase is added:
-                # if broker.is_root_container():
-                #     # do shrink stuff
-                # else:
-                if not broker.is_root_container():
+                if broker.is_root_container():
+                    if is_leader:
+                        self._find_shrinks(broker, node, part)
+                else:
                     # sharded shard containers get cleaned up
                     self.logger.info('Deleting sharded shard %s/%s',
                                      broker.account, broker.container)
                     # let the root know about this shard's sharded shard ranges
+                    # TODO: why did I think this was necessary? as it is, this
+                    # is not a good thing to do - when we cleaved this shard to
+                    # it's acceptor we set it's object count to the actual
+                    # content of the new cleave broker, which is only the
+                    # objects being merged form the donor, so is gauranteed to
+                    # be less than the new total for the acceptor shard!
                     # TODO: these shard ranges may have existed for some time
                     # and already be updating the root with their usage e.g.
                     # multiple cycles before we finished cleaving, or process
@@ -548,19 +560,28 @@ class ContainerSharder(ContainerReplicator):
                     # the meta_timestamp should prevent these updates undoing
                     # any newer updates at the root from the actual shards.
                     # *It would be good to have a test to verify that.*
-                    self._update_shard_ranges(broker, 'PUT',
-                                              broker.get_shard_ranges())
+                    # self._update_shard_ranges(
+                    #     broker.root_account, broker.root_container, 'PUT',
+                    #     broker.get_shard_ranges())
                     own_shard_range = broker.get_own_shard_range()
-                    timestamp = Timestamp.now().internal
-                    own_shard_range.timestamp = timestamp
+                    now = Timestamp.now().internal
+                    own_shard_range.timestamp = now
                     self._update_shard_ranges(
-                        broker, 'DELETE', [own_shard_range])
-                    broker.delete_db(timestamp)
+                        broker.root_account, broker.root_container, 'DELETE',
+                        [own_shard_range])
+                    # delete shard ranges so that the container's effective
+                    # object_count is zero
+                    broker.merge_shard_ranges(
+                        [dict(sr, created_at=now, deleted=1)
+                         for sr in broker.get_shard_ranges()])
+                    broker.delete_db(now)
             else:
                 if not broker.is_root_container():
                     # update the root container with this shard's usage stats
                     own_shard_range = broker.get_own_shard_range()
-                    self._update_shard_ranges(broker, 'PUT', [own_shard_range])
+                    self._update_shard_ranges(
+                        broker.root_account, broker.root_container, 'PUT',
+                        [own_shard_range])
         finally:
             self.logger.increment('scanned')
             self.stats['containers_scanned'] += 1
@@ -655,13 +676,14 @@ class ContainerSharder(ContainerReplicator):
             # Need to do something here.
             return None, node_idx
 
-    def _update_shard_ranges(self, broker, op, shard_ranges):
-        part, nodes = self.ring.get_nodes(broker.root_account,
-                                          broker.root_container)
-
+    def _update_shard_ranges(self, account, container, op, shard_ranges):
+        path = "/%s/%s" % (account, container)
+        part, nodes = self.ring.get_nodes(account, container)
         for shard_range in shard_ranges:
             obj = shard_range.name
-            obj_path = '/%s/%s' % (broker.root_path, obj)
+            obj_path = '%s/%s' % (path, obj)
+            self.logger.info('updating shard range %s obj count %s' %
+                             (obj_path, shard_range.object_count))
             headers = {
                 'x-backend-record-type': RECORD_TYPE_SHARD_NODE,
                 'x-backend-shard-objects': shard_range.object_count,
@@ -703,51 +725,28 @@ class ContainerSharder(ContainerReplicator):
 
         return result
 
-    def _get_quorum(self, broker, success=None, quorum=None, op='HEAD',
-                    headers=None, post_success=None, post_fail=None,
-                    account=None, container=None):
-        quorum = quorum if quorum else (majority_size(self.ring.replica_count))
-        local = False
-
-        if broker:
-            local = True
-            account = broker.account
-            container = broker.container
-
-        if not headers:
-            headers = {}
-
-        def default_success(resp, node_idx):
-            return resp and is_success(resp.status)
-
-        if not success:
-            success = default_success
-
-        path = "/%s/%s" % (account, container)
-        part, nodes = self.ring.get_nodes(account, container)
-        if local:
-            nodes = [
-                d for d in nodes if not is_local_device(
-                    self.ips, self.port, d['ip'], d['port'])]
-
-        for node in nodes:
-            self.cpool.spawn(
-                self._send_request, node['ip'], node['port'], node['device'],
-                part, op, path, headers, node_idx=node['index'])
-
-        successes = 1 if local else 0
-        for resp, node_idx in self.cpool:
-            if not resp:
-                continue
-            if success(resp, node_idx):
-                successes += 1
-                if post_success:
-                    post_success(resp, node_idx)
-            else:
-                if post_fail:
-                    post_fail(resp, node_idx)
-                continue
-        return successes >= quorum
+    def _put_shard_container(self, broker, shard_range, extra_headers=None):
+        policy = POLICIES.get_by_index(broker.storage_policy_index)
+        headers = {
+            'X-Storage-Policy': policy.name,
+            'X-Container-Sysmeta-Shard-Root':
+                '%s' % broker.root_path,
+            'X-Container-Sysmeta-Sharding': True,
+            'X-Container-Sysmeta-Shard-Lower': shard_range.lower,
+            'X-Container-Sysmeta-Shard-Upper': shard_range.upper,
+            'X-Container-Sysmeta-Shard-Timestamp':
+                shard_range.timestamp.internal,
+            'X-Container-Sysmeta-Shard-Meta-Timestamp':
+                shard_range.meta_timestamp.internal}
+        if extra_headers:
+            headers.update(extra_headers)
+        try:
+            self.swift.create_container(
+                shard_range.account, shard_range.container, headers=headers)
+        except internal_client.UnexpectedResponse as ex:
+            self.logger.warning('Failed to put shard container %s: %s',
+                                shard_range.name, str(ex))
+            raise ex
 
     def _find_shard_ranges(self, broker, node, part):
         """
@@ -770,6 +769,8 @@ class ContainerSharder(ContainerReplicator):
         if not found_ranges:
             if last_found:
                 self.logger.info("Already found all shard ranges")
+                # set scan done in case it's missing
+                update_sharding_info(broker, {'Scan-Done': True})
             else:
                 # we didn't find anything
                 self.logger.warning("No shard ranges found, something went "
@@ -781,28 +782,11 @@ class ContainerSharder(ContainerReplicator):
 
         # we are still the scanner, so lets write the shard points.
         shard_ranges = []
-        policy = POLICIES.get_by_index(broker.storage_policy_index)
-        headers = {
-            'X-Storage-Policy': policy.name,
-            'X-Container-Sysmeta-Shard-Root':
-                '%s' % broker.root_path,
-            'X-Container-Sysmeta-Sharding': True}
-        for i, shard_range in enumerate(found_ranges):
+        for shard_range in found_ranges:
             try:
-                headers.update({
-                    'X-Container-Sysmeta-Shard-Lower': shard_range.lower,
-                    'X-Container-Sysmeta-Shard-Upper': shard_range.upper,
-                    'X-Container-Sysmeta-Shard-Timestamp':
-                        shard_range.timestamp.internal,
-                    'X-Container-Sysmeta-Shard-Meta-Timestamp':
-                        shard_range.meta_timestamp.internal})
-                self.swift.create_container(shard_range.account,
-                                            shard_range.container,
-                                            headers=headers)
+                self._put_shard_container(broker, shard_range)
                 shard_ranges.append(shard_range)
-            except internal_client.UnexpectedResponse as ex:
-                self.logger.warning('Failed to put container %s: %s',
-                                    shard_range.name, str(ex))
+            except internal_client.UnexpectedResponse:
                 self.logger.error('PUT of new shard containers failed, '
                                   'aborting split of %s/%s. '
                                   'Will try again next cycle',
@@ -818,8 +802,6 @@ class ContainerSharder(ContainerReplicator):
         # all the shard containers, so we do not waste the work done to find
         # them. that implies havng a way to track if containers have been
         # created or not for persisted shard ranges
-        # TODO: the record_type is only necessary to steer merge_items - may be
-        # better to have separate merge_shards_ranges method
         broker.merge_shard_ranges([dict(sr) for sr in shard_ranges])
         self.cpool.spawn(
             self._replicate_object, part, broker.db_file, node['id'])
@@ -833,270 +815,108 @@ class ContainerSharder(ContainerReplicator):
             self.logger.info("Final shard range reached.")
         return last_found
 
-    def _shrink(self, broker, root_account, root_container):
-        """shrinking is a 2 phase process
+    def _find_shrinks(self, broker, node, part):
+        # this should only execute on root containers; the goal is to find
+        # small shard containers that could be retired by merging with a
+        # neighbour.
+        # First cut is simple: assume root container shard usage stats are good
+        # enough to make decision; only merge with upper neighbour so that
+        # upper bounds never change (shard names include upper bound).
+        # TODO: object counts may well not be the appropriate metric for
+        # deciding to shrink because a shard with low object_count may have a
+        # large number of deleted object rows that will need to be merged with
+        # a neighbour. We may need to expose row count as well as object count.
+        state = broker.get_db_state()
+        if state != DB_STATE_SHARDED:
+            self.logger.warning(
+                'Cannot shrink a not yet sharded container %s/%s',
+                broker.account, broker.container)
 
-        Phase 1: If the container is small enough see if there is a neighbour
-        to merge with. If so  then mark our intentions as metadata:
-            X-Container-Sysmeta-Shard-Merge: <neighbour>
-            X-Container-Sysmeta-Shard-Shrink: <this container>
+        shard_ranges = broker.get_shard_ranges()
+        merge_pairs = {}
+        for donor, acceptor in zip(shard_ranges, shard_ranges[1:]):
+            if donor in merge_pairs:
+                # we may have previously expanded this range; if so then
+                # move on. In principle it might be that even after expansion
+                # this range and its donor(s) could all be merged with the next
+                # range. In practice it is much easier to reason about a single
+                # donor merging into a single acceptor. Don't fret - eventually
+                # all the small ranges will be retired (except possibly the
+                # uppermost).
+                continue
 
-        Phase 2: On a storage node running a sharder what contains a neighbour
-        replica, create a new container for the new range. Move all objects in
-        to it, delete self and shard-empty, update root and replicate.
-        """
-        sharding_info = get_sharding_info(broker)
-        if sharding_info.get('Merge') or sharding_info.get('Shrink'):
-            self._shrink_phase_2(broker, root_account, root_container)
-        else:
-            self._shrink_phase_1(broker, root_account, root_container)
+            proposed_object_count = donor.object_count + acceptor.object_count
+            if (donor.object_count < self.shrink_size and
+                    proposed_object_count < self.merge_size):
+                merge_pairs[acceptor] = donor
 
-    def _shrink_phase_1(self, broker, root_account, root_container):
-        """Attempt to shrink the current sharded container.
+        # TODO: think long and hard about the correct order for these remaining
+        # operations and what happens when one fails...
+        updated_shard_ranges = []
+        for acceptor, donor in merge_pairs.items():
+            self.logger.debug('shrinking shard range %s into %s in %s' %
+                              (donor, acceptor, broker.db_file))
+            # update the acceptor shard container with its expanded shard range
+            # but leave its timestamp unchanged
+            # TODO: update the shard container lower bound now so that it
+            # starts to accept updates for its expanded range...OR we could
+            # have the act of cleaving from the donor update the acceptor lower
+            # range - between now and that happening, where do updates for the
+            # retired range get directed?
+            acceptor.lower = donor.lower
+            self._put_shard_container(broker, acceptor)
+            # give the acceptor a fresh timestamp so that the only shard range
+            # updates accepted at the root will be for the expanded acceptor
+            # shard range once it receives its new timestamp via replication
+            # from the retiring shard container
+            # TODO: maybe we should use a separate (expiring?) timestamp -
+            # there is a risk here that if the async shrinking never happens
+            # then the acceptor shard can never update itself or even delete
+            # itself
+            acceptor.timestamp = Timestamp.now()
+            acceptor.meta_timestamp = acceptor.timestamp
+            # update acceptor usage in root container table to best estimate
+            # for purposes of summing root container shard usages
+            acceptor.object_count += donor.object_count
+            acceptor.bytes_used += donor.bytes_used
+            # PUT the acceptor shard range to the donor shard container; this
+            # forces the donor to asynchronously cleave its entire contents to
+            # the acceptor; the donor's version of the acceptor shard range has
+            # the fresh timestamp
+            self._update_shard_ranges(
+                donor.account, donor.container, 'PUT', [acceptor])
+            # Give the donor a fresh timestamp. This prevents the root merging
+            # usage updates from any pre-retired instances of the shard. Also
+            # set Scan-Done so that the donor will not scan itself and will
+            # transition to SHARDED state once it has cleaved to the acceptor;
+            # once in SHARDED state the donor should delete itself from the
+            # root.
+            donor.timestamp = Timestamp.now()
+            donor.meta_timestamp = donor.timestamp
+            headers = {'X-Container-Sysmeta-Shard-Scan-Done': True}
+            # TODO: if this PUT gets lost/delayed ... is that ok? the donor
+            # should figure out for itself that scan is done by virtue of
+            # having a range that exceeds its upper, so it should proceed to
+            # SHARDED state and delete itself without this request arriving.
+            self._put_shard_container(broker, donor, extra_headers=headers)
+            # TODO: not sure we really want to delete the donor yet but need
+            # some way to ensure it is passed over in future shrink cycles;
+            # some audit process should delete the shard once it has emptied
+            donor.deleted = 1
+            updated_shard_ranges.append(donor)
+            updated_shard_ranges.append(acceptor)
 
-        To shrink a container we need to:
-            1. Find out if the container really has few enough objects, that is
-               a quruom of counts below the threshold.
-            2. Check the neighbours to see if it's possible to shrink/merge
-               together, again this requires getting a quorom.
-            3. Mark intentions with metadata.
-        """
-        if root_container == broker.container:
-            # This is the root container, can't shrink it.
-            return
+        if updated_shard_ranges:
+            # merge all changed shard ranges into root shard_ranges table
+            broker.merge_shard_ranges(
+                [dict(sr) for sr in updated_shard_ranges])
+            # TODO: almagamate this replicate with one after find_shard_ranges
+            # if any mods were made to broker
+            self.cpool.spawn(
+                self._replicate_object, part, broker.db_file, node['id'])
+            any(self.cpool)
 
-        self.logger.info('Sharded container %s/%s is a candidate for '
-                         'shrinking', broker.account, broker.container)
-        shard_range = broker.get_own_shard_range()
-
-        obj_count = [broker.get_info()['object_count']]
-
-        def on_success(resp, node_idx):
-            # We need to make sure that if this neighbour is in the middle
-            # of shrinking, it isn't chosen as neighbour to merge into.
-            shrink = resp.getheader('X-Container-Sysmeta-Shard-Shrink')
-            merge = resp.getheader('X-Container-Sysmeta-Shard-Merge')
-            if not shrink and not merge:
-                oc = resp.getheader('X-Container-Object-Count')
-                try:
-                    oc = int(oc)
-                except ValueError:
-                    oc = self.shard_container_size
-                obj_count[0] = \
-                    max(obj_count[0], oc)
-            else:
-                obj_count[0] = self.shard_container_size
-
-        if not self._get_quorum(broker, post_success=on_success):
-            self.logger.info('Failed to get quorum on object count in '
-                             '%s/%s', broker.account, broker.container)
-            return
-
-        # We have a quorum on the number of object can we still shrink?
-        if obj_count[0] > self.shard_container_size * self.shard_shrink_point:
-            self.logger.info('After quorum check there were too many objects '
-                             ' (%d) to continue shrinking %s/%s',
-                             obj_count[0], broker.account, broker.container)
-            return
-        curr_obj_count = obj_count[0]
-
-        # Now we need to find a neighbour, if possible, to merge with.
-        # since we know the current range, we can make some simple assumptions.
-        #   1. We know if we are on either end (lower or upper is None).
-        #   2. Anything to the left we can use the lower to find the one
-        #      directly before, because the upper is always included in
-        #      the range. (use find_shard_range(lower, ranges).
-        #   3. Upper + something is in the next range.
-        # TODO: ranges were previously held as an instance var - perhaps this
-        # afforded some caching if shrink is called more than once for same set
-        # of ranges? revisit, but don't hang ranges off self
-        ranges = self._get_shard_ranges(root_account, root_container,
-                                        newest=True)
-        if ranges is None:
-            self.logger.error(
-                "Since the audit run of this container and "
-                "now we can't access the root container "
-                "%s/%s aborting.",
-                root_account, root_container)
-            return
-        lower_n = upper_n = None
-        lower_c = upper_c = self.shard_container_size
-        if shard_range.lower:
-            lower_n = find_shard_range(shard_range.lower, ranges)
-
-            obj_count = [0]
-
-            if self._get_quorum(None, post_success=on_success,
-                                account=broker.account,
-                                container=lower_n.name):
-                lower_c = obj_count[0]
-
-        if shard_range.upper:
-            upper = str(shard_range.upper)[:-1] + \
-                chr(ord(str(shard_range.upper)[-1]) + 1)
-            upper_n = find_shard_range(upper, ranges)
-
-            obj_count = [0]
-
-            if self._get_quorum(None, post_success=on_success,
-                                account=broker.account,
-                                container=upper_n.name):
-                upper_c = obj_count[0]
-
-        # got counts. now need to compare.
-        neighbours = {lower_c: lower_n, upper_c: upper_n}
-        smallest = min(neighbours.keys())
-        if smallest + curr_obj_count > self.shard_container_size * \
-                self.shrink_merge_point:
-            self.logger.info(
-                'If this container merges with it\'s smallest neighbour (%s) '
-                'there will be too many objects. %d (merged) > %d '
-                '(shard_merge_point)', neighbours[smallest].name,
-                smallest + curr_obj_count,
-                self.shard_container_size * self.shrink_merge_point)
-            return
-
-        # So we now have valid neighbour, so we want to move our objects in to
-        # it.
-        n_shard_range = neighbours[smallest]
-
-        # Now just need to update the metadata on both containers.
-        shrink_meta = {
-            'X-Container-Sysmeta-Shard-Merge': n_shard_range.name,
-            'X-Container-Sysmeta-Shard-Shrink': broker.container}
-
-        # TODO This exception handling needs to be cleaned up.
-        try:
-            for acct, cont in ((broker.account, broker.container),
-                               (broker.account, n_shard_range.name)):
-                self.swift.set_container_metadata(acct, cont, shrink_meta)
-            self.logger.increment('shrunk_phase_1')
-        except Exception:
-            self.logger.exception('Could not add shrink metadata %r',
-                                  shrink_meta)
-
-    def _get_merge_range(self, shard_name):
-        path = self.swift.make_path(shard_name)
-        headers = dict()
-        try:
-            resp = self.swift.make_request('HEAD', path, headers,
-                                           acceptable_statuses=(2,))
-        except internal_client.UnexpectedResponse:
-            self.logger.error("Failed to get range from %s",
-                              shard_name)
-            return None
-
-        lower = resp.headers.get('X-Container-Sysmeta-Shard-Lower')
-        upper = resp.headers.get('X-Container-Sysmeta-Shard-Upper')
-        timestamp = resp.headers.get('X-Container-Sysmeta-Shard-Timestamp')
-
-        if not lower and not upper:
-            return None
-
-        if not lower:
-            lower = None
-        if not upper:
-            upper = None
-
-        return ShardRange(shard_name, timestamp, lower, upper,
-                          meta_timestamp=Timestamp.now().internal)
-
-    def _shrink_phase_2(self, broker, root_account, root_container):
-        # We've set metadata last phase. lets make sure it's still the case.
-        shrink_containers = broker.get_shrinking_containers()
-        shrink_shard = shrink_containers.get('shrink')
-        merge_shard = shrink_containers.get('merge')
-
-        # We move data from the shrinking container to the merge. So if this
-        # isn't the shrink container, then continue.
-        if not shrink_containers or broker.container != \
-                shrink_containers['shrink']:
-            return
-        self.logger.info('Starting Shrinking phase 2 on %s/%s.',
-                         broker.account, broker.container)
-
-        # OK we have a shrink container, now lets make sure we have a quorum on
-        # what the containers need to be, just in case.
-        def is_success(resp, node_idx):
-            return resp.getheader('X-Container-Sysmeta-Shard-Shrink') == \
-                shrink_shard \
-                and resp.getheader('X-Container-Sysmeta-Shard-Merge') == \
-                merge_shard
-
-        if not self._get_quorum(broker, success=is_success):
-            self.logger.info('Failed to reach quorum on a empty/full shard '
-                             'range for shrinking %s/%s', broker.account,
-                             broker.container)
-            # TODO What should be do in this situation? Just wait and hope it
-            # still needs to replicate the missing or different metadata or
-            # attempt to abort shrinking.
-            return
-
-        # OK so we agree, so now we can merge this container (shrink) into the
-        # merge container neighbour. First lets build the new shard range
-        shrink_range = broker.get_own_shard_range()
-        merge_range = self._get_merge_range(merge_shard)
-        if merge_range > shrink_range:
-            merge_range.lower = shrink_range.lower
-        else:
-            merge_range.upper = shrink_range.upper
-
-        policy_index = broker.storage_policy_index
-        query = dict(marker='', end_marker='', prefix='', delimiter='',
-                     storage_policy_index=policy_index)
-
-        try:
-            new_part, new_broker, node_id = \
-                self._get_shard_broker(broker.account, merge_range.container,
-                                       policy_index)
-
-            self._add_shard_metadata(new_broker, root_account, root_container,
-                                     merge_range, force=True)
-
-            with new_broker.sharding_lock():
-                self._add_items(broker, new_broker, query)
-
-        except DeviceUnavailable as duex:
-            self.logger.warning(str(duex))
-            return
-
-        timestamp = Timestamp.now().internal
-        info = new_broker.get_info()
-        merge_piv = ShardRange(
-            merge_range.name, timestamp, merge_range.lower,
-            merge_range.upper, "+%d" % info['object_count'],
-            "+%d" % info['bytes_used'], timestamp)
-        # Push the new shard range to the root container,
-        # we do this so we can short circuit PUTs.
-        self._update_shard_ranges(broker, 'PUT', (merge_piv,))
-
-        # We also need to remove the shrink shard range from the root container
-        empty_piv = ShardRange(
-            shrink_range.name, timestamp, shrink_range.lower,
-            shrink_range.upper, 0, 0, timestamp)
-        self._update_shard_ranges(broker, 'DELETE', (empty_piv,))
-
-        # Now we can delete the shrink container (it should be empty)
-        broker.delete_db(timestamp)
-
-        part = self.ring.get_part(broker.account, broker.container)
-        self.logger.info('Replicating phase 2 shrunk containers %s/%s and '
-                         '%s/%s', new_broker.account, new_broker.container,
-                         broker.account, broker.container)
-
-        # Remove shrinking headers from the merge container's new broker so
-        # they get cleared after replication.
-        update_sharding_info(broker, {'Merge': '', 'Shrink': ''})
-
-        # replicate merge container
-        self.cpool.spawn(
-            self._replicate_object, new_part, new_broker.db_file, node_id)
-        # replicate shrink
-        self.cpool.spawn(
-            self._replicate_object, part, broker.db_file, node_id)
-        self.logger.increment('shrunk_phase_2')
-        self.stats['containers_shrunk'] += 1
-        any(self.cpool)
+        self.logger.debug('shrink done, modified %s' % updated_shard_ranges)
 
     def _add_items(self, broker, broker_to_update, qry, ignore_state=False):
         """

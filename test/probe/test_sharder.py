@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import json
 import os
 import uuid
 
@@ -62,6 +62,37 @@ class TestContainerSharding(ReplProbeTest):
         self.brain.put_container()
 
         self.sharders = Manager(['container-sharder'])
+        self.internal_client = self.make_internal_client()
+
+    def get_container_shard_ranges(self, account=None, container=None):
+        account = account if account else self.account
+        container = container if container else self.container_name
+        path = self.internal_client.make_path(account, container)
+        resp = self.internal_client.make_request(
+            'GET', path + '?format=json&items=shard', {}, [200])
+        return json.loads(resp.body)
+
+    def direct_get_container_shard_ranges(self, account=None, container=None,
+                                          expect_failure=False):
+
+        account = account if account else self.account
+        container = container if container else self.container_name
+        cpart, cnodes = self.container_ring.get_nodes(account, container)
+        shard_ranges = {}
+        unexpected_responses = []
+        for cnode in cnodes:
+            try:
+                shard_ranges[cnode['id']] = direct_client.direct_get_container(
+                    cnode, cpart, account, container, items='shard')
+            except DirectClientException as err:
+                if not expect_failure:
+                    unexpected_responses.append((cnode, err))
+            else:
+                if expect_failure:
+                    unexpected_responses.append((cnode, 'success'))
+        if unexpected_responses:
+            self.fail('Unexpected responses: %s' % unexpected_responses)
+        return shard_ranges
 
     def direct_delete_container(self, account=None, container=None,
                                 expect_failure=False):
@@ -128,14 +159,21 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(obj_len, length, 'len(%r) == %d, not %d' % (
             obj, obj_len, length))
 
+    def assert_dict_contains(self, expected_items, actual_dict):
+        ignored = set(expected_items) ^ set(actual_dict)
+        filtered_actual = dict((k, actual_dict[k])
+                               for k in actual_dict if k not in ignored)
+        self.assertEqual(expected_items, filtered_actual)
+
     def assert_shard_ranges_contiguous(self, expected_number, shard_ranges):
         actual_shard_ranges = sorted([ShardRange.from_dict(d)
                                       for d in shard_ranges])
         self.assertLengthEqual(actual_shard_ranges, expected_number)
-        self.assertEqual('', actual_shard_ranges[0].lower)
-        for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
-            self.assertEqual(x.upper, y.lower)
-        self.assertEqual('', actual_shard_ranges[-1].upper)
+        if expected_number:
+            self.assertEqual('', actual_shard_ranges[0].lower)
+            for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
+                self.assertEqual(x.upper, y.lower)
+            self.assertEqual('', actual_shard_ranges[-1].upper)
 
     def assert_total_object_count(self, expected_object_count, shard_ranges):
         actual = sum([sr['object_count'] for sr in shard_ranges])
@@ -396,3 +434,178 @@ class TestContainerSharding(ReplProbeTest):
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 3)
         self.assertLengthEqual(found['normal_dbs'], 0)
+
+    def test_shrinking(self):
+        int_client = self.make_internal_client()
+        obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
+        for obj in obj_names:
+            client.put_object(self.url, self.token, self.container_name, obj)
+
+        # Enable sharding
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+
+        orig_headers, orig_listing = client.get_container(
+            self.url, self.admin_token, self.container_name)
+        # sanity checks
+        self.assertEqual(obj_names, [x['name'].encode('utf-8')
+                                     for x in orig_listing])
+        self.assertEqual('True', orig_headers.get('x-container-sharding'))
+        exp_obj_count = len(obj_names)
+        self.assertEqual(str(exp_obj_count),
+                         orig_headers['x-container-object-count'])
+
+        # Only run the one in charge of scanning
+        self.sharders.once(number=self.brain.node_numbers[0])
+
+        # check root container
+        root_nodes_data = self.direct_get_container_shard_ranges()
+        self.assertEqual(3, len(root_nodes_data))
+
+        def check_node_data(node_data, exp_hdrs, exp_obj_count, exp_shards):
+            hdrs, range_data = node_data
+            self.assert_dict_contains(exp_hdrs, hdrs)
+            self.assert_shard_ranges_contiguous(exp_shards, range_data)
+            self.assert_total_object_count(exp_obj_count, range_data)
+
+        # nodes on which sharder has not run are still in unsharded state but
+        # have had shard ranges replicated to them
+        exp_hdrs = {'X-Container-Sysmeta-Shard-Scan-Done': 'True',
+                    'X-Backend-Sharding-State': '1',  # unsharded
+                    'X-Container-Object-Count': str(exp_obj_count)}
+        node_id = self.brain.node_numbers[1] - 1
+        check_node_data(root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
+        node_id = self.brain.node_numbers[2] - 1
+        check_node_data(root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
+
+        # only one that ran sharder is in sharded state
+        exp_hdrs['X-Backend-Sharding-State'] = '3'
+        node_id = self.brain.node_numbers[0] - 1
+        check_node_data(root_nodes_data[node_id], exp_hdrs, exp_obj_count, 2)
+
+        orig_range_data = root_nodes_data[node_id][1]
+        orig_shard_ranges = [ShardRange.from_dict(r) for r in orig_range_data]
+
+        # check first shard
+        def check_shard_nodes_data(node_data):
+            root_path = '%s/%s' % (self.account, self.container_name)
+            exp_shard_hdrs = {'X-Container-Sysmeta-Shard-Root': root_path,
+                              'X-Backend-Sharding-State': '1'}  # unsharded
+            object_counts = []
+            bytes_used = []
+            for node_id, node_data in node_data.items():
+                with self.annotate_failure('Node id %s.' % node_id):
+                    # NB shards have no shard ranges
+                    check_node_data(node_data, exp_shard_hdrs, 0, 0)
+                hdrs = node_data[0]
+                object_counts.append(int(hdrs['X-Container-Object-Count']))
+                bytes_used.append(int(hdrs['X-Container-Bytes-Used']))
+            if len(set(object_counts)) != 1:
+                self.fail('Inconsistent object counts: %s' % object_counts)
+            if len(set(bytes_used)) != 1:
+                self.fail('Inconsistent bytes used: %s' % bytes_used)
+            return object_counts[0], bytes_used[0]
+
+        shard_nodes_data = self.direct_get_container_shard_ranges(
+            orig_shard_ranges[0].account, orig_shard_ranges[0].container)
+        obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
+        total_shard_object_count = obj_count
+
+        # check second shard
+        shard_nodes_data = self.direct_get_container_shard_ranges(
+            orig_shard_ranges[1].account, orig_shard_ranges[1].container)
+        obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
+        total_shard_object_count += obj_count
+        self.assertEqual(exp_obj_count, total_shard_object_count)
+
+        # Now that everyone has shard ranges, run *everyone*
+        self.sharders.once()
+
+        # all root container nodes should now be in sharded state
+        root_nodes_data = self.direct_get_container_shard_ranges()
+        self.assertEqual(3, len(root_nodes_data))
+        for node_id, node_data in root_nodes_data.items():
+            with self.annotate_failure('Node id %s.' % node_id):
+                check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
+
+        # run updaters to update .sharded account; shard containers have not
+        # updated account since having objects replicated to them
+        self.updaters.once()
+        shard_container_count, shard_obj_count = int_client.get_account_info(
+            orig_shard_ranges[0].account, [204])
+        self.assertEqual(2, shard_container_count)
+        self.assertEqual(len(obj_names), shard_obj_count)
+
+        # delete objects from first shard range
+        shard_objects = [obj_name for obj_name in obj_names
+                         if obj_name <= orig_shard_ranges[0].upper]
+        for obj in shard_objects:
+            client.delete_object(
+                self.url, self.token, self.container_name, obj)
+            with self.assertRaises(ClientException):
+                client.get_object(
+                    self.url, self.token, self.container_name, obj)
+
+        # put another obj
+        client.put_object(self.url, self.token, self.container_name, 'alpha')
+
+        # proxy container info cache has not been refreshed with container's
+        # sharding state so all object updates will have been sent to root,
+        # redirected and landed in async pending - so listing will not be up to
+        # date until we run the object updater :(
+        self.updaters.once()
+
+        # listing has new object but root object counts not updated...
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertEqual('alpha', listing[0]['name'])
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(str(exp_obj_count),
+                         headers['x-container-object-count'])
+        root_nodes_data = self.direct_get_container_shard_ranges()
+        self.assertEqual(3, len(root_nodes_data))
+        for node_id, node_data in root_nodes_data.items():
+            with self.annotate_failure('Node id %s.' % node_id):
+                check_node_data(node_data, exp_hdrs, exp_obj_count, 2)
+            range_data = node_data[1]
+            for expected, actual in zip(orig_range_data, range_data):
+                # each root node will have cleaved shard ranges and updated
+                # their meta timestamps
+                expected.pop('meta_timestamp', None)
+                self.assert_dict_contains(expected, actual)
+
+        # ...until the sharders run
+        self.sharders.once()
+        exp_obj_count = len(obj_names) + 1 - len(shard_objects)
+
+        # we may then need sharders to run once or more to find the donor
+        # shard, shrink and replicate it to the acceptor
+        self.sharders.once()
+        self.sharders.once()
+
+        # check root container
+        root_nodes_data = self.direct_get_container_shard_ranges()
+        self.assertEqual(3, len(root_nodes_data))
+        exp_hdrs['X-Container-Object-Count'] = str(exp_obj_count)
+        for node_id, node_data in root_nodes_data.items():
+            with self.annotate_failure('Node id %s.' % node_id):
+                # NB now only *one* shard range in root
+                check_node_data(node_data, exp_hdrs, exp_obj_count, 1)
+
+        headers, listing = client.get_container(self.url, self.token,
+                                                self.container_name)
+        self.assertIn('x-container-object-count', headers)
+        self.assertEqual(str(exp_obj_count),
+                         headers['x-container-object-count'])
+
+        # the acceptor shard is intact..
+        shard_nodes_data = self.direct_get_container_shard_ranges(
+            orig_shard_ranges[1].account, orig_shard_ranges[1].container)
+        obj_count, bytes_used = check_shard_nodes_data(shard_nodes_data)
+        # all objects should now be in this shard
+        self.assertEqual(exp_obj_count, obj_count)
+
+        # the donor shard is gone
+        self.direct_get_container_shard_ranges(
+            orig_shard_ranges[0].account, orig_shard_ranges[0].container,
+            expect_failure=True)
