@@ -366,7 +366,7 @@ def parse_and_validate_input(req_body, req_path):
             except (TypeError, ValueError):
                 errors.append("Index %d: invalid size_bytes" % seg_index)
                 continue
-            if seg_size < 1:
+            if seg_size < 1 and seg_index != (len(parsed_data) - 1):
                 errors.append("Index %d: too small; each segment must be "
                               "at least 1 byte."
                               % (seg_index,))
@@ -948,7 +948,7 @@ class StaticLargeObject(object):
                 agent='%(orig)s SLO MultipartPUT', swift_source='SLO')
             return obj_name, sub_req.get_response(self)
 
-        def validate_seg_dict(seg_dict, head_seg_resp):
+        def validate_seg_dict(seg_dict, head_seg_resp, allow_empty_segment):
             if not head_seg_resp.is_success:
                 problem_segments.append([quote(obj_name),
                                          head_seg_resp.status])
@@ -976,7 +976,7 @@ class StaticLargeObject(object):
                     seg_dict['range'] = '%d-%d' % (rng[0], rng[1] - 1)
                     segment_length = rng[1] - rng[0]
 
-            if segment_length < 1:
+            if segment_length < 1 and not allow_empty_segment:
                 problem_segments.append(
                     [quote(obj_name),
                      'Too small; each segment must be at least 1 byte.'])
@@ -1012,7 +1012,8 @@ class StaticLargeObject(object):
                     (path, ) for path in path2indices)):
                 for i in path2indices[obj_name]:
                     segment_length, seg_data = validate_seg_dict(
-                        parsed_data[i], resp)
+                        parsed_data[i], resp,
+                        allow_empty_segment=(i == len(parsed_data) - 1))
                     data_for_storage[i] = seg_data
                     total_size += segment_length
 
