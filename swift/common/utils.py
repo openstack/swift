@@ -4199,7 +4199,8 @@ def get_md5_socket():
 
 class ShardRange(object):
     def __init__(self, name=None, timestamp=None, lower='', upper='',
-                 object_count=0, bytes_used=0, meta_timestamp=None, **kwargs):
+                 object_count=0, bytes_used=0, meta_timestamp=None,
+                 deleted=0, **kwargs):
         """
         A ShardRange encapsulates state related to a container shard.
 
@@ -4214,6 +4215,7 @@ class ShardRange(object):
         :param bytes_used: the number of bytes in the shard; defaults to zero.
         :param meta_timestamp: the timestamp at which the shard state was last
             updated; defaults to the value of ``timestamp``.
+        :param deleted: if set the shard range is considered to be deleted.
         """
         if name is None:
             raise ValueError('name cannot be None')
@@ -4232,6 +4234,8 @@ class ShardRange(object):
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
         self.bytes_used = bytes_used
+        # TODO: add getter/setter for deleted similar to other attrs & validate
+        self.deleted = deleted
 
     def _to_timestamp(self, timestamp):
         if timestamp:
@@ -4372,6 +4376,7 @@ class ShardRange(object):
         yield 'object_count', self.object_count
         yield 'bytes_used', self.bytes_used
         yield 'meta_timestamp', self.meta_timestamp.internal
+        yield 'deleted', 1 if self.deleted else 0
 
     @classmethod
     def from_dict(cls, params):
@@ -4385,7 +4390,8 @@ class ShardRange(object):
         """
         return cls(params['name'], params['created_at'], params['lower'],
                    params['upper'], params['object_count'],
-                   params['bytes_used'], params['meta_timestamp'])
+                   params['bytes_used'], params['meta_timestamp'],
+                   params['deleted'])
 
 
 def find_shard_range(item, ranges):

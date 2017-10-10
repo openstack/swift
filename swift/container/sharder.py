@@ -835,9 +835,7 @@ class ContainerSharder(ContainerReplicator):
         # created or not for persisted shard ranges
         # TODO: the record_type is only necessary to steer merge_items - may be
         # better to have separate merge_shards_ranges method
-        items = [dict(sr, deleted=0, record_type=RECORD_TYPE_SHARD_NODE)
-                 for sr in shard_ranges]
-        broker.merge_items(items)
+        broker.merge_shard_ranges([dict(sr) for sr in shard_ranges])
         self.cpool.spawn(
             self._replicate_object, part, broker.db_file, node['id'])
 
@@ -1268,7 +1266,7 @@ class ContainerSharder(ContainerReplicator):
             self.stats['containers_sharded'] += 1
 
         if ranges_done:
-            broker.merge_items(broker.shard_nodes_to_items(ranges_done))
+            broker.merge_shard_ranges([dict(sr) for sr in ranges_done])
             update_sharding_info(broker, {'Last': ranges_done[-1].upper}, node)
         else:
             self.logger.warning('No progress made in _cleave()!')

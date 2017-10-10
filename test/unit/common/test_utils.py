@@ -6523,7 +6523,7 @@ class TestShardRange(unittest.TestCase):
         ts_2 = next(self.ts_iter)
         empty_run = dict(name=None, timestamp=None, lower=None,
                          upper=None, object_count=0, bytes_used=0,
-                         meta_timestamp=None)
+                         meta_timestamp=None, deleted=0)
         # name, timestamp must be given
         assert_initialisation_fails(empty_run.copy())
         assert_initialisation_fails(dict(empty_run, name='name'), TypeError)
@@ -6537,14 +6537,15 @@ class TestShardRange(unittest.TestCase):
 
         expect = dict(name='name', created_at=ts_1.internal, lower='',
                       upper='', object_count=0, bytes_used=0,
-                      meta_timestamp=ts_1.internal)
+                      meta_timestamp=ts_1.internal, deleted=0)
         assert_initialisation_ok(dict(name='name', timestamp=ts_1), expect)
 
         good_run = dict(name='name', timestamp=ts_1, lower='l',
                         upper='u', object_count=2, bytes_used=10,
-                        meta_timestamp=ts_2)
+                        meta_timestamp=ts_2, deleted=0)
         expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
-                       'bytes_used': 10, 'meta_timestamp': ts_2.internal})
+                       'bytes_used': 10, 'meta_timestamp': ts_2.internal,
+                       'deleted': 0})
         assert_initialisation_ok(good_run.copy(), expect)
 
         # obj count and bytes used as int strings
@@ -6556,6 +6557,11 @@ class TestShardRange(unittest.TestCase):
         good_no_meta.pop('meta_timestamp')
         assert_initialisation_ok(good_no_meta,
                                  dict(expect, meta_timestamp=ts_1.internal))
+
+        good_deleted = good_run.copy()
+        good_deleted['deleted'] = 1
+        assert_initialisation_ok(good_deleted,
+                                 dict(expect, deleted=1))
 
         assert_initialisation_fails(dict(good_run, timestamp='water balloon'))
 
@@ -6582,7 +6588,7 @@ class TestShardRange(unittest.TestCase):
         pr_dict = dict(pr)
         expected = {'name': 'test', 'created_at': ts_1.internal, 'lower': 'l',
                     'upper': 'u', 'object_count': 10, 'bytes_used': 100,
-                    'meta_timestamp': ts_2.internal}
+                    'meta_timestamp': ts_2.internal, 'deleted': 0}
         self.assertEqual(expected, pr_dict)
         pr_new = utils.ShardRange.from_dict(pr_dict)
         self.assertEqual(pr, pr_new)

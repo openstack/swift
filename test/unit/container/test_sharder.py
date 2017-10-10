@@ -22,7 +22,7 @@ import unittest
 
 
 from swift.container.backend import ContainerBroker, DB_STATE_UNSHARDED, \
-    RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_SHARDED
+    DB_STATE_SHARDING, DB_STATE_SHARDED
 from swift.container.sharder import ContainerSharder, RangeAnalyser, \
     update_sharding_info
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
@@ -545,10 +545,8 @@ class TestSharder(unittest.TestCase):
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
         self.assertFalse(os.path.exists(expected_shard_dbs[3]))
 
-        broker.merge_items(
-            [dict(shard_range, deleted=0,
-                  record_type=RECORD_TYPE_SHARD_NODE)
-             for shard_range in initial_shard_ranges[:3]])
+        broker.merge_shard_ranges(
+            [dict(shard_range) for shard_range in initial_shard_ranges[:3]])
 
         # run cleave again now we have shard ranges
         with self._mock_sharder() as sharder:
@@ -622,9 +620,7 @@ class TestSharder(unittest.TestCase):
         sharder._replicate_object.assert_not_called()
 
         # add final shard range
-        broker.merge_items(
-            [dict(initial_shard_ranges[3], deleted=0, storage_policy_index=0,
-                  record_type=RECORD_TYPE_SHARD_NODE)])
+        broker.merge_shard_ranges([dict(initial_shard_ranges[3])])
         update_sharding_info(broker, {'Scan-Done': True})
 
         with self._mock_sharder() as sharder:
@@ -694,10 +690,8 @@ class TestSharder(unittest.TestCase):
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
-        broker.merge_items(
-            [dict(shard_range, deleted=0, storage_policy_index=0,
-                  record_type=RECORD_TYPE_SHARD_NODE)
-             for shard_range in initial_shard_ranges])
+        broker.merge_shard_ranges(
+            [dict(shard_range) for shard_range in initial_shard_ranges])
 
         # unsharded
         with self._mock_sharder() as sharder:
@@ -1102,10 +1096,8 @@ class TestSharder(unittest.TestCase):
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
-        broker.merge_items(
-            [dict(shard_range, deleted=0, storage_policy_index=0,
-                  record_type=RECORD_TYPE_SHARD_NODE)
-             for shard_range in root_shard_ranges])
+        broker.merge_shard_ranges(
+            [dict(shard_range) for shard_range in root_shard_ranges])
 
         broker.set_sharding_state()
         ts_older_internal = self.ts_encoded()

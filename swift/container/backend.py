@@ -1405,7 +1405,7 @@ class ContainerBroker(DatabaseBroker):
         result = list()
         for item in nodes:
             if isinstance(item, ShardRange):
-                obj = dict(item, deleted=0)
+                obj = dict(item)
             else:
                 obj = {
                     'name': item[0],

@@ -30,7 +30,7 @@ import json
 
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, DB_STATE_NOTFOUND, DB_STATE_UNSHARDED, \
-    DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE, RECORD_TYPE_SHARD_NODE
+    DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE
 from swift.common.db import DatabaseBroker
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange
@@ -2590,7 +2590,7 @@ class TestContainerBroker(unittest.TestCase):
                 )
                 d = dict(name=name, created_at=ts_now.internal, lower=lower,
                          upper=upper, object_count=0, bytes_used=0,
-                         meta_timestamp=ts_now.internal)
+                         meta_timestamp=ts_now.internal, deleted=0)
                 expected_range_dicts.append(d)
             # call the method under test
             with mock.patch('swift.common.utils.time.time',
@@ -2657,9 +2657,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # now add a pre-existing shard ranges
         shard_range = ShardRange('srange-0', Timestamp.now(), '', 'obj03')
-        item = dict(shard_range, deleted=0, storage_policy_index=0,
-                    record_type=RECORD_TYPE_SHARD_NODE)
-        broker.merge_items([item])
+        broker.merge_shard_ranges([dict(shard_range)])
 
         expected = [('obj03', 'obj07'), ('obj07', c_upper)]
         do_test(expected, True, shard_size=4, limit=None)
@@ -2668,17 +2666,13 @@ class TestContainerBroker(unittest.TestCase):
 
         # add another...
         shard_range = ShardRange('srange-1', Timestamp.now(), '', 'obj07')
-        item = dict(shard_range, deleted=0, storage_policy_index=0,
-                    record_type=RECORD_TYPE_SHARD_NODE)
-        broker.merge_items([item])
+        broker.merge_shard_ranges([dict(shard_range)])
         expected = [('obj07', c_upper)]
         do_test(expected, True, shard_size=4, limit=None)
 
         # add last shard range...
         shard_range = ShardRange('srange-2', Timestamp.now(), 'obj07', c_upper)
-        item = dict(shard_range, deleted=0, storage_policy_index=0,
-                    record_type=RECORD_TYPE_SHARD_NODE)
-        broker.merge_items([item])
+        broker.merge_shard_ranges([dict(shard_range)])
         do_test([], True, shard_size=4, limit=None)
 
     def test_find_shard_ranges(self):
@@ -2704,9 +2698,8 @@ class TestContainerBroker(unittest.TestCase):
                     'size': 1024 * i,
                     'deleted': 0,
                     'storage_policy_index': 0,
-                    'record_type': 0
                     } for i in range(1, 6)]
-        broker.merge_items(objects)
+        broker.merge_objects(objects)
         original_info = broker.get_info()
 
         # Add some metadata
@@ -2734,7 +2727,7 @@ class TestContainerBroker(unittest.TestCase):
             bytes_used=sum(obj['size'] for obj in objects[i:i + 2]),
             meta_timestamp=next(ts_iter)) for i in range(0, 6, 2)]
 
-        broker.merge_items(broker.shard_nodes_to_items(shard_ranges))
+        broker.merge_shard_ranges([dict(sr) for sr in shard_ranges])
 
         def check_broker_properties(broker):
             # these broker properties should remain unchanged as state changes
