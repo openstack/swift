@@ -177,8 +177,6 @@ from __future__ import print_function
 from time import time
 from traceback import format_exc
 from uuid import uuid4
-from hashlib import sha1
-import hmac
 import base64
 
 from eventlet import Timeout
@@ -437,20 +435,21 @@ class TempAuth(object):
 
         s3_auth_details = env.get('swift3.auth_details')
         if s3_auth_details:
+            if 'check_signature' not in s3_auth_details:
+                self.logger.warning(
+                    'Swift3 did not provide a check_signature function; '
+                    'upgrade Swift3 if you want to use it with tempauth')
+                return None
             account_user = s3_auth_details['access_key']
-            signature_from_user = s3_auth_details['signature']
             if account_user not in self.users:
                 return None
-            account, user = account_user.split(':', 1)
-            account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
-            path = env['PATH_INFO']
-            env['PATH_INFO'] = path.replace(account_user, account_id, 1)
-            valid_signature = base64.encodestring(hmac.new(
-                self.users[account_user]['key'],
-                s3_auth_details['string_to_sign'],
-                sha1).digest()).strip()
-            if signature_from_user != valid_signature:
+            user = self.users[account_user]
+            account = account_user.split(':', 1)[0]
+            account_id = user['url'].rsplit('/', 1)[-1]
+            if not s3_auth_details['check_signature'](user['key']):
                 return None
+            env['PATH_INFO'] = env['PATH_INFO'].replace(
+                account_user, account_id, 1)
             groups = self._get_user_groups(account, account_user, account_id)
 
         return groups
