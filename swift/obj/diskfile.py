@@ -86,7 +86,8 @@ METADATA_KEY = 'user.swift.metadata'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
-DATAFILE_SYSTEM_META = set('content-length deleted etag'.split())
+RESERVED_DATAFILE_META = {'content-length', 'deleted', 'etag'}
+DATAFILE_SYSTEM_META = {'x-static-large-object'}
 DATADIR_BASE = 'objects'
 ASYNCDIR_BASE = 'async_pending'
 TMP_BASE = 'tmp'
@@ -2415,7 +2416,8 @@ class BaseDiskFile(object):
                 self._merge_content_type_metadata(ctype_file)
             sys_metadata = dict(
                 [(key, val) for key, val in self._datafile_metadata.items()
-                 if key.lower() in DATAFILE_SYSTEM_META
+                 if key.lower() in (RESERVED_DATAFILE_META |
+                                    DATAFILE_SYSTEM_META)
                  or is_sys_meta('object', key)])
             self._metadata.update(self._metafile_metadata)
             self._metadata.update(sys_metadata)
