@@ -236,6 +236,9 @@ class FakeBroker(object):
             info.update(self.stub_replication_info)
         return info
 
+    def get_other_replication_items(self):
+        return None
+
     def reclaim(self, item_timestamp, sync_timestamp):
         pass
 

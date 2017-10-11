@@ -595,41 +595,24 @@ class ContainerBroker(DatabaseBroker):
             conn.execute(query, query_args)
             conn.commit()
 
-    def delete_shard(self, name, timestamp, meta_timestamp=None,
-                     lower=None, upper=None):
+    def delete_shard_range(self, shard_range):
         """
-        Mark a shard range range deleted.
+        Create a shard range record that is marked as deleted.
 
-        :param name: shard range name to be deleted
-        :param timestamp: timestamp when the object was marked as deleted
-        :param meta_timestamp: timestamp of when metadata was last updated
-        :param lower: shard's lower range
-        :param upper: shard's upper range
+        :param shard_range: a :class:`~swift.common.utils.ShardRange`
         """
-        self.put_shard(name, timestamp, meta_timestamp, deleted=1, lower=lower,
-                       upper=upper, object_count=0, bytes_used=0)
+        record = dict(shard_range, deleted=1, storage_policy_index=0,
+                      record_type=RECORD_TYPE_SHARD_NODE)
+        self.put_record(record)
 
-    def put_shard(self, name, timestamp, meta_timestamp=None, deleted=0,
-                  lower=None, upper=None, object_count=0, bytes_used=0):
+    def put_shard_range(self, shard_range):
         """
         Creates a shard range in the DB with its metadata.
 
-        :param name: shard range name to be created
-        :param timestamp: timestamp of when the shard was created
-        :param meta_timestamp: timestamp of when metadata was last updated
-        :param deleted: if True, marks the shard as deleted and sets the
-                        deleted_at timestamp to timestamp
-        :param lower: shard's lower range
-        :param upper: shard's upper range
-        :param object_count: number of objects stored in shard range
-        :param bytes_used: number of bytes used in the shard range
+        :param shard_range: a :class:`~swift.common.utils.ShardRange`
         """
-        record = {'name': name, 'created_at': timestamp, 'lower': lower,
-                  'upper': upper, 'object_count': object_count,
-                  'bytes_used': bytes_used, 'deleted': deleted,
-                  'storage_policy_index': 0,
-                  'meta_timestamp': meta_timestamp,
-                  'record_type': RECORD_TYPE_SHARD_NODE}
+        record = dict(shard_range, storage_policy_index=0,
+                      record_type=RECORD_TYPE_SHARD_NODE)
         self.put_record(record)
 
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
@@ -1400,39 +1383,16 @@ class ContainerBroker(DatabaseBroker):
                     raise
                 return {'bytes_used': 0, 'object_count': 0}
 
-    def shard_nodes_to_items(self, nodes):
-        # TODO: split this to separate helper method for each given type?
-        result = list()
-        for item in nodes:
-            if isinstance(item, ShardRange):
-                obj = dict(item)
-            else:
-                obj = {
-                    'name': item[0],
-                    'created_at': item[1],
-                    'lower': item[2],
-                    'upper': item[3],
-                    'object_count': item[4],
-                    'bytes_used': item[5],
-                    'meta_timestamp': item[6],
-                    'deleted': item[7] if len(item) > 7 else 0}
-
-            obj.update({
-                'storage_policy_index': 0,
-                'record_type': RECORD_TYPE_SHARD_NODE})
-            result.append(obj)
-        return result
-
-    def _get_shard_range_rows(self, connection=None):
+    def _get_shard_range_rows(self, connection=None, include_deleted=False):
         def do_query(conn):
             try:
+                condition = '' if include_deleted else ' WHERE deleted=0 '
                 sql = '''
                 SELECT name, created_at, lower, upper, object_count,
-                    bytes_used, meta_timestamp
-                FROM shard_ranges
-                WHERE deleted=0
+                    bytes_used, meta_timestamp, deleted
+                FROM shard_ranges%s
                 ORDER BY lower, upper;
-                '''
+                ''' % condition
                 data = conn.execute(sql)
                 data.row_factory = None
                 return [row for row in data]
@@ -1449,7 +1409,7 @@ class ContainerBroker(DatabaseBroker):
                 return do_query(conn)
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
-                         reverse=False):
+                         reverse=False, include_deleted=False):
         """
         Returns a list of persisted shard ranges.
 
@@ -1461,10 +1421,13 @@ class ContainerBroker(DatabaseBroker):
             includes the given value; if ``includes`` is specified then
             ``marker`` and ``end_marker`` are ignored.
         :param reverse: reverse the result order.
+        :param include_deleted: include items that have the delete marker set
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
-        shard_ranges = [ShardRange(*row)
-                        for row in self._get_shard_range_rows()]
+        shard_ranges = [
+            ShardRange(*row)
+            for row in self._get_shard_range_rows(
+                include_deleted=include_deleted)]
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []
@@ -1473,16 +1436,21 @@ class ContainerBroker(DatabaseBroker):
             shard_ranges.reverse()
             marker, end_marker = end_marker, marker
         if marker or end_marker:
-            def shard_range_filter(shard_range):
+            def shard_range_filter(sr):
                 end = start = True
                 if end_marker:
-                    end = shard_range < end_marker or end_marker in shard_range
+                    end = sr < end_marker or end_marker in sr
                 if marker:
-                    start = shard_range > marker or marker in shard_range
+                    start = sr > marker or marker in sr
                 return start and end
 
             shard_ranges = list(filter(shard_range_filter, shard_ranges))
         return shard_ranges
+
+    def get_other_replication_items(self):
+        # TODO: do we need storage policy index?
+        return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE, storage_policy=0)
+                for sr in self.get_shard_ranges(include_deleted=True)]
 
     def is_shrinking(self):
         return self.metadata.get('X-Container-Sysmeta-Shard-Merge') or \

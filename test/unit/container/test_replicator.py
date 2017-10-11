@@ -26,7 +26,7 @@ from swift.common import db_replicator
 from swift.container import replicator, backend, server, sync_store
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
-from swift.common.utils import Timestamp, encode_timestamps
+from swift.common.utils import Timestamp, encode_timestamps, ShardRange
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
@@ -1152,6 +1152,174 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(1, mock_remove.call_count)
         self.assertEqual(broker_2.db_file, mock_remove.call_args[0][0].db_file)
 
+    def test_sync_shard_ranges(self):
+        put_timestamp = Timestamp.now().internal
+        # create "local" broker
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(put_timestamp, POLICIES.default.idx)
+        # create "remote" broker
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_broker.initialize(put_timestamp, POLICIES.default.idx)
+
+        def check_replicate(expected_shard_ranges, from_broker, to_broker):
+            daemon = replicator.ContainerReplicator({})
+            part, node = self._get_broker_part_node(to_broker)
+            info = broker.get_replication_info()
+            success = daemon._repl_to_node(node, from_broker, part, info)
+            self.assertTrue(success)
+            self.assertEqual(
+                [dict(sr) for sr in expected_shard_ranges],
+                [dict(sr) for sr in to_broker.get_shard_ranges(
+                    include_deleted=True)]
+            )
+            self.assertEqual(1, daemon.stats['diff'])
+            local_info = self._get_broker(
+                'a', 'c', node_index=0).get_info()
+            remote_info = self._get_broker(
+                'a', 'c', node_index=1).get_info()
+            for k, v in local_info.items():
+                if k == 'id':
+                    continue
+                self.assertEqual(remote_info[k], v,
+                                 "mismatch remote %s %r != %r" % (
+                                     k, remote_info[k], v))
+
+        bounds = (('', 'g'), ('g', 'r'), ('r', ''))
+        shard_ranges = [
+            ShardRange('sr-%s' % upper, Timestamp.now(), lower, upper,
+                       i + 1, 10 * (i + 1))
+            for i, (lower, upper) in enumerate(bounds)
+        ]
+        # add first two shard_ranges to both brokers
+        for shard_range in shard_ranges[:2]:
+            for db in (broker, remote_broker):
+                db.put_shard_range(shard_range)
+        # now add a shard range to the "local" broker only
+        broker.put_shard_range(shard_ranges[2])
+        broker_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assertEqual([dict(sr) for sr in shard_ranges],
+                         [dict(sr) for sr in broker_ranges])
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # update one shard range
+        shard_ranges[1].lower = ''
+        shard_ranges[1].meta_timestamp = Timestamp.now()
+        broker.put_shard_range(shard_ranges[1])
+        # sanity check
+        broker_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assertEqual([dict(sr) for sr in shard_ranges],
+                         [dict(sr) for sr in broker_ranges])
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # delete one shard range
+        shard_ranges[0].deleted = 1
+        shard_ranges[0].timestamp = Timestamp.now()
+        broker.delete_shard_range(shard_ranges[0])
+        # sanity check
+        broker_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assertEqual([dict(sr) for sr in shard_ranges],
+                         [dict(sr) for sr in broker_ranges])
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # put a shard range again
+        shard_ranges[2].timestamp = Timestamp.now()
+        shard_ranges[2].object_count = 0
+        broker.put_shard_range(shard_ranges[2])
+        # sanity check
+        broker_ranges = broker.get_shard_ranges(include_deleted=True)
+        self.assertEqual([dict(sr) for sr in shard_ranges],
+                         [dict(sr) for sr in broker_ranges])
+        check_replicate(broker_ranges, broker, remote_broker)
+
+        # update same shard range on local and remote, remote later
+        shard_ranges[-1].meta_timestamp = Timestamp.now()
+        shard_ranges[-1].bytes_used += 1000
+        broker.put_shard_range(shard_ranges[-1])
+        remote_shard_ranges = remote_broker.get_shard_ranges(
+            include_deleted=True)
+        remote_shard_ranges[-1].meta_timestamp = Timestamp.now()
+        remote_shard_ranges[-1].bytes_used += 2000
+        remote_broker.put_shard_range(remote_shard_ranges[-1])
+        # sanity check
+        remote_broker_ranges = remote_broker.get_shard_ranges(
+            include_deleted=True)
+        self.assertEqual([dict(sr) for sr in remote_shard_ranges],
+                         [dict(sr) for sr in remote_broker_ranges])
+        self.assertNotEqual([dict(sr) for sr in shard_ranges],
+                            [dict(sr) for sr in remote_shard_ranges])
+        check_replicate(remote_shard_ranges, broker, remote_broker)
+
+        # undelete shard range *on the remote*
+        deleted_ranges = [sr for sr in remote_shard_ranges if sr.deleted]
+        self.assertEqual([shard_ranges[0]], deleted_ranges)
+        deleted_ranges[0].deleted = 0
+        deleted_ranges[0].timestamp = Timestamp.now()
+        remote_broker.put_shard_range(deleted_ranges[0])
+        # sanity check
+        remote_broker_ranges = remote_broker.get_shard_ranges(
+            include_deleted=True)
+        self.assertEqual([dict(sr) for sr in remote_shard_ranges],
+                         [dict(sr) for sr in remote_broker_ranges])
+        self.assertNotEqual([dict(sr) for sr in shard_ranges],
+                            [dict(sr) for sr in remote_shard_ranges])
+        check_replicate(remote_shard_ranges, broker, remote_broker)
+
+        # reverse replication direction and expect syncs to propagate
+        check_replicate(remote_shard_ranges, remote_broker, broker)
+
+    def test_sync_shard_ranges_with_rsync(self):
+        broker = self._get_broker('a', 'c', node_index=0)
+        put_timestamp = time.time()
+        broker.initialize(put_timestamp, POLICIES.default.idx)
+
+        bounds = (('', 'g'), ('g', 'r'), ('r', ''))
+        shard_ranges = [
+            ShardRange('sr-%s' % upper, Timestamp.now(), lower, upper,
+                       i + 1, 10 * (i + 1))
+            for i, (lower, upper) in enumerate(bounds)
+        ]
+        # add first shard range
+        broker.put_shard_range(shard_ranges[0])
+
+        # "replicate"
+        part, node = self._get_broker_part_node(broker)
+        daemon = self._run_once(node)
+        self.assertEqual(2, daemon.stats['rsync'])
+
+        # complete rsync to all other nodes
+        def check_replicate(expected_ranges):
+            for i in range(1, 3):
+                remote_broker = self._get_broker('a', 'c', node_index=i)
+                self.assertTrue(os.path.exists(remote_broker.db_file))
+                self.assertEqual(
+                    [dict(sr) for sr in expected_ranges],
+                    [dict(sr) for sr in remote_broker.get_shard_ranges(
+                        include_deleted=True)]
+                )
+                remote_info = remote_broker.get_info()
+                local_info = self._get_broker(
+                    'a', 'c', node_index=0).get_info()
+                for k, v in local_info.items():
+                    if k == 'id':
+                        continue
+                    self.assertEqual(remote_info[k], v,
+                                     "mismatch remote %s %r != %r" % (
+                                         k, remote_info[k], v))
+
+        check_replicate(shard_ranges[:1])
+
+        # delete and add some more shard ranges
+        shard_ranges[0].deleted = 1
+        shard_ranges[0].timestamp = Timestamp.now()
+        for shard_range in shard_ranges:
+            broker.put_shard_range(shard_range)
+        # add some objects so that with per_diff == 1 an rsync is used
+        for i in range(3):
+            broker.put_object('test%s' % i, Timestamp.now(), 0,
+                              'text/plain', 'etag')
+        daemon = self._run_once(node, conf_updates={'per_diff': 1})
+        self.assertEqual(2, daemon.stats['remote_merge'])
+        check_replicate(shard_ranges)
 
 if __name__ == '__main__':
     unittest.main()

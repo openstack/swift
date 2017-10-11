@@ -82,6 +82,16 @@ def gen_resp_headers(info, is_deleted=False):
     return headers
 
 
+def shard_range_from_headers(name, headers):
+    return ShardRange(name,
+                      headers.get('x-backend-timestamp'),
+                      headers.get('x-backend-shard-lower'),
+                      headers.get('x-backend-shard-upper'),
+                      headers.get('x-backend-shard-objects', 0),
+                      headers.get('x-backend-shard-bytes', 0),
+                      headers.get('x-meta-timestamp'))
+
+
 class ContainerController(BaseStorageServer):
     """WSGI Controller for the container server."""
 
@@ -323,13 +333,8 @@ class ContainerController(BaseStorageServer):
         if obj:     # delete object
             record_type = req.headers.get('x-backend-record-type')
             if record_type == str(RECORD_TYPE_SHARD_NODE):
-                broker.delete_shard(
-                    # TODO (acoles): should this be x-timestamp?
-                    obj, req.headers.get('x-backend-timestamp'),
-                    req.headers.get(
-                        'x-meta-timestamp', req_timestamp.internal),
-                    req.headers.get('x-backend-shard-lower'),
-                    req.headers.get('x-backend-shard-upper'))
+                broker.delete_shard_range(
+                    shard_range_from_headers(obj, req.headers))
             else:
                 # redirect if a shard range exists for the object name
                 redirect = self._find_shard_location(req, broker, obj)
@@ -439,13 +444,8 @@ class ContainerController(BaseStorageServer):
 
             record_type = req.headers.get('x-backend-record-type')
             if record_type == str(RECORD_TYPE_SHARD_NODE):
-                broker.put_shard(
-                    obj, req.headers.get('x-backend-timestamp'),
-                    req.headers.get('x-meta-timestamp'),
-                    0, req.headers.get('x-backend-shard-lower'),
-                    req.headers.get('x-backend-shard-upper'),
-                    req.headers.get('x-backend-shard-objects'),
-                    req.headers.get('x-backend-shard-bytes'))
+                broker.put_shard_range(
+                    shard_range_from_headers(obj, req.headers))
 
             else:
                 # redirect if a shard exists for this object name

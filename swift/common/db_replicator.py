@@ -376,7 +376,7 @@ class Replicator(Daemon):
         # the shard ranges stored in a container database. The number of these
         # should always be _much_ less than normal objects, however for
         # completeness we should probably have a limit and pointer here too.
-        other_items = self._other_items_hook(broker)
+        other_items = broker.get_other_replication_items()
         if other_items:
             with Timeout(self.node_timeout):
                 response = http.replicate('merge_items', other_items,
@@ -909,7 +909,7 @@ class ReplicatorRpc(object):
             sleep()
         # Note the following hook will need to change to using a pointer and
         # limit in the future.
-        other_items = self._other_items_hook(existing_broker)
+        other_items = existing_broker.get_other_replication_items()
         if other_items:
             new_broker.merge_items(other_items)
         new_broker.newid(local_id)
@@ -926,8 +926,6 @@ class ReplicatorRpc(object):
 
         return HTTPNoContent()
 
-    def _other_items_hook(self, broker):
-        return []
 
 # Footnote [1]:
 #   This orders the nodes so that, given nodes a b c, a will contact b then c,

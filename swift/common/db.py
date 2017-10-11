@@ -511,6 +511,18 @@ class DatabaseBroker(object):
             curs.row_factory = dict_factory
             return [r for r in curs]
 
+    def get_other_replication_items(self):
+        """
+        Subclasses may override this method to return a list of items that
+        should be replicated in addition to the list of objects returned by
+        :meth:`~get_items_since`. The list should contain objects that can be
+        JSON serialized and are suitable to be passed to the
+        :meth:`merge_items` method of the same class.
+
+        :return: a list, or None
+        """
+        return None
+
     def get_sync(self, id, incoming=True):
         """
         Gets the most recent sync point for a server from the sync table.

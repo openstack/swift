@@ -34,11 +34,6 @@ from swift.common.utils import (Timestamp, hash_path,
                                 storage_directory, majority_size)
 
 
-def other_items_hook(broker):
-    shard_ranges = broker.get_shard_ranges()
-    return broker.shard_nodes_to_items(shard_ranges)
-
-
 class ContainerReplicator(db_replicator.Replicator):
     server_type = 'container'
     brokerclass = ContainerBroker
@@ -278,9 +273,6 @@ class ContainerReplicator(db_replicator.Replicator):
         return super(ContainerReplicator, self)._in_sync(
             rinfo, info, broker, local_sync)
 
-    def _other_items_hook(self, broker):
-        return other_items_hook(broker)
-
     def _is_locked(self, broker):
         return broker.has_sharding_lock()
 
@@ -319,6 +311,3 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
                 timestamp=status_changed_at)
             info = broker.get_replication_info()
         return info
-
-    def _other_items_hook(self, broker):
-        return other_items_hook(broker)
