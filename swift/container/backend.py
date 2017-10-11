@@ -475,7 +475,6 @@ class ContainerBroker(DatabaseBroker):
                 'bytes_used': bytes_used,
                 'meta_timestamp': meta_timestamp,
                 'deleted': deleted,
-                'storage_policy_index': 0,
                 'record_type': record_type}
         else:
             (name, timestamp, size, content_type, etag, deleted) = data[:6]
@@ -601,7 +600,7 @@ class ContainerBroker(DatabaseBroker):
 
         :param shard_range: a :class:`~swift.common.utils.ShardRange`
         """
-        record = dict(shard_range, deleted=1, storage_policy_index=0,
+        record = dict(shard_range, deleted=1,
                       record_type=RECORD_TYPE_SHARD_NODE)
         self.put_record(record)
 
@@ -611,8 +610,7 @@ class ContainerBroker(DatabaseBroker):
 
         :param shard_range: a :class:`~swift.common.utils.ShardRange`
         """
-        record = dict(shard_range, storage_policy_index=0,
-                      record_type=RECORD_TYPE_SHARD_NODE)
+        record = dict(shard_range, record_type=RECORD_TYPE_SHARD_NODE)
         self.put_record(record)
 
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
@@ -1448,8 +1446,7 @@ class ContainerBroker(DatabaseBroker):
         return shard_ranges
 
     def get_other_replication_items(self):
-        # TODO: do we need storage policy index?
-        return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE, storage_policy=0)
+        return [dict(sr, record_type=RECORD_TYPE_SHARD_NODE)
                 for sr in self.get_shard_ranges(include_deleted=True)]
 
     def is_shrinking(self):
