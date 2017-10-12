@@ -42,6 +42,16 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     replicator_daemon = replicator.ContainerReplicator
     replicator_rpc = replicator.ContainerReplicatorRpc
 
+    def assertShardRangesEqual(self, x, y):
+        # ShardRange.__eq__ only compares lower and upper; here we generate
+        # dict representations to compare all attributes
+        self.assertEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
+
+    def assertShardRangesNotEqual(self, x, y):
+        # ShardRange.__eq__ only compares lower and upper; here we generate
+        # dict representations to compare all attributes
+        self.assertNotEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
+
     def test_report_up_to_date(self):
         broker = self._get_broker('a', 'c', node_index=0)
         broker.initialize(Timestamp(1).internal, int(POLICIES.default))
@@ -1167,10 +1177,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             info = broker.get_replication_info()
             success = daemon._repl_to_node(node, from_broker, part, info)
             self.assertTrue(success)
-            self.assertEqual(
-                [dict(sr) for sr in expected_shard_ranges],
-                [dict(sr) for sr in to_broker.get_shard_ranges(
-                    include_deleted=True)]
+            self.assertShardRangesEqual(
+                expected_shard_ranges,
+                to_broker.get_shard_ranges(include_deleted=True)
             )
             self.assertEqual(1, daemon.stats['diff'])
             local_info = self._get_broker(
@@ -1197,8 +1206,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # now add a shard range to the "local" broker only
         broker.update_shard_range(shard_ranges[2])
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
-        self.assertEqual([dict(sr) for sr in shard_ranges],
-                         [dict(sr) for sr in broker_ranges])
+        self.assertShardRangesEqual(shard_ranges, broker_ranges)
         check_replicate(broker_ranges, broker, remote_broker)
 
         # update one shard range
@@ -1207,8 +1215,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.update_shard_range(shard_ranges[1])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
-        self.assertEqual([dict(sr) for sr in shard_ranges],
-                         [dict(sr) for sr in broker_ranges])
+        self.assertShardRangesEqual(shard_ranges, broker_ranges)
         check_replicate(broker_ranges, broker, remote_broker)
 
         # delete one shard range
@@ -1217,8 +1224,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.update_shard_range(shard_ranges[0])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
-        self.assertEqual([dict(sr) for sr in shard_ranges],
-                         [dict(sr) for sr in broker_ranges])
+        self.assertShardRangesEqual(shard_ranges, broker_ranges)
         check_replicate(broker_ranges, broker, remote_broker)
 
         # put a shard range again
@@ -1227,8 +1233,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.update_shard_range(shard_ranges[2])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
-        self.assertEqual([dict(sr) for sr in shard_ranges],
-                         [dict(sr) for sr in broker_ranges])
+        self.assertShardRangesEqual(shard_ranges, broker_ranges)
         check_replicate(broker_ranges, broker, remote_broker)
 
         # update same shard range on local and remote, remote later
@@ -1243,8 +1248,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # sanity check
         remote_broker_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
-        self.assertEqual([dict(sr) for sr in remote_shard_ranges],
-                         [dict(sr) for sr in remote_broker_ranges])
+        self.assertShardRangesEqual(remote_shard_ranges,
+                                    remote_broker_ranges)
         self.assertNotEqual([dict(sr) for sr in shard_ranges],
                             [dict(sr) for sr in remote_shard_ranges])
         check_replicate(remote_shard_ranges, broker, remote_broker)
@@ -1258,8 +1263,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # sanity check
         remote_broker_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
-        self.assertEqual([dict(sr) for sr in remote_shard_ranges],
-                         [dict(sr) for sr in remote_broker_ranges])
+        self.assertShardRangesEqual(remote_shard_ranges,
+                                    remote_broker_ranges)
         self.assertNotEqual([dict(sr) for sr in shard_ranges],
                             [dict(sr) for sr in remote_shard_ranges])
         check_replicate(remote_shard_ranges, broker, remote_broker)
@@ -1291,10 +1296,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             for i in range(1, 3):
                 remote_broker = self._get_broker('a', 'c', node_index=i)
                 self.assertTrue(os.path.exists(remote_broker.db_file))
-                self.assertEqual(
-                    [dict(sr) for sr in expected_ranges],
-                    [dict(sr) for sr in remote_broker.get_shard_ranges(
-                        include_deleted=True)]
+                self.assertShardRangesEqual(
+                    expected_ranges,
+                    remote_broker.get_shard_ranges(include_deleted=True)
                 )
                 remote_info = remote_broker.get_info()
                 local_info = self._get_broker(
