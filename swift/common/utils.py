@@ -17,6 +17,7 @@
 
 from __future__ import print_function
 
+import base64
 import binascii
 import errno
 import fcntl
@@ -28,6 +29,7 @@ import operator
 import os
 import pwd
 import re
+import string
 import struct
 import sys
 import time
@@ -4333,6 +4335,36 @@ def safe_json_loads(value):
         except (TypeError, ValueError):
             pass
     return None
+
+
+def base64decode(value, allow_line_breaks=False):
+    '''
+    Validate and decode Base64-encoded data.
+
+    The stdlib base64 module silently discards bad characters, but we often
+    want to treat them as an error.
+
+    :param value: some base64-encoded data
+    :param allow_line_breaks: if True, ignore carriage returns and newlines
+    :returns: the decoded data
+    :raises ValueError: if ``value`` is not a string, contains invalid
+                        characters, or has insufficient padding
+    '''
+    if not isinstance(value, six.string_types):
+        raise ValueError
+    # b64decode will silently discard bad characters, but we want to
+    # treat them as an error
+    valid_chars = string.digits + string.ascii_letters + '/+'
+    strip_chars = '='
+    if allow_line_breaks:
+        valid_chars += '\r\n'
+        strip_chars += '\r\n'
+    if any(c not in valid_chars for c in value.strip(strip_chars)):
+        raise ValueError
+    try:
+        return base64.b64decode(value)
+    except (TypeError, binascii.Error):  # (py2 error, py3 error)
+        raise ValueError
 
 
 MD5_BLOCK_READ_BYTES = 4096
