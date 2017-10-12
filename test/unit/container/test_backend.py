@@ -2519,20 +2519,48 @@ class TestContainerBroker(unittest.TestCase):
         broker.get_info()
 
     @with_tempdir
-    def test_get_shard_root_path(self, tempdir):
+    def test_get_shard_root_account_container(self, tempdir):
         ts_iter = make_timestamp_iter()
-        db_path = os.path.join(tempdir, 'container_shard.db')
+        db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='shard_a', container='shard_c')
+            db_path, account='root_a', container='root_c')
         broker.initialize(next(ts_iter).internal, 1)
+        # make sure we can cope with unitialized account and container
+        broker.account = broker.container = None
 
-        self.assertEqual(('shard_a', 'shard_c'), broker.get_shard_root_path())
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+
+        # we don't expect root containers to ever have this sysmeta set but if
+        # it is the broker should still behave like a root container
         metadata = {
             'X-Container-Sysmeta-Shard-Root':
                 ('root_a/root_c', next(ts_iter).internal)}
-
         broker.update_metadata(metadata)
-        self.assertEqual(('root_a', 'root_c'), broker.get_shard_root_path())
+        # make sure we can cope with unitialized account and container
+        broker.account = broker.container = None
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertTrue(broker.is_root_container())
+
+        db_path = os.path.join(tempdir, 'shard_container.db')
+        broker = ContainerBroker(
+            db_path, account='.sharded_root_a', container='c_shard')
+        broker.initialize(next(ts_iter).internal, 1)
+        metadata = {
+            'X-Container-Sysmeta-Shard-Root':
+                ('root_a/root_c', next(ts_iter).internal)}
+        broker.update_metadata(metadata)
+        # make sure we can cope with unitialized account and container
+        broker.account = broker.container = None
+
+        self.assertEqual('root_a', broker.root_account)
+        self.assertEqual('root_c', broker.root_container)
+        self.assertEqual('root_a/root_c', broker.root_path)
+        self.assertFalse(broker.is_root_container())
 
     @with_tempdir
     def test_get_shard_range(self, tempdir):

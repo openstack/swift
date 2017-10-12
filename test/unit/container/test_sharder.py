@@ -537,7 +537,7 @@ class TestSharder(unittest.TestCase):
         # run cleave - no shard ranges, nothing happens
         node = {'id': 2, 'index': 1}
         with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._cleave(broker, node, 'a', 'c'))
+            self.assertTrue(sharder._cleave(broker, node))
 
         self.assertEqual(DB_STATE_UNSHARDED, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
@@ -552,7 +552,7 @@ class TestSharder(unittest.TestCase):
 
         # run cleave again now we have shard ranges - first batch is cleaved
         with self._mock_sharder() as sharder:
-            self.assertFalse(sharder._cleave(broker, node, 'a', 'c'))
+            self.assertFalse(sharder._cleave(broker, node))
 
         self.assertEqual(DB_STATE_SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_has_calls(
@@ -593,7 +593,7 @@ class TestSharder(unittest.TestCase):
 
         # run cleave - should process the third range, which is final range
         with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._cleave(broker, node, 'a', 'c'))
+            self.assertTrue(sharder._cleave(broker, node))
 
         self.assertEqual(DB_STATE_SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
@@ -616,7 +616,7 @@ class TestSharder(unittest.TestCase):
 
         # run cleave - should be a no-op, all existing ranges have been cleaved
         with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._cleave(broker, node, 'a', 'c'))
+            self.assertTrue(sharder._cleave(broker, node))
 
         self.assertEqual(DB_STATE_SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
@@ -626,7 +626,7 @@ class TestSharder(unittest.TestCase):
         update_sharding_info(broker, {'Scan-Done': True})
 
         with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._cleave(broker, node, 'a', 'c'))
+            self.assertTrue(sharder._cleave(broker, node))
 
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[3], 0)
@@ -657,7 +657,7 @@ class TestSharder(unittest.TestCase):
         broker.set_sharded_state()
         # run cleave - should be a no-op
         with self._mock_sharder() as sharder:
-            self.assertTrue(sharder._cleave(broker, node, 'a', 'c'))
+            self.assertTrue(sharder._cleave(broker, node))
 
         sharder._replicate_object.assert_not_called()
 
@@ -696,7 +696,7 @@ class TestSharder(unittest.TestCase):
 
         # unsharded
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -705,7 +705,7 @@ class TestSharder(unittest.TestCase):
         # sharding - no misplaced objects
         broker.set_sharding_state()
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -714,7 +714,7 @@ class TestSharder(unittest.TestCase):
         # pretend we cleaved up to end of second shard range
         update_sharding_info(broker, {'Last': 'there'}, node)
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -726,7 +726,7 @@ class TestSharder(unittest.TestCase):
         # pretend we have not cleaved any ranges
         update_sharding_info(broker, {'Last': None}, node)
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -740,7 +740,7 @@ class TestSharder(unittest.TestCase):
         # pretend we cleaved up to end of second shard range
         update_sharding_info(broker, {'Last': 'there'}, node)
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
 
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[1], 0)
@@ -771,7 +771,7 @@ class TestSharder(unittest.TestCase):
             # check that *all* misplaced objects are moved despite exceeding
             # the listing limit
             with self._mock_sharder() as sharder:
-                sharder._misplaced_objects(broker, node, 'a', 'c', None)
+                sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in expected_shard_dbs[2:4]],
             any_order=True
@@ -793,7 +793,7 @@ class TestSharder(unittest.TestCase):
         update_sharding_info(broker, {'Last': ''}, node)
         broker.set_sharded_state()
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -811,7 +811,7 @@ class TestSharder(unittest.TestCase):
         self._check_objects(newer_objects, broker.db_file)
 
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0)
              for db in (expected_shard_dbs[0], expected_shard_dbs[-1])],
@@ -843,6 +843,7 @@ class TestSharder(unittest.TestCase):
         update_sharding_info(broker, {'Lower': own_sr.lower,
                                       'Upper': own_sr.upper,
                                       'Timestamp': own_sr.timestamp.internal,
+                                      'Root': 'a/c',
                                       'Container': True})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(DB_STATE_UNSHARDED, broker.get_db_state())
@@ -873,7 +874,7 @@ class TestSharder(unittest.TestCase):
 
         # no objects
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -888,7 +889,7 @@ class TestSharder(unittest.TestCase):
         # TODO: add assertion about any warning w.r.t. range not available
         with self._mock_sharder() as sharder:
             sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges[:-1]
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_called_with(
             0, expected_shard_dbs[0], 0),
 
@@ -908,7 +909,7 @@ class TestSharder(unittest.TestCase):
         # repeat with final shard range available
         with self._mock_sharder() as sharder:
             sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
 
         sharder._replicate_object.assert_called_with(
             0, expected_shard_dbs[-1], 0),
@@ -928,7 +929,7 @@ class TestSharder(unittest.TestCase):
 
         # repeat - no work remaining
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_not_called()
         self.assertEqual(0, sharder.stats['containers_misplaced'])
         self.assertFalse(
@@ -947,7 +948,7 @@ class TestSharder(unittest.TestCase):
 
         with self._mock_sharder() as sharder:
             sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0)
              for db in (expected_shard_dbs[0], expected_shard_dbs[3])],
@@ -980,6 +981,7 @@ class TestSharder(unittest.TestCase):
         update_sharding_info(broker, {'Lower': own_sr.lower,
                                       'Upper': own_sr.upper,
                                       'Timestamp': own_sr.timestamp.internal,
+                                      'Root': 'a/c',
                                       'Container': True})
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
         self.assertEqual(DB_STATE_UNSHARDED, broker.get_db_state())
@@ -1019,7 +1021,7 @@ class TestSharder(unittest.TestCase):
         self._check_objects(objects, broker.db_file)  # sanity check
         with self._mock_sharder() as sharder:
             sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
@@ -1054,7 +1056,7 @@ class TestSharder(unittest.TestCase):
         self._check_objects(sorted(new_objects + objects[2:5]), broker.db_file)
         with self._mock_sharder() as sharder:
             sharder._get_shard_ranges = lambda *a, **k: root_shard_ranges
-            sharder._misplaced_objects(broker, node, 'a', 'c', own_sr)
+            sharder._misplaced_objects(broker, node, own_sr)
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
@@ -1116,7 +1118,7 @@ class TestSharder(unittest.TestCase):
         broker.set_sharded_state()
 
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
@@ -1143,7 +1145,7 @@ class TestSharder(unittest.TestCase):
         broker.get_info()
         self._check_objects(old_objects, broker.db_file)  # sanity check
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
@@ -1177,7 +1179,7 @@ class TestSharder(unittest.TestCase):
         shard_broker.put_object(*newer_object)
 
         with self._mock_sharder() as sharder:
-            sharder._misplaced_objects(broker, node, 'a', 'c', None)
+            sharder._misplaced_objects(broker, node, None)
 
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, db, 0) for db in (expected_shard_dbs[0],
