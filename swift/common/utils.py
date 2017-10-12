@@ -4325,6 +4325,8 @@ class ShardRange(object):
     def __eq__(self, other):
         if not isinstance(other, ShardRange):
             return False
+        # TODO: consider comparing other attributes (object_count, bytes_used)
+        # but it may prove useful to be able to test for equality of range only
         return self.lower == other.lower and self.upper == other.upper
 
     def __ne__(self, other):

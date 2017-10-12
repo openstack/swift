@@ -114,6 +114,11 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(str(policy_index),
                          resp.headers['X-Backend-Storage-Policy-Index'])
 
+    def _assertShardRangesEqual(self, x, y):
+        # ShardRange.__eq__ only compares lower and upper; here we generate
+        # dict representations to compare all attributes
+        self.assertEqual([dict(sr) for sr in x], [dict(sr) for sr in y])
+
     def test_creation(self):
         # later config should be extended to assert more config options
         replicator = container_server.ContainerController(
@@ -2081,10 +2086,7 @@ class TestContainerController(unittest.TestCase):
             self._put_shard_range(shard_range)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        actual_shard_ranges = broker.get_shard_ranges()
-        self.assertEqual(
-            [dict(sr) for sr in shard_ranges],
-            [dict(actual_sr) for actual_sr in actual_shard_ranges])
+        self._assertShardRangesEqual(shard_ranges, broker.get_shard_ranges())
 
         # sanity check - no shard ranges when GET is only for objects
         def check_object_GET(path):
@@ -2200,10 +2202,8 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
 
-        actual_shard_ranges = broker.get_shard_ranges()
-        self.assertEqual(
-            [dict(sr) for sr in shard_ranges[1:]],
-            [dict(actual_sr) for actual_sr in actual_shard_ranges])
+        self._assertShardRangesEqual(shard_ranges[1:],
+                                     broker.get_shard_ranges())
 
         check_shard_GET(shard_ranges[1:], 'a/c')
         check_shard_GET(shard_ranges[1:2], 'a/c/jam')
