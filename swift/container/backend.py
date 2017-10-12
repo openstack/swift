@@ -277,6 +277,8 @@ class ContainerBroker(DatabaseBroker):
             self._shard_db_file = db_file
         else:
             self._shard_db_file = db_file[:-len('.db')] + "_shard.db"
+        # the root account and container are populated on demand
+        self._root_account = self._root_container = None
 
     def get_db_state(self):
         if self._db_file == ':memory:':
@@ -1456,15 +1458,6 @@ class ContainerBroker(DatabaseBroker):
                 res['merge'] = shard_merge[0]
         return res
 
-    def is_root_container(self):
-        """Is this container a root container
-
-        Any container that doesn't have a root container associated with
-        it is a root container. So strictly speaking an unsharded container is
-        also a type of root container.
-        """
-        return not self.metadata.get('X-Container-Sysmeta-Shard-Container')
-
     @contextmanager
     def sharding_lock(self):
         lockpath = '%s/.sharding' % self.db_dir
@@ -1638,7 +1631,7 @@ class ContainerBroker(DatabaseBroker):
 
         return shard_range
 
-    def get_shard_root_path(self):
+    def _get_root_info(self):
         """
         Attempt to get the root shard container name and account for the
         container represented by this broker.
@@ -1652,17 +1645,48 @@ class ContainerBroker(DatabaseBroker):
             exists in the broker metadata; otherwise returns the (account,
             container) tuple for this broker.
         """
-        if self.container is None:
-            # Ensure account/container get populated
-            self.get_info()
         path, ts = self.metadata.get('X-Container-Sysmeta-Shard-Root',
                                      (None, None))
         if path is None:
-            return self.account, self.container
+            if self.container is None:
+                # Ensure account/container get populated
+                self.get_info()
+            self._root_account = self.account
+            self._root_container = self.container
+            return
+
         if path.count('/') != 1 or path.strip('/').count('/') == 0:
             raise ValueError('Expected X-Container-Sysmeta-Shard-Root to be '
                              "of the form 'account/container', got %r" % path)
-        return tuple(path.split('/'))
+        self._root_account, self._root_container = tuple(path.split('/'))
+
+    @property
+    def root_account(self):
+        if not self._root_account:
+            self._get_root_info()
+        return self._root_account
+
+    @property
+    def root_container(self):
+        if not self._root_container:
+            self._get_root_info()
+        return self._root_container
+
+    @property
+    def root_path(self):
+        return '%s/%s' % (self.root_account, self.root_container)
+
+    def is_root_container(self):
+        """
+        Returns True if this container is a root container, False otherwise.
+
+        A root container is a container that is not a shard of another
+        container.
+        """
+        if self.container is None:
+            # Ensure account/container get populated
+            self.get_info()
+        return self.root_container == self.container
 
     def _get_next_shard_range_upper(self, shard_size, last_upper=None,
                                     connection=None):
@@ -1699,9 +1723,8 @@ class ContainerBroker(DatabaseBroker):
                 self._create_connection()
 
     def _generate_shard_range_name(self, range_upper, timestamp):
-        root_account, root_container = self.get_shard_root_path()
         md5sum = md5("%s-%s" % (range_upper, timestamp.internal)).hexdigest()
-        return "%s-%s" % (root_container, md5sum)
+        return "%s-%s" % (self.root_container, md5sum)
 
     def find_shard_ranges(self, shard_size, limit=-1):
         """
