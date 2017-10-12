@@ -1193,9 +1193,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # add first two shard_ranges to both brokers
         for shard_range in shard_ranges[:2]:
             for db in (broker, remote_broker):
-                db.put_shard_range(shard_range)
+                db.update_shard_range(shard_range)
         # now add a shard range to the "local" broker only
-        broker.put_shard_range(shard_ranges[2])
+        broker.update_shard_range(shard_ranges[2])
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
         self.assertEqual([dict(sr) for sr in shard_ranges],
                          [dict(sr) for sr in broker_ranges])
@@ -1204,7 +1204,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # update one shard range
         shard_ranges[1].lower = ''
         shard_ranges[1].meta_timestamp = Timestamp.now()
-        broker.put_shard_range(shard_ranges[1])
+        broker.update_shard_range(shard_ranges[1])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
         self.assertEqual([dict(sr) for sr in shard_ranges],
@@ -1214,7 +1214,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # delete one shard range
         shard_ranges[0].deleted = 1
         shard_ranges[0].timestamp = Timestamp.now()
-        broker.delete_shard_range(shard_ranges[0])
+        broker.update_shard_range(shard_ranges[0])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
         self.assertEqual([dict(sr) for sr in shard_ranges],
@@ -1224,7 +1224,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # put a shard range again
         shard_ranges[2].timestamp = Timestamp.now()
         shard_ranges[2].object_count = 0
-        broker.put_shard_range(shard_ranges[2])
+        broker.update_shard_range(shard_ranges[2])
         # sanity check
         broker_ranges = broker.get_shard_ranges(include_deleted=True)
         self.assertEqual([dict(sr) for sr in shard_ranges],
@@ -1234,12 +1234,12 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # update same shard range on local and remote, remote later
         shard_ranges[-1].meta_timestamp = Timestamp.now()
         shard_ranges[-1].bytes_used += 1000
-        broker.put_shard_range(shard_ranges[-1])
+        broker.update_shard_range(shard_ranges[-1])
         remote_shard_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
         remote_shard_ranges[-1].meta_timestamp = Timestamp.now()
         remote_shard_ranges[-1].bytes_used += 2000
-        remote_broker.put_shard_range(remote_shard_ranges[-1])
+        remote_broker.update_shard_range(remote_shard_ranges[-1])
         # sanity check
         remote_broker_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
@@ -1254,7 +1254,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual([shard_ranges[0]], deleted_ranges)
         deleted_ranges[0].deleted = 0
         deleted_ranges[0].timestamp = Timestamp.now()
-        remote_broker.put_shard_range(deleted_ranges[0])
+        remote_broker.update_shard_range(deleted_ranges[0])
         # sanity check
         remote_broker_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
@@ -1279,7 +1279,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             for i, (lower, upper) in enumerate(bounds)
         ]
         # add first shard range
-        broker.put_shard_range(shard_ranges[0])
+        broker.update_shard_range(shard_ranges[0])
 
         # "replicate"
         part, node = self._get_broker_part_node(broker)
@@ -1312,7 +1312,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         shard_ranges[0].deleted = 1
         shard_ranges[0].timestamp = Timestamp.now()
         for shard_range in shard_ranges:
-            broker.put_shard_range(shard_range)
+            broker.update_shard_range(shard_range)
         # add some objects so that with per_diff == 1 an rsync is used
         for i in range(3):
             broker.put_object('test%s' % i, Timestamp.now(), 0,

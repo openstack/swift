@@ -333,8 +333,9 @@ class ContainerController(BaseStorageServer):
         if obj:     # delete object
             record_type = req.headers.get('x-backend-record-type')
             if record_type == str(RECORD_TYPE_SHARD_NODE):
-                broker.delete_shard_range(
-                    shard_range_from_headers(obj, req.headers))
+                shard_range = shard_range_from_headers(obj, req.headers)
+                shard_range.deleted = 1
+                broker.update_shard_range(shard_range)
             else:
                 # redirect if a shard range exists for the object name
                 redirect = self._find_shard_location(req, broker, obj)
@@ -444,7 +445,7 @@ class ContainerController(BaseStorageServer):
 
             record_type = req.headers.get('x-backend-record-type')
             if record_type == str(RECORD_TYPE_SHARD_NODE):
-                broker.put_shard_range(
+                broker.update_shard_range(
                     shard_range_from_headers(obj, req.headers))
 
             else:

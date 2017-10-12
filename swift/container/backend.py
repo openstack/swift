@@ -594,24 +594,14 @@ class ContainerBroker(DatabaseBroker):
             conn.execute(query, query_args)
             conn.commit()
 
-    def delete_shard_range(self, shard_range):
+    def update_shard_range(self, shard_range):
         """
-        Create a shard range record that is marked as deleted.
+        Updates a shard range record in the DB, including the metadata and
+        deleted attributes.
 
         :param shard_range: a :class:`~swift.common.utils.ShardRange`
         """
-        record = dict(shard_range, deleted=1,
-                      record_type=RECORD_TYPE_SHARD_NODE)
-        self.put_record(record)
-
-    def put_shard_range(self, shard_range):
-        """
-        Creates a shard range in the DB with its metadata.
-
-        :param shard_range: a :class:`~swift.common.utils.ShardRange`
-        """
-        record = dict(shard_range, record_type=RECORD_TYPE_SHARD_NODE)
-        self.put_record(record)
+        self.put_record(dict(shard_range, record_type=RECORD_TYPE_SHARD_NODE))
 
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
                          **kwargs):
