@@ -1982,6 +1982,25 @@ def get_hub():
     getting swallowed somewhere. Then when that file descriptor
     was re-used, eventlet would freak right out because it still
     thought it was waiting for activity from it in some other coro.
+
+    Another note about epoll: it's hard to use when forking. epoll works
+    like so:
+
+       * create an epoll instance: efd = epoll_create(...)
+
+       * register file descriptors of interest with epoll_ctl(efd,
+             EPOLL_CTL_ADD, fd, ...)
+
+       * wait for events with epoll_wait(efd, ...)
+
+    If you fork, you and all your child processes end up using the same
+    epoll instance, and everyone becomes confused. It is possible to use
+    epoll and fork and still have a correct program as long as you do the
+    right things, but eventlet doesn't do those things. Really, it can't
+    even try to do those things since it doesn't get notified of forks.
+
+    In contrast, both poll() and select() specify the set of interesting
+    file descriptors with each call, so there's no problem with forking.
     """
     try:
         import select

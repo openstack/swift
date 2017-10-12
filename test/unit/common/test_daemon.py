@@ -139,13 +139,16 @@ class TestRunDaemon(unittest.TestCase):
 
     def test_run_daemon(self):
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
-        with tmpfile(sample_conf) as conf_file:
-            with mock.patch.dict('os.environ', {'TZ': ''}):
-                with mock.patch('time.tzset') as mock_tzset:
-                    daemon.run_daemon(MyDaemon, conf_file)
-                    self.assertTrue(MyDaemon.forever_called)
-                    self.assertEqual(os.environ['TZ'], 'UTC+0')
-                    self.assertEqual(mock_tzset.mock_calls, [mock.call()])
+        with tmpfile(sample_conf) as conf_file, \
+                mock.patch('swift.common.daemon.use_hub') as mock_use_hub:
+            with mock.patch.dict('os.environ', {'TZ': ''}), \
+                    mock.patch('time.tzset') as mock_tzset:
+                daemon.run_daemon(MyDaemon, conf_file)
+                self.assertTrue(MyDaemon.forever_called)
+                self.assertEqual(os.environ['TZ'], 'UTC+0')
+                self.assertEqual(mock_tzset.mock_calls, [mock.call()])
+                self.assertEqual(mock_use_hub.mock_calls,
+                                 [mock.call(utils.get_hub())])
             daemon.run_daemon(MyDaemon, conf_file, once=True)
             self.assertEqual(MyDaemon.once_called, True)
 
@@ -182,7 +185,8 @@ class TestRunDaemon(unittest.TestCase):
             self.assertEqual(18000, time.timezone)
 
             sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
-            with tmpfile(sample_conf) as conf_file:
+            with tmpfile(sample_conf) as conf_file, \
+                    mock.patch('swift.common.daemon.use_hub'):
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertFalse(MyDaemon.once_called)
                 self.assertTrue(MyDaemon.forever_called)
