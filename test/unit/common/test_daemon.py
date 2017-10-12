@@ -102,11 +102,14 @@ class TestRunDaemon(unittest.TestCase):
 
     def test_run_daemon(self):
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
-        with tmpfile(sample_conf) as conf_file:
+        with tmpfile(sample_conf) as conf_file, \
+                mock.patch('swift.common.daemon.use_hub') as mock_use_hub:
             with mock.patch.dict('os.environ', {'TZ': ''}):
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertEqual(MyDaemon.forever_called, True)
                 self.assertTrue(os.environ['TZ'] is not '')
+                self.assertEqual(mock_use_hub.mock_calls,
+                                 [mock.call(utils.get_hub())])
             daemon.run_daemon(MyDaemon, conf_file, once=True)
             self.assertEqual(MyDaemon.once_called, True)
 

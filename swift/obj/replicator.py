@@ -25,7 +25,7 @@ import six.moves.cPickle as pickle
 from swift import gettext_ as _
 
 import eventlet
-from eventlet import GreenPool, tpool, Timeout, sleep, hubs
+from eventlet import GreenPool, tpool, Timeout, sleep
 from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
@@ -33,7 +33,7 @@ from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_module_interpolation, mkdirs, config_true_value, list_from_csv, \
-    get_hub, tpool_reraise, config_auto_int_value, storage_directory
+    tpool_reraise, config_auto_int_value, storage_directory
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -42,8 +42,6 @@ from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter
 from swift.common.storage_policy import POLICIES, REPL_POLICY
 
 DEFAULT_RSYNC_TIMEOUT = 900
-
-hubs.use_hub(get_hub())
 
 
 def _do_listdir(partition, replication_cycle):
