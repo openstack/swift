@@ -100,7 +100,8 @@ storage end points as sync destinations.
 
 from swift.common.middleware import RewriteContext
 from swift.common.swob import Request, HTTPBadRequest
-from swift.common.utils import list_from_csv, register_swift_info
+from swift.common.utils import config_true_value, list_from_csv, \
+    register_swift_info
 
 
 class _DomainRemapContext(RewriteContext):
@@ -132,6 +133,8 @@ class DomainRemapMiddleware(object):
         self.reseller_prefixes_lower = [x.lower()
                                         for x in self.reseller_prefixes]
         self.default_reseller_prefix = conf.get('default_reseller_prefix')
+        self.mangle_client_paths = config_true_value(
+            conf.get('mangle_client_paths'))
 
     def __call__(self, env, start_response):
         if not self.storage_domain:
@@ -182,7 +185,8 @@ class DomainRemapMiddleware(object):
             new_path_parts = ['', self.path_root[:-1], account]
             if container:
                 new_path_parts.append(container)
-            if (path + '/').startswith(self.path_root):
+            if self.mangle_client_paths and (path + '/').startswith(
+                    self.path_root):
                 path = path[len(self.path_root):]
             new_path_parts.append(path)
             new_path = '/'.join(new_path_parts)
