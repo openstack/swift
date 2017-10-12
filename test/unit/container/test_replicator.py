@@ -1248,10 +1248,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # sanity check
         remote_broker_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
-        self.assertShardRangesEqual(remote_shard_ranges,
-                                    remote_broker_ranges)
-        self.assertNotEqual([dict(sr) for sr in shard_ranges],
-                            [dict(sr) for sr in remote_shard_ranges])
+        self.assertShardRangesEqual(remote_shard_ranges, remote_broker_ranges)
+        self.assertShardRangesNotEqual(shard_ranges, remote_shard_ranges)
         check_replicate(remote_shard_ranges, broker, remote_broker)
 
         # undelete shard range *on the remote*
@@ -1263,10 +1261,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # sanity check
         remote_broker_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
-        self.assertShardRangesEqual(remote_shard_ranges,
-                                    remote_broker_ranges)
-        self.assertNotEqual([dict(sr) for sr in shard_ranges],
-                            [dict(sr) for sr in remote_shard_ranges])
+        self.assertShardRangesEqual(remote_shard_ranges, remote_broker_ranges)
+        self.assertShardRangesNotEqual(shard_ranges, remote_shard_ranges)
         check_replicate(remote_shard_ranges, broker, remote_broker)
 
         # reverse replication direction and expect syncs to propagate
