@@ -89,7 +89,6 @@ class AccountController(Controller):
                 # creates the account if necessary. If we feed it a perfect
                 # lie, it'll just try to create the container without
                 # creating the account, and that'll fail.
-                req.params = {}  # clear our format override
                 resp = account_listing_response(
                     self.account_name, req,
                     listing_formats.get_listing_content_type(req))

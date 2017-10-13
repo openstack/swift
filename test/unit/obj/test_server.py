@@ -346,6 +346,7 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'application/x-test',
             'Content-Length': '6',

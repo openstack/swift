@@ -28,6 +28,7 @@ pipeline = catch_errors proxy-logging cache proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
+account_autocreate = true
 # See proxy-server.conf-sample for options
 
 [filter:cache]

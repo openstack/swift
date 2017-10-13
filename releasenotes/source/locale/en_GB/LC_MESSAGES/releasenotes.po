@@ -1,0 +1,67 @@
+# Andi Chandler <andi@gowling.com>, 2017. #zanata
+msgid ""
+msgstr ""
+"Project-Id-Version: Swift Release Notes 2.15.2\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2017-10-10 22:05+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"PO-Revision-Date: 2017-10-05 03:59+0000\n"
+"Last-Translator: Andi Chandler <andi@gowling.com>\n"
+"Language-Team: English (United Kingdom)\n"
+"Language: en-GB\n"
+"X-Generator: Zanata 3.9.6\n"
+"Plural-Forms: nplurals=2; plural=(n != 1)\n"
+
+msgid "2.10.0"
+msgstr "2.10.0"
+
+msgid "2.10.1"
+msgstr "2.10.1"
+
+msgid "2.10.2"
+msgstr "2.10.2"
+
+msgid "2.11.0"
+msgstr "2.11.0"
+
+msgid "2.12.0"
+msgstr "2.12.0"
+
+msgid "2.13.0"
+msgstr "2.13.0"
+
+msgid "2.13.1"
+msgstr "2.13.1"
+
+msgid "2.14.0"
+msgstr "2.14.0"
+
+msgid "2.15.0"
+msgstr "2.15.0"
+
+msgid "2.15.1"
+msgstr "2.15.1"
+
+msgid ""
+"A PUT or POST to a container will now update the container's Last-Modified "
+"time, and that value will be included in a GET/HEAD response."
+msgstr ""
+"A PUT or POST to a container will now update the container's Last-Modified "
+"time, and that value will be included in a GET/HEAD response."
+
+msgid "Current (Unreleased) Release Notes"
+msgstr "Current (Unreleased) Release Notes"
+
+msgid "Swift Release Notes"
+msgstr "Swift Release Notes"
+
+msgid "domain_remap now accepts a list of domains in \"storage_domain\"."
+msgstr "domain_remap now accepts a list of domains in \"storage_domain\"."
+
+msgid "name_check and cname_lookup keys have been added to `/info`."
+msgstr "name_check and cname_lookup keys have been added to `/info`."
+
+msgid "swift-recon now respects storage policy aliases."
+msgstr "swift-recon now respects storage policy aliases."

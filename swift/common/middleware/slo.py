@@ -27,7 +27,7 @@ Uploading the Manifest
 ----------------------
 
 After the user has uploaded the objects to be concatenated, a manifest is
-uploaded. The request must be a PUT with the query parameter::
+uploaded. The request must be a ``PUT`` with the query parameter::
 
     ?multipart-manifest=put
 
@@ -47,52 +47,49 @@ range       (optional) the (inclusive) range within the object to
             use as a segment. If omitted, the entire object is used.
 =========== ========================================================
 
-The format of the list will be:
-
-  .. code::
+The format of the list will be::
 
     [{"path": "/cont/object",
       "etag": "etagoftheobjectsegment",
       "size_bytes": 10485760,
-      "range": "1048576-2097151"}, ...]
+      "range": "1048576-2097151"},
+     ...]
 
 The number of object segments is limited to a configurable amount, default
 1000. Each segment must be at least 1 byte. On upload, the middleware will
 head every segment passed in to verify:
 
- 1. the segment exists (i.e. the HEAD was successful);
- 2. the segment meets minimum size requirements;
- 3. if the user provided a non-null etag, the etag matches;
- 4. if the user provided a non-null size_bytes, the size_bytes matches; and
- 5. if the user provided a range, it is a singular, syntactically correct range
-    that is satisfiable given the size of the object.
+1. the segment exists (i.e. the ``HEAD`` was successful);
+2. the segment meets minimum size requirements;
+3. if the user provided a non-null ``etag``, the etag matches;
+4. if the user provided a non-null ``size_bytes``, the size_bytes matches; and
+5. if the user provided a ``range``, it is a singular, syntactically correct
+   range that is satisfiable given the size of the object.
 
-Note that the etag and size_bytes keys are optional; if omitted, the
+Note that the ``etag`` and ``size_bytes`` keys are optional; if omitted, the
 verification is not performed. If any of the objects fail to verify (not
 found, size/etag mismatch, below minimum size, invalid range) then the user
 will receive a 4xx error response. If everything does match, the user will
 receive a 2xx response and the SLO object is ready for downloading.
 
-Behind the scenes, on success, a json manifest generated from the user input is
-sent to object servers with an extra "X-Static-Large-Object: True" header
-and a modified Content-Type. The items in this manifest will include the etag
-and size_bytes for each segment, regardless of whether the client specified
-them for verification. The parameter: swift_bytes=$total_size will be
-appended to the existing Content-Type, where total_size is the sum of all
-the included segments' size_bytes. This extra parameter will be hidden from
-the user.
+Behind the scenes, on success, a JSON manifest generated from the user input is
+sent to object servers with an extra ``X-Static-Large-Object: True`` header
+and a modified ``Content-Type``. The items in this manifest will include the
+``etag`` and ``size_bytes`` for each segment, regardless of whether the client
+specified them for verification. The parameter ``swift_bytes=$total_size`` will
+be appended to the existing ``Content-Type``, where ``$total_size`` is the sum
+of all the included segments' ``size_bytes``. This extra parameter will be
+hidden from the user.
 
 Manifest files can reference objects in separate containers, which will improve
 concurrent upload speed. Objects can be referenced by multiple manifests. The
 segments of a SLO manifest can even be other SLO manifests. Treat them as any
-other object i.e., use the Etag and Content-Length given on the PUT of the
-sub-SLO in the manifest to the parent SLO.
+other object i.e., use the ``Etag`` and ``Content-Length`` given on the ``PUT``
+of the sub-SLO in the manifest to the parent SLO.
 
-While uploading a manifest, a user can send Etag for verification. It needs to
-be md5 of the segments' etags, if there is no range specified. For example, if
-the manifest to be uploaded looks like this:
-
-  .. code::
+While uploading a manifest, a user can send ``Etag`` for verification. It needs
+to be md5 of the segments' etags, if there is no range specified. For example,
+if the manifest to be uploaded looks like this::
 
     [{"path": "/cont/object1",
       "etag": "etagoftheobjectsegment1",
@@ -101,16 +98,12 @@ the manifest to be uploaded looks like this:
       "etag": "etagoftheobjectsegment2",
       "size_bytes": 10485760}]
 
-The Etag of the above manifest would be md5 of etagoftheobjectsegment1 and
-etagoftheobjectsegment2. This could be computed in the following way:
-
-  .. code::
+The Etag of the above manifest would be md5 of ``etagoftheobjectsegment1`` and
+``etagoftheobjectsegment2``. This could be computed in the following way::
 
     echo -n 'etagoftheobjectsegment1etagoftheobjectsegment2' | md5sum
 
-If a manifest to be uploaded with a segment range looks like this:
-
-  .. code::
+If a manifest to be uploaded with a segment range looks like this::
 
     [{"path": "/cont/object1",
       "etag": "etagoftheobjectsegmentone",
@@ -122,10 +115,8 @@ If a manifest to be uploaded with a segment range looks like this:
       "range": "3-4"}]
 
 While computing the Etag of the above manifest, internally each segment's etag
-will be taken in the form of 'etagvalue:rangevalue;'. Hence the Etag of the
-above manifest would be:
-
-  .. code::
+will be taken in the form of ``etagvalue:rangevalue;``. Hence the Etag of the
+above manifest would be::
 
     echo -n 'etagoftheobjectsegmentone:1-2;etagoftheobjectsegmenttwo:3-4;' \
     | md5sum
@@ -136,65 +127,65 @@ Range Specification
 -------------------
 
 Users now have the ability to specify ranges for SLO segments.
-Users can now include an optional 'range' field in segment descriptions
+Users can now include an optional ``range`` field in segment descriptions
 to specify which bytes from the underlying object should be used for the
 segment data. Only one range may be specified per segment.
 
-  .. note::
+.. note::
 
-     The 'etag' and 'size_bytes' fields still describe the backing object as a
-     whole.
+    The ``etag`` and ``size_bytes`` fields still describe the backing object
+    as a whole.
 
-If a user uploads this manifest:
+If a user uploads this manifest::
 
-  .. code::
-
-     [{"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "0-1048576"},
-      {"path": "/con/obj_seg_2", "size_bytes": 2097152,
-       "range": "512-1550000"},
-      {"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "-2048"}]
+    [{"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "0-1048576"},
+     {"path": "/con/obj_seg_2", "size_bytes": 2097152,
+      "range": "512-1550000"},
+     {"path": "/con/obj_seg_1", "size_bytes": 2097152, "range": "-2048"}]
 
 The segment will consist of the first 1048576 bytes of /con/obj_seg_1,
 followed by bytes 513 through 1550000 (inclusive) of /con/obj_seg_2, and
 finally bytes 2095104 through 2097152 (i.e., the last 2048 bytes) of
 /con/obj_seg_1.
 
-  .. note::
+.. note::
 
 
-     The minimum sized range is 1 byte. This is the same as the minimum
-     segment size.
+    The minimum sized range is 1 byte. This is the same as the minimum
+    segment size.
 
 
 -------------------------
 Retrieving a Large Object
 -------------------------
 
-A GET request to the manifest object will return the concatenation of the
+A ``GET`` request to the manifest object will return the concatenation of the
 objects from the manifest much like DLO. If any of the segments from the
-manifest are not found or their Etag/Content Length have changed since upload,
-the connection will drop. In this case a 409 Conflict will be logged in the
-proxy logs and the user will receive incomplete results. Note that this will be
-enforced regardless of whether the user performed per-segment validation during
-upload.
+manifest are not found or their ``Etag``/``Content-Length`` have changed since
+upload, the connection will drop. In this case a ``409 Conflict`` will be
+logged in the proxy logs and the user will receive incomplete results. Note
+that this will be enforced regardless of whether the user performed per-segment
+validation during upload.
 
-The headers from this GET or HEAD request will return the metadata attached
-to the manifest object itself with some exceptions::
+The headers from this ``GET`` or ``HEAD`` request will return the metadata
+attached to the manifest object itself with some exceptions:
 
-    Content-Length: the total size of the SLO (the sum of the sizes of
-                    the segments in the manifest)
-    X-Static-Large-Object: True
-    Etag: the etag of the SLO (generated the same way as DLO)
+===================== ==================================================
+Header                Value
+===================== ==================================================
+Content-Length        the total size of the SLO (the sum of the sizes of
+                      the segments in the manifest)
+X-Static-Large-Object the string "True"
+Etag                  the etag of the SLO (generated the same way as DLO)
+===================== ==================================================
 
-A GET request with the query parameter::
+A ``GET`` request with the query parameter::
 
     ?multipart-manifest=get
 
 will return a transformed version of the original manifest, containing
 additional fields and different key names. For example, the first manifest in
-the example above would look like this:
-
-  .. code::
+the example above would look like this::
 
     [{"name": "/cont/object",
       "hash": "etagoftheobjectsegment",
@@ -222,9 +213,10 @@ left to the user to use caution in handling the segments.
 Deleting a Large Object
 -----------------------
 
-A DELETE request will just delete the manifest object itself.
+A ``DELETE`` request will just delete the manifest object itself. The segment
+data referenced by the manifest will remain unchanged.
 
-A DELETE with a query parameter::
+A ``DELETE`` with a query parameter::
 
     ?multipart-manifest=delete
 
@@ -235,22 +227,22 @@ itself. The failure response will be similar to the bulk delete middleware.
 Modifying a Large Object
 ------------------------
 
-PUTs / POSTs will work as expected, PUTs will just overwrite the manifest
-object for example.
+``PUT`` and ``POST`` requests will work as expected; ``PUT``\s will just
+overwrite the manifest object for example.
 
 ------------------
 Container Listings
 ------------------
 
 In a container listing the size listed for SLO manifest objects will be the
-total_size of the concatenated segments in the manifest. The overall
-X-Container-Bytes-Used for the container (and subsequently for the account)
-will not reflect total_size of the manifest but the actual size of the json
+``total_size`` of the concatenated segments in the manifest. The overall
+``X-Container-Bytes-Used`` for the container (and subsequently for the account)
+will not reflect ``total_size`` of the manifest but the actual size of the JSON
 data stored. The reason for this somewhat confusing discrepancy is we want the
 container listing to reflect the size of the manifest object when it is
 downloaded. We do not, however, want to count the bytes-used twice (for both
 the manifest and the segments it's referring to) in the container and account
-metadata which can be used for stats purposes.
+metadata which can be used for stats and billing purposes.
 """
 
 from collections import defaultdict
@@ -296,20 +288,20 @@ def parse_and_validate_input(req_body, req_path):
     Given a request body, parses it and returns a list of dictionaries.
 
     The output structure is nearly the same as the input structure, but it
-    is not an exact copy. Given a valid input dictionary `d_in`, its
-    corresponding output dictionary `d_out` will be as follows:
+    is not an exact copy. Given a valid input dictionary ``d_in``, its
+    corresponding output dictionary ``d_out`` will be as follows:
 
-      * d_out['etag'] == d_in['etag']
+    * d_out['etag'] == d_in['etag']
 
-      * d_out['path'] == d_in['path']
+    * d_out['path'] == d_in['path']
 
-      * d_in['size_bytes'] can be a string ("12") or an integer (12), but
-        d_out['size_bytes'] is an integer.
+    * d_in['size_bytes'] can be a string ("12") or an integer (12), but
+      d_out['size_bytes'] is an integer.
 
-      * (optional) d_in['range'] is a string of the form "M-N", "M-", or
-        "-N", where M and N are non-negative integers. d_out['range'] is the
-        corresponding swob.Range object. If d_in does not have a key
-        'range', neither will d_out.
+    * (optional) d_in['range'] is a string of the form "M-N", "M-", or
+      "-N", where M and N are non-negative integers. d_out['range'] is the
+      corresponding swob.Range object. If d_in does not have a key
+      'range', neither will d_out.
 
     :raises HTTPException: on parse errors or semantic errors (e.g. bogus
         JSON structure, syntactically invalid ranges)
@@ -435,7 +427,7 @@ class SloGetContext(WSGIContext):
             agent='%(orig)s SLO MultipartGET', swift_source='SLO')
         sub_resp = sub_req.get_response(self.slo.app)
 
-        if not is_success(sub_resp.status_int):
+        if not sub_resp.is_success:
             close_if_possible(sub_resp.app_iter)
             raise ListingIterError(
                 'ERROR: while fetching %s, GET of submanifest %s '
@@ -615,8 +607,9 @@ class SloGetContext(WSGIContext):
         thing with them. Returns an iterator suitable for sending up the WSGI
         chain.
 
-        :param req: swob.Request object; is a GET or HEAD request aimed at
-                    what may be a static large object manifest (or may not).
+        :param req: :class:`~swift.common.swob.Request` object; is a ``GET`` or
+                    ``HEAD`` request aimed at what may (or may not) be a static
+                    large object manifest.
         :param start_response: WSGI start_response callable
         """
         if req.params.get('multipart-manifest') != 'get':
@@ -898,7 +891,9 @@ class StaticLargeObject(object):
         The response body (only on GET, of course) will consist of the
         concatenation of the segments.
 
-        :params req: a swob.Request with a path referencing an object
+        :param req: a :class:`~swift.common.swob.Request` with a path
+                    referencing an object
+        :param start_response: WSGI start_response callable
         :raises HttpException: on errors
         """
         return SloGetContext(self).handle_slo_get_or_head(req, start_response)
@@ -910,13 +905,11 @@ class StaticLargeObject(object):
         save a manifest generated from the user input. Uses WSGIContext to
         call self and start_response and returns a WSGI iterator.
 
-        :params req: a swob.Request with an obj in path
+        :param req: a :class:`~swift.common.swob.Request` with an obj in path
+        :param start_response: WSGI start_response callable
         :raises HttpException: on errors
         """
-        try:
-            vrs, account, container, obj = req.split_path(1, 4, True)
-        except ValueError:
-            return self.app(req.environ, start_response)
+        vrs, account, container, obj = req.split_path(4, rest_with_last=True)
         if req.content_length > self.max_manifest_size:
             raise HTTPRequestEntityTooLarge(
                 "Manifest File > %d bytes" % self.max_manifest_size)
@@ -1073,7 +1066,8 @@ class StaticLargeObject(object):
         A generator function to be used to delete all the segments and
         sub-segments referenced in a manifest.
 
-        :params req: a swob.Request with an SLO manifest in path
+        :param req: a :class:`~swift.common.swob.Request` with an SLO manifest
+                    in path
         :raises HTTPPreconditionFailed: on invalid UTF8 in request path
         :raises HTTPBadRequest: on too many buffered sub segments and
                                 on invalid SLO manifest path
@@ -1109,8 +1103,12 @@ class StaticLargeObject(object):
 
     def get_slo_segments(self, obj_name, req):
         """
-        Performs a swob.Request and returns the SLO manifest's segments.
+        Performs a :class:`~swift.common.swob.Request` and returns the SLO
+        manifest's segments.
 
+        :param obj_name: the name of the object being deleted,
+                         as ``/container/object``
+        :param req: the base :class:`~swift.common.swob.Request`
         :raises HTTPServerError: on unable to load obj_name or
                                  on unable to load the SLO manifest data.
         :raises HTTPBadRequest: on not an SLO manifest
@@ -1151,7 +1149,7 @@ class StaticLargeObject(object):
         Will delete all the segments in the SLO manifest and then, if
         successful, will delete the manifest file.
 
-        :params req: a swob.Request with an obj in path
+        :param req: a :class:`~swift.common.swob.Request` with an obj in path
         :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
         req.headers['Content-Type'] = None  # Ignore content-type from client

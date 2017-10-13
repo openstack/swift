@@ -44,9 +44,9 @@ You can also feed a list of urls to the script through stdin.
 
 Examples!
 
-    %(cmd)s SOSO_88ad0b83-b2c5-4fa1-b2d6-60c597202076
-    %(cmd)s SOSO_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container/object
-    %(cmd)s -e errors.txt SOSO_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container
+    %(cmd)s AUTH_88ad0b83-b2c5-4fa1-b2d6-60c597202076
+    %(cmd)s AUTH_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container/object
+    %(cmd)s -e errors.txt AUTH_88ad0b83-b2c5-4fa1-b2d6-60c597202076/container
     %(cmd)s < errors.txt
     %(cmd)s -c 25 -d < errors.txt
 """ % {'cmd': sys.argv[0]}
@@ -108,7 +108,7 @@ class Auditor(object):
                         consistent = False
                         print('  MD5 does not match etag for "%s" on %s/%s'
                               % (path, node['ip'], node['device']))
-                    etags.append(resp.getheader('ETag'))
+                    etags.append((resp.getheader('ETag'), node))
                 else:
                     conn = http_connect(node['ip'], node['port'],
                                         node['device'], part, 'HEAD',
@@ -120,7 +120,7 @@ class Auditor(object):
                         print('  Bad status HEADing object "%s" on %s/%s'
                               % (path, node['ip'], node['device']))
                         continue
-                    etags.append(resp.getheader('ETag'))
+                    etags.append((resp.getheader('ETag'), node))
             except Exception:
                 self.object_exceptions += 1
                 consistent = False
@@ -131,8 +131,8 @@ class Auditor(object):
             consistent = False
             print("  Failed fo fetch object %s at all!" % path)
         elif hash:
-            for etag in etags:
-                if resp.getheader('ETag').strip('"') != hash:
+            for etag, node in etags:
+                if etag.strip('"') != hash:
                     consistent = False
                     self.object_checksum_mismatch += 1
                     print('  ETag mismatch for "%s" on %s/%s'

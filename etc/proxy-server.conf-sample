@@ -544,6 +544,8 @@ use = egg:swift#domain_remap
 # can be specified separated by a comma
 # storage_domain = example.com
 
+# Specify a root path part that will be added to the start of paths if not
+# already present.
 # path_root = v1
 
 # Browsers can convert a host header to lowercase, so check that reseller
@@ -555,6 +557,14 @@ use = egg:swift#domain_remap
 # with an account prefix not in that list will be ignored by this middleware.
 # reseller_prefixes = AUTH
 # default_reseller_prefix =
+
+# Enable legacy remapping behavior for versioned path requests:
+#   c.a.example.com/v1/o -> /v1/AUTH_a/c/o
+# instead of
+#   c.a.example.com/v1/o -> /v1/AUTH_a/c/v1/o
+# ... by default all path parts after a remapped domain are considered part of
+# the object name with no special case for the path "v1"
+# mangle_client_paths = False
 
 [filter:catch_errors]
 use = egg:swift#catch_errors
