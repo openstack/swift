@@ -467,13 +467,6 @@ class ContainerSharder(ContainerReplicator):
         # overlap with anything
         return continue_with_container
 
-    @staticmethod
-    def get_metadata_item(broker, header):
-        # TODO: Since every broker.metadata is a query, this may not be
-        # the best helper...
-        item = broker.metadata.get(header)
-        return None if item is None else item[0]
-
     def _process_broker(self, broker, node, part):
         own_shard_range = broker.get_own_shard_range()
 
