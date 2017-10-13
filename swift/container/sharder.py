@@ -467,14 +467,6 @@ class ContainerSharder(ContainerReplicator):
         # overlap with anything
         return continue_with_container
 
-    def _update_shard_range_counts(self, broker):
-        if broker.is_root_container():
-            return
-        shard_range = broker.get_own_shard_range()
-        if not shard_range:
-            return
-        self._update_shard_ranges(broker, 'PUT', [shard_range])
-
     @staticmethod
     def get_metadata_item(broker, header):
         # TODO: Since every broker.metadata is a query, this may not be
@@ -483,7 +475,7 @@ class ContainerSharder(ContainerReplicator):
         return None if item is None else item[0]
 
     def _process_broker(self, broker, node, part):
-        shard_range = broker.get_own_shard_range()
+        own_shard_range = broker.get_own_shard_range()
 
         # Before we do any heavy lifting, lets do an audit on the shard
         # container. We grab the root's view of the shard_points and make
@@ -496,7 +488,7 @@ class ContainerSharder(ContainerReplicator):
         #     continue
 
         # now look and deal with misplaced objects.
-        self._misplaced_objects(broker, node, shard_range)
+        self._misplaced_objects(broker, node, own_shard_range)
 
         if broker.is_deleted():
             # This container is deleted so we can skip it. We still want
@@ -512,27 +504,24 @@ class ContainerSharder(ContainerReplicator):
         # TODO: bring back leader election (maybe?); if so make it
         # on-demand since we may not need to know if we are leader for all
         # states
-        leader = node['index'] == 0
+        is_leader = node['index'] == 0
         try:
-
             if state == DB_STATE_UNSHARDED:
                 if broker.get_shard_ranges():
                     # container may have been given shard ranges rather
                     # than found them e.g. via replication or a shrink event
                     broker.set_sharding_state()
                     state = DB_STATE_SHARDING
-                elif leader:
+                elif is_leader:
                     object_count = broker.get_info()['object_count']
                     if object_count >= self.shard_container_size:
                         broker.set_sharding_state()
                         state = DB_STATE_SHARDING
 
-                self._update_shard_range_counts(broker)
-
             if state == DB_STATE_SHARDING:
                 scan_complete = config_true_value(
                     get_sharding_info(broker, 'Scan-Done'))
-                if leader and not scan_complete:
+                if is_leader and not scan_complete:
                     scan_complete = self._find_shard_ranges(
                         broker, node, part)
 
@@ -547,21 +536,40 @@ class ContainerSharder(ContainerReplicator):
                                      broker.account, broker.container)
                     self.logger.increment('sharding_complete')
 
-                self._update_shard_range_counts(broker)
-
             if state == DB_STATE_SHARDED:
+                # TODO: nesting the broker.is_root_container condition inside
+                # state == DB_STATE_SHARDED will make more sense when the
+                # shrink phase is added:
+                # if broker.is_root_container():
+                #     # do shrink stuff
+                # else:
                 if not broker.is_root_container():
                     # sharded shard containers get cleaned up
                     self.logger.info('Deleting sharded shard %s/%s',
                                      broker.account, broker.container)
-                    # We aren't in the root container.
+                    # let the root know about this shard's sharded shard ranges
+                    # TODO: these shard ranges may have existed for some time
+                    # and already be updating the root with their usage e.g.
+                    # multiple cycles before we finished cleaving, or process
+                    # failed right here. If so then the updates we send here
+                    # probably have an out of date view of the shards' usage,
+                    # but I think it is still ok to send these updates because
+                    # the meta_timestamp should prevent these updates undoing
+                    # any newer updates at the root from the actual shards.
+                    # *It would be good to have a test to verify that.*
                     self._update_shard_ranges(broker, 'PUT',
                                               broker.get_shard_ranges())
+                    own_shard_range = broker.get_own_shard_range()
                     timestamp = Timestamp.now().internal
-                    shard_range = broker.get_own_shard_range()
-                    shard_range.timestamp = timestamp
-                    self._update_shard_ranges(broker, 'DELETE', [shard_range])
+                    own_shard_range.timestamp = timestamp
+                    self._update_shard_ranges(
+                        broker, 'DELETE', [own_shard_range])
                     broker.delete_db(timestamp)
+            else:
+                if not broker.is_root_container():
+                    # update the root container with this shard's usage stats
+                    own_shard_range = broker.get_own_shard_range()
+                    self._update_shard_ranges(broker, 'PUT', [own_shard_range])
         finally:
             self.logger.increment('scanned')
             self.stats['containers_scanned'] += 1
