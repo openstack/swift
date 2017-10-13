@@ -230,7 +230,7 @@ class ContainerSharder(ContainerReplicator):
                  'Meta-Timestamp': shard_range.meta_timestamp.internal})
             broker.update_metadata({
                 'X-Container-Sysmeta-Sharding':
-                    (True, Timestamp.now().internal)})
+                    ('True', Timestamp.now().internal)})
 
     def _misplaced_objects(self, broker, node, own_shard_range):
         """
@@ -621,7 +621,8 @@ class ContainerSharder(ContainerReplicator):
                 continue
 
             broker = ContainerBroker(path)
-            if broker.metadata.get('X-Container-Sysmeta-Sharding'):
+            sharding = broker.metadata.get('X-Container-Sysmeta-Sharding')
+            if sharding and config_true_value(sharding[0]):
                 # NB all shards will by default have been created with
                 # X-Container-Sysmeta-Sharding set and will therefore be
                 # candidates for sharding, along with explicitly configured

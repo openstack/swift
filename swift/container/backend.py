@@ -1686,7 +1686,8 @@ class ContainerBroker(DatabaseBroker):
         if self.container is None:
             # Ensure account/container get populated
             self.get_info()
-        return self.root_container == self.container
+        return (self.root_account == self.account and
+                self.root_container == self.container)
 
     def _get_next_shard_range_upper(self, shard_size, last_upper=None,
                                     connection=None):
