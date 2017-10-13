@@ -269,9 +269,13 @@ class ContainerBroker(DatabaseBroker):
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
                  stale_reads_ok=False):
+        # TODO: it's not great that we have to lie to the super class just to
+        # get the pending file name correctly set...
+        base_db_file = db_file.replace('_shard', '')
         super(ContainerBroker, self).__init__(
-            db_file, timeout, logger, account, container, pending_timeout,
+            base_db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok)
+        self._db_file = db_file
         # The auditor will create a backend using the shard_db as the db_file.
         if db_file == ':memory:' or db_file.endswith("_shard.db"):
             self._shard_db_file = db_file

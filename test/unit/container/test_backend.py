@@ -2519,6 +2519,40 @@ class TestContainerBroker(unittest.TestCase):
         broker.get_info()
 
     @with_tempdir
+    def test_pending_file_name(self, tempdir):
+        # pending file should have same name for sharded or unsharded db
+        expected_pending_path = os.path.join(tempdir, 'container.db.pending')
+
+        db_path = os.path.join(tempdir, 'container.db')
+        sharded_db_path = os.path.join(tempdir, 'container_shard.db')
+
+        def do_test(given_db_file, expected_db_file):
+            broker = ContainerBroker(given_db_file, account='a', container='c')
+            self.assertEqual(expected_pending_path, broker.pending_file)
+            self.assertEqual(expected_db_file, broker.db_file)
+
+        # no files exist
+        do_test(db_path, db_path)
+        do_test(sharded_db_path, sharded_db_path)
+
+        # only container.db exists - unsharded
+        with open(db_path, 'wb'):
+            pass
+        do_test(db_path, db_path)
+        do_test(sharded_db_path, sharded_db_path)
+
+        # container.db and container_shard.db exist - sharding
+        with open(sharded_db_path, 'wb'):
+            pass
+        do_test(db_path, sharded_db_path)
+        do_test(sharded_db_path, sharded_db_path)
+
+        # only container_shard.db exists - sharded
+        os.unlink(db_path)
+        do_test(db_path, sharded_db_path)
+        do_test(sharded_db_path, sharded_db_path)
+
+    @with_tempdir
     def test_get_shard_root_account_container(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
