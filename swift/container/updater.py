@@ -23,7 +23,7 @@ from swift import gettext_ as _
 from random import random, shuffle
 from tempfile import mkstemp
 
-from eventlet import spawn, patcher, Timeout
+from eventlet import spawn, Timeout
 
 import swift.common.db
 from swift.container.backend import ContainerBroker, DATADIR
@@ -31,7 +31,8 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, ismount, \
-    dump_recon_cache, majority_size, Timestamp, ratelimit_sleep
+    dump_recon_cache, majority_size, Timestamp, ratelimit_sleep, \
+    eventlet_monkey_patch
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -155,8 +156,7 @@ class ContainerUpdater(Daemon):
                     pid2filename[pid] = tmpfilename
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                    patcher.monkey_patch(all=False, socket=True, select=True,
-                                         thread=True)
+                    eventlet_monkey_patch()
                     self.no_changes = 0
                     self.successes = 0
                     self.failures = 0
@@ -190,7 +190,7 @@ class ContainerUpdater(Daemon):
         """
         Run the updater once.
         """
-        patcher.monkey_patch(all=False, socket=True, select=True, thread=True)
+        eventlet_monkey_patch()
         self.logger.info(_('Begin container update single threaded sweep'))
         begin = time.time()
         self.no_changes = 0
