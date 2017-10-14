@@ -78,12 +78,6 @@ from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
 
-if six.PY3:
-    stdlib_queue = eventlet.patcher.original('queue')
-else:
-    stdlib_queue = eventlet.patcher.original('Queue')
-stdlib_threading = eventlet.patcher.original('threading')
-
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
 import logging
