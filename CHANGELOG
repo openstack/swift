@@ -244,7 +244,7 @@ swift (2.13.0, OpenStack Ocata)
 
     * PUT subrequests generated from a client-side COPY will now properly log
       the SSC (server-side copy) Swift source field. See
-      https://docs.openstack.org/developer/swift/logs.html#swift-source for
+      https://docs.openstack.org/swift/latest/logs.html#swift-source for
       more information.
 
     * Fixed a bug where an SLO download with a range request may have resulted
@@ -391,13 +391,13 @@ swift (2.10.0, OpenStack Newton)
     * Object versioning now supports a "history" mode in addition to
       the older "stack" mode. The difference is in how DELETE requests
       are handled. For full details, please read
-      http://docs.openstack.org/developer/swift/overview_object_versioning.html.
+      https://docs.openstack.org/swift/latest/overview_object_versioning.html.
 
     * New config variables to change the schedule priority and I/O
       scheduling class. Servers and daemons now understand
       `nice_priority`, `ionice_class`, and `ionice_priority` to
       schedule their relative importance. Please read
-      http://docs.openstack.org/developer/swift/deployment_guide.html
+      https://docs.openstack.org/swift/latest/admin_guide.html
       for full config details.
 
     * On newer kernels (3.15+ when using xfs), Swift will use the O_TMPFILE
@@ -410,7 +410,7 @@ swift (2.10.0, OpenStack Newton)
       improved in clusters that are not completely healthy.
 
     * Significant improvements to the api-ref doc available at
-      http://developer.openstack.org/api-ref/object-storage/.
+      https://developer.openstack.org/api-ref/object-storage/.
 
     * A PUT or POST to a container will now update the container's
       Last-Modified time, and that value will be included in a
@@ -464,7 +464,7 @@ swift (2.9.0)
 
       For more information on the details of the at-rest encryption
       feature, please see the docs at
-      http://docs.openstack.org/developer/swift/overview_encryption.html.
+      https://docs.openstack.org/swift/latest/overview_encryption.html.
 
     * `swift-recon` can now be called with more than one server type.
 
@@ -606,7 +606,7 @@ swift (2.7.0, OpenStack Mitaka)
       default it will stagger the firing.
 
     * Added an operational procedures guide to the docs. It can be
-      found at http://docs.openstack.org/developer/swift/ops_runbook/index.html and
+      found at https://docs.openstack.org/swift/latest/ops_runbook/index.html and
       includes information on detecting and handling day-to-day
       operational issues in a Swift cluster.
 
@@ -776,7 +776,7 @@ swift (2.6.0)
     * Container sync has been improved to more quickly find and iterate over
       the containers to be synced. This reduced server load and lowers the
       time required to see data propagate between two clusters. Please see
-      http://docs.openstack.org/developer/swift/overview_container_sync.html for more details
+      https://docs.openstack.org/swift/latest/overview_container_sync.html for more details
       about the new on-disk structure for tracking synchronized containers.
 
     * A container POST will now update that container's put-timestamp value.
@@ -862,7 +862,7 @@ swift (2.4.0)
       server config setting ("allow_versions"), if it is currently enabled.
       The existing container server config setting enables existing
       containers to continue being versioned. Please see
-      http://docs.openstack.org/developer/swift/middleware.html#how-to-enable-object-versioning-in-a-swift-cluster
+      https://docs.openstack.org/swift/latest/middleware.html#how-to-enable-object-versioning-in-a-swift-cluster
       for further upgrade notes.
 
     * Allow 1+ object-servers-per-disk deployment
@@ -987,7 +987,7 @@ swift (2.3.0, OpenStack Kilo)
       ssync for durability. Deployers are urged to do extensive testing and
       not deploy production data using an erasure code storage policy.
 
-      Full docs are at http://docs.openstack.org/developer/swift/overview_erasure_code.html
+      Full docs are at https://docs.openstack.org/swift/latest/overview_erasure_code.html
 
     * Add support for container TempURL Keys.
 
@@ -996,7 +996,7 @@ swift (2.3.0, OpenStack Kilo)
 
     * Swift now supports composite tokens. This allows another service to
       act on behalf of a user, but only with that user's consent.
-      See http://docs.openstack.org/developer/swift/overview_auth.html for more details.
+      See https://docs.openstack.org/swift/latest/overview_auth.html for more details.
 
     * Multi-region replication was improved. When replicating data to a
       different region, only one replica will be pushed per replication
@@ -1004,7 +1004,7 @@ swift (2.3.0, OpenStack Kilo)
       locally instead of pushing more data over the inter-region network.
 
     * Internal requests from the ratelimit middleware now properly log a
-      swift_source. See http://docs.openstack.org/developer/swift/logs.html for details.
+      swift_source. See https://docs.openstack.org/swift/latest/logs.html for details.
 
     * Improved storage policy support for quarantine stats in swift-recon.
 
@@ -1052,7 +1052,7 @@ swift (2.2.2)
       The overload and dispersion metrics have been exposed in the
       swift-ring-build CLI tools.
 
-      See http://docs.openstack.org/developer/swift/overview_ring.html
+      See https://docs.openstack.org/swift/latest/overview_ring.html
       for more info on how data placement works now.
 
     * Improve replication of large out-of-sync, out-of-date containers.
@@ -1140,7 +1140,7 @@ swift (2.2.0, OpenStack Juno)
       now requires that ACLs be set on IDs, which are unique across
       domains, and further restricts setting new ACLs to only use IDs.
 
-      Please see http://docs.openstack.org/developer/swift/overview_auth.html for
+      Please see https://docs.openstack.org/swift/latest/overview_auth.html for
       more information on configuring Swift and Keystone together.
 
     * Swift now supports server-side account-to-account copy. Server-
@@ -1257,7 +1257,7 @@ swift (2.0.0)
       them. A policy is set on a Swift container at container creation
       time and cannot be changed.
 
-      Full docs are at http://docs.openstack.org/developer/swift/overview_policies.html
+      Full docs are at https://docs.openstack.org/swift/latest/overview_policies.html
 
     * Add profiling middleware in Swift
 
@@ -1351,7 +1351,7 @@ swift (1.13.0)
       the header is a JSON dictionary string to be interpreted by the
       auth system. A reference implementation is given in TempAuth.
       Please see the full docs at
-      http://docs.openstack.org/developer/swift/overview_auth.html
+      https://docs.openstack.org/swift/latest/overview_auth.html
 
     * Added a WSGI environment flag to stop swob from always using
       absolute location. This is useful if middleware needs to use
@@ -1433,8 +1433,8 @@ swift (1.12.0)
     * New container sync configuration option, separating the end user
       from knowing the required end point and adding more secure
       signed requests. See
-      http://docs.openstack.org/developer/swift/overview_container_sync.html for full
-      information.
+      https://docs.openstack.org/swift/latest/overview_container_sync.html
+      for full information.
 
     * bulk middleware now can be configured to retry deleting containers.
 
@@ -1699,7 +1699,7 @@ swift (1.9.0)
       bugrelated to content-disposition names.
 
     * Added crossdomain.xml middleware. See
-      http://docs.openstack.org/developer/swift/crossdomain.html for details
+      https://docs.openstack.org/swift/latest/crossdomain.html for details
 
     * Added rsync bandwidth limit setting for object replicator
 
@@ -1720,7 +1720,7 @@ swift (1.9.0)
     * Improved container-sync resiliency
 
     * Added example Apache config files. See
-      http://docs.openstack.org/developer/swift/apache_deployment_guide.html
+      https://docs.openstack.org/swift/latest/apache_deployment_guide.html
       for more info
 
     * If an account is marked as deleted but hasn't been reaped and is still
@@ -1768,7 +1768,7 @@ swift (1.8.0, OpenStack Grizzly)
 
       This is a change that may require an update to your proxy server
       config file or custom middleware that you may be using. See the full
-      docs at http://docs.openstack.org/developer/swift/misc.html#module-swift.common.middleware.proxy_logging.
+      docs at https://docs.openstack.org/swift/latest/misc.html.
 
     * Changed the default sample rate for a few high-traffic requests.
 

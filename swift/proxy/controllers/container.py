@@ -100,6 +100,9 @@ class ContainerController(Controller):
         concurrency = self.app.container_ring.replica_count \
             if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.container_ring, part)
+        params = req.params
+        params['format'] = 'json'
+        req.params = params
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
             req.swift_entity_path, concurrency)
@@ -177,11 +180,11 @@ class ContainerController(Controller):
         headers = self._backend_requests(req, len(containers),
                                          account_partition, accounts,
                                          policy_index)
-        clear_info_cache(self.app, req.environ,
-                         self.account_name, self.container_name)
         resp = self.make_requests(
             req, self.app.container_ring,
             container_partition, 'PUT', req.swift_entity_path, headers)
+        clear_info_cache(self.app, req.environ,
+                         self.account_name, self.container_name)
         return resp
 
     @public

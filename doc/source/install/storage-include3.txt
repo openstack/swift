@@ -28,7 +28,7 @@ following actions:
   .. note::
 
      For more information on other modules that enable additional features,
-     see the `Deployment Guide <http://docs.openstack.org/developer/swift/deployment_guide.html>`__.
+     see the `Deployment Guide <https://docs.openstack.org/swift/latest/deployment_guide.html>`__.
 
 * In the ``[filter:recon]`` section, configure the recon (meters) cache
   and lock directories:

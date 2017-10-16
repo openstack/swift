@@ -2531,6 +2531,7 @@ class TestFile(Base):
         self.assertEqual(1024, f_dict['bytes'])
         self.assertEqual('text/foobar', f_dict['content_type'])
         self.assertEqual(etag, f_dict['hash'])
+        put_last_modified = f_dict['last_modified']
 
         # now POST updated content-type to each file
         file_item = self.env.container.file(file_name)
@@ -2555,6 +2556,7 @@ class TestFile(Base):
             self.fail('Failed to find file %r in listing' % file_name)
         self.assertEqual(1024, f_dict['bytes'])
         self.assertEqual('image/foobarbaz', f_dict['content_type'])
+        self.assertLess(put_last_modified, f_dict['last_modified'])
         self.assertEqual(etag, f_dict['hash'])
 
 

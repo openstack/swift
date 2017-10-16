@@ -19,6 +19,7 @@
 from collections import defaultdict
 import errno
 from hashlib import md5
+import six
 import socket
 import time
 import unittest
@@ -76,6 +77,7 @@ class MockMemcached(object):
         self.down = False
         self.exc_on_delete = False
         self.read_return_none = False
+        self.read_return_empty_str = False
         self.close_called = False
 
     def sendall(self, string):
@@ -148,6 +150,8 @@ class MockMemcached(object):
             self.outbuf += 'NOT_FOUND\r\n'
 
     def readline(self):
+        if self.read_return_empty_str:
+            return ''
         if self.read_return_none:
             return None
         if self.down:
@@ -336,6 +340,31 @@ class TestMemcached(unittest.TestCase):
         _junk, cache_timeout, _junk = mock.cache[cache_key]
         self.assertAlmostEqual(float(cache_timeout), esttimeout, delta=1)
 
+    def test_get_failed_connection_mid_request(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+        memcache_client.set('some_key', [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(mock.cache.values()[0][1], '0')
+
+        # Now lets return an empty string, and make sure we aren't logging
+        # the error.
+        fake_stdout = six.StringIO()
+        # force the logging through the DebugLogger instead of the nose
+        # handler. This will use stdout, so we can assert that no stack trace
+        # is logged.
+        logger = debug_logger()
+        with patch("sys.stdout", fake_stdout),\
+                patch('swift.common.memcached.logging', logger):
+            mock.read_return_empty_str = True
+            self.assertEqual(memcache_client.get('some_key'), None)
+        log_lines = logger.get_lines_for_level('error')
+        self.assertIn('Error talking to memcached', log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertNotIn("Traceback", fake_stdout.getvalue())
+
     def test_incr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
@@ -355,6 +384,33 @@ class TestMemcached(unittest.TestCase):
         self.assertRaises(memcached.MemcacheConnectionError,
                           memcache_client.incr, 'some_key', delta=-15)
         self.assertTrue(mock.close_called)
+
+    def test_incr_failed_connection_mid_request(self):
+        memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
+        mock = MockMemcached()
+        memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
+            [(mock, mock)] * 2)
+        self.assertEqual(memcache_client.incr('some_key', delta=5), 5)
+        self.assertEqual(memcache_client.get('some_key'), '5')
+        self.assertEqual(memcache_client.incr('some_key', delta=5), 10)
+        self.assertEqual(memcache_client.get('some_key'), '10')
+
+        # Now lets return an empty string, and make sure we aren't logging
+        # the error.
+        fake_stdout = six.StringIO()
+        # force the logging through the DebugLogger instead of the nose
+        # handler. This will use stdout, so we can assert that no stack trace
+        # is logged.
+        logger = debug_logger()
+        with patch("sys.stdout", fake_stdout), \
+                patch('swift.common.memcached.logging', logger):
+            mock.read_return_empty_str = True
+            self.assertRaises(memcached.MemcacheConnectionError,
+                              memcache_client.incr, 'some_key', delta=1)
+        log_lines = logger.get_lines_for_level('error')
+        self.assertIn('Error talking to memcached', log_lines[0])
+        self.assertFalse(log_lines[1:])
+        self.assertNotIn('Traceback', fake_stdout.getvalue())
 
     def test_incr_w_timeout(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -480,6 +536,17 @@ class TestMemcached(unittest.TestCase):
         self.assertEqual(memcache_client.get_multi(
             ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3], None])
+
+        # Now lets simulate a lost connection and make sure we don't get
+        # the index out of range stack trace when it does
+        mock_stderr = six.StringIO()
+        not_expected = "IndexError: list index out of range"
+        with patch("sys.stderr", mock_stderr):
+            mock.read_return_empty_str = True
+            self.assertEqual(memcache_client.get_multi(
+                ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
+                None)
+            self.assertFalse(not_expected in mock_stderr.getvalue())
 
     def test_serialization(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],

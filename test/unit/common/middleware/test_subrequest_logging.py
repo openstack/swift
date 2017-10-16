@@ -117,23 +117,14 @@ class TestSubRequestLogging(unittest.TestCase):
         self._test_subrequest_logged('PUT')
         self._test_subrequest_logged('DELETE')
 
-    def _test_subrequest_logged_POST(self, subrequest_type,
-                                     post_as_copy=False):
-        # Test that subrequests made downstream from Copy POST will be logged
-        # with the request type of the subrequest as opposed to the GET/PUT.
-
-        app = FakeApp({'subrequest_type': subrequest_type,
-                       'object_post_as_copy': post_as_copy})
+    def _test_subrequest_logged_POST(self, subrequest_type):
+        app = FakeApp({'subrequest_type': subrequest_type})
 
         hdrs = {'content-type': 'text/plain'}
         req = Request.blank(self.path, method='POST', headers=hdrs)
 
         app.register('POST', self.path, HTTPOk, headers=hdrs)
         expect_lines = 2
-        if post_as_copy:
-            app.register('PUT', self.path, HTTPOk, headers=hdrs)
-            app.register('GET', '/v1/a/c/o', HTTPOk, headers=hdrs)
-            expect_lines = 4
 
         req.get_response(app)
         info_log_lines = app.fake_logger.get_lines_for_level('info')
@@ -142,33 +133,17 @@ class TestSubRequestLogging(unittest.TestCase):
 
         subreq_put_post = '%s %s' % (subrequest_type, SUB_PUT_POST_PATH)
         origpost = 'POST %s' % self.path
-        copyget = 'GET %s' % self.path
 
-        if post_as_copy:
-            # post_as_copy expect GET subreq, copy GET, PUT subreq, orig POST
-            subreq_get = '%s %s' % (subrequest_type, SUB_GET_PATH)
-            self.assertTrue(subreq_get in info_log_lines[0])
-            self.assertTrue(copyget in info_log_lines[1])
-            self.assertTrue(subreq_put_post in info_log_lines[2])
-            self.assertTrue(origpost in info_log_lines[3])
-        else:
-            # fast post expect POST subreq, original POST
-            self.assertTrue(subreq_put_post in info_log_lines[0])
-            self.assertTrue(origpost in info_log_lines[1])
+        # fast post expect POST subreq, original POST
+        self.assertTrue(subreq_put_post in info_log_lines[0])
+        self.assertTrue(origpost in info_log_lines[1])
 
-    def test_subrequest_logged_post_as_copy_with_POST_fast_post(self):
-        self._test_subrequest_logged_POST('HEAD', post_as_copy=False)
-        self._test_subrequest_logged_POST('GET', post_as_copy=False)
-        self._test_subrequest_logged_POST('POST', post_as_copy=False)
-        self._test_subrequest_logged_POST('PUT', post_as_copy=False)
-        self._test_subrequest_logged_POST('DELETE', post_as_copy=False)
-
-    def test_subrequest_logged_post_as_copy_with_POST(self):
-        self._test_subrequest_logged_POST('HEAD', post_as_copy=True)
-        self._test_subrequest_logged_POST('GET', post_as_copy=True)
-        self._test_subrequest_logged_POST('POST', post_as_copy=True)
-        self._test_subrequest_logged_POST('PUT', post_as_copy=True)
-        self._test_subrequest_logged_POST('DELETE', post_as_copy=True)
+    def test_subrequest_logged_with_POST(self):
+        self._test_subrequest_logged_POST('HEAD')
+        self._test_subrequest_logged_POST('GET')
+        self._test_subrequest_logged_POST('POST')
+        self._test_subrequest_logged_POST('PUT')
+        self._test_subrequest_logged_POST('DELETE')
 
 
 if __name__ == '__main__':

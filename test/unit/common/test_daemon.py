@@ -15,7 +15,6 @@
 
 import os
 from six import StringIO
-from six.moves import reload_module
 import time
 import unittest
 from getpass import getuser
@@ -102,13 +101,14 @@ class TestWorkerDaemon(unittest.TestCase):
 class TestRunDaemon(unittest.TestCase):
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = 'startcap'
-        utils.drop_privileges = lambda *args: None
-        utils.capture_stdio = lambda *args: None
-
-    def tearDown(self):
-        reload_module(utils)
+        for patcher in [
+            mock.patch.object(utils, 'HASH_PATH_PREFIX', 'startcap'),
+            mock.patch.object(utils, 'HASH_PATH_SUFFIX', 'endcap'),
+            mock.patch.object(utils, 'drop_privileges', lambda *args: None),
+            mock.patch.object(utils, 'capture_stdio', lambda *args: None),
+        ]:
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_run(self):
         d = MyDaemon({})

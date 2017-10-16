@@ -34,7 +34,8 @@ from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
 
 from test import listen_zero, unit
-from test.unit import debug_logger, patch_policies, make_timestamp_iter
+from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
+                       mock_check_drive)
 from test.unit.obj.common import write_diskfile
 
 
@@ -370,8 +371,7 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
                     'mount_check', False), \
-                mock.patch('swift.obj.diskfile.check_mount',
-                           return_value=False) as mocked_check_mount:
+                mock_check_drive(isdir=True) as mocks:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -379,14 +379,13 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
             self.assertEqual(resp.status_int, 200)
-            self.assertFalse(mocked_check_mount.called)
+            self.assertEqual([], mocks['ismount'].call_args_list)
 
         with mock.patch.object(self.controller, 'replication_semaphore'), \
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
                     'mount_check', True), \
-                mock.patch('swift.obj.diskfile.check_mount',
-                           return_value=False) as mocked_check_mount:
+                mock_check_drive(ismount=False) as mocks:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -396,12 +395,12 @@ class TestReceiver(unittest.TestCase):
                  "was not enough space to save the resource. Drive: "
                  "device</p></html>"])
             self.assertEqual(resp.status_int, 507)
-            mocked_check_mount.assert_called_once_with(
+            self.assertEqual([mock.call(os.path.join(
                 self.controller._diskfile_router[POLICIES.legacy].devices,
-                'device')
+                'device'))], mocks['ismount'].call_args_list)
 
-            mocked_check_mount.reset_mock()
-            mocked_check_mount.return_value = True
+            mocks['ismount'].reset_mock()
+            mocks['ismount'].return_value = True
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -409,9 +408,9 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
             self.assertEqual(resp.status_int, 200)
-            mocked_check_mount.assert_called_once_with(
+            self.assertEqual([mock.call(os.path.join(
                 self.controller._diskfile_router[POLICIES.legacy].devices,
-                'device')
+                'device'))], mocks['ismount'].call_args_list)
 
     def test_SSYNC_Exception(self):
 

@@ -15,7 +15,6 @@
 
 import base64
 import json
-import xml.etree.cElementTree as ElementTree
 
 from swift import gettext_ as _
 from swift.common.http import is_success
@@ -23,7 +22,7 @@ from swift.common.middleware.crypto.crypto_utils import CryptoWSGIContext, \
     load_crypto_meta, extract_crypto_meta, Crypto
 from swift.common.exceptions import EncryptionException
 from swift.common.request_helpers import get_object_transient_sysmeta, \
-    get_listing_content_type, get_sys_meta_prefix, get_user_meta_prefix
+    get_sys_meta_prefix, get_user_meta_prefix
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.utils import get_logger, config_true_value, \
     parse_content_range, closing_if_possible, parse_content_type, \
@@ -352,15 +351,12 @@ class DecrypterContContext(BaseDecrypterContext):
 
         if is_success(self._get_status_int()):
             # only decrypt body of 2xx responses
-            out_content_type = get_listing_content_type(req)
-            if out_content_type == 'application/json':
-                handler = self.process_json_resp
-                keys = self.get_decryption_keys(req)
-            elif out_content_type.endswith('/xml'):
-                handler = self.process_xml_resp
-                keys = self.get_decryption_keys(req)
-            else:
-                handler = keys = None
+            handler = keys = None
+            for header, value in self._response_headers:
+                if header.lower() == 'content-type' and \
+                        value.split(';', 1)[0] == 'application/json':
+                    handler = self.process_json_resp
+                    keys = self.get_decryption_keys(req)
 
             if handler and keys:
                 try:
@@ -397,24 +393,6 @@ class DecrypterContContext(BaseDecrypterContext):
             ciphertext = obj_dict['hash']
             obj_dict['hash'] = self.decrypt_value_with_meta(ciphertext, key)
         return obj_dict
-
-    def process_xml_resp(self, key, resp_iter):
-        """
-        Parses xml body listing and decrypt encrypted entries. Updates
-        Content-Length header with new body length and return a body iter.
-        """
-        with closing_if_possible(resp_iter):
-            resp_body = ''.join(resp_iter)
-        tree = ElementTree.fromstring(resp_body)
-        for elem in tree.iter('hash'):
-            ciphertext = elem.text.encode('utf8')
-            plain = self.decrypt_value_with_meta(ciphertext, key)
-            elem.text = plain.decode('utf8')
-        new_body = ElementTree.tostring(tree, encoding='UTF-8').replace(
-            "<?xml version='1.0' encoding='UTF-8'?>",
-            '<?xml version="1.0" encoding="UTF-8"?>', 1)
-        self.update_content_length(len(new_body))
-        return [new_body]
 
 
 class Decrypter(object):

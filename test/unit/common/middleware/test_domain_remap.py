@@ -85,17 +85,17 @@ class TestDomainRemap(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEqual(resp, ['Bad domain in host header'])
 
-    def test_domain_remap_account_with_path_root(self):
+    def test_domain_remap_account_with_path_root_container(self):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, ['/v1/AUTH_a/'])
+        self.assertEqual(resp, ['/v1/AUTH_a/v1'])
 
-    def test_domain_remap_account_container_with_path_root(self):
+    def test_domain_remap_account_container_with_path_root_obj(self):
         req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, ['/v1/AUTH_a/c/'])
+        self.assertEqual(resp, ['/v1/AUTH_a/c/v1'])
 
     def test_domain_remap_account_container_with_path_obj_slash_v1(self):
         # Include http://localhost because urlparse used in Request.__init__
@@ -111,7 +111,7 @@ class TestDomainRemap(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, ['/v1/AUTH_a/c//v1'])
+        self.assertEqual(resp, ['/v1/AUTH_a/c/v1//v1'])
 
     def test_domain_remap_account_container_with_path_trailing_slash(self):
         req = Request.blank('/obj/', environ={'REQUEST_METHOD': 'GET'},
@@ -129,7 +129,13 @@ class TestDomainRemap(unittest.TestCase):
         req = Request.blank('/v1/obj', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'c.AUTH_a.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, ['/v1/AUTH_a/c/obj'])
+        self.assertEqual(resp, ['/v1/AUTH_a/c/v1/obj'])
+
+    def test_domain_remap_with_path_root_and_path_no_slash(self):
+        req = Request.blank('/v1obj', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c/v1obj'])
 
     def test_domain_remap_account_matching_ending_not_domain(self):
         req = Request.blank('/dontchange', environ={'REQUEST_METHOD': 'GET'},
@@ -249,6 +255,58 @@ class TestDomainRemap(unittest.TestCase):
                          'http://cont.auth-uuid.example.com/test/')
 
 
+class TestDomainRemapClientMangling(unittest.TestCase):
+    def setUp(self):
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(), {
+            'mangle_client_paths': True})
+
+    def test_domain_remap_account_with_path_root_container(self):
+        req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/'])
+
+    def test_domain_remap_account_container_with_path_root_obj(self):
+        req = Request.blank('/v1', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c/'])
+
+    def test_domain_remap_account_container_with_path_obj_slash_v1(self):
+        # Include http://localhost because urlparse used in Request.__init__
+        # parse //v1 as http://v1
+        req = Request.blank('http://localhost//v1',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c//v1'])
+
+    def test_domain_remap_account_container_with_root_path_obj_slash_v1(self):
+        req = Request.blank('/v1//v1',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c//v1'])
+
+    def test_domain_remap_account_container_with_path_trailing_slash(self):
+        req = Request.blank('/obj/', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c/obj/'])
+
+    def test_domain_remap_account_container_with_path_root_and_path(self):
+        req = Request.blank('/v1/obj', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c/obj'])
+
+    def test_domain_remap_with_path_root_and_path_no_slash(self):
+        req = Request.blank('/v1obj', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'c.AUTH_a.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEqual(resp, ['/v1/AUTH_a/c/v1obj'])
+
+
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
         utils._swift_info = {}
@@ -257,17 +315,17 @@ class TestSwiftInfo(unittest.TestCase):
     def test_registered_defaults(self):
         domain_remap.filter_factory({})
         swift_info = utils.get_swift_info()
-        self.assertTrue('domain_remap' in swift_info)
-        self.assertTrue(
-            swift_info['domain_remap'].get('default_reseller_prefix') is None)
+        self.assertIn('domain_remap', swift_info)
+        self.assertEqual(swift_info['domain_remap'], {
+            'default_reseller_prefix': None})
 
     def test_registered_nondefaults(self):
-        domain_remap.filter_factory({'default_reseller_prefix': 'cupcake'})
+        domain_remap.filter_factory({'default_reseller_prefix': 'cupcake',
+                                     'mangle_client_paths': 'yes'})
         swift_info = utils.get_swift_info()
-        self.assertTrue('domain_remap' in swift_info)
-        self.assertEqual(
-            swift_info['domain_remap'].get('default_reseller_prefix'),
-            'cupcake')
+        self.assertIn('domain_remap', swift_info)
+        self.assertEqual(swift_info['domain_remap'], {
+            'default_reseller_prefix': 'cupcake'})
 
 
 if __name__ == '__main__':

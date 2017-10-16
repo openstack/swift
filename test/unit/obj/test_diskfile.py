@@ -44,7 +44,8 @@ from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
-                       requires_o_tmpfile_support, encode_frag_archive_bodies)
+                       requires_o_tmpfile_support, encode_frag_archive_bodies,
+                       mock_check_drive)
 from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
@@ -2944,32 +2945,26 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
         mount_check = None
         self.df_mgr.mount_check = True
-        with mock.patch('swift.obj.diskfile.check_mount',
-                        mock.MagicMock(return_value=False)):
+        with mock_check_drive(ismount=False):
             self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
                              None)
-        with mock.patch('swift.obj.diskfile.check_mount',
-                        mock.MagicMock(return_value=True)):
+        with mock_check_drive(ismount=True):
             self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
                              dev_path)
 
         self.df_mgr.mount_check = False
-        with mock.patch('swift.obj.diskfile.check_dir',
-                        mock.MagicMock(return_value=False)):
+        with mock_check_drive(isdir=False):
             self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
                              None)
-        with mock.patch('swift.obj.diskfile.check_dir',
-                        mock.MagicMock(return_value=True)):
+        with mock_check_drive(isdir=True):
             self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
                              dev_path)
 
         mount_check = True
-        with mock.patch('swift.obj.diskfile.check_mount',
-                        mock.MagicMock(return_value=False)):
+        with mock_check_drive(ismount=False):
             self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
                              None)
-        with mock.patch('swift.obj.diskfile.check_mount',
-                        mock.MagicMock(return_value=True)):
+        with mock_check_drive(ismount=True):
             self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
                              dev_path)
 
@@ -3142,6 +3137,32 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual('text/garbage', df._metadata['Content-Type'])
             # original sysmeta keys are preserved
             self.assertEqual('Value1', df._metadata['X-Object-Sysmeta-Key1'])
+
+    def test_disk_file_preserves_slo(self):
+        # build an object with some meta (at t0)
+        orig_metadata = {'X-Static-Large-Object': 'True',
+                         'Content-Type': 'text/garbage'}
+        df = self._get_open_disk_file(ts=self.ts().internal,
+                                      extra_metadata=orig_metadata)
+
+        # sanity test
+        with df.open():
+            self.assertEqual('True', df._metadata['X-Static-Large-Object'])
+            if df.policy.policy_type == EC_POLICY:
+                expected = df.policy.pyeclib_driver.get_segment_info(
+                    1024, df.policy.ec_segment_size)['fragment_size']
+            else:
+                expected = 1024
+            self.assertEqual(str(expected), df._metadata['Content-Length'])
+
+        # write some new metadata (fast POST, don't send orig meta, at t0+1s)
+        df = self._simple_get_diskfile()
+        df.write_metadata({'X-Timestamp': self.ts().internal})
+        df = self._simple_get_diskfile()
+        with df.open():
+            # non-fast-post updateable keys are preserved
+            self.assertEqual('text/garbage', df._metadata['Content-Type'])
+            self.assertEqual('True', df._metadata['X-Static-Large-Object'])
 
     def test_disk_file_reader_iter(self):
         df, df_data = self._create_test_file('1234567890')
@@ -5855,7 +5876,7 @@ class TestSuffixHashes(unittest.TestCase):
         suffix_dir = os.path.dirname(df._datadir)
         for i in itertools.count():
             df2 = df._manager.get_diskfile(
-                df._device_path,
+                os.path.basename(df._device_path),
                 df._datadir.split('/')[-3],
                 df._account,
                 df._container,
@@ -7706,8 +7727,7 @@ class TestSuffixHashes(unittest.TestCase):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
             df_mgr.mount_check = True
-            with mock.patch('swift.obj.diskfile.check_mount',
-                            mock.MagicMock(side_effect=[False])):
+            with mock_check_drive(ismount=False):
                 self.assertRaises(
                     DiskFileDeviceUnavailable,
                     df_mgr.get_hashes, self.existing_device, '0', ['123'],

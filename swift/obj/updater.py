@@ -21,13 +21,14 @@ import time
 from swift import gettext_ as _
 from random import random
 
-from eventlet import spawn, patcher, Timeout
+from eventlet import spawn, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
-    dump_recon_cache, config_true_value, ismount, ratelimit_sleep
+    dump_recon_cache, config_true_value, ismount, ratelimit_sleep, \
+    eventlet_monkey_patch
 from swift.common.daemon import Daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -106,8 +107,7 @@ class ObjectUpdater(Daemon):
                     pids.append(pid)
                 else:
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                    patcher.monkey_patch(all=False, socket=True, select=True,
-                                         thread=True)
+                    eventlet_monkey_patch()
                     self.successes = 0
                     self.failures = 0
                     forkbegin = time.time()

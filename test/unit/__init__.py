@@ -709,49 +709,28 @@ def quiet_eventlet_exceptions():
         eventlet_debug.hub_exceptions(orig_state)
 
 
-class MockTrue(object):
+@contextmanager
+def mock_check_drive(isdir=False, ismount=False):
     """
-    Instances of MockTrue evaluate like True
-    Any attr accessed on an instance of MockTrue will return a MockTrue
-    instance. Any method called on an instance of MockTrue will return
-    a MockTrue instance.
+    All device/drive/mount checking should be done through the constraints
+    module if we keep the mocking consistly w/i that module we can keep our
+    test robust to further rework on that interface.
 
-    >>> thing = MockTrue()
-    >>> thing
-    True
-    >>> thing == True # True == True
-    True
-    >>> thing == False # True == False
-    False
-    >>> thing != True # True != True
-    False
-    >>> thing != False # True != False
-    True
-    >>> thing.attribute
-    True
-    >>> thing.method()
-    True
-    >>> thing.attribute.method()
-    True
-    >>> thing.method().attribute
-    True
+    Replace the constraint modules underlying os calls with mocks.
 
+    :param isdir: return value of constraints isdir calls, default False
+    :param ismount: return value of constraints ismount calls, default False
+    :returns: a dict of constraint module mocks
     """
-
-    def __getattribute__(self, *args, **kwargs):
-        return self
-
-    def __call__(self, *args, **kwargs):
-        return self
-
-    def __repr__(*args, **kwargs):
-        return repr(True)
-
-    def __eq__(self, other):
-        return other is True
-
-    def __ne__(self, other):
-        return other is not True
+    mock_base = 'swift.common.constraints.'
+    with mocklib.patch(mock_base + 'isdir') as mock_isdir, \
+            mocklib.patch(mock_base + 'utils.ismount') as mock_ismount:
+        mock_isdir.return_value = isdir
+        mock_ismount.return_value = ismount
+        yield {
+            'isdir': mock_isdir,
+            'ismount': mock_ismount,
+        }
 
 
 @contextmanager

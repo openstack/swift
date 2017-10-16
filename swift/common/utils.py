@@ -52,6 +52,7 @@ import datetime
 import eventlet
 import eventlet.debug
 import eventlet.greenthread
+import eventlet.patcher
 import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
@@ -76,12 +77,6 @@ from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
-
-if six.PY3:
-    stdlib_queue = eventlet.patcher.original('queue')
-else:
-    stdlib_queue = eventlet.patcher.original('Queue')
-stdlib_threading = eventlet.patcher.original('threading')
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -468,6 +463,18 @@ def config_read_prefixed_options(conf, prefix_name, defaults):
             else:
                 params[option_name] = value.strip()
     return params
+
+
+def eventlet_monkey_patch():
+    """
+    Install the appropriate Eventlet monkey patches.
+    """
+    # NOTE(sileht):
+    #     monkey-patching thread is required by python-keystoneclient;
+    #     monkey-patching select is required by oslo.messaging pika driver
+    #         if thread is monkey-patched.
+    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
+                                  thread=True)
 
 
 def noop_libc_function(*args):

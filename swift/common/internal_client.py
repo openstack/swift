@@ -772,12 +772,14 @@ class SimpleClient(object):
         if name:
             url = '%s/%s' % (url.rstrip('/'), quote(name))
         else:
-            url += '?format=json'
+            params = ['format=json']
             if prefix:
-                url += '&prefix=%s' % prefix
+                params.append('prefix=%s' % prefix)
 
             if marker:
-                url += '&marker=%s' % quote(marker)
+                params.append('marker=%s' % quote(marker))
+
+            url += '?' + '&'.join(params)
 
         req = urllib2.Request(url, headers=headers, data=contents)
         if proxy:

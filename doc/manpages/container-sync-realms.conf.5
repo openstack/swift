@@ -1,0 +1,138 @@
+.\"
+.\" Author: HCLTech-SSW <hcl_ss_oss@hcl.com>
+.\" Copyright (c) 2010-2017 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH container-sync-realms.conf 5 "10/09/2017" "Linux" "OpenStack Swift"
+
+.SH NAME
+.LP
+.B container-sync-realms.conf
+\- configuration file for the OpenStack Swift container sync realms
+
+
+
+.SH SYNOPSIS
+.LP
+.B container-sync-realms.conf
+
+
+
+.SH DESCRIPTION
+.PP
+This is the configuration file used by the Object storage Swift to perform container to container
+synchronization. This configuration file is used to configure clusters to allow/accept sync
+requests to/from other clusters. Using this configuration file, the user specifies where
+to sync their container to along with a secret synchronization key.
+
+You can find more information about container to container synchronization at
+\fIhttps://docs.openstack.org/swift/latest/overview_container_sync.html\fR
+
+The configuration file follows the python-pastedeploy syntax. The file is divided
+into sections, which are enclosed by square brackets. Each section will contain a
+certain number of key/value parameters which are described later.
+
+Any line that begins with a '#' symbol is ignored.
+
+You can find more information about python-pastedeploy configuration format at
+\fIhttp://pythonpaste.org/deploy/#config-format\fR
+
+
+
+.SH GLOBAL SECTION
+.PD 1
+.RS 0
+This is indicated by section named [DEFAULT]. Below are the parameters that
+are acceptable within this section.
+
+.IP "\fBmtime_check_interval\fR"
+The number of seconds between checking the modified time of this config file for changes
+and therefore reloading it. The default value is 300.
+.RE
+.PD
+
+
+
+.SH REALM SECTIONS
+.PD 1
+.RS 0
+Each section name is the name of a sync realm, for example [realm1].
+A sync realm is a set of clusters that have agreed to allow container syncing with each other.
+Realm names will be considered case insensitive. Below are the parameters that are acceptable
+within this section.
+
+.IP "\fBcluster_clustername1\fR"
+Any values in the realm section whose name begin with cluster_ will indicate the name and
+endpoint of a cluster and will be used by external users in their container's
+X-Container-Sync-To metadata header values with the format as "realm_name/cluster_name/container_name".
+The Realm and cluster names are considered to be case insensitive.
+.IP "\fBcluster_clustername2\fR"
+Any values in the realm section whose name begin with cluster_ will indicate the name and
+endpoint of a cluster and will be used by external users in their container's
+X-Container-Sync-To metadata header values with the format as "realm_name/cluster_name/container_name".
+The Realm and cluster names are considered to be case insensitive.
+
+The endpoint is what the container sync daemon will use when sending out
+requests to that cluster. Keep in mind this endpoint must be reachable by all
+container servers, since that is where the container sync daemon runs. Note
+that the endpoint ends with /v1/ and that the container sync daemon will then
+add the account/container/obj name after that.
+
+.IP "\fBkey\fR"
+The key is the overall cluster-to-cluster key used in combination with the external
+users' key that they set on their containers' X-Container-Sync-Key metadata header
+values. These keys will be used to sign each request the container sync daemon makes
+and used to validate each incoming container sync request.
+.IP "\fBkey2\fR"
+The key2 is optional and is an additional key incoming requests will be checked
+against. This is so you can rotate keys if you wish; you move the existing
+key to key2 and make a new key value.
+.RE
+.PD
+
+.SH EXAMPLE
+.nf
+.RS 0
+[DEFAULT]
+mtime_check_interval = 300
+
+
+[realm1]
+key = realm1key
+key2 = realm1key2
+cluster_clustername1 = https://host1/v1/
+cluster_clustername2 = https://host2/v1/
+
+[realm2]
+key = realm2key
+key2 = realm2key2
+cluster_clustername3 = https://host3/v1/
+cluster_clustername4 = https://host4/v1/
+.RE
+.fi
+
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to
+.BI swift-container-sync
+and also about OpenStack Swift as a whole can be found at
+.BI https://docs.openstack.org/swift/latest/overview_container_sync.html
+and
+.BI https://docs.openstack.org/swift/latest/
+
+
+.SH "SEE ALSO"
+.BR swift-container-sync(1)

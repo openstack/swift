@@ -618,14 +618,5 @@ class TestCryptoPipelineChanges(unittest.TestCase):
         self._check_listing(self.crypto_app)
 
 
-class TestCryptoPipelineChangesFastPost(TestCryptoPipelineChanges):
-    @classmethod
-    def setUpClass(cls):
-        # set proxy config to use fast post
-        extra_conf = {'object_post_as_copy': 'False'}
-        cls._test_context = setup_servers(extra_conf=extra_conf)
-        cls.proxy_app = cls._test_context["test_servers"][0]
-
-
 if __name__ == '__main__':
     unittest.main()

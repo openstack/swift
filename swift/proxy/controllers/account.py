@@ -18,7 +18,6 @@ from six.moves.urllib.parse import unquote
 from swift import gettext_ as _
 
 from swift.account.utils import account_listing_response
-from swift.common.request_helpers import get_listing_content_type
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.utils import public
 from swift.common.constraints import check_metadata
@@ -26,6 +25,7 @@ from swift.common import constraints
 from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
 from swift.proxy.controllers.base import Controller, clear_info_cache, \
     set_info_cache
+from swift.common.middleware import listing_formats
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 from swift.common.request_helpers import get_sys_meta_prefix
 
@@ -67,6 +67,9 @@ class AccountController(Controller):
         concurrency = self.app.account_ring.replica_count \
             if self.app.concurrent_gets else 1
         node_iter = self.app.iter_nodes(self.app.account_ring, partition)
+        params = req.params
+        params['format'] = 'json'
+        req.params = params
         resp = self.GETorHEAD_base(
             req, _('Account'), node_iter, partition,
             req.swift_entity_path.rstrip('/'), concurrency)
@@ -86,8 +89,9 @@ class AccountController(Controller):
                 # creates the account if necessary. If we feed it a perfect
                 # lie, it'll just try to create the container without
                 # creating the account, and that'll fail.
-                resp = account_listing_response(self.account_name, req,
-                                                get_listing_content_type(req))
+                resp = account_listing_response(
+                    self.account_name, req,
+                    listing_formats.get_listing_content_type(req))
                 resp.headers['X-Backend-Fake-Account-Listing'] = 'yes'
 
         # Cache this. We just made a request to a storage node and got

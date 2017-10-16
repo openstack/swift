@@ -619,10 +619,10 @@ class TestUtils(unittest.TestCase):
         rb.rebalance(seed=100)
         rb.validate()
 
-        self.assertEqual(rb.dispersion, 39.84375)
+        self.assertEqual(rb.dispersion, 55.46875)
         report = dispersion_report(rb)
         self.assertEqual(report['worst_tier'], 'r1z1')
-        self.assertEqual(report['max_dispersion'], 39.84375)
+        self.assertEqual(report['max_dispersion'], 44.921875)
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -633,16 +633,17 @@ class TestUtils(unittest.TestCase):
                 'replicas': replicas,
             }
 
-        # Each node should store 256 partitions to avoid multiple replicas
+        # Each node should store less than or equal to 256 partitions to
+        # avoid multiple replicas.
         # 2/5 of total weight * 768 ~= 307 -> 51 partitions on each node in
         # zone 1 are stored at least twice on the nodes
         expected = [
             ['r1z1', build_tier_report(
-                2, 256, 39.84375, [0, 0, 154, 102])],
+                2, 256, 44.921875, [0, 0, 141, 115])],
             ['r1z1-127.0.0.1', build_tier_report(
-                1, 256, 19.921875, [0, 205, 51, 0])],
+                1, 242, 29.33884297520661, [14, 171, 71, 0])],
             ['r1z1-127.0.0.2', build_tier_report(
-                1, 256, 19.921875, [0, 205, 51, 0])],
+                1, 243, 29.218106995884774, [13, 172, 71, 0])],
         ]
         report = dispersion_report(rb, 'r1z1[^/]*$', verbose=True)
         graph = report['graph']
@@ -667,9 +668,9 @@ class TestUtils(unittest.TestCase):
         # can't move all the part-replicas in one rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
-        self.assertEqual(rb.dispersion, 9.375)
-        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
-        self.assertEqual(report['max_dispersion'], 7.18562874251497)
+        self.assertEqual(rb.dispersion, 11.71875)
+        self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.2')
+        self.assertEqual(report['max_dispersion'], 8.875739644970414)
         # do a sencond rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)

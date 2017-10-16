@@ -400,7 +400,7 @@ class TestRingBuilder(unittest.TestCase):
         for dev in rb._iter_devs():
             dev['tiers'] = utils.tiers_for_dev(dev)
         assign_parts = defaultdict(list)
-        rb._gather_parts_for_balance(assign_parts, replica_plan)
+        rb._gather_parts_for_balance(assign_parts, replica_plan, False)
         max_run = 0
         run = 0
         last_part = 0
@@ -1621,9 +1621,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=12345)
 
         part_counts = self._partition_counts(rb, key='zone')
-        self.assertEqual(part_counts[0], 212)
-        self.assertEqual(part_counts[1], 211)
-        self.assertEqual(part_counts[2], 345)
+        self.assertEqual({0: 212, 1: 211, 2: 345}, part_counts)
 
         # Now, devices 0 and 1 take 50% more than their fair shares by
         # weight.
@@ -1633,9 +1631,7 @@ class TestRingBuilder(unittest.TestCase):
             rb.rebalance(seed=12345)
 
         part_counts = self._partition_counts(rb, key='zone')
-        self.assertEqual(part_counts[0], 256)
-        self.assertEqual(part_counts[1], 256)
-        self.assertEqual(part_counts[2], 256)
+        self.assertEqual({0: 256, 1: 256, 2: 256}, part_counts)
 
         # Devices 0 and 1 may take up to 75% over their fair share, but the
         # placement algorithm only wants to spread things out evenly between
@@ -1698,9 +1694,12 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=12345)
 
         part_counts = self._partition_counts(rb, key='ip')
-        self.assertEqual(part_counts['127.0.0.1'], 238)
-        self.assertEqual(part_counts['127.0.0.2'], 237)
-        self.assertEqual(part_counts['127.0.0.3'], 293)
+
+        self.assertEqual({
+            '127.0.0.1': 237,
+            '127.0.0.2': 237,
+            '127.0.0.3': 294,
+        }, part_counts)
 
         # Even out the weights: balance becomes perfect
         for dev in rb.devs:
@@ -2450,6 +2449,105 @@ class TestRingBuilder(unittest.TestCase):
             (0, 0, '127.0.0.1', 1): [0, 256, 0, 0],
             (0, 0, '127.0.0.1', 3): [0, 256, 0, 0],
         })
+
+    def test_undispersable_zone_converge_on_balance(self):
+        rb = ring.RingBuilder(8, 6, 0)
+        dev_id = 0
+        # 3 regions, 2 zone for each region, 1 server with only *one* device in
+        # each zone (this is an absolutely pathological case)
+        for r in range(3):
+            for z in range(2):
+                ip = '127.%s.%s.1' % (r, z)
+                dev_id += 1
+                rb.add_dev({'id': dev_id, 'region': r, 'zone': z,
+                            'weight': 1000, 'ip': ip, 'port': 10000,
+                            'device': 'd%s' % dev_id})
+        rb.rebalance(seed=7)
+
+        # sanity, all balanced and 0 dispersion
+        self.assertEqual(rb.get_balance(), 0)
+        self.assertEqual(rb.dispersion, 0)
+
+        # add one device to the server in z1 for each region, N.B. when we
+        # *balance* this topology we will have very bad dispersion (too much
+        # weight in z1 compared to z2!)
+        for r in range(3):
+            z = 0
+            ip = '127.%s.%s.1' % (r, z)
+            dev_id += 1
+            rb.add_dev({'id': dev_id, 'region': r, 'zone': z,
+                        'weight': 1000, 'ip': ip, 'port': 10000,
+                        'device': 'd%s' % dev_id})
+
+        changed_part, _, _ = rb.rebalance(seed=7)
+
+        # sanity, all part but only one replica moved to new devices
+        self.assertEqual(changed_part, 2 ** 8)
+        # so the first time, rings are still unbalanced becase we'll only move
+        # one replica of each part.
+        self.assertEqual(rb.get_balance(), 50.1953125)
+        self.assertEqual(rb.dispersion, 99.609375)
+
+        # N.B. since we mostly end up grabbing parts by "weight forced" some
+        # seeds given some specific ring state will randomly pick bad
+        # part-replicas that end up going back down onto the same devices
+        changed_part, _, _ = rb.rebalance(seed=7)
+        self.assertEqual(changed_part, 14)
+        # ... this isn't a really "desirable" behavior, but even with bad luck,
+        # things do get better
+        self.assertEqual(rb.get_balance(), 47.265625)
+        self.assertEqual(rb.dispersion, 99.609375)
+
+        # but if you stick with it, eventually the next rebalance, will get to
+        # move "the right" part-replicas, resulting in near optimal balance
+        changed_part, _, _ = rb.rebalance(seed=7)
+        self.assertEqual(changed_part, 240)
+        self.assertEqual(rb.get_balance(), 0.390625)
+        self.assertEqual(rb.dispersion, 99.609375)
+
+    def test_undispersable_server_converge_on_balance(self):
+        rb = ring.RingBuilder(8, 6, 0)
+        dev_id = 0
+        # 3 zones, 2 server for each zone, 2 device for each server
+        for z in range(3):
+            for i in range(2):
+                ip = '127.0.%s.%s' % (z, i + 1)
+                for d in range(2):
+                    dev_id += 1
+                    rb.add_dev({'id': dev_id, 'region': 1, 'zone': z,
+                                'weight': 1000, 'ip': ip, 'port': 10000,
+                                'device': 'd%s' % dev_id})
+        rb.rebalance(seed=7)
+
+        # sanity, all balanced and 0 dispersion
+        self.assertEqual(rb.get_balance(), 0)
+        self.assertEqual(rb.dispersion, 0)
+
+        # add one device for first server for each zone
+        for z in range(3):
+            ip = '127.0.%s.1' % z
+            dev_id += 1
+            rb.add_dev({'id': dev_id, 'region': 1, 'zone': z,
+                        'weight': 1000, 'ip': ip, 'port': 10000,
+                        'device': 'd%s' % dev_id})
+
+        changed_part, _, _ = rb.rebalance(seed=7)
+
+        # sanity, all part but only one replica moved to new devices
+        self.assertEqual(changed_part, 2 ** 8)
+
+        # but the first time, those are still unbalance becase ring builder
+        # can move only one replica for each part
+        self.assertEqual(rb.get_balance(), 16.9921875)
+        self.assertEqual(rb.dispersion, 59.765625)
+
+        rb.rebalance(seed=7)
+
+        # converge into around 0~1
+        self.assertGreaterEqual(rb.get_balance(), 0)
+        self.assertLess(rb.get_balance(), 1)
+        # dispersion doesn't get any worse
+        self.assertEqual(rb.dispersion, 59.765625)
 
     def test_effective_overload(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -3595,12 +3693,12 @@ class TestGetRequiredOverload(unittest.TestCase):
         rb.rebalance(seed=17)
         self.assertEqual(rb.get_balance(), 1581.6406249999998)
 
-        # but despite the overall trend toward imbalance, in the tier
-        # with the huge device, the small device is trying to shed parts
-        # as effectively as it can (which would be useful if it was the
-        # only small device isolated in a tier with other huge devices
-        # trying to gobble up all the replicanths in the tier - see
-        # `test_one_small_guy_does_not_spoil_his_buddy`!)
+        # but despite the overall trend toward imbalance, in the tier with the
+        # huge device, we want to see the small device (d4) try to shed parts
+        # as effectively as it can to the huge device in the same tier (d5)
+        # this is a useful behavior anytime when for whatever reason a device
+        # w/i a tier wants parts from another device already in the same tier
+        # another example is `test_one_small_guy_does_not_spoil_his_buddy`
         expected = {
             0: 123,
             1: 123,
@@ -3691,6 +3789,45 @@ class TestGetRequiredOverload(unittest.TestCase):
         self.assertEqual(rb.get_balance(), 30.46875)
 
         # increasing overload moves towards one replica in each tier
+        rb.set_overload(0.3)
+        expected = {
+            0: 0.553443113772455,
+            1: 0.553443113772455,
+            2: 0.553443113772455,
+            3: 0.553443113772455,
+            4: 0.778443113772455,
+            5: 0.007784431137724551,
+        }
+        target_replicas = rb._build_target_replicas_by_tier()
+        self.assertEqual(expected, {t[-1]: r for (t, r) in
+                                    target_replicas.items()
+                                    if len(t) == 4})
+        # ... and as always increasing overload makes balance *worse*
+        rb.rebalance(seed=12)
+        self.assertEqual(rb.get_balance(), 30.46875)
+
+        # the little guy it really struggling to take his share tho
+        expected = {
+            0: 142,
+            1: 141,
+            2: 142,
+            3: 141,
+            4: 200,
+            5: 2,
+        }
+        self.assertEqual(expected, {
+            d['id']: d['parts'] for d in rb._iter_devs()})
+        # ... and you can see it in the balance!
+        expected = {
+            0: -7.367187499999986,
+            1: -8.019531249999986,
+            2: -7.367187499999986,
+            3: -8.019531249999986,
+            4: 30.46875,
+            5: 30.46875,
+        }
+        self.assertEqual(expected, rb._build_balance_per_dev())
+
         rb.set_overload(0.5)
         expected = {
             0: 0.5232035928143712,
@@ -3705,7 +3842,7 @@ class TestGetRequiredOverload(unittest.TestCase):
                                     target_replicas.items()
                                     if len(t) == 4})
 
-        # ... and as always increasing overload makes balance *worse*
+        # because the device is so small, balance get's bad quick
         rb.rebalance(seed=17)
         self.assertEqual(rb.get_balance(), 95.703125)
 
