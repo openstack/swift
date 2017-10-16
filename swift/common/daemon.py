@@ -21,6 +21,7 @@ import signal
 from re import sub
 
 import eventlet.debug
+from eventlet.hubs import use_hub
 
 from swift.common import utils
 
@@ -265,6 +266,8 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
         # The message will be printed to stderr
         # and results in an exit code of 1.
         sys.exit(e)
+
+    use_hub(utils.get_hub())
 
     # once on command line (i.e. daemonize=false) will over-ride config
     once = once or not utils.config_true_value(conf.get('daemonize', 'true'))
