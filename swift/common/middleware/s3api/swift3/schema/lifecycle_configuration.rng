@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <include href="common.rng"/>
+  <start>
+    <element name="LifecycleConfiguration">
+      <oneOrMore>
+        <element name="Rule">
+          <interleave>
+            <optional>
+              <element name="ID">
+                <data type="string"/>
+              </element>
+            </optional>
+            <element name="Prefix">
+              <data type="string"/>
+            </element>
+            <element name="Status">
+              <choice>
+                <value>Enabled</value>
+                <value>Disabled</value>
+              </choice>
+            </element>
+            <optional>
+              <element name="Transition">
+                <ref name="Transition"/>
+              </element>
+            </optional>
+            <optional>
+              <element name="Expiration">
+                <ref name="Expiration"/>
+              </element>
+            </optional>
+          </interleave>
+        </element>
+      </oneOrMore>
+    </element>
+  </start>
+  <define name="Expiration">
+    <choice>
+      <element name="Days">
+        <data type="int"/>
+      </element>
+      <element name="Date">
+        <data type="dateTime"/>
+      </element>
+    </choice>
+  </define>
+  <define name="Transition">
+    <interleave>
+      <ref name="Expiration"/>
+      <element name="StorageClass">
+        <ref name="StorageClass"/>
+      </element>
+    </interleave>
+  </define>
+</grammar>

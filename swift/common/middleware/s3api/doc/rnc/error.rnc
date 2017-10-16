@@ -1,0 +1,11 @@
+start =
+  element Error {
+    element Code { xsd:string },
+    element Message { xsd:string },
+    DebugInfo*
+  }
+
+DebugInfo =
+  element * {
+    (attribute * { text } | text | DebugInfo)*
+  }

@@ -1,0 +1,6 @@
+start =
+  element InitiateMultipartUploadResult {
+    element Bucket { xsd:string },
+    element Key { xsd:string },
+    element UploadId { xsd:string }
+  }

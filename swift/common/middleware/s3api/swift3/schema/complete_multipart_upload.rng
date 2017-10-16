@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <start>
+    <element name="CompleteMultipartUpload">
+      <oneOrMore>
+        <element name="Part">
+          <interleave>
+            <element name="PartNumber">
+              <data type="int"/>
+            </element>
+            <element name="ETag">
+              <data type="string"/>
+            </element>
+          </interleave>
+        </element>
+      </oneOrMore>
+    </element>
+  </start>
+</grammar>

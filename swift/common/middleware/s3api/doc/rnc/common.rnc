@@ -1,0 +1,26 @@
+namespace xsi = "http://www.w3.org/2001/XMLSchema-instance"
+
+CanonicalUser =
+  element ID { xsd:string } &
+  element DisplayName { xsd:string }?
+
+StorageClass = "STANDARD" | "REDUCED_REDUNDANCY" | "GLACIER" | "UNKNOWN"
+
+AccessControlList =
+  element Grant {
+    element Grantee {
+      (
+        attribute xsi:type { "AmazonCustomerByEmail" },
+        element EmailAddress { xsd:string }
+      ) | (
+        attribute xsi:type { "CanonicalUser" },
+        CanonicalUser
+      ) | (
+        attribute xsi:type { "Group" },
+        element URI { xsd:string }
+      )
+    } &
+    element Permission {
+      "READ" | "WRITE" | "READ_ACP" | "WRITE_ACP" | "FULL_CONTROL"
+    }
+  }*

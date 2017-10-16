@@ -1,0 +1,10 @@
+*.out.bad
+*.notrun
+*.full
+check.log
+check.time
+
+scratch
+.s3curl
+conf/*.conf
+htmlcov

@@ -1,0 +1,18 @@
+[DEFAULT]
+
+[pipeline:main]
+# This is the minimum pipeline for Swift (and Swift3)
+pipeline = object-server
+
+[app:object-server]
+use = egg:swift#object
+# Comma separated list of headers that can be set in metadata on an object.
+# This list is in addition to X-Object-Meta-* headers and cannot include
+# Content-Type, etag, Content-Length, or deleted
+#
+# Note that S3 allows more headers than the default Swift object-server
+# configuration. In particular, You may need to add Cache-Control,
+# Content-Language, Expires, and X-Robots-Tag
+allowed_headers = Cache-Control, Content-Disposition, Content-Encoding,
+ Content-Language, Expires, X-Delete-At, X-Object-Manifest, X-Robots-Tag,
+ X-Static-Large-Object

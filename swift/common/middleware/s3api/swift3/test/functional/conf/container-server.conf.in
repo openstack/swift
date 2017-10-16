@@ -1,0 +1,15 @@
+[DEFAULT]
+user = %USER%
+bind_port = 6001
+swift_dir = %TEST_DIR%/etc
+devices = %TEST_DIR%
+mount_check = false
+workers = 1
+log_level = DEBUG
+
+[pipeline:main]
+pipeline = container-server
+
+[app:container-server]
+use = egg:swift#container
+allow_versions = true

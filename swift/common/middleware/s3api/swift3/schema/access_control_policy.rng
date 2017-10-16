@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0">
+  <include href="common.rng"/>
+  <start>
+    <element name="AccessControlPolicy">
+      <interleave>
+        <element name="Owner">
+          <ref name="CanonicalUser"/>
+        </element>
+        <element name="AccessControlList">
+          <ref name="AccessControlList"/>
+        </element>
+      </interleave>
+    </element>
+  </start>
+</grammar>
