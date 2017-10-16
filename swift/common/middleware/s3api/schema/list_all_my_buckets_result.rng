@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <include href="common.rng"/>
+  <start>
+    <element name="ListAllMyBucketsResult">
+      <element name="Owner">
+        <ref name="CanonicalUser"/>
+      </element>
+      <element name="Buckets">
+        <zeroOrMore>
+          <element name="Bucket">
+            <element name="Name">
+              <data type="string"/>
+            </element>
+            <element name="CreationDate">
+              <data type="dateTime"/>
+            </element>
+          </element>
+        </zeroOrMore>
+      </element>
+    </element>
+  </start>
+</grammar>

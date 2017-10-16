@@ -107,7 +107,6 @@ Alternative API
 
 * `ProxyFS <https://github.com/swiftstack/ProxyFS>`_ - Integrated file and
   object access for Swift object storage
-* `Swift3 <https://github.com/openstack/swift3>`_ - Amazon S3 API emulation.
 * `SwiftHLM <https://github.com/ibm-research/SwiftHLM>`_ - a middleware for
   using OpenStack Swift with tape and other high latency media storage
   backends.
@@ -176,3 +175,4 @@ Other
   web browser
 * `swiftbackmeup <https://github.com/redhat-cip/swiftbackmeup>`_ -
   Utility that allows one to create backups and upload them to OpenStack Swift
+* `s3compat <https://github.com/swiftstack/s3compat>`_ - S3 API compatibility checker

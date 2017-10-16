@@ -1,0 +1,8 @@
+start =
+  element Delete {
+    element Quiet { xsd:boolean }? &
+    element Object {
+      element Key { xsd:string } &
+      element VersionId { xsd:string }?
+    }+
+  }

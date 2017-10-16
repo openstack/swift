@@ -1,0 +1,37 @@
+include "common.rnc"
+
+start =
+  element ListVersionsResult {
+    element Name { xsd:string },
+    element Prefix { xsd:string },
+    element KeyMarker { xsd:string },
+    element VersionIdMarker { xsd:string },
+    element NextKeyMarker { xsd:string }?,
+    element NextVersionIdMarker { xsd:string }?,
+    element MaxKeys { xsd:int },
+    element EncodingType { xsd:string }?,
+    element Delimiter { xsd:string }?,
+    element IsTruncated { xsd:boolean },
+    (
+      element Version {
+        element Key { xsd:string },
+        element VersionId { xsd:string },
+        element IsLatest { xsd:boolean },
+        element LastModified { xsd:dateTime },
+        element ETag { xsd:string },
+        element Size { xsd:long },
+        element Owner { CanonicalUser }?,
+        element StorageClass { StorageClass }
+      } |
+      element DeleteMarker {
+        element Key { xsd:string },
+        element VersionId { xsd:string },
+        element IsLatest { xsd:boolean },
+        element LastModified { xsd:dateTime },
+        element Owner { CanonicalUser }?
+      }
+    )*,
+    element CommonPrefixes {
+      element Prefix { xsd:string }
+    }*
+  }

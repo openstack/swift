@@ -1,0 +1,20 @@
+include "common.rnc"
+
+start =
+  element LifecycleConfiguration {
+    element Rule {
+      element ID { xsd:string }? &
+      element Prefix { xsd:string } &
+      element Status { "Enabled" | "Disabled" } &
+      element Transition { Transition }? &
+      element Expiration { Expiration }?
+    }+
+  }
+
+Expiration =
+  element Days { xsd:int } |
+  element Date { xsd:dateTime }
+
+Transition =
+  Expiration &
+  element StorageClass { StorageClass }
