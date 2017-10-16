@@ -15,6 +15,9 @@
 
 """Tests for swift.common.utils"""
 from __future__ import print_function
+
+import hashlib
+
 from test.unit import temptree, debug_logger, make_timestamp_iter
 
 import ctypes
@@ -3698,12 +3701,12 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     def test_find_shard_range(self):
         ts = utils.Timestamp.now().internal
-        start = utils.ShardRange('-a', ts, '', 'a')
-        atof = utils.ShardRange('a-f', ts, 'a', 'f')
-        ftol = utils.ShardRange('f-l', ts, 'f', 'l')
-        ltor = utils.ShardRange('l-r', ts, 'l', 'r')
-        rtoz = utils.ShardRange('r-z', ts, 'r', 'z')
-        end = utils.ShardRange('z-', ts, 'z', '')
+        start = utils.ShardRange('a/-a', ts, '', 'a')
+        atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
+        ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
+        ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
+        rtoz = utils.ShardRange('a/r-z', ts, 'r', 'z')
+        end = utils.ShardRange('a/z-', ts, 'z', '')
         ranges = [start, atof, ftol, ltor, rtoz, end]
 
         found = utils.find_shard_range(' ', ranges)
@@ -6526,21 +6529,29 @@ class TestShardRange(unittest.TestCase):
                          meta_timestamp=None, deleted=0)
         # name, timestamp must be given
         assert_initialisation_fails(empty_run.copy())
-        assert_initialisation_fails(dict(empty_run, name='name'), TypeError)
+        assert_initialisation_fails(dict(empty_run, name='a/c'), TypeError)
         assert_initialisation_fails(dict(empty_run, timestamp=ts_1))
-        assert_initialisation_fails(dict(empty_run, name='name',
+        # name must be form a/c
+        assert_initialisation_fails(dict(empty_run, name='c', timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='', timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='/a/c',
+                                         timestamp=ts_1))
+        assert_initialisation_fails(dict(empty_run, name='/c',
+                                         timestamp=ts_1))
+        # lower, upper must be strings
+        assert_initialisation_fails(dict(empty_run, name='a/c',
                                          timestamp=ts_1),
                                     TypeError)
-        assert_initialisation_fails(dict(empty_run, name='name',
+        assert_initialisation_fails(dict(empty_run, name='a/c',
                                          timestamp=ts_1, lower=''),
                                     TypeError)
 
-        expect = dict(name='name', created_at=ts_1.internal, lower='',
+        expect = dict(name='a/c', created_at=ts_1.internal, lower='',
                       upper='', object_count=0, bytes_used=0,
                       meta_timestamp=ts_1.internal, deleted=0)
-        assert_initialisation_ok(dict(name='name', timestamp=ts_1), expect)
+        assert_initialisation_ok(dict(name='a/c', timestamp=ts_1), expect)
 
-        good_run = dict(name='name', timestamp=ts_1, lower='l',
+        good_run = dict(name='a/c', timestamp=ts_1, lower='l',
                         upper='u', object_count=2, bytes_used=10,
                         meta_timestamp=ts_2, deleted=0)
         expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
@@ -6581,14 +6592,44 @@ class TestShardRange(unittest.TestCase):
 
         assert_initialisation_fails(dict(good_run, bytes_used=-1))
 
+    def test_create(self):
+        now = next(self.ts_iter)
+        then = next(self.ts_iter)
+
+        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+            sr = utils.ShardRange.create('acc', 'con', 'l', 'u')
+
+        expected_account = '.sharded_acc'
+        expected_container = 'con-%s' % hashlib.md5(
+            'u-%s' % now.internal).hexdigest()
+        self.assertEqual(expected_account, sr.account)
+        self.assertEqual(expected_container, sr.container)
+        expected_name = '%s/%s' % (expected_account, expected_container)
+        expected = dict(name=expected_name, created_at=now.internal, lower='l',
+                        upper='u', object_count=0, bytes_used=0,
+                        meta_timestamp=now.internal, deleted=0)
+        self.assertEqual(expected, dict(sr))
+
+        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+            sr = utils.ShardRange.create('acc', 'con', 'l', 'u',
+                                         object_count=2, bytes_used=3,
+                                         meta_timestamp=then, deleted=1)
+
+        self.assertEqual(expected_account, sr.account)
+        self.assertEqual(expected_container, sr.container)
+        expected = dict(expected, object_count=2, bytes_used=3,
+                        meta_timestamp=then.internal, deleted=1)
+        self.assertEqual(expected, dict(sr))
+
     def test_to_from_dict(self):
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
-        pr = utils.ShardRange('test', ts_1, 'l', 'u', 10, 100, ts_2)
+        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 10, 100, ts_2)
         pr_dict = dict(pr)
-        expected = {'name': 'test', 'created_at': ts_1.internal, 'lower': 'l',
-                    'upper': 'u', 'object_count': 10, 'bytes_used': 100,
-                    'meta_timestamp': ts_2.internal, 'deleted': 0}
+        expected = {
+            'name': 'a/test', 'created_at': ts_1.internal, 'lower': 'l',
+            'upper': 'u', 'object_count': 10, 'bytes_used': 100,
+            'meta_timestamp': ts_2.internal, 'deleted': 0}
         self.assertEqual(expected, pr_dict)
         pr_new = utils.ShardRange.from_dict(pr_dict)
         self.assertEqual(pr, pr_new)
@@ -6602,7 +6643,7 @@ class TestShardRange(unittest.TestCase):
 
     def test_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
-        pr = utils.ShardRange('test', ts_1, 'l', 'u', 0, 0, None)
+        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, pr.timestamp)
 
         ts_2 = next(self.ts_iter)
@@ -6614,7 +6655,7 @@ class TestShardRange(unittest.TestCase):
 
     def test_meta_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
-        pr = utils.ShardRange('test', ts_1, 'l', 'u', 0, 0, None)
+        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, pr.timestamp)
         self.assertEqual(ts_1, pr.meta_timestamp)
 
@@ -6639,7 +6680,7 @@ class TestShardRange(unittest.TestCase):
 
     def test_shard_range(self):
         # first test infinite range (no boundries)
-        inf_pr = utils.ShardRange(name='test', timestamp=utils.Timestamp.now())
+        inf_pr = utils.ShardRange('a/test', utils.Timestamp.now())
         self.assertEqual('', inf_pr.upper)
         self.assertEqual('', inf_pr.lower)
         self.assertIs(True, inf_pr.entire_namespace())
@@ -6659,14 +6700,14 @@ class TestShardRange(unittest.TestCase):
             utils.ShardRange('f-a', ts, 'f', 'a')
 
         # test basic boundries
-        atof = utils.ShardRange('a-f', ts, 'a', 'f')
-        ftol = utils.ShardRange('f-l', ts, 'f', 'l')
-        ltor = utils.ShardRange('l-r', ts, 'l', 'r')
-        rtoz = utils.ShardRange('r-z', ts, 'r', 'z')
+        atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
+        ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
+        ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
+        rtoz = utils.ShardRange('a/r-z', ts, 'r', 'z')
 
         # overlapping ranges
-        dtof = utils.ShardRange('d-f', ts, 'd', 'f')
-        dtom = utils.ShardRange('d-m', ts, 'd', 'm')
+        dtof = utils.ShardRange('a/d-f', ts, 'd', 'f')
+        dtom = utils.ShardRange('a/d-m', ts, 'd', 'm')
 
         # test range > and <
         # non-adjacent
@@ -6701,8 +6742,8 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse('y' < ltor)
 
         # Now test ranges with only 1 boundry
-        start_to_l = utils.ShardRange('None-l', ts, '', 'l')
-        l_to_end = utils.ShardRange('l-None', ts, 'l', '')
+        start_to_l = utils.ShardRange('a/None-l', ts, '', 'l')
+        l_to_end = utils.ShardRange('a/l-None', ts, 'l', '')
 
         for x in ('l', 'm', 'z', 'zzz1231sd'):
             if x == 'l':

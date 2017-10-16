@@ -194,7 +194,7 @@ Sharding Metadata:
     def test_print_db_info_metadata_with_shard_ranges(self):
 
         shard_ranges = [utils.ShardRange(
-            name='shard_range_%s' % i,
+            name='.sharded_a/shard_range_%s' % i,
             timestamp=utils.Timestamp(i), lower='%da' % i,
             upper='%dz' % i, object_count=i, bytes_used=i,
             meta_timestamp=utils.Timestamp(i)) for i in range(1, 4)]
@@ -245,17 +245,17 @@ Sharding Metadata:
   Type: root
   State: sharded
 Shard Ranges:
-  Name: shard_range_1
+  Name: .sharded_a/shard_range_1
     lower: '1a', upper: '1z'
     Object Count: 1, Bytes Used: 1
     Created at: 1970-01-01T00:00:01.000000 (0000000001.00000)
     Meta Timestamp: 1970-01-01T00:00:01.000000 (0000000001.00000)
-  Name: shard_range_2
+  Name: .sharded_a/shard_range_2
     lower: '2a', upper: '2z'
     Object Count: 2, Bytes Used: 2
     Created at: 1970-01-01T00:00:02.000000 (0000000002.00000)
     Meta Timestamp: 1970-01-01T00:00:02.000000 (0000000002.00000)
-  Name: shard_range_3
+  Name: .sharded_a/shard_range_3
     lower: '3a', upper: '3z'
     Object Count: 3, Bytes Used: 3
     Created at: 1970-01-01T00:00:03.000000 (0000000003.00000)

@@ -37,8 +37,8 @@ from swift.common.constraints import check_drive, CONTAINER_LISTING_LIMIT
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, \
-    find_shard_range, majority_size, GreenAsyncPile, \
-    account_to_shard_account, config_float_value, config_positive_int_value
+    find_shard_range, majority_size, GreenAsyncPile, config_float_value, \
+    config_positive_int_value
 from swift.common.storage_policy import POLICIES
 
 
@@ -191,27 +191,26 @@ class ContainerSharder(ContainerReplicator):
         return [ShardRange.from_dict(shard_range)
                 for shard_range in json.loads(resp.body)]
 
-    def _get_shard_broker(self, account, container, policy_index):
+    def _get_shard_broker(self, shard_range, policy_index):
         """
         Get a local instance of the shard container broker that will be
         pushed out.
 
-        :param account: the account
-        :param container: the container
+        :param shard_range: a :class:`~swift.common.utils.ShardRange`
         :param policy_index: the storage policy index
         :returns: a local shard container broker
         """
-        part = self.ring.get_part(account, container)
+        part = self.ring.get_part(shard_range.account, shard_range.container)
         node = self.find_local_handoff_for_part(part)
         if not node:
             # TODO: and when *do* we cleave? maybe we should just be picking
             # one of the local devs
             raise DeviceUnavailable(
                 'No mounted devices found suitable to Handoff sharded '
-                'container %s in partition %s' % (container, part))
+                'container %s in partition %s' % (shard_range.name, part))
 
         broker = self._initialize_broker(
-            node['device'], part, account, container,
+            node['device'], part, shard_range.account, shard_range.container,
             storage_policy_index=policy_index)
 
         # Get the valid info into the broker.container, etc
@@ -317,9 +316,8 @@ class ContainerSharder(ContainerReplicator):
                              sum(map(len, shard_to_obj.values())),
                              broker.account, broker.container)
             for shard_range, obj_list in shard_to_obj.items():
-                acct = account_to_shard_account(broker.root_account)
                 part, new_broker, node_id = self._get_shard_broker(
-                    acct, shard_range.name, policy_index)
+                    shard_range, policy_index)
                 self._add_shard_metadata(new_broker, broker.root_path,
                                          shard_range)
                 new_broker.merge_items(obj_list)
@@ -783,12 +781,11 @@ class ContainerSharder(ContainerReplicator):
 
         # we are still the scanner, so lets write the shard points.
         shard_ranges = []
-        shard_account = account_to_shard_account(broker.root_account)
         policy = POLICIES.get_by_index(broker.storage_policy_index)
         headers = {
             'X-Storage-Policy': policy.name,
             'X-Container-Sysmeta-Shard-Root':
-                '%s' % (broker.root_path),
+                '%s' % broker.root_path,
             'X-Container-Sysmeta-Sharding': True}
         for i, shard_range in enumerate(found_ranges):
             try:
@@ -799,11 +796,13 @@ class ContainerSharder(ContainerReplicator):
                         shard_range.timestamp.internal,
                     'X-Container-Sysmeta-Shard-Meta-Timestamp':
                         shard_range.meta_timestamp.internal})
-                self.swift.create_container(shard_account, shard_range.name,
+                self.swift.create_container(shard_range.account,
+                                            shard_range.container,
                                             headers=headers)
                 shard_ranges.append(shard_range)
             except internal_client.UnexpectedResponse as ex:
-                self.logger.warning('Failed to put container: %s', str(ex))
+                self.logger.warning('Failed to put container %s: %s',
+                                    shard_range.name, str(ex))
                 self.logger.error('PUT of new shard containers failed, '
                                   'aborting split of %s/%s. '
                                   'Will try again next cycle',
@@ -976,15 +975,15 @@ class ContainerSharder(ContainerReplicator):
             self.logger.exception('Could not add shrink metadata %r',
                                   shrink_meta)
 
-    def _get_merge_range(self, account, container):
-        path = self.swift.make_path(account, container)
+    def _get_merge_range(self, shard_name):
+        path = self.swift.make_path(shard_name)
         headers = dict()
         try:
             resp = self.swift.make_request('HEAD', path, headers,
                                            acceptable_statuses=(2,))
         except internal_client.UnexpectedResponse:
-            self.logger.error("Failed to get range from %s/%s",
-                              account, container)
+            self.logger.error("Failed to get range from %s",
+                              shard_name)
             return None
 
         lower = resp.headers.get('X-Container-Sysmeta-Shard-Lower')
@@ -999,7 +998,7 @@ class ContainerSharder(ContainerReplicator):
         if not upper:
             upper = None
 
-        return ShardRange(container, timestamp, lower, upper,
+        return ShardRange(shard_name, timestamp, lower, upper,
                           meta_timestamp=Timestamp.now().internal)
 
     def _shrink_phase_2(self, broker, root_account, root_container):
@@ -1036,7 +1035,7 @@ class ContainerSharder(ContainerReplicator):
         # OK so we agree, so now we can merge this container (shrink) into the
         # merge container neighbour. First lets build the new shard range
         shrink_range = broker.get_own_shard_range()
-        merge_range = self._get_merge_range(broker.account, merge_shard)
+        merge_range = self._get_merge_range(merge_shard)
         if merge_range > shrink_range:
             merge_range.lower = shrink_range.lower
         else:
@@ -1048,7 +1047,7 @@ class ContainerSharder(ContainerReplicator):
 
         try:
             new_part, new_broker, node_id = \
-                self._get_shard_broker(broker.account, merge_range.name,
+                self._get_shard_broker(broker.account, merge_range.container,
                                        policy_index)
 
             self._add_shard_metadata(new_broker, root_account, root_container,
@@ -1069,15 +1068,13 @@ class ContainerSharder(ContainerReplicator):
             "+%d" % info['bytes_used'], timestamp)
         # Push the new shard range to the root container,
         # we do this so we can short circuit PUTs.
-        self._update_shard_ranges(root_account, root_container, 'PUT',
-                                  (merge_piv,))
+        self._update_shard_ranges(broker, 'PUT', (merge_piv,))
 
         # We also need to remove the shrink shard range from the root container
         empty_piv = ShardRange(
             shrink_range.name, timestamp, shrink_range.lower,
             shrink_range.upper, 0, 0, timestamp)
-        self._update_shard_ranges(root_account, root_container, 'DELETE',
-                                  (empty_piv,))
+        self._update_shard_ranges(broker, 'DELETE', (empty_piv,))
 
         # Now we can delete the shrink container (it should be empty)
         broker.delete_db(timestamp)
@@ -1187,9 +1184,8 @@ class ContainerSharder(ContainerReplicator):
                 "Sharding '%s/%s': %r",
                 broker.account, broker.container, shard_range)
             try:
-                acct = account_to_shard_account(broker.root_account)
                 new_part, new_broker, node_id = self._get_shard_broker(
-                    acct, shard_range.name, policy_index)
+                    shard_range, policy_index)
             except DeviceUnavailable as duex:
                 self.logger.warning(str(duex))
                 self.logger.increment('failure')

@@ -3346,7 +3346,7 @@ class TestReplicatedObjectController(
             resp_headers = {'X-Backend-Storage-Policy-Index': 1,
                             'x-backend-sharding-state': sharding_state}
             shard_range = utils.ShardRange(
-                'c_shard', utils.Timestamp.now(), 'l', 'u')
+                '.sharded_a/c_shard', utils.Timestamp.now(), 'l', 'u')
             body = json.dumps([dict(shard_range)])
             with mocked_http_conn(*status_codes, headers=resp_headers,
                                   give_connect=capture_requests, body=body) \

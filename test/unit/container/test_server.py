@@ -2078,7 +2078,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(201, resp.status_int)
         # PUT some shard ranges
         shard_bounds = [('', 'ham'), ('ham', 'salami'), ('salami', '')]
-        shard_ranges = [ShardRange('shard_%s' % upper, next(ts_iter),
+        shard_ranges = [ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
                                    lower, upper,
                                    i * 100, i * 1000, None)
                         for i, (lower, upper) in enumerate(shard_bounds)]
@@ -2336,9 +2336,11 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(['bashful'], [obj['name'] for obj in get_listing()])
 
         shard_ranges = {
-            'dopey': ShardRange('sr_dopey', next(ts_iter), '', 'dopey'),
-            'happy': ShardRange('sr_happy', next(ts_iter), 'dopey', 'happy'),
-            '': ShardRange('sr_', next(ts_iter), 'happy', '')
+            'dopey': ShardRange(
+                '.sharded_a/sr_dopey', next(ts_iter), '', 'dopey'),
+            'happy': ShardRange(
+                '.sharded_a/sr_happy', next(ts_iter), 'dopey', 'happy'),
+            '': ShardRange('.sharded_a/sr_', next(ts_iter), 'happy', '')
         }
         # start with only the middle shard range
         self._put_shard_range(shard_ranges['happy'])
@@ -2471,9 +2473,11 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(obj_names, [obj['name'] for obj in get_listing()])
 
         shard_ranges = {
-            'dopey': ShardRange('sr_dopey', next(ts_iter), '', 'dopey'),
-            'happy': ShardRange('sr_happy', next(ts_iter), 'dopey', 'happy'),
-            '': ShardRange('sr_', next(ts_iter), 'happy', '')
+            'dopey': ShardRange(
+                '.sharded_a/sr_dopey', next(ts_iter), '', 'dopey'),
+            'happy': ShardRange(
+                '.sharded_a/sr_happy', next(ts_iter), 'dopey', 'happy'),
+            '': ShardRange('.sharded_a/sr_', next(ts_iter), 'happy', '')
         }
         # start with only the middle shard range
         self._put_shard_range(shard_ranges['happy'])

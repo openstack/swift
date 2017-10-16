@@ -450,12 +450,12 @@ class TestContainerBroker(unittest.TestCase):
         timestamp = next(ts_iter).internal
         meta_timestamp = next(ts_iter).internal
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'low', 'up', meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -475,12 +475,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # Reput same event
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'low', 'up', meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -502,12 +502,12 @@ class TestContainerBroker(unittest.TestCase):
         timestamp = next(ts_iter).internal
         meta_timestamp = next(ts_iter).internal
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lower', 'upper', 1, 2, meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -527,12 +527,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put old event
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', old_put_timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', old_put_timestamp,
                        'lower', 'upper', 1, 2, meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)  # Not old_put_timestamp!
@@ -552,13 +552,13 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put old delete event
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', old_delete_timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', old_delete_timestamp,
                        'lower', 'upper', meta_timestamp=meta_timestamp,
                        deleted=1))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)  # Not old_delete_timestamp!
@@ -579,13 +579,13 @@ class TestContainerBroker(unittest.TestCase):
         # Put new delete event
         timestamp = next(ts_iter).internal
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lower', 'upper', meta_timestamp=meta_timestamp,
                        deleted=1))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -596,13 +596,13 @@ class TestContainerBroker(unittest.TestCase):
         timestamp = next(ts_iter).internal
         meta_timestamp = next(ts_iter).internal
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lowerer', 'upperer', 3, 4,
                        meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -626,13 +626,13 @@ class TestContainerBroker(unittest.TestCase):
         # New update event, meta_timestamp increases
         meta_timestamp = next(ts_iter).internal
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lowerer', 'upperer', 3, 4,
                        meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -653,13 +653,13 @@ class TestContainerBroker(unittest.TestCase):
         # Put event from after last put but before last post
         timestamp = in_between_timestamp
         broker.update_shard_range(
-            ShardRange('"{<shardrange \'&\' name>}"', timestamp,
+            ShardRange('"a/{<shardrange \'&\' name>}"', timestamp,
                        'lowererer', 'uppererer', 5, 6,
                        meta_timestamp=meta_timestamp))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT name FROM shard_ranges").fetchone()[0],
-                '"{<shardrange \'&\' name>}"')
+                '"a/{<shardrange \'&\' name>}"')
             self.assertEqual(conn.execute(
                 "SELECT created_at FROM shard_ranges").fetchone()[0],
                 timestamp)
@@ -683,7 +683,7 @@ class TestContainerBroker(unittest.TestCase):
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         # put shard range
-        broker.update_shard_range(ShardRange('o', next(ts_iter).internal))
+        broker.update_shard_range(ShardRange('a/o', next(ts_iter).internal))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
                 "SELECT count(*) FROM shard_ranges "
@@ -693,7 +693,7 @@ class TestContainerBroker(unittest.TestCase):
                 "WHERE deleted = 1").fetchone()[0], 0)
 
         # delete shard range
-        broker.update_shard_range(ShardRange('o', next(ts_iter).internal,
+        broker.update_shard_range(ShardRange('a/o', next(ts_iter).internal,
                                              deleted=1))
         with broker.get() as conn:
             self.assertEqual(conn.execute(
@@ -2597,11 +2597,11 @@ class TestContainerBroker(unittest.TestCase):
         self.assertFalse(broker.is_root_container())
 
     @with_tempdir
-    def test_get_shard_range(self, tempdir):
+    def test_get_own_shard_range(self, tempdir):
         ts_iter = make_timestamp_iter()
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='shard_a', container='shard_c')
+            db_path, account='.sharded_a', container='shard_c')
         broker.initialize(next(ts_iter).internal, 0)
 
         self.assertIsNone(broker.get_own_shard_range())
@@ -2614,7 +2614,7 @@ class TestContainerBroker(unittest.TestCase):
 
         now = Timestamp.now()
         broker.update_metadata(metadata)
-        expected = ShardRange('shard_c', ts_1, 'l', 'u', 0, 0, now)
+        expected = ShardRange('.sharded_a/shard_c', ts_1, 'l', 'u', 0, 0, now)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
             actual = broker.get_own_shard_range()
@@ -2624,7 +2624,8 @@ class TestContainerBroker(unittest.TestCase):
             'o1', next(ts_iter).internal, 100, 'text/plain', 'etag1')
         broker.put_object(
             'o2', next(ts_iter).internal, 99, 'text/plain', 'etag2')
-        expected = ShardRange('shard_c', ts_1, 'l', 'u', 2, 199, now)
+        expected = ShardRange(
+            '.sharded_a/shard_c', ts_1, 'l', 'u', 2, 199, now)
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=now):
             actual = broker.get_own_shard_range()
@@ -2657,7 +2658,7 @@ class TestContainerBroker(unittest.TestCase):
             # build expected shard range dicts
             expected_range_dicts = []
             for lower, upper in expected_bounds:
-                name = '%s-%s' % (
+                name = '.sharded_a/%s-%s' % (
                     container_name,
                     hashlib.md5('%s-%s' % (upper, ts_now.internal)).hexdigest()
                 )
@@ -2677,7 +2678,7 @@ class TestContainerBroker(unittest.TestCase):
 
         db_path = os.path.join(tempdir, 'test_container.db')
         broker = ContainerBroker(
-            db_path, account='shard_a', container=container_name)
+            db_path, account='a', container=container_name)
         # shard size > object count, no objects
         broker.initialize(next(ts_iter).internal, 0)
 
@@ -2729,7 +2730,8 @@ class TestContainerBroker(unittest.TestCase):
         do_test([], False, shard_size=11, limit=None)
 
         # now add a pre-existing shard ranges
-        shard_range = ShardRange('srange-0', Timestamp.now(), '', 'obj03')
+        shard_range = ShardRange(
+            '.sharded_a/srange-0', Timestamp.now(), '', 'obj03')
         broker.merge_shard_ranges([dict(shard_range)])
 
         expected = [('obj03', 'obj07'), ('obj07', c_upper)]
@@ -2738,13 +2740,15 @@ class TestContainerBroker(unittest.TestCase):
         do_test(expected, False, shard_size=4, limit=1)
 
         # add another...
-        shard_range = ShardRange('srange-1', Timestamp.now(), '', 'obj07')
+        shard_range = ShardRange(
+            '.sharded_a/srange-1', Timestamp.now(), '', 'obj07')
         broker.merge_shard_ranges([dict(shard_range)])
         expected = [('obj07', c_upper)]
         do_test(expected, True, shard_size=4, limit=None)
 
         # add last shard range...
-        shard_range = ShardRange('srange-2', Timestamp.now(), 'obj07', c_upper)
+        shard_range = ShardRange(
+            '.sharded_a/srange-2', Timestamp.now(), 'obj07', c_upper)
         broker.merge_shard_ranges([dict(shard_range)])
         do_test([], True, shard_size=4, limit=None)
 
@@ -2760,7 +2764,7 @@ class TestContainerBroker(unittest.TestCase):
         db_path = os.path.join(tempdir, 'container.db')
         new_db_path = os.path.join(tempdir, 'container_shard.db')
         broker = ContainerBroker(
-            db_path, account='shard_a', container='shard_c')
+            db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
 
         # load up the broker with some objects
@@ -2793,7 +2797,7 @@ class TestContainerBroker(unittest.TestCase):
         # TODO: note these are initialised with expected object count and bytes
         # used - check that reality catches up with this assumption
         shard_ranges = [ShardRange(
-            name='shard_range_%s' % i,
+            name='.sharded_a/shard_range_%s' % i,
             timestamp=next(ts_iter), lower='obj_%d' % i,
             upper='obj_%d' % (i + 2),
             object_count=len(objects[i:i + 2]),

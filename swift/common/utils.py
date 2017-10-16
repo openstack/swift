@@ -4198,7 +4198,7 @@ def get_md5_socket():
 
 
 class ShardRange(object):
-    def __init__(self, name=None, timestamp=None, lower='', upper='',
+    def __init__(self, name, timestamp, lower='', upper='',
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=0, **kwargs):
         """
@@ -4217,8 +4217,7 @@ class ShardRange(object):
             updated; defaults to the value of ``timestamp``.
         :param deleted: if set the shard range is considered to be deleted.
         """
-        if name is None:
-            raise ValueError('name cannot be None')
+        self.account, self.container = self.validate_name(name)
         self.name = name
         self.lower = lower
         if not isinstance(lower, string_types):
@@ -4236,6 +4235,28 @@ class ShardRange(object):
         self.bytes_used = bytes_used
         # TODO: add getter/setter for deleted similar to other attrs & validate
         self.deleted = deleted
+
+    @classmethod
+    def validate_name(cls, name):
+        if not name or name.count('/') != 1 or name.strip('/').count('/') == 0:
+            raise ValueError(
+                "Name must be of the form '<account>/<container>', got %r" %
+                name)
+        return tuple(name.split('/'))
+
+    @classmethod
+    def _generate_name(cls, root_container, timestamp, upper):
+        md5sum = md5("%s-%s" % (upper, timestamp.internal)).hexdigest()
+        return "%s-%s" % (root_container, md5sum)
+
+    @classmethod
+    def create(cls, root_account, root_container, lower='', upper='',
+               **kwargs):
+        timestamp = Timestamp.now()
+        shard_account = ".sharded_%s" % root_account
+        shard_container = cls._generate_name(root_container, timestamp, upper)
+        return cls('%s/%s' % (shard_account, shard_container), timestamp,
+                   lower, upper, **kwargs)
 
     def _to_timestamp(self, timestamp):
         if timestamp:
@@ -4407,12 +4428,6 @@ def find_shard_range(item, ranges):
     if index != len(ranges) and item in ranges[index]:
         return ranges[index]
     return None
-
-
-def account_to_shard_account(account):
-    if not account:
-        return account
-    return ".sharded_%s" % account
 
 
 def modify_priority(conf, logger):

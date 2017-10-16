@@ -1195,8 +1195,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         bounds = (('', 'g'), ('g', 'r'), ('r', ''))
         shard_ranges = [
-            ShardRange('sr-%s' % upper, Timestamp.now(), lower, upper,
-                       i + 1, 10 * (i + 1))
+            ShardRange('.sharded_a/sr-%s' % upper, Timestamp.now(), lower,
+                       upper, i + 1, 10 * (i + 1))
             for i, (lower, upper) in enumerate(bounds)
         ]
         # add first two shard_ranges to both brokers
@@ -1275,8 +1275,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         bounds = (('', 'g'), ('g', 'r'), ('r', ''))
         shard_ranges = [
-            ShardRange('sr-%s' % upper, Timestamp.now(), lower, upper,
-                       i + 1, 10 * (i + 1))
+            ShardRange('.sharded_a/sr-%s' % upper, Timestamp.now(), lower,
+                       upper, i + 1, 10 * (i + 1))
             for i, (lower, upper) in enumerate(bounds)
         ]
         # add first shard range

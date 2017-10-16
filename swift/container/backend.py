@@ -20,7 +20,6 @@ import errno
 import os
 from uuid import uuid4
 from contextlib import contextmanager
-from hashlib import md5
 
 import six
 import six.moves.cPickle as pickle
@@ -1628,10 +1627,10 @@ class ContainerBroker(DatabaseBroker):
             return None
 
         info = self.get_info()  # Also ensures self.container is not None
-        shard_range = ShardRange(self.container, created_at, lower, upper,
-                                 info.get('object_count', 0),
-                                 info.get('bytes_used', 0),
-                                 Timestamp.now())
+        shard_range = ShardRange(
+            '%s/%s' % (self.account, self.container), created_at, lower, upper,
+            info.get('object_count', 0), info.get('bytes_used', 0),
+            Timestamp.now())
 
         return shard_range
 
@@ -1727,10 +1726,6 @@ class ContainerBroker(DatabaseBroker):
             finally:
                 self._create_connection()
 
-    def _generate_shard_range_name(self, range_upper, timestamp):
-        md5sum = md5("%s-%s" % (range_upper, timestamp.internal)).hexdigest()
-        return "%s-%s" % (self.root_container, md5sum)
-
     def find_shard_ranges(self, shard_size, limit=-1):
         """
         Scans the container db for shard ranges that have not yet been found
@@ -1796,10 +1791,9 @@ class ContainerBroker(DatabaseBroker):
                 next_shard_upper = cont_upper
                 last_found = True
 
-            timestamp = Timestamp.now()
-            name = self._generate_shard_range_name(next_shard_upper, timestamp)
             found_ranges.append(
-                ShardRange(name, timestamp, last_shard_upper, next_shard_upper)
+                ShardRange.create(self.root_account, self.root_container,
+                                  last_shard_upper, next_shard_upper)
             )
 
             if last_found:

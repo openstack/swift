@@ -1039,8 +1039,9 @@ class TestFuncs(unittest.TestCase):
     def test_get_shard_ranges(self):
         ts_iter = make_timestamp_iter()
         shard_ranges = [dict(ShardRange(
-            'pr%d' % i, next(ts_iter), '%d_lower' % i, '%d_upper' % i,
-            object_count=i, bytes_used=1024 * i, meta_timestamp=next(ts_iter)))
+            '.sharded_a/sr%d' % i, next(ts_iter), '%d_lower' % i,
+            '%d_upper' % i, object_count=i, bytes_used=1024 * i,
+            meta_timestamp=next(ts_iter)))
             for i in range(3)]
         base = Controller(self.app)
         base.account_name = 'a'

@@ -46,8 +46,7 @@ from swift.common.utils import (
     GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
-    quorum_size, reiterate, close_if_possible, safe_json_loads,
-    account_to_shard_account)
+    quorum_size, reiterate, close_if_possible, safe_json_loads)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -233,15 +232,12 @@ class BaseObjectController(Controller):
         db_state = container_info.get('sharding_state', DB_STATE_UNSHARDED)
         if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
             # find the sharded container to which we'll send the update.
-            ranges = self._get_shard_ranges(
+            shard_ranges = self._get_shard_ranges(
                 req, self.account_name, self.container_name, self.object_name)
-            if ranges:
-                shard = ranges[0].name
-                shard_acct = account_to_shard_account(self.account_name)
+            if shard_ranges:
                 partition, nodes = self.app.container_ring.get_nodes(
-                    shard_acct, shard)
-                shard_path = '%s/%s' % (shard_acct, shard)
-                return partition, nodes, shard_path
+                    shard_ranges[0].account, shard_ranges[0].container)
+                return partition, nodes, shard_ranges[0].name
 
         return container_info['partition'], container_info['nodes'], None
 

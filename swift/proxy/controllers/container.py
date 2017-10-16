@@ -18,7 +18,7 @@ from swift import gettext_ as _
 import json
 
 from swift.common.utils import public, csv_append, Timestamp, \
-    config_true_value, account_to_shard_account
+    config_true_value
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED, is_success, \
@@ -163,9 +163,7 @@ class ContainerController(Controller):
         #     uptos = filter(filter_key, req.headers.items())
         #     if uptos:
         #         upto = max(uptos, key=lambda x: x[-1])[0]
-
         limit = req.params.get('limit', CONTAINER_LISTING_LIMIT)
-        shard_account = account_to_shard_account(self.account_name)
         # In whatever case we need the list of ShardRanges that contain this
         # range
         ranges = self._get_shard_ranges(req, self.account_name,
@@ -202,7 +200,7 @@ class ContainerController(Controller):
                 params['limit'] = min(limit * 2, CONTAINER_LISTING_LIMIT)
 
                 hdrs, objs, tmp_resp = get_objects(
-                    shard_account, shard_range.name, params)
+                    shard_range.account, shard_range.container, params)
                 if hdrs is None and tmp_resp:
                     return tmp_resp
             finally:
@@ -299,7 +297,7 @@ class ContainerController(Controller):
                 hdrs, objs, tmp_resp = merge_old_new(shard_range, params)
             else:
                 hdrs, objs, tmp_resp = get_objects(
-                    shard_account, shard_range.name, params)
+                    shard_range.account, shard_range.container, params)
 
             if hdrs is None and tmp_resp:
                 return tmp_resp

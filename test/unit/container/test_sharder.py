@@ -40,15 +40,15 @@ class TestRangeAnalyser(unittest.TestCase):
         ts = next(self.ts_iter).internal
 
         ranges = [
-            ShardRange('-d', ts, '', 'd'),
-            ShardRange('d-g', ts, 'd', 'g'),
-            ShardRange('g-j', ts, 'g', 'j'),
-            ShardRange('j-l', ts, 'j', 'l'),
-            ShardRange('l-n', ts, 'l', 'n'),
-            ShardRange('n-p', ts, 'n', 'p'),
-            ShardRange('p-s', ts, 'p', 's'),
-            ShardRange('s-v', ts, 's', 'v'),
-            ShardRange('v-', ts, 'v', '')]
+            ShardRange('.sharded_a/-d', ts, '', 'd'),
+            ShardRange('.sharded_a/d-g', ts, 'd', 'g'),
+            ShardRange('.sharded_a/g-j', ts, 'g', 'j'),
+            ShardRange('.sharded_a/j-l', ts, 'j', 'l'),
+            ShardRange('.sharded_a/l-n', ts, 'l', 'n'),
+            ShardRange('.sharded_a/n-p', ts, 'n', 'p'),
+            ShardRange('.sharded_a/p-s', ts, 'p', 's'),
+            ShardRange('.sharded_a/s-v', ts, 's', 'v'),
+            ShardRange('.sharded_a/v-', ts, 'v', '')]
 
         return ranges
 
@@ -58,8 +58,8 @@ class TestRangeAnalyser(unittest.TestCase):
         # This simulate a shard sharding by having an older 'n-p' and
         # newer split 'n-o' and 'o-p'
         overlap_without_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-p', ts, 'o', 'p')]
+            ShardRange('.sharded_a/n-o', ts, 'n', 'o'),
+            ShardRange('.sharded_a/o-p', ts, 'o', 'p')]
 
         # expected 'n-p'
         expected_other_ranges = {self.ranges[5]}
@@ -87,9 +87,9 @@ class TestRangeAnalyser(unittest.TestCase):
         # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_without_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-q', ts, 'o', 'q'),
-            ShardRange('q-s', ts, 'q', 's')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/o-q', ts, 'o', 'q'),
+            ShardRange('a/q-s', ts, 'q', 's')]
 
         # expected n-p, p-s
         expected_other_ranges = {p for p in self.ranges[5:7]}
@@ -117,9 +117,9 @@ class TestRangeAnalyser(unittest.TestCase):
         # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_without_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-q', ts, 'o', 'q'),
-            ShardRange('q-s', ts, 'q', 's')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/o-q', ts, 'o', 'q'),
+            ShardRange('a/q-s', ts, 'q', 's')]
 
         # expected n-p
         expected_other_ranges = {self.ranges[5]}
@@ -149,8 +149,8 @@ class TestRangeAnalyser(unittest.TestCase):
         # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_with_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-q', ts, 'o', 'q')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/o-q', ts, 'o', 'q')]
 
         # The newest will be incomplete, the second (older) path will
         # be complete.
@@ -179,11 +179,11 @@ class TestRangeAnalyser(unittest.TestCase):
 
         # To the end with different paths
         overlap_without_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-q', ts, 'o', 'q'),
-            ShardRange('q-t', ts, 'q', 't'),
-            ShardRange('t-w', ts, 't', 'w'),
-            ShardRange('w-', ts, 'w', '')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/o-q', ts, 'o', 'q'),
+            ShardRange('a/q-t', ts, 'q', 't'),
+            ShardRange('a/t-w', ts, 't', 'w'),
+            ShardRange('a/w-', ts, 'w', '')]
 
         # expected n-p
         expected_other_ranges = [{p for p in self.ranges[5:]},
@@ -209,10 +209,10 @@ class TestRangeAnalyser(unittest.TestCase):
 
         # To the end with different paths
         overlap_without_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-q', ts, 'o', 'q'),
-            ShardRange('t-w', ts, 't', 'w'),
-            ShardRange('w-', ts, 'w', '')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/o-q', ts, 'o', 'q'),
+            ShardRange('a/t-w', ts, 't', 'w'),
+            ShardRange('a/w-', ts, 'w', '')]
 
         expected_completes = [False, True]
         expected_other_ranges = [{p for p in self.ranges[5:]},
@@ -240,9 +240,9 @@ class TestRangeAnalyser(unittest.TestCase):
         # ShardRange before the other scanner has a go and so takes off where
         # it left off).
         overlap_without_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('o-q', ts, 'o', 'q'),
-            ShardRange('q-s', ts, 'q', 's')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/o-q', ts, 'o', 'q'),
+            ShardRange('a/q-s', ts, 'q', 's')]
 
         expected_other_ranges = [{p for p in self.ranges[5:7]},
                                  set(overlap_without_gaps)]
@@ -273,8 +273,8 @@ class TestRangeAnalyser(unittest.TestCase):
         # ShardRanges before the other scanner has a go and so takes off where
         # it left off).
         overlap_with_gaps = [
-            ShardRange('n-o', ts, 'n', 'o'),
-            ShardRange('q-s', ts, 'q', 's')]
+            ShardRange('a/n-o', ts, 'n', 'o'),
+            ShardRange('a/q-s', ts, 'q', 's')]
 
         expected_completes = [False, True]
         expected_other_ranges = [{p for p in self.ranges[5:7]},
@@ -524,12 +524,13 @@ class TestSharder(unittest.TestCase):
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
         initial_shard_ranges = [
-            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            ShardRange('.sharded_a/%s-%s' % (lower, upper),
+                       Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds
         ]
         expected_shard_dbs = []
         for shard_range in initial_shard_ranges:
-            db_hash = hash_path('.sharded_a', shard_range.name)
+            db_hash = hash_path(shard_range.account, shard_range.container)
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
@@ -682,12 +683,13 @@ class TestSharder(unittest.TestCase):
                         ('there', 'where'), ('where', 'yonder'),
                         ('yonder', ''))
         initial_shard_ranges = [
-            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            ShardRange('.sharded_a/%s-%s' % (lower, upper),
+                       Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds
         ]
         expected_shard_dbs = []
         for shard_range in initial_shard_ranges:
-            db_hash = hash_path('.sharded_a', shard_range.name)
+            db_hash = hash_path(shard_range.account, shard_range.container)
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
@@ -839,7 +841,7 @@ class TestSharder(unittest.TestCase):
             db_file, account='.sharded_a', container='shard_c', logger=logger)
         broker.initialize()
         ts_shard = next(self.ts_iter)
-        own_sr = ShardRange('shard_c', ts_shard, 'here', 'there')
+        own_sr = ShardRange('.sharded_a/shard_c', ts_shard, 'here', 'there')
         update_sharding_info(broker, {'Lower': own_sr.lower,
                                       'Upper': own_sr.upper,
                                       'Timestamp': own_sr.timestamp.internal,
@@ -862,12 +864,13 @@ class TestSharder(unittest.TestCase):
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
         root_shard_ranges = [
-            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            ShardRange('.sharded_a/%s-%s' % (lower, upper),
+                       Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds
         ]
         expected_shard_dbs = []
         for sr in root_shard_ranges:
-            db_hash = hash_path('.sharded_a', sr.name)
+            db_hash = hash_path(sr.account, sr.container)
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
@@ -977,7 +980,7 @@ class TestSharder(unittest.TestCase):
         broker.initialize()
         ts_shard = next(self.ts_iter)
         # note that own_sr spans two root shard ranges
-        own_sr = ShardRange('shard_c', ts_shard, 'here', 'where')
+        own_sr = ShardRange('.sharded_a/shard_c', ts_shard, 'here', 'where')
         update_sharding_info(broker, {'Lower': own_sr.lower,
                                       'Upper': own_sr.upper,
                                       'Timestamp': own_sr.timestamp.internal,
@@ -1000,12 +1003,13 @@ class TestSharder(unittest.TestCase):
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', ''))
         root_shard_ranges = [
-            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            ShardRange('.sharded_a/%s-%s' %
+                       (lower, upper), Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds
         ]
         expected_shard_dbs = []
         for sr in root_shard_ranges:
-            db_hash = hash_path('.sharded_a', sr.name)
+            db_hash = hash_path(sr.account, sr.container)
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
@@ -1090,12 +1094,13 @@ class TestSharder(unittest.TestCase):
 
         shard_bounds = (('', 'here'), ('here', ''))
         root_shard_ranges = [
-            ShardRange('%s-%s' % (lower, upper), Timestamp.now(), lower, upper)
+            ShardRange('.sharded_a/%s-%s' % (lower, upper),
+                       Timestamp.now(), lower, upper)
             for lower, upper in shard_bounds
         ]
         expected_shard_dbs = []
         for sr in root_shard_ranges:
-            db_hash = hash_path('.sharded_a', sr.name)
+            db_hash = hash_path(sr.account, sr.container)
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
@@ -1172,8 +1177,8 @@ class TestSharder(unittest.TestCase):
         broker.get_info()
         self._check_objects(new_objects, broker.db_file)  # sanity check
         shard_broker = ContainerBroker(
-            expected_shard_dbs[0], account='.sharded_a',
-            container=root_shard_ranges[0].name, logger=logger)
+            expected_shard_dbs[0], account=root_shard_ranges[0].account,
+            container=root_shard_ranges[0].container, logger=logger)
         # update one shard container with even newer version of object
         newer_object = ('b', self.ts_encoded(), 10, 'text/plain', 'etag_b', 0)
         shard_broker.put_object(*newer_object)

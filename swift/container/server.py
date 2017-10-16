@@ -35,8 +35,7 @@ from swift.common.request_helpers import get_param, \
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
     config_true_value, timing_stats, replication, \
-    override_bytes_from_content_type, get_log_line, \
-    account_to_shard_account, whataremyips, ShardRange
+    override_bytes_from_content_type, get_log_line, whataremyips, ShardRange
 
 from swift.common.constraints import valid_timestamp, check_utf8, check_drive
 from swift.common import constraints
@@ -294,13 +293,7 @@ class ContainerController(BaseStorageServer):
         else:
             return None
 
-        if broker.is_root_container():
-            acct = account_to_shard_account(broker.account)
-        else:
-            acct = broker.account
-
-        location = "/%s/%s/%s" % \
-            (acct, containing_range.name, obj_name)
+        location = "/%s/%s" % (containing_range.name, obj_name)
         headers = {'Location': location,
                    'X-Backend-Redirect-Timestamp':
                        containing_range.timestamp.internal}
