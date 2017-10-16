@@ -40,7 +40,7 @@ def tearDownModule():
 class TestObject(unittest2.TestCase):
 
     def setUp(self):
-        if tf.skip:
+        if tf.skip or tf.skip2:
             raise SkipTest
         self.container = uuid4().hex
 
