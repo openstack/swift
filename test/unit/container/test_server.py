@@ -312,6 +312,14 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 406)
 
+    def test_HEAD_invalid_accept(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'Accept': 'application/plain;q'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(resp.body, '')
+
     def test_HEAD_invalid_format(self):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
         req = Request.blank(
@@ -2366,6 +2374,14 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'text/xml')
         self.assertEqual(resp.body, xml_body)
+
+    def test_GET_invalid_accept(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'},
+            headers={'Accept': 'application/plain;q'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(resp.body, 'Invalid Accept header')
 
     def test_GET_marker(self):
         # make a container

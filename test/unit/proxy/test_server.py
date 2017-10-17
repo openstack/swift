@@ -9271,6 +9271,24 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             resp = req.get_response(self.app)
             self.assertEqual(406, resp.status_int)
 
+    def test_GET_autocreate_bad_accept(self):
+        with save_globals():
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a', headers={"Accept": "a/b;q=nope"},
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a'})
+            resp = req.get_response(self.app)
+            self.assertEqual(400, resp.status_int)
+            self.assertEqual('Invalid Accept header', resp.body)
+
+            set_http_connect(*([404] * 100))  # nonexistent: all backends 404
+            req = Request.blank('/v1/a', headers={"Accept": "a/b;q=0.5;q=1"},
+                                environ={'REQUEST_METHOD': 'GET',
+                                         'PATH_INFO': '/v1/a'})
+            resp = req.get_response(self.app)
+            self.assertEqual(400, resp.status_int)
+            self.assertEqual('Invalid Accept header', resp.body)
+
     def test_GET_autocreate_format_invalid_utf8(self):
         with save_globals():
             set_http_connect(*([404] * 100))  # nonexistent: all backends 404

@@ -358,11 +358,11 @@ class TestAccept(unittest.TestCase):
                        'text /plain', 'text\x7f/plain',
                        'text/plain;a=b=c',
                        'text/plain;q=1;q=2',
+                       'text/plain;q=not-a-number',
                        'text/plain; ubq="unbalanced " quotes"'):
             acc = swift.common.swob.Accept(accept)
-            match = acc.best_match(['text/plain', 'application/xml',
-                                   'text/xml'])
-            self.assertIsNone(match)
+            with self.assertRaises(ValueError):
+                acc.best_match(['text/plain', 'application/xml', 'text/xml'])
 
     def test_repr(self):
         acc = swift.common.swob.Accept("application/json")

@@ -929,7 +929,10 @@ class StaticLargeObject(object):
                 'Number of segments must be <= %d' %
                 self.max_manifest_segments)
         total_size = 0
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = 'text/plain'  # Ignore invalid header
         if not out_content_type:
             out_content_type = 'text/plain'
         data_for_storage = []
@@ -1154,7 +1157,10 @@ class StaticLargeObject(object):
         """
         req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = None  # Ignore invalid header
         if out_content_type:
             resp.content_type = out_content_type
         resp.app_iter = self.bulk_deleter.handle_delete_iter(

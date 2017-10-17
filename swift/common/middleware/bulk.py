@@ -675,7 +675,11 @@ class Bulk(object):
                 'tar.bz2': 'bz2'}.get(extract_type.lower().strip('.'))
             if archive_type is not None:
                 resp = HTTPOk(request=req)
-                out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+                try:
+                    out_content_type = req.accept.best_match(
+                        ACCEPTABLE_FORMATS)
+                except ValueError:
+                    out_content_type = None  # Ignore invalid header
                 if out_content_type:
                     resp.content_type = out_content_type
                 resp.app_iter = self.handle_extract_iter(
@@ -684,7 +688,10 @@ class Bulk(object):
                 resp = HTTPBadRequest("Unsupported archive format")
         if 'bulk-delete' in req.params and req.method in ['POST', 'DELETE']:
             resp = HTTPOk(request=req)
-            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+            try:
+                out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+            except ValueError:
+                out_content_type = None  # Ignore invalid header
             if out_content_type:
                 resp.content_type = out_content_type
             resp.app_iter = self.handle_delete_iter(
