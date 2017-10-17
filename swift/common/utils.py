@@ -4198,14 +4198,14 @@ def get_md5_socket():
 
 
 class ShardRange(object):
-    def __init__(self, name, timestamp, lower='', upper='',
+    def __init__(self, name, created_at, lower='', upper='',
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=0, **kwargs):
         """
         A ShardRange encapsulates state related to a container shard.
 
         :param name: the name of the shard.
-        :param timestamp: the timestamp at which the shard was created.
+        :param created_at: the timestamp at which the shard was created.
         :param lower: the lower bound of object names contained in the shard;
             the lower bound *is not* included in the shard namespace.
         :param upper: the upper bound of object names contained in the shard;
@@ -4214,7 +4214,7 @@ class ShardRange(object):
             zero.
         :param bytes_used: the number of bytes in the shard; defaults to zero.
         :param meta_timestamp: the timestamp at which the shard state was last
-            updated; defaults to the value of ``timestamp``.
+            updated; defaults to the value of ``created_at``.
         :param deleted: if set the shard range is considered to be deleted.
         """
         self.account, self.container = self.validate_name(name)
@@ -4228,8 +4228,7 @@ class ShardRange(object):
             raise ValueError('upper (%r) must be bigger than lower (%r)' %
                              (upper, lower or ''))
         self.upper = upper
-        self._timestamp = self._meta_timestamp = None
-        self.timestamp = timestamp
+        self.timestamp = created_at
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
         self.bytes_used = bytes_used

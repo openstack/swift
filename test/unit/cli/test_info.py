@@ -195,7 +195,7 @@ Sharding Metadata:
 
         shard_ranges = [utils.ShardRange(
             name='.sharded_a/shard_range_%s' % i,
-            timestamp=utils.Timestamp(i), lower='%da' % i,
+            created_at=utils.Timestamp(i), lower='%da' % i,
             upper='%dz' % i, object_count=i, bytes_used=i,
             meta_timestamp=utils.Timestamp(i)) for i in range(1, 4)]
 

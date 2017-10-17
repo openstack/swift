@@ -2798,7 +2798,7 @@ class TestContainerBroker(unittest.TestCase):
         # used - check that reality catches up with this assumption
         shard_ranges = [ShardRange(
             name='.sharded_a/shard_range_%s' % i,
-            timestamp=next(ts_iter), lower='obj_%d' % i,
+            created_at=next(ts_iter), lower='obj_%d' % i,
             upper='obj_%d' % (i + 2),
             object_count=len(objects[i:i + 2]),
             bytes_used=sum(obj['size'] for obj in objects[i:i + 2]),
