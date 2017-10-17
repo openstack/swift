@@ -23,7 +23,6 @@ import unittest
 from mock import patch
 from StringIO import StringIO
 from swift.common import swob, utils
-from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import slo
 from swift.common.swob import Request, HTTPException
@@ -61,7 +60,7 @@ class SloTestCase(unittest.TestCase):
         self.slo = slo.filter_factory(slo_conf)(self.app)
         self.slo.logger = self.app.logger
 
-    def call_app(self, req, app=None, expect_exception=False):
+    def call_app(self, req, app=None):
         if app is None:
             app = self.app
 
@@ -76,22 +75,11 @@ class SloTestCase(unittest.TestCase):
 
         body_iter = app(req.environ, start_response)
         body = ''
-        caught_exc = None
-        try:
-            # appease the close-checker
-            with closing_if_possible(body_iter):
-                for chunk in body_iter:
-                    body += chunk
-        except Exception as exc:
-            if expect_exception:
-                caught_exc = exc
-            else:
-                raise
-
-        if expect_exception:
-            return status[0], headers[0], body, caught_exc
-        else:
-            return status[0], headers[0], body
+        # appease the close-checker
+        with closing_if_possible(body_iter):
+            for chunk in body_iter:
+                body += chunk
+        return status[0], headers[0], body
 
     def call_slo(self, req, **kwargs):
         return self.call_app(req, app=self.slo, **kwargs)
@@ -2473,15 +2461,19 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/man1',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
         headers = HeaderKeyDict(headers)
 
-        self.assertIsInstance(exc, ListingIterError)
         # we don't know at header-sending time that things are going to go
         # wrong, so we end up with a 200 and a truncated body
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, ('body01body02body03body04body05' +
                                 'body06body07body08body09body10'))
+        # but the error shows up in logs
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            "While processing manifest '/v1/AUTH_test/gettest/man1', "
+            "max recursion depth was exceeded"
+        ])
         # make sure we didn't keep asking for segments
         self.assertEqual(self.app.call_count, 20)
 
@@ -2592,10 +2584,10 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '409 Conflict')
         self.assertEqual(self.app.call_count, 10)
-        error_lines = self.slo.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
-        self.assertTrue(error_lines[0].startswith(
-            'ERROR: An error occurred while retrieving segments'))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            "While processing manifest '/v1/AUTH_test/gettest/man1', "
+            "max recursion depth was exceeded"
+        ])
 
     def test_get_with_if_modified_since(self):
         # It's important not to pass the If-[Un]Modified-Since header to the
@@ -2606,7 +2598,8 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Modified-Since': 'Wed, 12 Feb 2014 22:24:52 GMT',
                      'If-Unmodified-Since': 'Thu, 13 Feb 2014 23:25:53 GMT'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [])
 
         for _, _, hdrs in self.app.calls_with_headers[1:]:
             self.assertFalse('If-Modified-Since' in hdrs)
@@ -2619,11 +2612,14 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
         headers = HeaderKeyDict(headers)
 
-        self.assertIsInstance(exc, SegmentError)
         self.assertEqual(status, '200 OK')
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'While processing manifest /v1/AUTH_test/gettest/manifest-abcd, '
+            'got 401 while retrieving /v1/AUTH_test/gettest/c_15'
+        ])
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
@@ -2638,11 +2634,15 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
 
-        self.assertIsInstance(exc, ListingIterError)
         self.assertEqual("200 OK", status)
         self.assertEqual("aaaaa", body)
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'while fetching /v1/AUTH_test/gettest/manifest-abcd, GET of '
+            'submanifest /v1/AUTH_test/gettest/manifest-bc failed with '
+            'status 401'
+        ])
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
             # This one has the error, and so is the last one we fetch.
@@ -2672,10 +2672,11 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        error_lines = self.slo.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
-        self.assertTrue(error_lines[0].startswith(
-            'ERROR: An error occurred while retrieving segments'))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'while fetching /v1/AUTH_test/gettest/manifest-manifest-a, GET '
+            'of submanifest /v1/AUTH_test/gettest/manifest-a failed with '
+            'status 403'
+        ])
 
     def test_invalid_json_submanifest(self):
         self.app.register(
@@ -2688,11 +2689,15 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
 
-        self.assertIsInstance(exc, ListingIterError)
         self.assertEqual('200 OK', status)
         self.assertEqual(body, 'aaaaa')
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'while fetching /v1/AUTH_test/gettest/manifest-abcd, '
+            'JSON-decoding of submanifest /v1/AUTH_test/gettest/manifest-bc '
+            'failed with No JSON object could be decoded'
+        ])
 
     def test_mismatched_etag(self):
         self.app.register(
@@ -2709,11 +2714,14 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-a-b-badetag-c',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
 
-        self.assertIsInstance(exc, SegmentError)
         self.assertEqual('200 OK', status)
         self.assertEqual(body, 'aaaaa')
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'Object segment no longer valid: /v1/AUTH_test/gettest/b_10 '
+            'etag: 82136b4240d6ce4ea7d03e51469a393b != wrong! or 10 != 10.'
+        ])
 
     def test_mismatched_size(self):
         self.app.register(
@@ -2730,11 +2738,15 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-a-b-badsize-c',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
 
-        self.assertIsInstance(exc, SegmentError)
         self.assertEqual('200 OK', status)
         self.assertEqual(body, 'aaaaa')
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'Object segment no longer valid: /v1/AUTH_test/gettest/b_10 '
+            'etag: 82136b4240d6ce4ea7d03e51469a393b != '
+            '82136b4240d6ce4ea7d03e51469a393b or 10 != 999999.'
+        ])
 
     def test_first_segment_mismatched_etag(self):
         self.app.register('GET', '/v1/AUTH_test/gettest/manifest-badetag',
@@ -2750,10 +2762,10 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        error_lines = self.slo.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
-        self.assertTrue(error_lines[0].startswith(
-            'ERROR: An error occurred while retrieving segments'))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'Object segment no longer valid: /v1/AUTH_test/gettest/a_5 '
+            'etag: 594f803b380a41396ed63dca39503542 != wrong! or 5 != 5.'
+        ])
 
     def test_first_segment_mismatched_size(self):
         self.app.register('GET', '/v1/AUTH_test/gettest/manifest-badsize',
@@ -2769,10 +2781,11 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        error_lines = self.slo.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
-        self.assertTrue(error_lines[0].startswith(
-            'ERROR: An error occurred while retrieving segments'))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'Object segment no longer valid: /v1/AUTH_test/gettest/a_5 '
+            'etag: 594f803b380a41396ed63dca39503542 != '
+            '594f803b380a41396ed63dca39503542 or 5 != 999999.'
+        ])
 
     @patch('swift.common.request_helpers.time')
     def test_download_takes_too_long(self, mock_time):
@@ -2791,11 +2804,13 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
 
-        status, headers, body, exc = self.call_slo(
-            req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
 
-        self.assertIsInstance(exc, SegmentError)
         self.assertEqual(status, '200 OK')
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'While processing manifest /v1/AUTH_test/gettest/manifest-abcd, '
+            'max LO GET time of 86400s exceeded'
+        ])
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
@@ -2820,10 +2835,11 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        error_lines = self.slo.logger.get_lines_for_level('error')
-        self.assertEqual(len(error_lines), 1)
-        self.assertTrue(error_lines[0].startswith(
-            'ERROR: An error occurred while retrieving segments'))
+        self.assertEqual(self.slo.logger.get_lines_for_level('error'), [
+            'While processing manifest /v1/AUTH_test/gettest/'
+            'manifest-not-exists, got 404 while retrieving /v1/AUTH_test/'
+            'gettest/not_exists_obj'
+        ])
 
 
 class TestSloConditionalGetOldManifest(SloTestCase):

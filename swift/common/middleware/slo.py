@@ -430,7 +430,7 @@ class SloGetContext(WSGIContext):
         if not sub_resp.is_success:
             close_if_possible(sub_resp.app_iter)
             raise ListingIterError(
-                'ERROR: while fetching %s, GET of submanifest %s '
+                'while fetching %s, GET of submanifest %s '
                 'failed with status %d' % (req.path, sub_req.path,
                                            sub_resp.status_int))
 
@@ -439,7 +439,7 @@ class SloGetContext(WSGIContext):
                 return json.loads(''.join(sub_resp.app_iter))
         except ValueError as err:
             raise ListingIterError(
-                'ERROR: while fetching %s, JSON-decoding of submanifest %s '
+                'while fetching %s, JSON-decoding of submanifest %s '
                 'failed with %s' % (req.path, sub_req.path, err))
 
     def _segment_length(self, seg_dict):
@@ -526,7 +526,9 @@ class SloGetContext(WSGIContext):
                 # do this check here so that we can avoid fetching this last
                 # manifest before raising the exception
                 if recursion_depth >= self.max_slo_recursion_depth:
-                    raise ListingIterError("Max recursion depth exceeded")
+                    raise ListingIterError(
+                        "While processing manifest %r, "
+                        "max recursion depth was exceeded" % req.path)
 
                 sub_path = get_valid_utf8_str(seg_dict['name'])
                 sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
