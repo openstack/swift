@@ -487,17 +487,17 @@ class TestSloPutManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         self.assertEqual(status, '400 Bad Request')
 
-    def test_handle_multipart_put_disallow_empty_last_segment(self):
+    def test_handle_multipart_put_allow_empty_last_segment(self):
         test_json_data = json.dumps([{'path': '/cont/object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 100},
-                                     {'path': '/cont/small_object',
+                                     {'path': '/cont/empty_object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 0}])
-        req = Request.blank('/v1/a/c/o?multipart-manifest=put',
+        req = Request.blank('/v1/AUTH_test/c/man?multipart-manifest=put',
                             method='PUT', body=test_json_data)
         status, headers, body = self.call_slo(req)
-        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual(status, '201 Created')
 
     def test_handle_multipart_put_success_unicode(self):
         test_json_data = json.dumps([{'path': u'/cont/object\u2661',
