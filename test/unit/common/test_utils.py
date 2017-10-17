@@ -70,7 +70,8 @@ from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
-from test.unit import FakeLogger, requires_o_tmpfile_support
+from test.unit import FakeLogger, requires_o_tmpfile_support, \
+    quiet_eventlet_exceptions
 
 threading = eventlet.patcher.original('threading')
 
@@ -6305,8 +6306,9 @@ class TestPipeMutex(unittest.TestCase):
 
     def test_wrong_releaser(self):
         self.mutex.acquire()
-        self.assertRaises(RuntimeError,
-                          eventlet.spawn(self.mutex.release).wait)
+        with quiet_eventlet_exceptions():
+            self.assertRaises(RuntimeError,
+                              eventlet.spawn(self.mutex.release).wait)
 
     def test_blocking(self):
         evt = eventlet.event.Event()
