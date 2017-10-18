@@ -72,10 +72,10 @@ class BaseDecrypterContext(CryptoWSGIContext):
                                           crypto_meta['body_key'])
         except KeyError as err:
             self.logger.error(
-                _('Error decrypting %(resp_type)s: Missing %(key)s'),
+                'Error decrypting %(resp_type)s: Missing %(key)s',
                 {'resp_type': self.server_type, 'key': err})
         except ValueError as err:
-            self.logger.error(_('Error decrypting %(resp_type)s: %(reason)s'),
+            self.logger.error('Error decrypting %(resp_type)s: %(reason)s',
                               {'resp_type': self.server_type, 'reason': err})
         raise HTTPInternalServerError(
             body='Error decrypting %s' % self.server_type,
@@ -166,7 +166,7 @@ class DecrypterObjContext(BaseDecrypterContext):
             return self.decrypt_value_with_meta(value, key, required)
         except EncryptionException as err:
             self.logger.error(
-                _("Error decrypting header %(header)s: %(error)s"),
+                "Error decrypting header %(header)s: %(error)s",
                 {'header': header, 'error': err})
             raise HTTPInternalServerError(
                 body='Error decrypting header',
@@ -290,7 +290,7 @@ class DecrypterObjContext(BaseDecrypterContext):
                 crypto_meta = self.get_crypto_meta(
                     'X-Object-Sysmeta-Crypto-Body-Meta')
             except EncryptionException as err:
-                self.logger.error(_('Error decrypting object: %s'), err)
+                self.logger.error('Error decrypting object: %s', err)
                 raise HTTPInternalServerError(
                     body='Error decrypting object', content_type='text/plain')
 
@@ -363,7 +363,7 @@ class DecrypterContContext(BaseDecrypterContext):
                     app_resp = handler(keys['container'], app_resp)
                 except EncryptionException as err:
                     self.logger.error(
-                        _("Error decrypting container listing: %s"),
+                        "Error decrypting container listing: %s",
                         err)
                     raise HTTPInternalServerError(
                         body='Error decrypting container listing',

@@ -162,7 +162,7 @@ class CNAMELookupMiddleware(object):
                 elif self._domain_endswith_in_storage_domain(found_domain):
                     # Found it!
                     self.logger.info(
-                        _('Mapped %(given_domain)s to %(found_domain)s') %
+                        'Mapped %(given_domain)s to %(found_domain)s' %
                         {'given_domain': given_domain,
                          'found_domain': found_domain})
                     if port:
@@ -174,8 +174,8 @@ class CNAMELookupMiddleware(object):
                 else:
                     # try one more deep in the chain
                     self.logger.debug(
-                        _('Following CNAME chain for  '
-                          '%(given_domain)s to %(found_domain)s') %
+                        'Following CNAME chain for  '
+                        '%(given_domain)s to %(found_domain)s' %
                         {'given_domain': given_domain,
                          'found_domain': found_domain})
                     a_domain = found_domain

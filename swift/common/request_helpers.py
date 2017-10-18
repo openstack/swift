@@ -87,7 +87,7 @@ def get_name_and_placement(request, minsegs=1, maxsegs=None,
     policy = POLICIES.get_by_index(policy_index)
     if not policy:
         raise HTTPServiceUnavailable(
-            body=_("No policy with index %s") % policy_index,
+            body="No policy with index %s" % policy_index,
             request=request, content_type='text/plain')
     results = split_and_validate_path(request, minsegs=minsegs,
                                       maxsegs=maxsegs,
@@ -486,8 +486,8 @@ class SegmentedIterable(object):
                 raise SegmentError(
                     'Not enough bytes for %s; closing connection' % self.name)
         except (ListingIterError, SegmentError):
-            self.logger.exception(_('ERROR: An error occurred '
-                                    'while retrieving segments'))
+            self.logger.exception('ERROR: An error occurred '
+                                  'while retrieving segments')
             raise
         finally:
             if self.current_resp:

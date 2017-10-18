@@ -55,8 +55,8 @@ class ContainerAuditor(Daemon):
             self.container_audit(path)
             if time.time() - reported >= 3600:  # once an hour
                 self.logger.info(
-                    _('Since %(time)s: Container audits: %(pass)s passed '
-                      'audit, %(fail)s failed audit'),
+                    'Since %(time)s: Container audits: %(pass)s passed '
+                    'audit, %(fail)s failed audit',
                     {'time': time.ctime(reported),
                      'pass': self.container_passes,
                      'fail': self.container_failures})
@@ -77,29 +77,29 @@ class ContainerAuditor(Daemon):
         reported = time.time()
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info(_('Begin container audit pass.'))
+            self.logger.info('Begin container audit pass.')
             begin = time.time()
             try:
                 reported = self._one_audit_pass(reported)
             except (Exception, Timeout):
                 self.logger.increment('errors')
-                self.logger.exception(_('ERROR auditing'))
+                self.logger.exception('ERROR auditing')
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
             self.logger.info(
-                _('Container audit pass completed: %.02fs'), elapsed)
+                'Container audit pass completed: %.02fs', elapsed)
             dump_recon_cache({'container_auditor_pass_completed': elapsed},
                              self.rcache, self.logger)
 
     def run_once(self, *args, **kwargs):
         """Run the container audit once."""
-        self.logger.info(_('Begin container audit "once" mode'))
+        self.logger.info('Begin container audit "once" mode')
         begin = reported = time.time()
         self._one_audit_pass(reported)
         elapsed = time.time() - begin
         self.logger.info(
-            _('Container audit "once" mode completed: %.02fs'), elapsed)
+            'Container audit "once" mode completed: %.02fs', elapsed)
         dump_recon_cache({'container_auditor_pass_completed': elapsed},
                          self.rcache, self.logger)
 
@@ -120,6 +120,6 @@ class ContainerAuditor(Daemon):
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.container_failures += 1
-            self.logger.exception(_('ERROR Could not get container info %s'),
+            self.logger.exception('ERROR Could not get container info %s',
                                   path)
         self.logger.timing_since('timing', start_time)

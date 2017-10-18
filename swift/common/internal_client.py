@@ -197,7 +197,7 @@ class InternalClient(object):
                 sleep(2 ** (attempt + 1))
         if resp:
             raise UnexpectedResponse(
-                _('Unexpected response: %s') % resp.status, resp)
+                'Unexpected response: %s' % resp.status, resp)
         if exc_type:
             # To make pep8 tool happy, in place of raise t, v, tb:
             six.reraise(exc_type(*exc_value.args), None, exc_traceback)

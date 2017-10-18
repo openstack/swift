@@ -104,7 +104,7 @@ class ContainerController(Controller):
         params['format'] = 'json'
         req.params = params
         resp = self.GETorHEAD_base(
-            req, _('Container'), node_iter, part,
+            req, 'Container', node_iter, part,
             req.swift_entity_path, concurrency)
         # Cache this. We just made a request to a storage node and got
         # up-to-date information for the container.

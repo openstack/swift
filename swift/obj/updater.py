@@ -73,8 +73,8 @@ class ObjectUpdater(Daemon):
         try:
             return os.listdir(path)
         except OSError as e:
-            self.logger.error(_('ERROR: Unable to access %(path)s: '
-                                '%(error)s') %
+            self.logger.error('ERROR: Unable to access %(path)s: '
+                                '%(error)s' %
                               {'path': path, 'error': e})
             return []
 
@@ -88,7 +88,7 @@ class ObjectUpdater(Daemon):
         """Run the updater continuously."""
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info(_('Begin object update sweep'))
+            self.logger.info('Begin object update sweep')
             begin = time.time()
             pids = []
             # read from container ring to ensure it's fresh
@@ -98,7 +98,7 @@ class ObjectUpdater(Daemon):
                         not ismount(os.path.join(self.devices, device)):
                     self.logger.increment('errors')
                     self.logger.warning(
-                        _('Skipping %s as it is not mounted'), device)
+                        'Skipping %s as it is not mounted', device)
                     continue
                 while len(pids) >= self.concurrency:
                     pids.remove(os.wait()[0])
@@ -114,16 +114,16 @@ class ObjectUpdater(Daemon):
                     self.object_sweep(os.path.join(self.devices, device))
                     elapsed = time.time() - forkbegin
                     self.logger.info(
-                        _('Object update sweep of %(device)s'
-                          ' completed: %(elapsed).02fs, %(success)s successes'
-                          ', %(fail)s failures'),
+                        'Object update sweep of %(device)s'
+                        ' completed: %(elapsed).02fs, %(success)s successes'
+                        ', %(fail)s failures',
                         {'device': device, 'elapsed': elapsed,
                          'success': self.successes, 'fail': self.failures})
                     sys.exit()
             while pids:
                 pids.remove(os.wait()[0])
             elapsed = time.time() - begin
-            self.logger.info(_('Object update sweep completed: %.02fs'),
+            self.logger.info('Object update sweep completed: %.02fs',
                              elapsed)
             dump_recon_cache({'object_updater_sweep': elapsed},
                              self.rcache, self.logger)
@@ -132,7 +132,7 @@ class ObjectUpdater(Daemon):
 
     def run_once(self, *args, **kwargs):
         """Run the updater once."""
-        self.logger.info(_('Begin object update single threaded sweep'))
+        self.logger.info('Begin object update single threaded sweep')
         begin = time.time()
         self.successes = 0
         self.failures = 0
@@ -141,13 +141,13 @@ class ObjectUpdater(Daemon):
                     not ismount(os.path.join(self.devices, device)):
                 self.logger.increment('errors')
                 self.logger.warning(
-                    _('Skipping %s as it is not mounted'), device)
+                    'Skipping %s as it is not mounted', device)
                 continue
             self.object_sweep(os.path.join(self.devices, device))
         elapsed = time.time() - begin
         self.logger.info(
-            _('Object update single threaded sweep completed: '
-              '%(elapsed).02fs, %(success)s successes, %(fail)s failures'),
+            'Object update single threaded sweep completed: '
+            '%(elapsed).02fs, %(success)s successes, %(fail)s failures',
             {'elapsed': elapsed, 'success': self.successes,
              'fail': self.failures})
         dump_recon_cache({'object_updater_sweep': elapsed},
@@ -172,8 +172,8 @@ class ObjectUpdater(Daemon):
             try:
                 base, policy = split_policy_string(asyncdir)
             except PolicyError as e:
-                self.logger.warning(_('Directory %(directory)r does not map '
-                                      'to a valid policy (%(error)s)') % {
+                self.logger.warning('Directory %(directory)r does not map '
+                                    'to a valid policy (%(error)s)' % {
                                     'directory': asyncdir, 'error': e})
                 continue
             for prefix in self._listdir(async_pending):
@@ -190,8 +190,8 @@ class ObjectUpdater(Daemon):
                     except ValueError:
                         self.logger.increment('errors')
                         self.logger.error(
-                            _('ERROR async pending file with unexpected '
-                              'name %s')
+                            'ERROR async pending file with unexpected '
+                            'name %s'
                             % (update_path))
                         continue
                     if obj_hash == last_obj_hash:
@@ -223,7 +223,7 @@ class ObjectUpdater(Daemon):
             update = pickle.load(open(update_path, 'rb'))
         except Exception:
             self.logger.exception(
-                _('ERROR Pickle problem, quarantining %s'), update_path)
+                'ERROR Pickle problem, quarantining %s', update_path)
             self.logger.increment('quarantines')
             target_path = os.path.join(device, 'quarantined', 'objects',
                                        os.path.basename(update_path))
@@ -287,12 +287,12 @@ class ObjectUpdater(Daemon):
                 success = is_success(resp.status)
                 if not success:
                     self.logger.debug(
-                        _('Error code %(status)d is returned from remote '
-                          'server %(ip)s: %(port)s / %(device)s'),
+                        'Error code %(status)d is returned from remote '
+                        'server %(ip)s: %(port)s / %(device)s',
                         {'status': resp.status, 'ip': node['ip'],
                          'port': node['port'], 'device': node['device']})
                 return (success, node['id'])
         except (Exception, Timeout):
-            self.logger.exception(_('ERROR with remote server '
-                                    '%(ip)s:%(port)s/%(device)s'), node)
+            self.logger.exception('ERROR with remote server '
+                                  '%(ip)s:%(port)s/%(device)s', node)
         return HTTP_INTERNAL_SERVER_ERROR, node['id']

@@ -150,7 +150,7 @@ class ReplConnection(BufferedHTTPConnection):
             return response
         except (Exception, Timeout):
             self.logger.exception(
-                _('ERROR reading HTTP response from %s'), self.node)
+                'ERROR reading HTTP response from %s', self.node)
             return None
 
 
@@ -206,14 +206,14 @@ class Replicator(Daemon):
         """Report the current stats to the logs."""
         now = time.time()
         self.logger.info(
-            _('Attempted to replicate %(count)d dbs in %(time).5f seconds '
-              '(%(rate).5f/s)'),
+            'Attempted to replicate %(count)d dbs in %(time).5f seconds '
+            '(%(rate).5f/s)',
             {'count': self.stats['attempted'],
              'time': now - self.stats['start'],
              'rate': self.stats['attempted'] /
                 (now - self.stats['start'] + 0.0000001)})
-        self.logger.info(_('Removed %(remove)d dbs') % self.stats)
-        self.logger.info(_('%(success)s successes, %(failure)s failures')
+        self.logger.info('Removed %(remove)d dbs' % self.stats)
+        self.logger.info('%(success)s successes, %(failure)s failures'
                          % self.stats)
         dump_recon_cache(
             {'replication_stats': self.stats,
@@ -260,7 +260,7 @@ class Replicator(Daemon):
         proc = subprocess.Popen(popen_args)
         proc.communicate()
         if proc.returncode != 0:
-            self.logger.error(_('ERROR rsync failed with %(code)s: %(args)s'),
+            self.logger.error('ERROR rsync failed with %(code)s: %(args)s',
                               {'code': proc.returncode, 'args': popen_args})
         return proc.returncode == 0
 
@@ -324,8 +324,8 @@ class Replicator(Daemon):
                 response = http.replicate('merge_items', objects, local_id)
             if not response or response.status >= 300 or response.status < 200:
                 if response:
-                    self.logger.error(_('ERROR Bad response %(status)s from '
-                                        '%(host)s'),
+                    self.logger.error('ERROR Bad response %(status)s from '
+                                      '%(host)s',
                                       {'status': response.status,
                                        'host': http.host})
                 return False
@@ -494,10 +494,10 @@ class Replicator(Daemon):
                     'replicate out and remove.' % (object_file, name, bpart))
         except (Exception, Timeout) as e:
             if 'no such table' in str(e):
-                self.logger.error(_('Quarantining DB %s'), object_file)
+                self.logger.error('Quarantining DB %s', object_file)
                 quarantine_db(broker.db_file, broker.db_type)
             else:
-                self.logger.exception(_('ERROR reading db %s'), object_file)
+                self.logger.exception('ERROR reading db %s', object_file)
             nodes = self.ring.get_part_nodes(int(partition))
             self._add_failure_stats([(failure_dev['replication_ip'],
                                       failure_dev['device'])
@@ -555,13 +555,13 @@ class Replicator(Daemon):
                     repl_nodes.append(next(more_nodes))
                 except StopIteration:
                     self.logger.error(
-                        _('ERROR There are not enough handoff nodes to reach '
-                          'replica count for partition %s'),
+                        'ERROR There are not enough handoff nodes to reach '
+                        'replica count for partition %s',
                         partition)
-                self.logger.error(_('ERROR Remote drive not mounted %s'), node)
+                self.logger.error('ERROR Remote drive not mounted %s', node)
             except (Exception, Timeout):
-                self.logger.exception(_('ERROR syncing %(file)s with node'
-                                        ' %(node)s'),
+                self.logger.exception('ERROR syncing %(file)s with node'
+                                      ' %(node)s',
                                       {'file': object_file, 'node': node})
             if not success:
                 failure_devs_info.add((node['replication_ip'], node['device']))
@@ -599,7 +599,7 @@ class Replicator(Daemon):
         except OSError as err:
             if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
                 self.logger.exception(
-                    _('ERROR while trying to clean up %s') % suf_dir)
+                    'ERROR while trying to clean up %s' % suf_dir)
                 return False
         self.stats['remove'] += 1
         device_name = self.extract_device(object_file)
@@ -627,7 +627,7 @@ class Replicator(Daemon):
         dirs = []
         ips = whataremyips(self.bind_ip)
         if not ips:
-            self.logger.error(_('ERROR Failed to get my own IPs?'))
+            self.logger.error('ERROR Failed to get my own IPs?')
             return
         self._local_device_ids = set()
         found_local = False
@@ -643,7 +643,7 @@ class Replicator(Daemon):
                           failure_dev['device'])
                          for failure_dev in self.ring.devs if failure_dev])
                     self.logger.warning(
-                        _('Skipping %(device)s as it is not mounted') % node)
+                        'Skipping %(device)s as it is not mounted' % node)
                     continue
                 unlink_older_than(
                     os.path.join(self.root, node['device'], 'tmp'),
@@ -656,12 +656,12 @@ class Replicator(Daemon):
             self.logger.error("Can't find itself %s with port %s in ring "
                               "file, not replicating",
                               ", ".join(ips), self.port)
-        self.logger.info(_('Beginning replication run'))
+        self.logger.info('Beginning replication run')
         for part, object_file, node_id in roundrobin_datadirs(dirs):
             self.cpool.spawn_n(
                 self._replicate_object, part, object_file, node_id)
         self.cpool.waitall()
-        self.logger.info(_('Replication run OVER'))
+        self.logger.info('Replication run OVER')
         self._report_stats()
 
     def run_forever(self, *args, **kwargs):
@@ -674,7 +674,7 @@ class Replicator(Daemon):
             try:
                 self.run_once()
             except (Exception, Timeout):
-                self.logger.exception(_('ERROR trying to replicate'))
+                self.logger.exception('ERROR trying to replicate')
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 sleep(self.interval - elapsed)
@@ -772,7 +772,7 @@ class ReplicatorRpc(object):
                 info = self._get_synced_replication_info(broker, remote_info)
             except (Exception, Timeout) as e:
                 if 'no such table' in str(e):
-                    self.logger.error(_("Quarantining DB %s"), broker)
+                    self.logger.error("Quarantining DB %s", broker)
                     quarantine_db(broker.db_file, broker.db_type)
                     return HTTPNotFound()
                 raise

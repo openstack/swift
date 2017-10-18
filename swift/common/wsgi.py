@@ -202,8 +202,8 @@ def get_socket(conf):
                 raise
             sleep(0.1)
     if not sock:
-        raise Exception(_('Could not bind to %(addr)s:%(port)s '
-                          'after trying for %(timeout)s seconds') % {
+        raise Exception('Could not bind to %(addr)s:%(port)s '
+                        'after trying for %(timeout)s seconds' % {
                               'addr': bind_addr[0], 'port': bind_addr[1],
                               'timeout': bind_timeout})
     # in my experience, sockets can hang around forever without keepalive
@@ -212,9 +212,9 @@ def get_socket(conf):
     if hasattr(socket, 'TCP_KEEPIDLE'):
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 600)
     if warn_ssl:
-        ssl_warning_message = _('WARNING: SSL should only be enabled for '
-                                'testing purposes. Use external SSL '
-                                'termination for a production deployment.')
+        ssl_warning_message = 'WARNING: SSL should only be enabled for '
+                              'testing purposes. Use external SSL '
+                              'termination for a production deployment.'
         get_logger(conf).warning(ssl_warning_message)
         print(ssl_warning_message)
     return sock

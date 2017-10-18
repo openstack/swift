@@ -508,8 +508,8 @@ def load_libc_function(func_name, log_error=True,
         if fail_if_missing:
             raise
         if log_error:
-            logging.warning(_("Unable to locate %s in libc.  Leaving as a "
-                            "no-op."), func_name)
+            logging.warning("Unable to locate %s in libc.  Leaving as a "
+                            "no-op.", func_name)
         return noop_libc_function
     if errcheck:
         def _errcheck(result, f, args):
@@ -730,8 +730,8 @@ class FallocateWrapper(object):
             if self.fallocate is not noop_libc_function:
                 break
         if self.fallocate is noop_libc_function:
-            logging.warning(_("Unable to locate fallocate, posix_fallocate in "
-                            "libc.  Leaving as a no-op."))
+            logging.warning("Unable to locate fallocate, posix_fallocate in "
+                            "libc.  Leaving as a no-op.")
 
     def __call__(self, fd, mode, offset, length):
         """The length parameter must be a ctypes.c_uint64."""
@@ -820,8 +820,8 @@ def fsync_dir(dirpath):
         if err.errno == errno.ENOTDIR:
             # Raise error if someone calls fsync_dir on a non-directory
             raise
-        logging.warning(_('Unable to perform fsync() on directory %(dir)s:'
-                          ' %(err)s'),
+        logging.warning('Unable to perform fsync() on directory %(dir)s:'
+                        ' %(err)s',
                         {'dir': dirpath, 'err': os.strerror(err.errno)})
     finally:
         if dirfd:
@@ -1482,9 +1482,9 @@ class LoggerFileObject(object):
             if value:
                 if 'Connection reset by peer' in value:
                     self.logger.error(
-                        _('%s: Connection reset by peer'), self.log_type)
+                        '%s: Connection reset by peer', self.log_type)
                 else:
-                    self.logger.error(_('%(type)s: %(value)s'),
+                    self.logger.error('%(type)s: %(value)s',
                                       {'type': self.log_type, 'value': value})
         finally:
             self._cls_thread_local.already_called_write = False
@@ -1495,7 +1495,7 @@ class LoggerFileObject(object):
 
         self._cls_thread_local.already_called_writelines = True
         try:
-            self.logger.error(_('%(type)s: %(value)s'),
+            self.logger.error('%(type)s: %(value)s',
                               {'type': self.log_type,
                                'value': '#012'.join(values)})
         finally:
@@ -1604,7 +1604,7 @@ class StatsdClient(object):
             except IOError as err:
                 if self.logger:
                     self.logger.warning(
-                        _('Error sending UDP message to %(target)r: %(err)s'),
+                        'Error sending UDP message to %(target)r: %(err)s',
                         {'target': self._target, 'err': err})
 
     def _open_socket(self):
@@ -1747,11 +1747,11 @@ class LogAdapter(logging.LoggerAdapter, object):
             if exc.errno in (errno.EIO, errno.ENOSPC):
                 emsg = str(exc)
             elif exc.errno == errno.ECONNREFUSED:
-                emsg = _('Connection refused')
+                emsg = 'Connection refused'
             elif exc.errno == errno.EHOSTUNREACH:
-                emsg = _('Host unreachable')
+                emsg = 'Host unreachable'
             elif exc.errno == errno.ETIMEDOUT:
-                emsg = _('Connection timeout')
+                emsg = 'Connection timeout'
             else:
                 call = self._exception
         elif isinstance(exc, eventlet.Timeout):
@@ -2048,7 +2048,7 @@ def capture_stdio(logger, **kwargs):
     """
     # log uncaught exceptions
     sys.excepthook = lambda * exc_info: \
-        logger.critical(_('UNCAUGHT EXCEPTION'), exc_info=exc_info)
+        logger.critical('UNCAUGHT EXCEPTION', exc_info=exc_info)
 
     # collect stdio file desc not in use for logging
     stdio_files = [sys.stdin, sys.stdout, sys.stderr]
@@ -2102,12 +2102,12 @@ def parse_options(parser=None, once=False, test_args=None):
 
     if not args:
         parser.print_usage()
-        print(_("Error: missing config path argument"))
+        print("Error: missing config path argument")
         sys.exit(1)
     config = os.path.abspath(args.pop(0))
     if not os.path.exists(config):
         parser.print_usage()
-        print(_("Error: unable to locate %s") % config)
+        print("Error: unable to locate %s" % config)
         sys.exit(1)
 
     extra_args = []
@@ -2512,14 +2512,14 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         else:
             success = c.read(conf_path)
         if not success:
-            raise IOError(_("Unable to read config from %s") %
+            raise IOError("Unable to read config from %s" %
                           conf_path)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
             raise ValueError(
-                _("Unable to find %(section)s config section in %(conf)s") %
+                "Unable to find %(section)s config section in %(conf)s" %
                 {'section': section_name, 'conf': conf_path})
         if "log_name" not in conf:
             if log_name is not None:
@@ -2655,14 +2655,14 @@ def audit_location_generator(devices, datadir, suffix='',
         if mount_check and not ismount(os.path.join(devices, device)):
             if logger:
                 logger.warning(
-                    _('Skipping %s as it is not mounted'), device)
+                    'Skipping %s as it is not mounted', device)
             continue
         datadir_path = os.path.join(devices, device, datadir)
         try:
             partitions = listdir(datadir_path)
         except OSError as e:
             if logger:
-                logger.warning(_('Skipping %(datadir)s because %(err)s'),
+                logger.warning('Skipping %(datadir)s because %(err)s',
                                {'datadir': datadir_path, 'err': e})
             continue
         for partition in partitions:
@@ -2947,16 +2947,16 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
         data = value[2:].split('/')
         if len(data) != 4:
             return (
-                _('Invalid X-Container-Sync-To format %r') % orig_value,
+                'Invalid X-Container-Sync-To format %r' % orig_value,
                 None, None, None)
         realm, cluster, account, container = data
         realm_key = realms_conf.key(realm)
         if not realm_key:
-            return (_('No realm key for %r') % realm, None, None, None)
+            return ('No realm key for %r' % realm, None, None, None)
         endpoint = realms_conf.endpoint(realm, cluster)
         if not endpoint:
             return (
-                _('No cluster endpoint for %(realm)r %(cluster)r')
+                'No cluster endpoint for %(realm)r %(cluster)r'
                 % {'realm': realm, 'cluster': cluster},
                 None, None, None)
         return (
@@ -2966,19 +2966,19 @@ def validate_sync_to(value, allowed_sync_hosts, realms_conf):
     p = urlparse(value)
     if p.scheme not in ('http', 'https'):
         return (
-            _('Invalid scheme %r in X-Container-Sync-To, must be "//", '
-              '"http", or "https".') % p.scheme,
+            'Invalid scheme %r in X-Container-Sync-To, must be "//", '
+            '"http", or "https".' % p.scheme,
             None, None, None)
     if not p.path:
-        return (_('Path required in X-Container-Sync-To'), None, None, None)
+        return ('Path required in X-Container-Sync-To', None, None, None)
     if p.params or p.query or p.fragment:
         return (
-            _('Params, queries, and fragments not allowed in '
-              'X-Container-Sync-To'),
+            'Params, queries, and fragments not allowed in '
+            'X-Container-Sync-To',
             None, None, None)
     if p.hostname not in allowed_sync_hosts:
         return (
-            _('Invalid host %r in X-Container-Sync-To') % p.hostname,
+            'Invalid host %r in X-Container-Sync-To' % p.hostname,
             None, None, None)
     return (None, value, None, None)
 
@@ -3185,7 +3185,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2,
                         if err.errno != errno.ENOENT:
                             raise
     except (Exception, Timeout):
-        logger.exception(_('Exception dumping recon cache'))
+        logger.exception('Exception dumping recon cache')
 
 
 def listdir(path):
@@ -3766,7 +3766,7 @@ def override_bytes_from_content_type(listing_dict, logger=None):
             listing_dict['bytes'] = int(swift_bytes)
         except ValueError:
             if logger:
-                logger.exception(_("Invalid swift_bytes"))
+                logger.exception("Invalid swift_bytes")
 
 
 def clean_content_type(value):
@@ -4073,7 +4073,7 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
                 pass
             else:
                 logger.warning(
-                    _("More than one part in a single-part response?"))
+                    "More than one part in a single-part response?")
 
         return string_along(response_body_iter, ranges_iter, logger)
 
@@ -4226,8 +4226,8 @@ def modify_priority(conf, logger):
             _libc_setpriority(PRIO_PROCESS, os.getpid(),
                               int(nice_priority))
         except (ValueError, OSError):
-            print(_("WARNING: Unable to modify scheduling priority of process."
-                    " Keeping unchanged! Check logs for more info. "))
+            print("WARNING: Unable to modify scheduling priority of process."
+                  " Keeping unchanged! Check logs for more info. ")
             logger.exception('Unable to modify nice priority')
         else:
             logger.debug('set nice priority to %s' % nice_priority)
@@ -4257,9 +4257,9 @@ def modify_priority(conf, logger):
                            os.getpid(),
                            IOPRIO_PRIO_VALUE(io_class, io_priority))
         except (KeyError, ValueError, OSError):
-            print(_("WARNING: Unable to modify I/O scheduling class "
-                    "and priority of process. Keeping unchanged! "
-                    "Check logs for more info."))
+            print("WARNING: Unable to modify I/O scheduling class "
+                  "and priority of process. Keeping unchanged! "
+                  "Check logs for more info.")
             logger.exception("Unable to modify ionice priority")
         else:
             logger.debug('set ionice class %s priority %s',
