@@ -25,10 +25,12 @@ import eventlet.debug
 import eventlet.event
 import eventlet.patcher
 import functools
+import grp
 import logging
 import platform
 import os
 import mock
+import pwd
 import random
 import re
 import socket
@@ -101,10 +103,10 @@ class MockOs(object):
     setgroups = chdir = setsid = setgid = setuid = umask = pass_func
 
     def called_func(self, name, *args, **kwargs):
-        self.called_funcs[name] = True
+        self.called_funcs[name] = args
 
     def raise_func(self, name, *args, **kwargs):
-        self.called_funcs[name] = True
+        self.called_funcs[name] = args
         raise OSError()
 
     def dup2(self, source, target):
@@ -2130,42 +2132,51 @@ log_name = %(yarr)s'''
         }
         self.assertEqual(conf, expected)
 
-    def test_drop_privileges(self):
+    def _check_drop_privileges(self, mock_os, required_func_calls,
+                               call_setsid=True):
         user = getuser()
+        user_data = pwd.getpwnam(user)
+        self.assertFalse(mock_os.called_funcs)  # sanity check
         # over-ride os with mock
+        with mock.patch('swift.common.utils.os', mock_os):
+            # exercise the code
+            utils.drop_privileges(user, call_setsid=call_setsid)
+
+        for func in required_func_calls:
+            self.assertIn(func, mock_os.called_funcs)
+        self.assertEqual(user_data[5], mock_os.environ['HOME'])
+        groups = {g.gr_gid for g in grp.getgrall() if user in g.gr_mem}
+        self.assertEqual(groups, set(mock_os.called_funcs['setgroups'][0]))
+        self.assertEqual(user_data[3], mock_os.called_funcs['setgid'][0])
+        self.assertEqual(user_data[2], mock_os.called_funcs['setuid'][0])
+        self.assertEqual('/', mock_os.called_funcs['chdir'][0])
+        self.assertEqual(0o22, mock_os.called_funcs['umask'][0])
+
+    def test_drop_privileges(self):
         required_func_calls = ('setgroups', 'setgid', 'setuid', 'setsid',
                                'chdir', 'umask')
-        utils.os = MockOs(called_funcs=required_func_calls)
-        # exercise the code
-        utils.drop_privileges(user)
-        for func in required_func_calls:
-            self.assertTrue(utils.os.called_funcs[func])
-        import pwd
-        self.assertEqual(pwd.getpwnam(user)[5], utils.os.environ['HOME'])
+        mock_os = MockOs(called_funcs=required_func_calls)
+        self._check_drop_privileges(mock_os, required_func_calls)
 
-        # reset; test same args, OSError trying to get session leader
-        utils.os = MockOs(called_funcs=required_func_calls,
-                          raise_funcs=('setsid',))
-        for func in required_func_calls:
-            self.assertFalse(utils.os.called_funcs.get(func, False))
-        utils.drop_privileges(user)
-        for func in required_func_calls:
-            self.assertTrue(utils.os.called_funcs[func])
+    def test_drop_privileges_setsid_error(self):
+        # OSError trying to get session leader
+        required_func_calls = ('setgroups', 'setgid', 'setuid', 'setsid',
+                               'chdir', 'umask')
+        mock_os = MockOs(called_funcs=required_func_calls,
+                         raise_funcs=('setsid',))
+        self._check_drop_privileges(mock_os, required_func_calls)
 
     def test_drop_privileges_no_call_setsid(self):
-        user = getuser()
-        # over-ride os with mock
         required_func_calls = ('setgroups', 'setgid', 'setuid', 'chdir',
                                'umask')
+        # OSError if trying to get session leader, but it shouldn't be called
         bad_func_calls = ('setsid',)
-        utils.os = MockOs(called_funcs=required_func_calls,
-                          raise_funcs=bad_func_calls)
-        # exercise the code
-        utils.drop_privileges(user, call_setsid=False)
-        for func in required_func_calls:
-            self.assertTrue(utils.os.called_funcs[func])
+        mock_os = MockOs(called_funcs=required_func_calls,
+                         raise_funcs=bad_func_calls)
+        self._check_drop_privileges(mock_os, required_func_calls,
+                                    call_setsid=False)
         for func in bad_func_calls:
-            self.assertNotIn(func, utils.os.called_funcs)
+            self.assertNotIn(func, mock_os.called_funcs)
 
     @reset_logger_state
     def test_capture_stdio(self):
