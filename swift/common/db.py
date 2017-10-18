@@ -353,8 +353,8 @@ class DatabaseBroker(object):
                 raise
             quar_path = "%s-%s" % (quar_path, uuid4().hex)
             renamer(self.db_dir, quar_path, fsync=False)
-        detail = _('Quarantined %(db_dir)s to %(quar_path)s due to '
-                   '%(exc_hint)s database') % {'db_dir': self.db_dir,
+        detail = 'Quarantined %(db_dir)s to %(quar_path)s due to '
+                 '%(exc_hint)s database' % {'db_dir': self.db_dir,
                                                'quar_path': quar_path,
                                                'exc_hint': exc_hint}
         self.logger.error(detail)
@@ -410,7 +410,7 @@ class DatabaseBroker(object):
             self.conn = conn
         except (Exception, Timeout):
             logging.exception(
-                _('Broker error trying to rollback locked connection'))
+                'Broker error trying to rollback locked connection')
             conn.close()
 
     def newid(self, remote_id):
@@ -613,7 +613,7 @@ class DatabaseBroker(object):
                         self._commit_puts_load(item_list, entry)
                     except Exception:
                         self.logger.exception(
-                            _('Invalid pending entry %(file)s: %(entry)s'),
+                            'Invalid pending entry %(file)s: %(entry)s',
                             {'file': self.pending_file, 'entry': entry})
             if item_list:
                 self.merge_items(item_list)

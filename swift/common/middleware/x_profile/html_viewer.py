@@ -303,7 +303,7 @@ class HTMLViewer(object):
                                                  nfl_filter, download_format)
             headers.append(('Access-Control-Allow-Origin', '*'))
         else:
-            raise MethodNotAllowed(_('method %s is not allowed.') % method)
+            raise MethodNotAllowed('method %s is not allowed.' % method)
         return content, headers
 
     def index_page(self, log_files=None, sort='time', limit=-1,
@@ -314,7 +314,7 @@ class HTMLViewer(object):
         try:
             stats = Stats2(*log_files)
         except (IOError, ValueError):
-            raise DataLoadFailure(_('Can not load profile data from %s.')
+            raise DataLoadFailure('Can not load profile data from %s.'
                                   % log_files)
         if not fulldirs:
             stats.strip_dirs()
@@ -366,7 +366,7 @@ class HTMLViewer(object):
     def download(self, log_files, sort='time', limit=-1, nfl_filter='',
                  output_format='default'):
         if len(log_files) == 0:
-            raise NotFoundException(_('no log file found'))
+            raise NotFoundException('no log file found')
         try:
             nfl_esc = nfl_filter.replace('(', '\(').replace(')', '\)')
             # remove the slash that is intentionally added in the URL
@@ -389,14 +389,14 @@ class HTMLViewer(object):
         except ODFLIBNotInstalled:
             raise
         except Exception as ex:
-            raise ProfileException(_('Data download error: %s') % ex)
+            raise ProfileException('Data download error: %s' % ex)
 
     def plot(self, log_files, sort='time', limit=10, nfl_filter='',
              metric_selected='cc', plot_type='bar'):
         if not PLOTLIB_INSTALLED:
-            raise PLOTLIBNotInstalled(_('python-matplotlib not installed.'))
+            raise PLOTLIBNotInstalled('python-matplotlib not installed.')
         if len(log_files) == 0:
-            raise NotFoundException(_('no log file found'))
+            raise NotFoundException('no log file found')
         try:
             stats = Stats2(*log_files)
             stats.sort_stats(sort)
@@ -430,7 +430,7 @@ class HTMLViewer(object):
                 data = profile_img.read()
                 return data, [('content-type', 'image/jpg')]
         except Exception as ex:
-            raise ProfileException(_('plotting results failed due to %s') % ex)
+            raise ProfileException('plotting results failed due to %s' % ex)
 
     def format_source_code(self, nfl):
         nfls = re.split('[:()]', nfl)
@@ -441,7 +441,7 @@ class HTMLViewer(object):
             lineno = 0
         # for security reason, this need to be fixed.
         if not file_path.endswith('.py'):
-            return _('The file type are forbidden to access!')
+            return 'The file type are forbidden to access!'
         try:
             data = []
             i = 0
@@ -462,7 +462,7 @@ class HTMLViewer(object):
                         data.append(fmt % (i, i, i, l))
             data = ''.join(data)
         except Exception:
-            return _('Can not access the file %s.') % file_path
+            return 'Can not access the file %s.' % file_path
         return '<pre>%s</pre>' % data
 
     def generate_stats_html(self, stats, app_path, profile_id, *selection):

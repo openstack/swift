@@ -56,9 +56,9 @@ class AccountAuditor(Daemon):
         for path, device, partition in all_locs:
             self.account_audit(path)
             if time.time() - reported >= self.logging_interval:
-                self.logger.info(_('Since %(time)s: Account audits: '
-                                   '%(passed)s passed audit,'
-                                   '%(failed)s failed audit'),
+                self.logger.info('Since %(time)s: Account audits: '
+                                 '%(passed)s passed audit,'
+                                 '%(failed)s failed audit',
                                  {'time': time.ctime(reported),
                                   'passed': self.account_passes,
                                   'failed': self.account_failures})
@@ -79,29 +79,29 @@ class AccountAuditor(Daemon):
         reported = time.time()
         time.sleep(random() * self.interval)
         while True:
-            self.logger.info(_('Begin account audit pass.'))
+            self.logger.info('Begin account audit pass.')
             begin = time.time()
             try:
                 reported = self._one_audit_pass(reported)
             except (Exception, Timeout):
                 self.logger.increment('errors')
-                self.logger.exception(_('ERROR auditing'))
+                self.logger.exception('ERROR auditing')
             elapsed = time.time() - begin
             if elapsed < self.interval:
                 time.sleep(self.interval - elapsed)
             self.logger.info(
-                _('Account audit pass completed: %.02fs'), elapsed)
+                'Account audit pass completed: %.02fs', elapsed)
             dump_recon_cache({'account_auditor_pass_completed': elapsed},
                              self.rcache, self.logger)
 
     def run_once(self, *args, **kwargs):
         """Run the account audit once."""
-        self.logger.info(_('Begin account audit "once" mode'))
+        self.logger.info('Begin account audit "once" mode')
         begin = reported = time.time()
         self._one_audit_pass(reported)
         elapsed = time.time() - begin
         self.logger.info(
-            _('Account audit "once" mode completed: %.02fs'), elapsed)
+            'Account audit "once" mode completed: %.02fs', elapsed)
         dump_recon_cache({'account_auditor_pass_completed': elapsed},
                          self.rcache, self.logger)
 
@@ -120,9 +120,9 @@ class AccountAuditor(Daemon):
         for key in policy_totals:
             if policy_totals[key] == info[key]:
                 continue
-            raise InvalidAccountInfo(_(
+            raise InvalidAccountInfo(
                 'The total %(key)s for the container (%(total)s) does not '
-                'match the sum of %(key)s across policies (%(sum)s)')
+                'match the sum of %(key)s across policies (%(sum)s)'
                 % {'key': key,
                    'total': info[key],
                    'sum': policy_totals[key]})
@@ -140,16 +140,16 @@ class AccountAuditor(Daemon):
                 self.validate_per_policy_counts(broker)
                 self.logger.increment('passes')
                 self.account_passes += 1
-                self.logger.debug(_('Audit passed for %s'), broker)
+                self.logger.debug('Audit passed for %s', broker)
         except InvalidAccountInfo as e:
             self.logger.increment('failures')
             self.account_failures += 1
             self.logger.error(
-                _('Audit Failed for %(path)s: %(err)s'),
+                'Audit Failed for %(path)s: %(err)s',
                 {'path': path, 'err': str(e)})
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.account_failures += 1
-            self.logger.exception(_('ERROR Could not get account info %s'),
+            self.logger.exception('ERROR Could not get account info %s',
                                   path)
         self.logger.timing_since('timing', start_time)

@@ -22,7 +22,7 @@ class ProfileException(Exception):
         self.msg = msg
 
     def __str__(self):
-        return _('Profiling Error: %s') % self.msg
+        return 'Profiling Error: %s' % self.msg
 
 
 class NotFoundException(ProfileException):

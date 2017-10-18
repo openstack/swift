@@ -433,7 +433,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                 ismount(os.path.join(devices, device)):
             if logger:
                 logger.debug(
-                    _('Skipping %s as it is not mounted'), device)
+                    'Skipping %s as it is not mounted', device)
             continue
         # loop through object dirs for all policies
         device_dir = os.path.join(devices, device)
@@ -442,7 +442,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
         except OSError as e:
             if logger:
                 logger.debug(
-                    _('Skipping %(dir)s: %(err)s') % {'dir': device_dir,
+                    'Skipping %(dir)s: %(err)s' % {'dir': device_dir,
                                                       'err': e.strerror})
             continue
         for dir_ in dirs:
@@ -452,8 +452,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                 base, policy = split_policy_string(dir_)
             except PolicyError as e:
                 if logger:
-                    logger.warning(_('Directory %(directory)r does not map '
-                                     'to a valid policy (%(error)s)') % {
+                    logger.warning('Directory %(directory)r does not map '
+                                   'to a valid policy (%(error)s)' % {
                                    'directory': dir_, 'error': e})
                 continue
             datadir_path = os.path.join(devices, device, dir_)
@@ -499,14 +499,14 @@ def get_auditor_status(datadir_path, logger, auditor_type):
             status = statusfile.read()
     except (OSError, IOError) as e:
         if e.errno != errno.ENOENT and logger:
-            logger.warning(_('Cannot read %(auditor_status)s (%(err)s)') %
+            logger.warning('Cannot read %(auditor_status)s (%(err)s)' %
                            {'auditor_status': auditor_status, 'err': e})
         return listdir(datadir_path)
     try:
         status = json.loads(status)
     except ValueError as e:
-        logger.warning(_('Loading JSON from %(auditor_status)s failed'
-                         ' (%(err)s)') %
+        logger.warning('Loading JSON from %(auditor_status)s failed'
+                         ' (%(err)s)' %
                        {'auditor_status': auditor_status, 'err': e})
         return listdir(datadir_path)
     return status['partitions']
@@ -533,7 +533,7 @@ def update_auditor_status(datadir_path, logger, partitions, auditor_type):
             statusfile.write(status)
     except (OSError, IOError) as e:
         if logger:
-            logger.warning(_('Cannot write %(auditor_status)s (%(err)s)') %
+            logger.warning('Cannot write %(auditor_status)s (%(err)s)' %
                            {'auditor_status': auditor_status, 'err': e})
 
 
@@ -1020,8 +1020,8 @@ class BaseDiskFileManager(object):
                     device_path = dirname(objects_path)
                     quar_path = quarantine_renamer(device_path, hsh_path)
                     logging.exception(
-                        _('Quarantined %(hsh_path)s to %(quar_path)s because '
-                          'it is not a directory'), {'hsh_path': hsh_path,
+                        'Quarantined %(hsh_path)s to %(quar_path)s because '
+                        'it is not a directory', {'hsh_path': hsh_path,
                                                      'quar_path': quar_path})
                     continue
                 raise
@@ -1155,7 +1155,7 @@ class BaseDiskFileManager(object):
                 except PathNotDir:
                     del hashes[suffix]
                 except OSError:
-                    logging.exception(_('Error hashing suffix'))
+                    logging.exception('Error hashing suffix')
                 modified = True
         if modified:
             with lock_path(partition_path):
@@ -1318,8 +1318,8 @@ class BaseDiskFileManager(object):
             if err.errno == errno.ENOTDIR:
                 quar_path = self.quarantine_renamer(dev_path, object_path)
                 logging.exception(
-                    _('Quarantined %(object_path)s to %(quar_path)s because '
-                      'it is not a directory'), {'object_path': object_path,
+                    'Quarantined %(object_path)s to %(quar_path)s because '
+                    'it is not a directory', {'object_path': object_path,
                                                  'quar_path': quar_path})
                 raise DiskFileNotExist()
             if err.errno != errno.ENOENT:
@@ -1585,7 +1585,7 @@ class BaseDiskFileWriter(object):
             try:
                 self.manager.cleanup_ondisk_files(self._datadir)
             except OSError:
-                logging.exception(_('Problem cleaning up %s'), self._datadir)
+                logging.exception('Problem cleaning up %s', self._datadir)
 
             self._part_power_cleanup(target_path, new_target_path)
 
@@ -1658,7 +1658,7 @@ class BaseDiskFileWriter(object):
                 self.manager.cleanup_ondisk_files(new_target_dir)
             except OSError:
                 logging.exception(
-                    _('Problem cleaning up %s'), new_target_dir)
+                    'Problem cleaning up %s', new_target_dir)
 
         # Partition power has been increased, cleanup not yet finished
         else:
@@ -1670,7 +1670,7 @@ class BaseDiskFileWriter(object):
                 self.manager.cleanup_ondisk_files(old_target_dir)
             except OSError:
                 logging.exception(
-                    _('Problem cleaning up %s'), old_target_dir)
+                    'Problem cleaning up %s', old_target_dir)
 
 
 class BaseDiskFileReader(object):
@@ -1970,9 +1970,9 @@ class BaseDiskFileReader(object):
             except DiskFileQuarantined:
                 raise
             except (Exception, Timeout) as e:
-                self._logger.error(_(
+                self._logger.error(
                     'ERROR DiskFile %(data_file)s'
-                    ' close failure: %(exc)s : %(stack)s'),
+                    ' close failure: %(exc)s : %(stack)s',
                     {'exc': e, 'stack': ''.join(traceback.format_stack()),
                      'data_file': self._data_file})
             finally:
@@ -2307,8 +2307,8 @@ class BaseDiskFile(object):
         else:
             if mname != self._name:
                 self._logger.error(
-                    _('Client path %(client)s does not match '
-                      'path stored in object metadata %(meta)s'),
+                    'Client path %(client)s does not match '
+                    'path stored in object metadata %(meta)s',
                     {'client': self._name, 'meta': mname})
                 raise DiskFileCollision('Client path does not match path '
                                         'stored in object metadata')
@@ -2757,8 +2757,8 @@ class ECDiskFileReader(BaseDiskFileReader):
             # format so for safety, check the input chunk if it's binary to
             # avoid quarantining a valid fragment archive.
             self._diskfile._logger.warn(
-                _('Unexpected fragment data type (not quarantined)'
-                  '%(datadir)s: %(type)s at offset 0x%(offset)x'),
+                'Unexpected fragment data type (not quarantined)'
+                '%(datadir)s: %(type)s at offset 0x%(offset)x',
                 {'datadir': self._diskfile._datadir,
                  'type': type(frag),
                  'offset': self.frag_offset})
@@ -2781,7 +2781,7 @@ class ECDiskFileReader(BaseDiskFileReader):
             raise DiskFileQuarantined(msg)
         except ECDriverError as err:
             self._diskfile._logger.warn(
-                _('Problem checking EC fragment %(datadir)s: %(err)s'),
+                'Problem checking EC fragment %(datadir)s: %(err)s',
                 {'datadir': self._diskfile._datadir, 'err': err})
 
     def _update_checks(self, chunk):
@@ -2832,7 +2832,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     raise
                 params = {'file': durable_data_file_path, 'err': err}
                 self.manager.logger.exception(
-                    _('No space left on device for %(file)s (%(err)s)'),
+                    'No space left on device for %(file)s (%(err)s)',
                     params)
                 exc = DiskFileNoSpace(
                     'No space left on device for %(file)s (%(err)s)' % params)
@@ -2841,7 +2841,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                     self.manager.cleanup_ondisk_files(self._datadir)
                 except OSError as os_err:
                     self.manager.logger.exception(
-                        _('Problem cleaning up %(datadir)s (%(err)s)'),
+                        'Problem cleaning up %(datadir)s (%(err)s)',
                         {'datadir': self._datadir, 'err': os_err})
                 self._part_power_cleanup(
                     durable_data_file_path, new_durable_data_file_path)
@@ -2849,7 +2849,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
         except Exception as err:
             params = {'file': durable_data_file_path, 'err': err}
             self.manager.logger.exception(
-                _('Problem making data file durable %(file)s (%(err)s)'),
+                'Problem making data file durable %(file)s (%(err)s)',
                 params)
             exc = DiskFileError(
                 'Problem making data file durable %(file)s (%(err)s)' % params)

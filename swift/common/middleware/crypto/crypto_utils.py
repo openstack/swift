@@ -161,15 +161,15 @@ class CryptoWSGIContext(WSGIContext):
         try:
             fetch_crypto_keys = env[CRYPTO_KEY_CALLBACK]
         except KeyError:
-            self.logger.exception(_('ERROR get_keys() missing callback'))
+            self.logger.exception('ERROR get_keys() missing callback')
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")
 
         try:
             keys = fetch_crypto_keys()
         except Exception as err:  # noqa
-            self.logger.exception(_(
-                'ERROR get_keys(): from callback: %s') % err)
+            self.logger.exception(
+                'ERROR get_keys(): from callback: %s' % err)
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")
 
@@ -179,12 +179,12 @@ class CryptoWSGIContext(WSGIContext):
                 self.crypto.check_key(key)
                 continue
             except KeyError:
-                self.logger.exception(_("Missing key for %r") % name)
+                self.logger.exception("Missing key for %r" % name)
             except TypeError:
-                self.logger.exception(_("Did not get a keys dict"))
+                self.logger.exception("Did not get a keys dict")
             except ValueError as e:
                 # don't include the key in any messages!
-                self.logger.exception(_("Bad key for %(name)r: %(err)s") %
+                self.logger.exception("Bad key for %(name)r: %(err)s" %
                                       {'name': name, 'err': e})
             raise HTTPInternalServerError(
                 "Unable to retrieve encryption keys.")

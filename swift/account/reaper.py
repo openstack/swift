@@ -137,14 +137,14 @@ class AccountReaper(Daemon):
                         os.path.join(self.devices, device)):
                     self.logger.increment('errors')
                     self.logger.debug(
-                        _('Skipping %s as it is not mounted'), device)
+                        'Skipping %s as it is not mounted', device)
                     continue
                 self.reap_device(device)
         except (Exception, Timeout):
-            self.logger.exception(_("Exception in top-level account reaper "
-                                    "loop"))
+            self.logger.exception("Exception in top-level account reaper "
+                                  "loop")
         elapsed = time() - begin
-        self.logger.info(_('Devices pass completed: %.02fs'), elapsed)
+        self.logger.info('Devices pass completed: %.02fs', elapsed)
 
     def reap_device(self, device):
         """
@@ -254,7 +254,7 @@ class AccountReaper(Daemon):
                 self.delay_reaping:
             return False
         account = info['account']
-        self.logger.info(_('Beginning pass on account %s'), account)
+        self.logger.info('Beginning pass on account %s', account)
         self.reset_stats()
         container_limit = 1000
         if container_shard is not None:
@@ -279,43 +279,43 @@ class AccountReaper(Daemon):
                     self.container_pool.waitall()
                 except (Exception, Timeout):
                     self.logger.exception(
-                        _('Exception with containers for account %s'), account)
+                        'Exception with containers for account %s', account)
                 marker = containers[-1][0]
                 if marker == '':
                     break
             log = 'Completed pass on account %s' % account
         except (Exception, Timeout):
             self.logger.exception(
-                _('Exception with account %s'), account)
-            log = _('Incomplete pass on account %s') % account
+                'Exception with account %s', account)
+            log = 'Incomplete pass on account %s' % account
         if self.stats_containers_deleted:
-            log += _(', %s containers deleted') % self.stats_containers_deleted
+            log += ', %s containers deleted' % self.stats_containers_deleted
         if self.stats_objects_deleted:
-            log += _(', %s objects deleted') % self.stats_objects_deleted
+            log += ', %s objects deleted' % self.stats_objects_deleted
         if self.stats_containers_remaining:
-            log += _(', %s containers remaining') % \
+            log += ', %s containers remaining' % \
                 self.stats_containers_remaining
         if self.stats_objects_remaining:
-            log += _(', %s objects remaining') % self.stats_objects_remaining
+            log += ', %s objects remaining' % self.stats_objects_remaining
         if self.stats_containers_possibly_remaining:
-            log += _(', %s containers possibly remaining') % \
+            log += ', %s containers possibly remaining' % \
                 self.stats_containers_possibly_remaining
         if self.stats_objects_possibly_remaining:
-            log += _(', %s objects possibly remaining') % \
+            log += ', %s objects possibly remaining' % \
                 self.stats_objects_possibly_remaining
         if self.stats_return_codes:
-            log += _(', return codes: ')
+            log += ', return codes: '
             for code in sorted(self.stats_return_codes):
                 log += '%s %sxxs, ' % (self.stats_return_codes[code], code)
             log = log[:-2]
-        log += _(', elapsed: %.02fs') % (time() - begin)
+        log += ', elapsed: %.02fs' % (time() - begin)
         self.logger.info(log)
         self.logger.timing_since('timing', self.start_time)
         delete_timestamp = Timestamp(info['delete_timestamp'])
         if self.stats_containers_remaining and \
            begin - float(delete_timestamp) >= self.reap_not_done_after:
             self.logger.warning(
-                _('Account %(account)s has not been reaped since %(time)s') %
+                'Account %(account)s has not been reaped since %(time)s' %
                 {'account': account, 'time': delete_timestamp.isoformat})
         return True
 
@@ -374,14 +374,14 @@ class AccountReaper(Daemon):
             except ClientException as err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
-                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
+                        'Exception with %(ip)s:%(port)s/%(device)s', node)
                 self.stats_return_codes[err.http_status // 100] = \
                     self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
                     'return_codes.%d' % (err.http_status // 100,))
             except (Timeout, socket.error) as err:
                 self.logger.error(
-                    _('Timeout Exception with %(ip)s:%(port)s/%(device)s'),
+                    'Timeout Exception with %(ip)s:%(port)s/%(device)s',
                     node)
             if not objects:
                 break
@@ -398,9 +398,8 @@ class AccountReaper(Daemon):
                                nodes, obj['name'], policy_index)
                 pool.waitall()
             except (Exception, Timeout):
-                self.logger.exception(_('Exception with objects for container '
-                                        '%(container)s for account %(account)s'
-                                        ),
+                self.logger.exception('Exception with objects for container '
+                                      '%(container)s for account %(account)s',
                                       {'container': container,
                                        'account': account})
             marker = objects[-1]['name']
@@ -428,7 +427,7 @@ class AccountReaper(Daemon):
             except ClientException as err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
-                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
+                        'Exception with %(ip)s:%(port)s/%(device)s', node)
                 failures += 1
                 self.logger.increment('containers_failures')
                 self.stats_return_codes[err.http_status // 100] = \
@@ -437,7 +436,7 @@ class AccountReaper(Daemon):
                     'return_codes.%d' % (err.http_status // 100,))
             except (Timeout, socket.error) as err:
                 self.logger.error(
-                    _('Timeout Exception with %(ip)s:%(port)s/%(device)s'),
+                    'Timeout Exception with %(ip)s:%(port)s/%(device)s',
                     node)
                 failures += 1
                 self.logger.increment('containers_failures')
@@ -504,7 +503,7 @@ class AccountReaper(Daemon):
             except ClientException as err:
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
-                        _('Exception with %(ip)s:%(port)s/%(device)s'), node)
+                        'Exception with %(ip)s:%(port)s/%(device)s', node)
                 failures += 1
                 self.logger.increment('objects_failures')
                 self.stats_return_codes[err.http_status // 100] = \
@@ -515,7 +514,7 @@ class AccountReaper(Daemon):
                 failures += 1
                 self.logger.increment('objects_failures')
                 self.logger.error(
-                    _('Timeout Exception with %(ip)s:%(port)s/%(device)s'),
+                    'Timeout Exception with %(ip)s:%(port)s/%(device)s',
                     node)
             if successes > failures:
                 self.stats_objects_deleted += 1

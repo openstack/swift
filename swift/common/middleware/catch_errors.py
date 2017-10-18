@@ -40,7 +40,7 @@ class CatchErrorsContext(WSGIContext):
             # catch any errors in the pipeline
             resp = self._app_call(env)
         except:  # noqa
-            self.logger.exception(_('Error: An error occurred'))
+            self.logger.exception('Error: An error occurred')
             resp = HTTPServerError(request=Request(env),
                                    body='An error occurred',
                                    content_type='text/plain')

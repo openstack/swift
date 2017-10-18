@@ -270,8 +270,8 @@ class AccountController(BaseStorageServer):
             except HTTPException as error_response:
                 res = error_response
             except (Exception, Timeout):
-                self.logger.exception(_('ERROR __call__ error with %(method)s'
-                                        ' %(path)s '),
+                self.logger.exception('ERROR __call__ error with %(method)s'
+                                      ' %(path)s ',
                                       {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         if self.log_requests:

@@ -223,7 +223,7 @@ class ProfileMiddleware(object):
                 return '%s' % pf
             except Exception as ex:
                 start_response('500 Internal Server Error', [])
-                return _('Error on render profiling results: %s') % ex
+                return 'Error on render profiling results: %s' % ex
         else:
             _locals = locals()
             code = self.unwind and PROFILE_EXEC_EAGER or\

@@ -363,14 +363,14 @@ class ObjectReconstructor(Daemon):
                 resp.full_path = full_path
             if resp.status not in [HTTP_OK, HTTP_NOT_FOUND]:
                 self.logger.warning(
-                    _("Invalid response %(resp)s from %(full_path)s"),
+                    "Invalid response %(resp)s from %(full_path)s",
                     {'resp': resp.status, 'full_path': full_path})
                 resp = None
             elif resp.status == HTTP_NOT_FOUND:
                 resp = None
         except (Exception, Timeout):
             self.logger.exception(
-                _("Trying to GET %(full_path)s"), {
+                "Trying to GET %(full_path)s", {
                     'full_path': full_path})
         return resp
 
@@ -546,8 +546,8 @@ class ObjectReconstructor(Daemon):
                         fragment_payload = [fragment for fragment in pile]
                 except (Exception, Timeout):
                     self.logger.exception(
-                        _("Error trying to rebuild %(path)s "
-                          "policy#%(policy)d frag#%(frag_index)s"),
+                        "Error trying to rebuild %(path)s "
+                        "policy#%(policy)d frag#%(frag_index)s",
                         {'path': path,
                          'policy': policy,
                          'frag_index': frag_index,
@@ -569,9 +569,9 @@ class ObjectReconstructor(Daemon):
             elapsed = (time.time() - self.start) or 0.000001
             rate = self.reconstruction_part_count / elapsed
             self.logger.info(
-                _("%(reconstructed)d/%(total)d (%(percentage).2f%%)"
-                  " partitions reconstructed in %(time).2fs "
-                  "(%(rate).2f/sec, %(remaining)s remaining)"),
+                "%(reconstructed)d/%(total)d (%(percentage).2f%%)"
+                " partitions reconstructed in %(time).2fs "
+                "(%(rate).2f/sec, %(remaining)s remaining)",
                 {'reconstructed': self.reconstruction_part_count,
                  'total': self.part_count,
                  'percentage':
@@ -584,22 +584,22 @@ class ObjectReconstructor(Daemon):
 
             if self.suffix_count and self.partition_times:
                 self.logger.info(
-                    _("%(checked)d suffixes checked - "
-                      "%(hashed).2f%% hashed, %(synced).2f%% synced"),
+                    "%(checked)d suffixes checked - "
+                    "%(hashed).2f%% hashed, %(synced).2f%% synced",
                     {'checked': self.suffix_count,
                      'hashed': (self.suffix_hash * 100.0) / self.suffix_count,
                      'synced': (self.suffix_sync * 100.0) / self.suffix_count})
                 self.partition_times.sort()
                 self.logger.info(
-                    _("Partition times: max %(max).4fs, "
-                      "min %(min).4fs, med %(med).4fs"),
+                    "Partition times: max %(max).4fs, "
+                    "min %(min).4fs, med %(med).4fs",
                     {'max': self.partition_times[-1],
                      'min': self.partition_times[0],
                      'med': self.partition_times[
                          len(self.partition_times) // 2]})
         else:
             self.logger.info(
-                _("Nothing reconstructed for %s seconds."),
+                "Nothing reconstructed for %s seconds.",
                 (time.time() - self.start))
 
     def kill_coros(self):
@@ -628,7 +628,7 @@ class ObjectReconstructor(Daemon):
         while True:
             sleep(self.lockup_timeout)
             if self.reconstruction_count == self.last_reconstruction_count:
-                self.logger.error(_("Lockup detected.. killing live coros."))
+                self.logger.error("Lockup detected.. killing live coros.")
                 self.kill_coros()
             self.last_reconstruction_count = self.reconstruction_count
 
@@ -676,7 +676,7 @@ class ObjectReconstructor(Daemon):
                 conn.getresponse().read()
         except (Exception, Timeout):
             self.logger.exception(
-                _("Trying to sync suffixes with %s") % _full_path(
+                "Trying to sync suffixes with %s" % _full_path(
                     node, job['partition'], '', job['policy']))
 
     def _get_suffixes_to_sync(self, job, node):
@@ -701,14 +701,14 @@ class ObjectReconstructor(Daemon):
                     '', headers=self.headers).getresponse()
             if resp.status == HTTP_INSUFFICIENT_STORAGE:
                 self.logger.error(
-                    _('%s responded as unmounted'),
+                    '%s responded as unmounted',
                     _full_path(node, job['partition'], '',
                                job['policy']))
             elif resp.status != HTTP_OK:
                 full_path = _full_path(node, job['partition'], '',
                                        job['policy'])
                 self.logger.error(
-                    _("Invalid response %(resp)s from %(full_path)s"),
+                    "Invalid response %(resp)s from %(full_path)s",
                     {'resp': resp.status, 'full_path': full_path})
             else:
                 remote_suffixes = pickle.loads(resp.read())
@@ -1056,7 +1056,7 @@ class ObjectReconstructor(Daemon):
                 policy.object_ring, 'next_part_power', None)
             if next_part_power is not None:
                 self.logger.warning(
-                    _("next_part_power set in policy '%s'. Skipping"),
+                    "next_part_power set in policy '%s'. Skipping",
                     policy.name)
                 continue
 
@@ -1068,7 +1068,7 @@ class ObjectReconstructor(Daemon):
                 self.device_count += 1
                 dev_path = df_mgr.get_dev_path(local_dev['device'])
                 if not dev_path:
-                    self.logger.warning(_('%s is not mounted'),
+                    self.logger.warning('%s is not mounted',
                                         local_dev['device'])
                     continue
                 data_dir = get_data_dir(policy)
@@ -1162,7 +1162,7 @@ class ObjectReconstructor(Daemon):
             shutil.rmtree(path, ignore_errors=True)
             remove_file(path)
 
-        self.logger.info(_("Removing partition: %s"), path)
+        self.logger.info("Removing partition: %s", path)
         tpool.execute(kill_it, path)
 
     def reconstruct(self, **kwargs):
@@ -1178,8 +1178,8 @@ class ObjectReconstructor(Daemon):
             for part_info in self.collect_parts(**kwargs):
                 sleep()  # Give spawns a cycle
                 if not self.check_ring(part_info['policy'].object_ring):
-                    self.logger.info(_("Ring change detected. Aborting "
-                                       "current reconstruction pass."))
+                    self.logger.info("Ring change detected. Aborting "
+                                     "current reconstruction pass.")
                     return
 
                 self.reconstruction_part_count += 1
@@ -1199,8 +1199,8 @@ class ObjectReconstructor(Daemon):
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
         except (Exception, Timeout):
-            self.logger.exception(_("Exception in top-level"
-                                    "reconstruction loop"))
+            self.logger.exception("Exception in top-level"
+                                  "reconstruction loop")
             self.kill_coros()
         finally:
             stats.kill()
@@ -1208,14 +1208,14 @@ class ObjectReconstructor(Daemon):
             self.stats_line()
         if self.handoffs_only:
             if self.handoffs_remaining > 0:
-                self.logger.info(_(
+                self.logger.info(
                     "Handoffs only mode still has handoffs remaining. "
-                    "Next pass will continue to revert handoffs."))
+                    "Next pass will continue to revert handoffs.")
             else:
-                self.logger.warning(_(
+                self.logger.warning(
                     "Handoffs only mode found no handoffs remaining. "
                     "You should disable handoffs_only once all nodes "
-                    "are reporting no handoffs remaining."))
+                    "are reporting no handoffs remaining.")
 
     def final_recon_dump(self, total, override_devices=None, **kwargs):
         """
@@ -1246,12 +1246,12 @@ class ObjectReconstructor(Daemon):
 
     def run_once(self, *args, **kwargs):
         start = time.time()
-        self.logger.info(_("Running object reconstructor in script mode."))
+        self.logger.info("Running object reconstructor in script mode.")
         override_options = parse_override_options(once=True, **kwargs)
         self.reconstruct(**override_options)
         total = (time.time() - start) / 60
         self.logger.info(
-            _("Object reconstruction complete (once). (%.02f minutes)"), total)
+            "Object reconstruction complete (once). (%.02f minutes)", total)
         # Only dump stats if they would actually be meaningful -- i.e. we're
         # collecting per-disk stats and covering all partitions, or we're
         # covering all partitions, all disks.
@@ -1261,17 +1261,17 @@ class ObjectReconstructor(Daemon):
             self.final_recon_dump(total, **override_options)
 
     def run_forever(self, *args, **kwargs):
-        self.logger.info(_("Starting object reconstructor in daemon mode."))
+        self.logger.info("Starting object reconstructor in daemon mode.")
         # Run the reconstructor continually
         while True:
             start = time.time()
-            self.logger.info(_("Starting object reconstruction pass."))
+            self.logger.info("Starting object reconstruction pass.")
             override_options = parse_override_options(**kwargs)
             # Run the reconstructor
             self.reconstruct(**override_options)
             total = (time.time() - start) / 60
             self.logger.info(
-                _("Object reconstruction complete. (%.02f minutes)"), total)
+                "Object reconstruction complete. (%.02f minutes)", total)
             self.final_recon_dump(total, **override_options)
             self.logger.debug('reconstruction sleeping for %s seconds.',
                               self.interval)
