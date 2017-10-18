@@ -25,7 +25,6 @@ import eventlet.debug
 import eventlet.event
 import eventlet.patcher
 import functools
-import grp
 import logging
 import platform
 import os
@@ -2144,10 +2143,6 @@ log_name = %(yarr)s'''
             self.assertTrue(utils.os.called_funcs[func])
         import pwd
         self.assertEqual(pwd.getpwnam(user)[5], utils.os.environ['HOME'])
-
-        groups = [g.gr_gid for g in grp.getgrall() if user in g.gr_mem]
-        groups.append(pwd.getpwnam(user).pw_gid)
-        self.assertEqual(set(groups), set(os.getgroups()))
 
         # reset; test same args, OSError trying to get session leader
         utils.os = MockOs(called_funcs=required_func_calls,
