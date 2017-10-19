@@ -18,10 +18,13 @@ import uuid
 
 from nose import SkipTest
 
+from swift.common import direct_client
+from swift.common.direct_client import DirectClientException
+from swift.common.utils import ShardRange
 from swift.container.backend import ContainerBroker, DB_STATE
 from swift.common import utils
 from swift.common.manager import Manager
-from swiftclient import client, get_auth
+from swiftclient import client, get_auth, ClientException
 
 from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, get_server_number
@@ -49,7 +52,7 @@ class TestContainerSharding(ReplProbeTest):
 
         if self.max_shard_size > MAX_SHARD_CONTAINER_SIZE:
             raise SkipTest('shard_container_size is too big! %d > %d' %
-                           self.max_shard_size, MAX_SHARD_CONTAINER_SIZE)
+                           (self.max_shard_size, MAX_SHARD_CONTAINER_SIZE))
 
         _, self.admin_token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
@@ -59,6 +62,25 @@ class TestContainerSharding(ReplProbeTest):
         self.brain.put_container()
 
         self.sharders = Manager(['container-sharder'])
+
+    def direct_delete_container(self, account=None, container=None,
+                                expect_failure=False):
+        account = account if account else self.account
+        container = container if container else self.container_name
+        cpart, cnodes = self.container_ring.get_nodes(account, container)
+        unexpected_responses = []
+        for cnode in cnodes:
+            try:
+                direct_client.direct_delete_container(
+                    cnode, cpart, account, container)
+            except DirectClientException as err:
+                if not expect_failure:
+                    unexpected_responses.append((cnode, err))
+            else:
+                if expect_failure:
+                    unexpected_responses.append((cnode, 'success'))
+        if unexpected_responses:
+            self.fail('Unexpected responses: %s' % unexpected_responses)
 
     def categorize_container_dir_content(self, container=None):
         container = container or self.container_name
@@ -106,6 +128,19 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(obj_len, length, 'len(%r) == %d, not %d' % (
             obj, obj_len, length))
 
+    def assert_shard_ranges_contiguous(self, expected_number, shard_ranges):
+        actual_shard_ranges = sorted([ShardRange.from_dict(d)
+                                      for d in shard_ranges])
+        self.assertLengthEqual(actual_shard_ranges, expected_number)
+        self.assertEqual('', actual_shard_ranges[0].lower)
+        for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
+            self.assertEqual(x.upper, y.lower)
+        self.assertEqual('', actual_shard_ranges[-1].upper)
+
+    def assert_total_object_count(self, expected_object_count, shard_ranges):
+        actual = sum([sr['object_count'] for sr in shard_ranges])
+        self.assertEqual(expected_object_count, actual)
+
     def _test_sharded_listing(self, run_replicators=False):
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
 
@@ -148,6 +183,9 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
         expected_shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
         self.assertLengthEqual(expected_shard_ranges, 2)
+        self.assert_total_object_count(len(obj_names), expected_shard_ranges)
+        self.assert_shard_ranges_contiguous(2, expected_shard_ranges)
+        self.direct_delete_container(expect_failure=True)
 
         self.assertLengthEqual(found['normal_dbs'], 2)
         for db_file in found['normal_dbs']:
@@ -223,6 +261,22 @@ class TestContainerSharding(ReplProbeTest):
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(headers['x-container-object-count'],
                          str(len(obj_names) + 1))
+
+        with self.assertRaises(ClientException) as cm:
+            client.delete_container(self.url, self.token, self.container_name)
+        self.assertEqual(409, cm.exception.http_status)
+
+        for obj in listing:
+            client.delete_object(
+                self.url, self.token, self.container_name, obj['name'])
+
+        # root container will not yet be aware of the deletions
+        with self.assertRaises(ClientException) as cm:
+            client.delete_container(self.url, self.token, self.container_name)
+        self.assertEqual(409, cm.exception.http_status)
+        # but once the sharders run and shards update the root...
+        self.sharders.once()
+        client.delete_container(self.url, self.token, self.container_name)
 
     def test_sharded_listing_no_replicators(self):
         self._test_sharded_listing()

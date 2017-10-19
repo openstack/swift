@@ -2655,15 +2655,16 @@ class TestContainerBroker(unittest.TestCase):
         container_name = 'test_container'
 
         def do_test(expected_bounds, expected_last_found, shard_size, limit):
+            # expected_bounds is a list of tuples (lower, upper, object_count)
             # build expected shard range dicts
             expected_range_dicts = []
-            for lower, upper in expected_bounds:
+            for lower, upper, object_count in expected_bounds:
                 name = '.sharded_a/%s-%s' % (
                     container_name,
                     hashlib.md5('%s-%s' % (upper, ts_now.internal)).hexdigest()
                 )
                 d = dict(name=name, created_at=ts_now.internal, lower=lower,
-                         upper=upper, object_count=0, bytes_used=0,
+                         upper=upper, object_count=object_count, bytes_used=0,
                          meta_timestamp=ts_now.internal, deleted=0)
                 expected_range_dicts.append(d)
             # call the method under test
@@ -2697,12 +2698,12 @@ class TestContainerBroker(unittest.TestCase):
             broker.put_object(
                 'obj%02d' % i, next(ts_iter).internal, 0, 'text/plain', 'etag')
 
-        expected_bounds = [(c_lower, 'obj04'), ('obj04', c_upper)]
+        expected_bounds = [(c_lower, 'obj04', 5), ('obj04', c_upper, 5)]
         do_test(expected_bounds, True, shard_size=5, limit=None)
 
-        expected = [(c_lower, 'obj06'), ('obj06', c_upper)]
+        expected = [(c_lower, 'obj06', 7), ('obj06', c_upper, 3)]
         do_test(expected, True, shard_size=7, limit=None)
-        expected = [(c_lower, 'obj08'), ('obj08', c_upper)]
+        expected = [(c_lower, 'obj08', 9), ('obj08', c_upper, 1)]
         do_test(expected, True, shard_size=9, limit=None)
         # shard size >= object count
         do_test([], False, shard_size=10, limit=None)
@@ -2710,11 +2711,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # check use of limit
         do_test([], False, shard_size=4, limit=0)
-        expected = [(c_lower, 'obj03')]
+        expected = [(c_lower, 'obj03', 4)]
         do_test(expected, False, shard_size=4, limit=1)
-        expected = [(c_lower, 'obj03'), ('obj03', 'obj07')]
+        expected = [(c_lower, 'obj03', 4), ('obj03', 'obj07', 4)]
         do_test(expected, False, shard_size=4, limit=2)
-        expected = [(c_lower, 'obj03'), ('obj03', 'obj07'), ('obj07', c_upper)]
+        expected = [(c_lower, 'obj03', 4), ('obj03', 'obj07', 4),
+                    ('obj07', c_upper, 2)]
         do_test(expected, True, shard_size=4, limit=3)
         do_test(expected, True, shard_size=4, limit=4)
         do_test(expected, True, shard_size=4, limit=-1)
@@ -2722,10 +2724,11 @@ class TestContainerBroker(unittest.TestCase):
         # increase object count to 11
         broker.put_object(
             'obj10', next(ts_iter).internal, 0, 'text/plain', 'etag')
-        expected = [(c_lower, 'obj03'), ('obj03', 'obj07'), ('obj07', c_upper)]
+        expected = [(c_lower, 'obj03', 4), ('obj03', 'obj07', 4),
+                    ('obj07', c_upper, 3)]
         do_test(expected, True, shard_size=4, limit=None)
 
-        expected = [(c_lower, 'obj09'), ('obj09', c_upper)]
+        expected = [(c_lower, 'obj09', 10), ('obj09', c_upper, 1)]
         do_test(expected, True, shard_size=10, limit=None)
         do_test([], False, shard_size=11, limit=None)
 
@@ -2734,16 +2737,16 @@ class TestContainerBroker(unittest.TestCase):
             '.sharded_a/srange-0', Timestamp.now(), '', 'obj03')
         broker.merge_shard_ranges([dict(shard_range)])
 
-        expected = [('obj03', 'obj07'), ('obj07', c_upper)]
+        expected = [('obj03', 'obj07', 4), ('obj07', c_upper, 3)]
         do_test(expected, True, shard_size=4, limit=None)
-        expected = [('obj03', 'obj07')]
+        expected = [('obj03', 'obj07', 4)]
         do_test(expected, False, shard_size=4, limit=1)
 
         # add another...
         shard_range = ShardRange(
             '.sharded_a/srange-1', Timestamp.now(), '', 'obj07')
         broker.merge_shard_ranges([dict(shard_range)])
-        expected = [('obj07', c_upper)]
+        expected = [('obj07', c_upper, 3)]
         do_test(expected, True, shard_size=4, limit=None)
 
         # add last shard range...

@@ -1789,11 +1789,15 @@ class ContainerBroker(DatabaseBroker):
             if next_shard_upper is None:
                 # We reached the end of the container
                 next_shard_upper = cont_upper
+                shard_size = object_count - progress
                 last_found = True
 
+            # NB set non-zero object count to that container is non-deletable
+            # if shards found but not yet cleaved
             found_ranges.append(
                 ShardRange.create(self.root_account, self.root_container,
-                                  last_shard_upper, next_shard_upper)
+                                  last_shard_upper, next_shard_upper,
+                                  object_count=shard_size)
             )
 
             if last_found:

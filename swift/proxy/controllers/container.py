@@ -21,8 +21,7 @@ from swift.common.utils import public, csv_append, Timestamp, \
     config_true_value
 from swift.common.constraints import check_metadata, CONTAINER_LISTING_LIMIT
 from swift.common import constraints
-from swift.common.http import HTTP_ACCEPTED, is_success, \
-    HTTP_PRECONDITION_FAILED
+from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
@@ -416,14 +415,6 @@ class ContainerController(Controller):
             req.swift_entity_path, [headers] * len(containers))
         return resp
 
-    def _delete_sharded(self, req, sharding_state):
-        # TODO propergate the DELETE to all shards. If one returns a 409 then
-        # we back off (what do we do with the containers that were deleted).
-        # Also we need some kind of force delete when sending to the root
-        # container while in the sharding state, as there will be a readonly
-        # (non-empty) container.
-        return HTTPBadRequest(req)
-
     @public
     @cors_validation
     def DELETE(self, req):
@@ -444,13 +435,6 @@ class ContainerController(Controller):
         # Indicates no server had the container
         if resp.status_int == HTTP_ACCEPTED:
             return HTTPNotFound(request=req)
-
-        sharding_state = resp.headers.get('X-Backend-Sharding-State')
-        if resp.status_int == HTTP_PRECONDITION_FAILED and sharding_state:
-            if sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
-                # We need to first attempt to delete the container shards then
-                # the container
-                resp = self._delete_sharded(req, )
         return resp
 
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,

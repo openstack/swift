@@ -25,8 +25,7 @@ from eventlet import Timeout
 import swift.common.db
 from swift.container.sync_store import ContainerSyncStore
 from swift.container.backend import ContainerBroker, DATADIR, \
-    RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_SHARDED, \
-    DB_STATE_UNSHARDED
+    RECORD_TYPE_SHARD_NODE, DB_STATE_SHARDING, DB_STATE_UNSHARDED
 from swift.container.replicator import ContainerReplicatorRpc
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.container_sync_realms import ContainerSyncRealms
@@ -342,16 +341,6 @@ class ContainerController(BaseStorageServer):
             # delete container
             if not broker.empty():
                 return HTTPConflict(request=req)
-            db_state = broker.get_db_state()
-            if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
-                resp = HTTPPreconditionFailed(request=req)
-                resp.headers['X-Backend-Sharding-State'] = db_state
-                resp.headers.update(
-                    (key, value)
-                    for key, (value, timestamp) in broker.metadata.items()
-                    if value != '' and (key.lower() in self.save_headers or
-                                        is_sys_or_user_meta('container', key)))
-                return resp
             existed = Timestamp(broker.get_info()['put_timestamp']) and \
                 not broker.is_deleted()
             broker.delete_db(req_timestamp.internal)
