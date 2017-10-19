@@ -1022,7 +1022,7 @@ class StaticLargeObject(object):
 
         if problem_segments:
             resp_body = get_response_body(
-                out_content_type, {}, problem_segments)
+                out_content_type, {}, problem_segments, 'upload')
             raise HTTPBadRequest(resp_body, content_type=out_content_type)
 
         slo_etag = md5()

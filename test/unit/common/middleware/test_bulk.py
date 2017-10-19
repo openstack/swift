@@ -604,11 +604,15 @@ class TestUntar(unittest.TestCase):
 
     def test_get_response_body(self):
         txt_body = bulk.get_response_body(
-            'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']])
+            'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']],
+            "doesn't matter for text")
         self.assertTrue('hey: there' in txt_body)
         xml_body = bulk.get_response_body(
-            'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']])
+            'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']],
+            'root_tag')
         self.assertTrue('&gt' in xml_body)
+        self.assertTrue(xml_body.startswith('<root_tag>\n'))
+        self.assertTrue(xml_body.endswith('\n</root_tag>\n'))
 
 
 class TestDelete(unittest.TestCase):
