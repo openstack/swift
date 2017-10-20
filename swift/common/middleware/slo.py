@@ -366,7 +366,7 @@ def parse_and_validate_input(req_body, req_path):
             except (TypeError, ValueError):
                 errors.append("Index %d: invalid size_bytes" % seg_index)
                 continue
-            if seg_size < 1:
+            if seg_size < 1 and seg_index != (len(parsed_data) - 1):
                 errors.append("Index %d: too small; each segment must be "
                               "at least 1 byte."
                               % (seg_index,))
@@ -430,7 +430,7 @@ class SloGetContext(WSGIContext):
         if not sub_resp.is_success:
             close_if_possible(sub_resp.app_iter)
             raise ListingIterError(
-                'ERROR: while fetching %s, GET of submanifest %s '
+                'while fetching %s, GET of submanifest %s '
                 'failed with status %d' % (req.path, sub_req.path,
                                            sub_resp.status_int))
 
@@ -439,7 +439,7 @@ class SloGetContext(WSGIContext):
                 return json.loads(''.join(sub_resp.app_iter))
         except ValueError as err:
             raise ListingIterError(
-                'ERROR: while fetching %s, JSON-decoding of submanifest %s '
+                'while fetching %s, JSON-decoding of submanifest %s '
                 'failed with %s' % (req.path, sub_req.path, err))
 
     def _segment_length(self, seg_dict):
@@ -526,7 +526,9 @@ class SloGetContext(WSGIContext):
                 # do this check here so that we can avoid fetching this last
                 # manifest before raising the exception
                 if recursion_depth >= self.max_slo_recursion_depth:
-                    raise ListingIterError("Max recursion depth exceeded")
+                    raise ListingIterError(
+                        "While processing manifest %r, "
+                        "max recursion depth was exceeded" % req.path)
 
                 sub_path = get_valid_utf8_str(seg_dict['name'])
                 sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
@@ -929,7 +931,10 @@ class StaticLargeObject(object):
                 'Number of segments must be <= %d' %
                 self.max_manifest_segments)
         total_size = 0
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = 'text/plain'  # Ignore invalid header
         if not out_content_type:
             out_content_type = 'text/plain'
         data_for_storage = []
@@ -948,7 +953,7 @@ class StaticLargeObject(object):
                 agent='%(orig)s SLO MultipartPUT', swift_source='SLO')
             return obj_name, sub_req.get_response(self)
 
-        def validate_seg_dict(seg_dict, head_seg_resp):
+        def validate_seg_dict(seg_dict, head_seg_resp, allow_empty_segment):
             if not head_seg_resp.is_success:
                 problem_segments.append([quote(obj_name),
                                          head_seg_resp.status])
@@ -976,7 +981,7 @@ class StaticLargeObject(object):
                     seg_dict['range'] = '%d-%d' % (rng[0], rng[1] - 1)
                     segment_length = rng[1] - rng[0]
 
-            if segment_length < 1:
+            if segment_length < 1 and not allow_empty_segment:
                 problem_segments.append(
                     [quote(obj_name),
                      'Too small; each segment must be at least 1 byte.'])
@@ -1012,7 +1017,8 @@ class StaticLargeObject(object):
                     (path, ) for path in path2indices)):
                 for i in path2indices[obj_name]:
                     segment_length, seg_data = validate_seg_dict(
-                        parsed_data[i], resp)
+                        parsed_data[i], resp,
+                        allow_empty_segment=(i == len(parsed_data) - 1))
                     data_for_storage[i] = seg_data
                     total_size += segment_length
 
@@ -1154,7 +1160,10 @@ class StaticLargeObject(object):
         """
         req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = None  # Ignore invalid header
         if out_content_type:
             resp.content_type = out_content_type
         resp.app_iter = self.bulk_deleter.handle_delete_iter(

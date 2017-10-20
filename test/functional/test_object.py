@@ -40,7 +40,7 @@ def tearDownModule():
 class TestObject(unittest2.TestCase):
 
     def setUp(self):
-        if tf.skip:
+        if tf.skip or tf.skip2:
             raise SkipTest
         self.container = uuid4().hex
 
@@ -583,7 +583,7 @@ class TestObject(unittest2.TestCase):
         self.assertIn(resp.status, (204, 404))
 
     def test_copy_between_accounts(self):
-        if tf.skip:
+        if tf.skip2:
             raise SkipTest
 
         source = '%s/%s' % (self.container, self.obj)

@@ -713,8 +713,8 @@ def quiet_eventlet_exceptions():
 def mock_check_drive(isdir=False, ismount=False):
     """
     All device/drive/mount checking should be done through the constraints
-    module if we keep the mocking consistly w/i that module we can keep our
-    test robust to further rework on that interface.
+    module. If we keep the mocking consistently within that module, we can
+    keep our tests robust to further rework on that interface.
 
     Replace the constraint modules underlying os calls with mocks.
 
