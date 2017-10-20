@@ -212,18 +212,10 @@ class TestRing(TestRingBase):
         self.assertEqual(self.ring.reload_time, self.intended_reload_time)
         self.assertEqual(self.ring.serialized_path, self.testgz)
         # test invalid endcap
-        _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
-        _orig_hash_path_prefix = utils.HASH_PATH_PREFIX
-        _orig_swift_conf_file = utils.SWIFT_CONF_FILE
-        try:
-            utils.HASH_PATH_SUFFIX = ''
-            utils.HASH_PATH_PREFIX = ''
-            utils.SWIFT_CONF_FILE = ''
+        with mock.patch.object(utils, 'HASH_PATH_SUFFIX', ''), \
+                mock.patch.object(utils, 'HASH_PATH_PREFIX', ''), \
+                mock.patch.object(utils, 'SWIFT_CONF_FILE', ''):
             self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
-        finally:
-            utils.HASH_PATH_SUFFIX = _orig_hash_path_suffix
-            utils.HASH_PATH_PREFIX = _orig_hash_path_prefix
-            utils.SWIFT_CONF_FILE = _orig_swift_conf_file
 
     def test_has_changed(self):
         self.assertFalse(self.ring.has_changed())
