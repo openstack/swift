@@ -339,7 +339,7 @@ class SegmentedIterable(object):
                     seg_size is not None and last_byte == seg_size - 1)
                 if time.time() - start_time > self.max_get_time:
                     raise SegmentError(
-                        'ERROR: While processing manifest %s, '
+                        'While processing manifest %s, '
                         'max LO GET time of %ds exceeded' %
                         (self.name, self.max_get_time))
                 # The "multipart-manifest=get" query param ensures that the
@@ -396,7 +396,7 @@ class SegmentedIterable(object):
             e_type, e_value, e_traceback = sys.exc_info()
             if time.time() - start_time > self.max_get_time:
                 raise SegmentError(
-                    'ERROR: While processing manifest %s, '
+                    'While processing manifest %s, '
                     'max LO GET time of %ds exceeded' %
                     (self.name, self.max_get_time))
             if pending_req:
@@ -405,7 +405,7 @@ class SegmentedIterable(object):
 
         if time.time() - start_time > self.max_get_time:
             raise SegmentError(
-                'ERROR: While processing manifest %s, '
+                'While processing manifest %s, '
                 'max LO GET time of %ds exceeded' %
                 (self.name, self.max_get_time))
         if pending_req:
@@ -420,7 +420,7 @@ class SegmentedIterable(object):
                 if not is_success(seg_resp.status_int):
                     close_if_possible(seg_resp.app_iter)
                     raise SegmentError(
-                        'ERROR: While processing manifest %s, '
+                        'While processing manifest %s, '
                         'got %d while retrieving %s' %
                         (self.name, seg_resp.status_int, seg_req.path))
 
@@ -485,10 +485,10 @@ class SegmentedIterable(object):
             if bytes_left:
                 raise SegmentError(
                     'Not enough bytes for %s; closing connection' % self.name)
-        except (ListingIterError, SegmentError):
-            self.logger.exception(_('ERROR: An error occurred '
-                                    'while retrieving segments'))
-            raise
+        except (ListingIterError, SegmentError) as err:
+            self.logger.error(err)
+            if not self.validated_first_segment:
+                raise
         finally:
             if self.current_resp:
                 close_if_possible(self.current_resp.app_iter)
@@ -533,12 +533,13 @@ class SegmentedIterable(object):
         """
         if self.validated_first_segment:
             return
-        self.validated_first_segment = True
 
         try:
             self.peeked_chunk = next(self.app_iter)
         except StopIteration:
             pass
+        finally:
+            self.validated_first_segment = True
 
     def __iter__(self):
         if self.peeked_chunk is not None:
