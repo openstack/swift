@@ -129,8 +129,11 @@ class TestContainerSharding(ReplProbeTest):
             obj, obj_len, length))
 
     def assert_shard_ranges_contiguous(self, expected_number, shard_ranges):
-        actual_shard_ranges = sorted([ShardRange.from_dict(d)
-                                      for d in shard_ranges])
+        if isinstance(shard_ranges[0], ShardRange):
+            actual_shard_ranges = sorted(shard_ranges)
+        else:
+            actual_shard_ranges = sorted([ShardRange.from_dict(d)
+                                          for d in shard_ranges])
         self.assertLengthEqual(actual_shard_ranges, expected_number)
         self.assertEqual('', actual_shard_ranges[0].lower)
         for x, y in zip(actual_shard_ranges, actual_shard_ranges[1:]):
@@ -242,31 +245,82 @@ class TestContainerSharding(ReplProbeTest):
                                                 query_string='reverse=on')
         self.assertEqual(pre_sharding_listing[::-1], listing)
 
-        # Now put another object
-        client.put_object(self.url, self.token, self.container_name, 'alpha')
+        # Now put some new objects
+        more_obj_names = [
+            'alpha%03d' % x for x in range(self.max_shard_size // 2)]
+
+        for obj in more_obj_names:
+            client.put_object(self.url, self.token, self.container_name, obj)
 
         # The listing includes new object...
-        headers, listing = client.get_container(self.url, self.token,
-                                                self.container_name)
-        self.assertEqual(pre_sharding_listing, listing[1:])
-        self.assertEqual('alpha', listing[0]['name'])
-        # ...but object count is out of date
+        headers, with_alphas_listing = client.get_container(
+            self.url, self.token, self.container_name)
+        self.assertEqual(more_obj_names + obj_names, [
+            x['name'].encode('utf-8') for x in with_alphas_listing])
+        self.assertEqual(pre_sharding_listing,
+                         with_alphas_listing[len(more_obj_names):])
+
+        # ...but object count is out of date until the sharders run and
+        # update the root
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(headers['x-container-object-count'],
                          str(len(obj_names)))
-        # ...until the sharders run and update the root
+
+        # ... but, we've added enough that we need to shard *again*
         self.sharders.once()
-        headers, listing = client.get_container(self.url, self.token,
-                                                self.container_name)
+        # Do it multiple times so things settle.
+        self.sharders.once()
+
+        found = self.categorize_container_dir_content()
+        self.assertLengthEqual(found['shard_dbs'], 3)
+        self.assertLengthEqual(found['normal_dbs'], 0)
+        # Shards stayed the same
+        new_shard_ranges = None
+        for db_file in found['shard_dbs']:
+            broker = ContainerBroker(db_file)
+            self.assertIs(True, broker.is_root_container())
+            self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
+            if new_shard_ranges is None:
+                new_shard_ranges = broker.get_shard_ranges(
+                    include_deleted=True)
+                self.assertLengthEqual(new_shard_ranges, 4)
+                # Second half is still there, and unchanged
+                self.assertIn(
+                    dict(expected_shard_ranges[1], meta_timestamp=None),
+                    [dict(sr, meta_timestamp=None) for sr in new_shard_ranges])
+                # But the first half split in two, then deleted
+                by_name = {sr.name: sr for sr in new_shard_ranges}
+                self.assertIn(expected_shard_ranges[0]['name'], by_name)
+                old_shard_range = by_name.pop(expected_shard_ranges[0]['name'])
+                self.assertTrue(old_shard_range.deleted)
+                self.assert_shard_ranges_contiguous(3, by_name.values())
+            else:
+                # Everyone's on the same page. Well, except for
+                # meta_timestamps, since the shards each reported
+                other_shard_ranges = broker.get_shard_ranges(
+                    include_deleted=True)
+                self.assertEqual([dict(sr, meta_timestamp=None)
+                                  for sr in new_shard_ranges],
+                                 [dict(sr, meta_timestamp=None)
+                                  for sr in other_shard_ranges])
+                for orig, updated in zip(expected_shard_ranges,
+                                         other_shard_ranges):
+                    self.assertGreaterEqual(updated.meta_timestamp,
+                                            orig['meta_timestamp'])
+
+        headers, final_listing = client.get_container(
+            self.url, self.token, self.container_name)
+        self.assertEqual(with_alphas_listing,
+                         final_listing)
         self.assertIn('x-container-object-count', headers)
         self.assertEqual(headers['x-container-object-count'],
-                         str(len(obj_names) + 1))
+                         str(len(final_listing)))
 
         with self.assertRaises(ClientException) as cm:
             client.delete_container(self.url, self.token, self.container_name)
         self.assertEqual(409, cm.exception.http_status)
 
-        for obj in listing:
+        for obj in final_listing:
             client.delete_object(
                 self.url, self.token, self.container_name, obj['name'])
 
