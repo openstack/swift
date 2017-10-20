@@ -273,7 +273,7 @@ class DiskFile(object):
         self._filesystem = fs
         self.fragments = None
 
-    def open(self):
+    def open(self, modernize=False):
         """
         Open the file and read the metadata.
 
