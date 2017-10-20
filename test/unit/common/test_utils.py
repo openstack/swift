@@ -1501,8 +1501,8 @@ class TestUtils(unittest.TestCase):
         syslog_handler_catcher.LOG_LOCAL0 = orig_sysloghandler.LOG_LOCAL0
         syslog_handler_catcher.LOG_LOCAL3 = orig_sysloghandler.LOG_LOCAL3
 
-        try:
-            utils.ThreadSafeSysLogHandler = syslog_handler_catcher
+        with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
+                               syslog_handler_catcher):
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
@@ -1551,8 +1551,6 @@ class TestUtils(unittest.TestCase):
                 ((), {'address': ('syslog.funtimes.com', 2123),
                       'facility': orig_sysloghandler.LOG_LOCAL0})],
                 syslog_handler_args)
-        finally:
-            utils.ThreadSafeSysLogHandler = orig_sysloghandler
 
     @reset_logger_state
     def test_clean_logger_exception(self):
@@ -2970,8 +2968,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.last_call[-1] = self.last_call[-1].value
                 return 0
 
-        orig__sys_fallocate = utils._sys_fallocate
-        try:
+        with patch.object(utils, '_sys_fallocate', FallocateWrapper()):
             utils._sys_fallocate = FallocateWrapper()
             # Ensure fallocate calls _sys_fallocate even with 0 bytes
             utils._sys_fallocate.last_call = None
@@ -2993,8 +2990,6 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.fallocate(1234, 10 * 1024 * 1024 * 1024)
             self.assertEqual(utils._sys_fallocate.last_call,
                              [1234, 1, 0, 10 * 1024 * 1024 * 1024])
-        finally:
-            utils._sys_fallocate = orig__sys_fallocate
 
     def test_generate_trans_id(self):
         fake_time = 1366428370.5163341
