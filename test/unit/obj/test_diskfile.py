@@ -1021,107 +1021,75 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # Double check settings
         self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, self.existing_device)
+        success = False
         with self.df_mgr.replication_lock(self.existing_device):
-            lock_exc = None
-            exc = None
-            try:
+            with self.assertRaises(ReplicationLockTimeout):
                 with self.df_mgr.replication_lock(self.existing_device):
-                    raise Exception(
-                        '%r was not replication locked!' % dev_path)
-            except ReplicationLockTimeout as err:
-                lock_exc = err
-            except Exception as err:
-                exc = err
-            self.assertTrue(lock_exc is not None)
-            self.assertTrue(exc is None)
+                    success = True
+        self.assertFalse(success)
 
     def test_replication_lock_off(self):
         # Double check settings
         self.df_mgr.replication_concurrency_per_device = 0
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, self.existing_device)
 
         # 2 locks must succeed
+        success = False
         with self.df_mgr.replication_lock(self.existing_device):
-            lock_exc = None
-            exc = None
             try:
                 with self.df_mgr.replication_lock(self.existing_device):
-                    raise Exception(
-                        '%r was not replication locked!' % dev_path)
+                    success = True
             except ReplicationLockTimeout as err:
-                lock_exc = err
-            except Exception as err:
-                exc = err
-            self.assertTrue(lock_exc is None)
-            self.assertTrue(exc is not None)
+                self.fail('Unexpected exception: %s' % err)
+        self.assertTrue(success)
 
         # 3 locks must succeed
+        success = False
         with self.df_mgr.replication_lock(self.existing_device):
             with self.df_mgr.replication_lock(self.existing_device):
-                lock_exc = None
-                exc = None
                 try:
                     with self.df_mgr.replication_lock(self.existing_device):
-                        raise Exception(
-                            '%r was not replication locked!' % dev_path)
+                        success = True
                 except ReplicationLockTimeout as err:
-                    lock_exc = err
-                except Exception as err:
-                    exc = err
-                self.assertTrue(lock_exc is None)
-                self.assertTrue(exc is not None)
+                    self.fail('Unexpected exception: %s' % err)
+        self.assertTrue(success)
 
     def test_replication_lock_2(self):
         # Double check settings
         self.df_mgr.replication_concurrency_per_device = 2
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, self.existing_device)
 
         # 2 locks with replication_concurrency_per_device=2 must succeed
+        success = False
         with self.df_mgr.replication_lock(self.existing_device):
-            lock_exc = None
-            exc = None
             try:
                 with self.df_mgr.replication_lock(self.existing_device):
-                    raise Exception(
-                        '%r was not replication locked!' % dev_path)
+                    success = True
             except ReplicationLockTimeout as err:
-                lock_exc = err
-            except Exception as err:
-                exc = err
-            self.assertTrue(lock_exc is None)
-            self.assertTrue(exc is not None)
+                self.fail('Unexpected exception: %s' % err)
+        self.assertTrue(success)
 
         # 3 locks with replication_concurrency_per_device=2 must fail
+        success = False
         with self.df_mgr.replication_lock(self.existing_device):
             with self.df_mgr.replication_lock(self.existing_device):
-                lock_exc = None
-                exc = None
-                try:
+                with self.assertRaises(ReplicationLockTimeout):
                     with self.df_mgr.replication_lock(self.existing_device):
-                        raise Exception(
-                            '%r was not replication locked!' % dev_path)
-                except ReplicationLockTimeout as err:
-                    lock_exc = err
-                except Exception as err:
-                    exc = err
-                self.assertTrue(lock_exc is not None)
-                self.assertTrue(exc is None)
+                        success = True
+        self.assertFalse(success)
 
     def test_replication_lock_another_device_fine(self):
         # Double check settings
         self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
+        success = False
         with self.df_mgr.replication_lock(self.existing_device):
-            lock_exc = None
             try:
                 with self.df_mgr.replication_lock(self.existing_device2):
-                    pass
+                    success = True
             except ReplicationLockTimeout as err:
-                lock_exc = err
-            self.assertTrue(lock_exc is None)
+                self.fail('Unexpected exception: %s' % err)
+        self.assertTrue(success)
 
     def test_missing_splice_warning(self):
         logger = FakeLogger()
