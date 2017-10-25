@@ -381,8 +381,11 @@ class DatabaseBroker(object):
     def get(self):
         """Use with the "with" statement; returns a database connection."""
         if not self.conn:
-            if self.db_file != ':memory:' and self._db_exists():
-                self._create_connection()
+            if self.db_file != ':memory:' and os.path.exists(self.db_file):
+                try:
+                    self.conn = get_db_connection(self.db_file, self.timeout)
+                except (sqlite3.DatabaseError, DatabaseConnectionError):
+                    self.possibly_quarantine(*sys.exc_info())
             else:
                 raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
         conn = self.conn

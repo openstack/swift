@@ -259,7 +259,25 @@ class ContainerBroker(DatabaseBroker):
     """
     Encapsulates working with a container database.
 
-    Note that this may involve multiple on-disk DB files, if sharding.
+    Note that this may involve multiple on-disk DB files if the container
+    becomes sharded:
+
+      * :attr:`_db_file` is the path to the original container DB, i.e.
+        `<hash>.db`. This file should exist for an initialised broker when the
+        container is in the unsharded or sharding state.
+      * :attr:`_shard_db_file` is the path to the sharded container DB, i.e.
+        `<hash>_shard.db`. This file should exist for an initialised broker
+        when the container is in the sharding or sharded state.
+      * :attr:`db_file` is the path to whichever DB is currently authoritative
+        for the container. Depending on the container's state, this may not be
+        the same as the ``db_file`` argument given to :meth:`~__init__`; while
+        the container is unsharded it will be equal to :attr:`_db_file`; while
+        the container is sharding or sharded it will be equal to
+        :attr:`_shard_db_file`. However, if ``force_db_file`` is True then
+        :attr:`db_file` is always equal to the ``db_file`` argument given to
+        :meth:`~__init__`.
+      * :attr:`pending_file` is always equal to :attr:`_db_file` extended with
+        `.pending`, i.e. `<hash>.db.pending`.
     """
     db_type = 'container'
     db_contains_type = 'object'
@@ -267,27 +285,24 @@ class ContainerBroker(DatabaseBroker):
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
-                 stale_reads_ok=False):
-        # TODO: it's not great that we have to lie to the super class just to
-        # get the pending file name correctly set...
+                 stale_reads_ok=False, force_db_file=False):
+        self._init_db_file = db_file
         base_db_file = db_file.replace('_shard', '')
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
             stale_reads_ok)
-        self._db_file = db_file
-        # The auditor will create a backend using the shard_db as the db_file.
-        if db_file == ':memory:' or db_file.endswith("_shard.db"):
+        if db_file == ':memory:':
             self._shard_db_file = db_file
         else:
-            self._shard_db_file = db_file[:-len('.db')] + "_shard.db"
+            self._shard_db_file = base_db_file.replace(".db", "_shard.db")
         # the root account and container are populated on demand
         self._root_account = self._root_container = None
+        self._force_db_file = force_db_file
 
     def get_db_state(self):
         if self._db_file == ':memory:':
             return DB_STATE_UNSHARDED
-        db_exists = os.path.exists(self._db_file) and \
-            self._db_file != self._shard_db_file
+        db_exists = os.path.exists(self._db_file)
         shard_exists = os.path.exists(self._shard_db_file)
         if db_exists and not shard_exists:
             return DB_STATE_UNSHARDED
@@ -301,14 +316,13 @@ class ContainerBroker(DatabaseBroker):
 
     @property
     def db_file(self):
+        if self._force_db_file:
+            return self._init_db_file
         db_state = self.get_db_state()
         if db_state in (DB_STATE_NOTFOUND, DB_STATE_UNSHARDED):
             return self._db_file
         elif db_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
             return self._shard_db_file
-
-    def _db_exists(self):
-        return self.get_db_state() != DB_STATE_NOTFOUND
 
     @property
     def storage_policy_index(self):
@@ -1568,20 +1582,17 @@ class ContainerBroker(DatabaseBroker):
         return True
 
     def get_brokers(self):
-        brokers = []
+        # TODO: could the first item just be self?
+        brokers = [ContainerBroker(
+            self.db_file, self.timeout, self.logger, self.account,
+            self.container, self.pending_timeout, self.stale_reads_ok)]
         state = self.get_db_state()
-        if state != DB_STATE_SHARDING:
-            brokers.append(ContainerBroker(
-                self.db_file, self.timeout, self.logger, self.account,
-                self.container, self.pending_timeout, self.stale_reads_ok))
-        else:
-            brokers.append(ContainerBroker(
+        if state == DB_STATE_SHARDING:
+            # TODO: check if order actually matters, if not then append
+            brokers.insert(0, ContainerBroker(
                 self._db_file, self.timeout, self.logger, self.account,
-                self.container, self.pending_timeout, self.stale_reads_ok))
-            brokers[0]._shard_db_file = self._db_file
-            brokers.append(ContainerBroker(
-                self._shard_db_file, self.timeout, self.logger, self.account,
-                self.container, self.pending_timeout, self.stale_reads_ok))
+                self.container, self.pending_timeout, self.stale_reads_ok,
+                force_db_file=True))
         return brokers
 
     def get_items_since(self, start, count):

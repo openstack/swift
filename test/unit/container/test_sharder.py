@@ -502,7 +502,7 @@ class TestSharder(unittest.TestCase):
 
     def test_cleave(self):
         logger = debug_logger()
-        db_file = os.path.join(self.tempdir, 'test_db')
+        db_file = os.path.join(self.tempdir, 'test.db')
         broker = ContainerBroker(
             db_file, account='a', container='c', logger=logger)
         broker.initialize()
@@ -664,7 +664,7 @@ class TestSharder(unittest.TestCase):
 
     def test_misplaced_objects_root_container(self):
         logger = debug_logger()
-        db_file = os.path.join(self.tempdir, 'test_db')
+        db_file = os.path.join(self.tempdir, 'test.db')
         broker = ContainerBroker(
             db_file, account='a', container='c', logger=logger)
         broker.initialize()
@@ -836,7 +836,7 @@ class TestSharder(unittest.TestCase):
 
     def test_misplaced_objects_shard_container_unsharded(self):
         logger = debug_logger()
-        db_file = os.path.join(self.tempdir, 'test_db')
+        db_file = os.path.join(self.tempdir, 'test.db')
         broker = ContainerBroker(
             db_file, account='.sharded_a', container='shard_c', logger=logger)
         broker.initialize()
@@ -974,7 +974,7 @@ class TestSharder(unittest.TestCase):
 
     def test_misplaced_objects_shard_container_sharding(self):
         logger = debug_logger()
-        db_file = os.path.join(self.tempdir, 'test_db')
+        db_file = os.path.join(self.tempdir, 'test.db')
         broker = ContainerBroker(
             db_file, account='.sharded_a', container='shard_c', logger=logger)
         broker.initialize()
@@ -1086,7 +1086,7 @@ class TestSharder(unittest.TestCase):
 
     def test_misplaced_objects_deleted_and_updated(self):
         logger = debug_logger()
-        db_file = os.path.join(self.tempdir, 'test_db')
+        db_file = os.path.join(self.tempdir, 'test.db')
         broker = ContainerBroker(
             db_file, account='a', container='c', logger=logger)
         broker.initialize()
