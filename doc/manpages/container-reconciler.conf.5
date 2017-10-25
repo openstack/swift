@@ -1,0 +1,182 @@
+.\"
+.\" Author: HCLTech-SSW <hcl_ss_oss@hcl.com>
+.\" Copyright (c) 2010-2017 OpenStack Foundation.
+.\"
+.\" Licensed under the Apache License, Version 2.0 (the "License");
+.\" you may not use this file except in compliance with the License.
+.\" You may obtain a copy of the License at
+.\"
+.\"    http://www.apache.org/licenses/LICENSE-2.0
+.\"
+.\" Unless required by applicable law or agreed to in writing, software
+.\" distributed under the License is distributed on an "AS IS" BASIS,
+.\" WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+.\" implied.
+.\" See the License for the specific language governing permissions and
+.\" limitations under the License.
+.\"
+.TH container-reconciler.conf 5 "10/25/2017" "Linux" "OpenStack Swift"
+
+.SH NAME
+.LP
+.B container-reconciler.conf
+\- configuration file for the OpenStack Swift container reconciler
+
+
+.SH SYNOPSIS
+.LP
+.B container-reconciler.conf
+
+
+.SH DESCRIPTION
+.PP
+This is the configuration file used by the container reconciler.
+
+The configuration file follows the python-pastedeploy syntax. The file is divided
+into sections, which are enclosed by square brackets. Each section will contain a
+certain number of key/value parameters which are described later.
+
+Any line that begins with a '#' symbol is ignored.
+
+You can find more information about python-pastedeploy configuration format at
+\fIhttp://pythonpaste.org/deploy/#config-format\fR
+
+
+.SH GLOBAL SECTION
+.PD 1
+.RS 0
+This is indicated by section named [DEFAULT]. Below are the parameters that
+are acceptable within this section.
+
+.IP "\fBlog_address\fR"
+Location where syslog sends the logs to. The default is /dev/log.
+.IP "\fBlog_custom_handlers \fR"
+Comma-separated list of functions to call to setup custom log handlers.
+.IP "\fBlog_facility\fR"
+Syslog log facility. The default is LOG_LOCAL0.
+.IP "\fBlog_level\fR"
+Log level used for logging. The default is INFO.
+.IP "\fBlog_name\fR"
+Label used when logging. The default is swift.
+.IP "\fBlog_statsd_default_sample_rate\fR"
+Defines the probability of sending a sample for any given event or
+timing measurement. The default is 1.0.
+.IP "\fBlog_statsd_host\fR"
+If not set, the StatsD feature is disabled. The default is localhost.
+.IP "\fBlog_statsd_metric_prefix\fR"
+Value will be prepended to every metric sent to the StatsD server.
+.IP "\fBlog_statsd_port\fR"
+The port value for the StatsD server. The default is 8125.
+.IP "\fBlog_statsd_sample_rate_factor\fR"
+It is not recommended to set this to a value less than 1.0, if frequency of
+logging is too high, tune the log_statsd_default_sample_rate instead.
+The default value is 1.0.
+.IP "\fBlog_udp_host\fR"
+If not set, the UDP receiver for syslog is disabled.
+.IP "\fBlog_udp_port\fR"
+Port value for UDP receiver, if enabled. The default is 514.
+.IP "\fBswift_dir\fR"
+Swift configuration directory. The default is /etc/swift.
+.IP "\fBuser\fR"
+User to run as. The default is swift.
+.RE
+.PD
+
+
+.SH CONTAINER RECONCILER SECTION
+.PD 1
+.RS 0
+.IP "\fB[container-reconciler]\fR"
+.RE
+.RS 3
+.IP "\fBinterval\fR"
+Minimum time for a pass to take. The default is 30 seconds.
+.IP "\fBreclaim_age\fR"
+Time elapsed in seconds before an object can be reclaimed. The default is 604800 seconds.
+.IP "\fBrequest_tries\fR"
+Server errors from requests will be retried by default. The default is 3.
+.RE
+.PD
+
+
+.SH PIPELINE SECTION
+.PD 1
+.RS 0
+.IP "\fB[pipeline:main]\fR"
+.RE
+.RS 3
+.IP "\fBpipeline\fR"
+Pipeline to use for  processing operations. The default is "catch_errors proxy-logging cache proxy-server".
+.RE
+.PD
+
+
+.SH APP SECTION
+.PD 1
+.RS 0
+\fBFor details of the available options see proxy-server.conf.5.\fR
+
+.RS 0
+.IP "\fB[app:proxy-server]\fR"
+.RE
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy in the server.
+This is normally \fBegg:swift#proxy\fR.
+.RE
+.PD
+
+
+.SH FILTER SECTIONS
+.PD 1
+.RS 0
+Any section that has its name prefixed by "filter:" indicates a filter section.
+Filters are used to specify configuration parameters for specific swift middlewares.
+Below are the filters available and respective acceptable parameters.
+
+\fBFor details of the available options for each filter section see proxy-server.conf.5.\fR
+
+.RS 0
+.IP "\fB[filter:cache]\fR"
+.RE
+Caching middleware that manages caching in swift.
+
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy in the server.
+This is normally \fBegg:swift#memcache\fR.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:catch_errors]\fR"
+.RE
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy in the server.
+This is normally \fBegg:swift#catch_errors\fR.
+.RE
+.PD
+
+
+.RS 0
+.IP "\fB[filter:proxy-logging]\fR"
+.RE
+.RS 3
+.IP "\fBuse\fR"
+Entry point for paste.deploy in the server.
+This is normally \fBegg:swift#proxy_logging\fR.
+.RE
+.PD
+
+
+.SH DOCUMENTATION
+.LP
+More in depth documentation in regards to
+.BI swift-container-reconciler
+and also about OpenStack Swift as a whole can be found at
+.BI https://docs.openstack.org/swift/latest/overview_policies.html.
+
+.SH "SEE ALSO"
+.BR swift-container-reconciler(1)
