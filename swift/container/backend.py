@@ -1634,7 +1634,7 @@ class ContainerBroker(DatabaseBroker):
             'X-Container-Sysmeta-Shard-Lower', ('', None))
         upper, ts = metadata.get(
             'X-Container-Sysmeta-Shard-Upper', ('', None))
-        if created_at is None:
+        if created_at in (None, ''):
             return None
 
         info = self.get_info()  # Also ensures self.container is not None
@@ -1667,6 +1667,13 @@ class ContainerBroker(DatabaseBroker):
                 self.get_info()
             self._root_account = self.account
             self._root_container = self.container
+            return
+
+        # this is a horrible hack to workaround X-Container-Sysmeta-Shard-Root
+        # being set to '' when a shard container is deleted. We still want
+        # is_root_container to be False.
+        if not path:
+            self._root_account = self._root_container = ''
             return
 
         if path.count('/') != 1 or path.strip('/').count('/') == 0:
