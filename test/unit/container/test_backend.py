@@ -31,7 +31,7 @@ import json
 from swift.container.backend import ContainerBroker, \
     update_new_item_from_existing, DB_STATE_NOTFOUND, DB_STATE_UNSHARDED, \
     DB_STATE_SHARDING, DB_STATE_SHARDED, DB_STATE
-from swift.common.db import DatabaseBroker
+from swift.common.db import DatabaseBroker, DatabaseAlreadyExists
 from swift.common.utils import Timestamp, encode_timestamps, hash_path, \
     ShardRange
 from swift.common.storage_policy import POLICIES
@@ -895,8 +895,6 @@ class TestContainerBroker(unittest.TestCase):
 
     @with_tempdir
     def test_get_db_state(self, tempdir):
-        # test that the get db state code. This checks for existence of the
-        # db_file and/or the shard_db_file.
         acct = 'account'
         cont = 'continer'
         hsh = hash_path(acct, cont)
@@ -919,9 +917,9 @@ class TestContainerBroker(unittest.TestCase):
 
         # Test the SHARDING state, this is the period when both the db_file and
         # the shard_db_file exist
-        piv_broker = ContainerBroker(db_shard_path, account=acct,
-                                     container=cont)
-        piv_broker.initialize(ts.internal, 0)
+        shard_broker = ContainerBroker(db_shard_path, account=acct,
+                                       container=cont, force_db_file=True)
+        shard_broker.initialize(ts.internal, 0)
         self.assertEqual(broker.get_db_state(), DB_STATE_SHARDING)
         self.assertEqual(DB_STATE[broker.get_db_state()], 'sharding')
 
@@ -932,9 +930,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(DB_STATE[broker.get_db_state()], 'sharded')
 
     @with_tempdir
-    def test_db_file_property(self, tempdir):
-        # test that the get db state code. This checks for existence of the
-        # db_file and/or the shard_db_file.
+    def test_db_file(self, tempdir):
         acct = 'account'
         cont = 'continer'
         hsh = hash_path(acct, cont)
@@ -945,26 +941,76 @@ class TestContainerBroker(unittest.TestCase):
         ts = Timestamp.now()
 
         # First test NOTFOUND state, this will return the default db_file
+        def check_unfound_db_files(broker):
+            # self.assertEqual(broker.db_file, db_path)
+            self.assertEqual(broker._db_file, db_path)
+            self.assertEqual(broker._shard_db_file, db_shard_path)
+            self.assertFalse(os.path.exists(db_path))
+            self.assertFalse(os.path.exists(db_shard_path))
+
         broker = ContainerBroker(db_path, account=acct, container=cont)
-        self.assertEqual(broker.db_file, db_path)
+        check_unfound_db_files(broker)
+        broker = ContainerBroker(db_shard_path, account=acct, container=cont)
+        check_unfound_db_files(broker)
 
         # Test UNSHARDED state, that is when db_file exists and shard_db_file
         # doesn't, so it should return the db_path
+        def check_unsharded_db_files(broker):
+            self.assertEqual(broker.db_file, db_path)
+            self.assertEqual(broker._db_file, db_path)
+            self.assertEqual(broker._shard_db_file, db_shard_path)
+            self.assertTrue(os.path.exists(db_path))
+            self.assertFalse(os.path.exists(db_shard_path))
+
         broker.initialize(ts.internal, 0)
-        self.assertEqual(broker.db_file, db_path)
+        check_unsharded_db_files(broker)
+        broker = ContainerBroker(db_shard_path, account=acct, container=cont)
+        check_unsharded_db_files(broker)
+        # while UNSHARDED db_path is still used despite giving db_shard_path
+        # to init, so we cannot initialize this broker
+        with self.assertRaises(DatabaseAlreadyExists):
+            broker.initialize(ts.internal, 0)
 
         # Test the SHARDING state, this is the period when both the db_file and
         # the shard_db_file exist, in this case it should return the
-        # shard_db_path
-        piv_broker = ContainerBroker(db_shard_path, account=acct,
-                                     container=cont)
-        piv_broker.initialize(ts.internal, 0)
-        self.assertEqual(broker.db_file, db_shard_path)
+        # shard_db_path.
+        def check_sharding_db_files(broker):
+            self.assertEqual(broker.db_file, db_shard_path)
+            self.assertEqual(broker._db_file, db_path)
+            self.assertEqual(broker._shard_db_file, db_shard_path)
+            self.assertTrue(os.path.exists(db_path))
+            self.assertTrue(os.path.exists(db_shard_path))
 
-        # Finally test the SHARDED state, this is when only shard_db_file
-        # exists, so obviously this should return the shard_db_path
+        # Use force_db_file to have db_shard_path created.
+        broker = ContainerBroker(db_shard_path, account=acct,
+                                 container=cont, force_db_file=True)
+        broker.initialize(ts.internal, 0)
+        check_sharding_db_files(broker)
+        broker = ContainerBroker(db_path, account=acct, container=cont)
+        check_sharding_db_files(broker)
+        broker = ContainerBroker(db_shard_path, account=acct, container=cont)
+        check_sharding_db_files(broker)
+
+        # force_db_file can be used to open db_path specifically
+        forced_broker = ContainerBroker(db_path, account=acct,
+                                        container=cont, force_db_file=True)
+        self.assertEqual(forced_broker.db_file, db_path)
+        self.assertEqual(forced_broker._db_file, db_path)
+        self.assertEqual(forced_broker._shard_db_file, db_shard_path)
+
+        def check_sharded_db_files(broker):
+            self.assertEqual(broker.db_file, db_shard_path)
+            self.assertEqual(broker._db_file, db_path)
+            self.assertEqual(broker._shard_db_file, db_shard_path)
+            self.assertFalse(os.path.exists(db_path))
+            self.assertTrue(os.path.exists(db_shard_path))
+
+        # Test the SHARDED state, this is when only shard_db_file exists, so
+        # obviously this should return the shard_db_path
         os.unlink(db_path)
-        self.assertEqual(broker.db_file, db_shard_path)
+        check_sharded_db_files(broker)
+        broker = ContainerBroker(db_path, account=acct, container=cont)
+        check_sharded_db_files(broker)
 
     @with_tempdir
     def test_get_items_since_with_shard_db(self, tempdir):
@@ -2533,13 +2579,13 @@ class TestContainerBroker(unittest.TestCase):
 
         # no files exist
         do_test(db_path, db_path)
-        do_test(sharded_db_path, sharded_db_path)
+        do_test(sharded_db_path, db_path)
 
         # only container.db exists - unsharded
         with open(db_path, 'wb'):
             pass
         do_test(db_path, db_path)
-        do_test(sharded_db_path, sharded_db_path)
+        do_test(sharded_db_path, db_path)
 
         # container.db and container_shard.db exist - sharding
         with open(sharded_db_path, 'wb'):
@@ -2818,7 +2864,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(broker.get_shard_ranges(), shard_ranges)
 
         def check_broker_info(actual_info):
-            # TODO: created_at and hash should not be exceptions
+            # TODO: created_at should not be in exceptions
             for key in ('created_at', 'hash', 'db_state', 'id'):
                 actual_info.pop(key, None)
                 original_info.pop(key, None)
@@ -2861,9 +2907,6 @@ class TestContainerBroker(unittest.TestCase):
 
         # to confirm we're definitely looking at the shard db
         broker2 = ContainerBroker(new_db_path)
-        # this one thinks it is already in DB_STATE_SHARDED because we opened
-        # it with the _shard.db file
-        self.assertEqual(broker2.get_db_state(), DB_STATE_SHARDED)
         check_broker_properties(broker2)
         check_broker_info(broker2.get_info())
         self.assertEqual([], broker2.list_objects_iter(

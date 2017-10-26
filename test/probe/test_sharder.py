@@ -376,8 +376,7 @@ class TestContainerSharding(ReplProbeTest):
         broker = ContainerBroker(node_index_zero_db)
         # TODO: assert the shard db is on replica 0
         self.assertIs(True, broker.is_root_container())
-        # TODO: not sharding! shard DB thinks he's done!?
-        self.assertEqual('sharded', DB_STATE[broker.get_db_state()])
+        self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
         expected_shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
         self.assertLengthEqual(expected_shard_ranges, 3)
 
@@ -391,8 +390,14 @@ class TestContainerSharding(ReplProbeTest):
                              [dict(sr) for sr in broker.get_shard_ranges()])
             if db_file.startswith(os.path.dirname(node_index_zero_db)):
                 self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
+                self.assertEqual(len(obj_names) * 3 // 5,
+                                 broker.get_info()['object_count'])
             else:
                 self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
+                # The rows that only replica 0 knew about got shipped to the
+                # other replicas as part of sharding
+                self.assertEqual(len(obj_names) * 4 // 5,
+                                 broker.get_info()['object_count'])
 
         # Run the other sharders so we're all in (roughly) the same state
         for n in self.brain.node_numbers[1:]:
@@ -403,12 +408,13 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
-            # Nobody has any new info
-            # TODO: what happened to the rows that only replica 0 knew about?
-            # Shouldn't those have been shipped to the other replicas? Maybe
-            # they're over in the object table in the shard DB?
-            self.assertEqual(len(obj_names) * 3 // 5,
-                             broker.get_info()['object_count'])
+            # no new rows
+            if db_file.startswith(os.path.dirname(node_index_zero_db)):
+                self.assertEqual(len(obj_names) * 3 // 5,
+                                 broker.get_info()['object_count'])
+            else:
+                self.assertEqual(len(obj_names) * 4 // 5,
+                                 broker.get_info()['object_count'])
 
         # Run updaters to clear the async pendings
         Manager(['object-updater']).once()
@@ -416,8 +422,12 @@ class TestContainerSharding(ReplProbeTest):
         # Our "big" dbs didn't take updates
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
-            self.assertEqual(len(obj_names) * 3 // 5,
-                             broker.get_info()['object_count'])
+            if db_file.startswith(os.path.dirname(node_index_zero_db)):
+                self.assertEqual(len(obj_names) * 3 // 5,
+                                 broker.get_info()['object_count'])
+            else:
+                self.assertEqual(len(obj_names) * 4 // 5,
+                                 broker.get_info()['object_count'])
 
         # TODO: confirm that the updates got redirected to the shards
 
