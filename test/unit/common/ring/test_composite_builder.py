@@ -1128,7 +1128,7 @@ class TestCooperativeRingBuilder(BaseTestCompositeBuilder):
         # both builders get updated
         self.assertEqual(sorted([rb1, rb2]), sorted(update_calls))
         # rb1 has never been rebalanced so no calls propagate from its
-        # can_part_move method to to its superclass _can_part_move method
+        # can_part_move method to its superclass _can_part_move method
         self.assertEqual([rb2], can_part_move_calls.keys())
 
         with mock_update_last_part_moves() as update_calls:
