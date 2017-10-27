@@ -69,6 +69,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb.devs, [])
         self.assertFalse(rb.devs_changed)
         self.assertEqual(rb.version, 0)
+        self.assertIsNotNone(rb._last_part_moves)
 
     def test_overlarge_part_powers(self):
         expected_msg = 'part_power must be at most 32 (was 33)'
@@ -841,6 +842,25 @@ class TestRingBuilder(unittest.TestCase):
         }
         self.assertEqual(parts_with_moved_count, expected)
 
+    def test_ever_rebalanced(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        self.assertFalse(rb.ever_rebalanced)
+        builder_file = os.path.join(self.testdir, 'test.buider')
+        rb.save(builder_file)
+        rb = ring.RingBuilder.load(builder_file)
+        self.assertFalse(rb.ever_rebalanced)
+        rb.rebalance()
+        self.assertTrue(rb.ever_rebalanced)
+        rb.save(builder_file)
+        rb = ring.RingBuilder.load(builder_file)
+        self.assertTrue(rb.ever_rebalanced)
+
     def test_rerebalance(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
@@ -849,13 +869,16 @@ class TestRingBuilder(unittest.TestCase):
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        self.assertFalse(rb.ever_rebalanced)
         rb.rebalance()
+        self.assertTrue(rb.ever_rebalanced)
         counts = self._partition_counts(rb)
         self.assertEqual(counts, {0: 256, 1: 256, 2: 256})
         rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
+        self.assertTrue(rb.ever_rebalanced)
         counts = self._partition_counts(rb)
         self.assertEqual(counts, {0: 192, 1: 192, 2: 192, 3: 192})
         rb.set_dev_weight(3, 100)
