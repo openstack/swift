@@ -54,7 +54,7 @@ class TestBaseSsync(BaseTest):
         conf = {
             'devices': self.rx_testdir,
             'mount_check': 'false',
-            'replication_one_per_device': 'false',
+            'replication_concurrency_per_device': '0',
             'log_requests': 'false'}
         self.rx_logger = debug_logger()
         self.rx_controller = server.ObjectController(conf, self.rx_logger)

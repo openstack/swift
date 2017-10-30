@@ -161,11 +161,12 @@ use = egg:swift#object
 # object replicator when configured to use ssync.
 # replication_concurrency = 4
 #
-# Restricts incoming SSYNC requests to one per device,
-# replication_currency above allowing. This can help control I/O to each
-# device, but you may wish to set this to False to allow multiple SSYNC
-# requests (up to the above replication_concurrency setting) per device.
-# replication_one_per_device = True
+# Set to restrict the number of concurrent incoming SSYNC requests per
+# device; set to 0 for unlimited requests per device. This can help control
+# I/O to each device. This does not override replication_concurrency described
+# above, so you may need to adjust both parameters depending on your hardware
+# or network capacity.
+# replication_concurrency_per_device = 1
 #
 # Number of seconds to wait for an existing replication device lock before
 # giving up.
