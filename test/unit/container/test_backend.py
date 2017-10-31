@@ -2864,8 +2864,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(broker.get_shard_ranges(), shard_ranges)
 
         def check_broker_info(actual_info):
-            # TODO: created_at should not be in exceptions
-            for key in ('created_at', 'hash', 'db_state', 'id'):
+            for key in ('db_state', 'id'):
                 actual_info.pop(key, None)
                 original_info.pop(key, None)
             self.assertEqual(actual_info, original_info)
