@@ -292,7 +292,7 @@ Each policy section contains the following options:
         - Policy names can be changed.
         - The name ``Policy-0`` can only be used for the policy with
           index ``0``.
-    * ``alias = <policy_name>[, <policy_name>, ...]`` (optional)
+    * ``aliases = <policy_name>[, <policy_name>, ...]`` (optional)
         - A comma-separated list of alternative names for the policy.
         - The default value is an empty list (i.e. no aliases).
         - All alias names must follow the rules for the ``name`` option.
