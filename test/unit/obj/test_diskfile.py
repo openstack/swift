@@ -2235,11 +2235,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             rmtree(df._datadir, ignore_errors=True)
 
         # sanity
-        files = [
+        good_files = [
             '0000000006.00000.meta',
             '0000000006.00000#1#d.data'
         ]
-        with create_files(class_under_test, files):
+        with create_files(class_under_test, good_files):
             class_under_test.open()
 
         scenarios = [['0000000007.00000.meta'],
@@ -2262,6 +2262,22 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                     continue
             self.fail('expected DiskFileNotExist opening %s with %r' % (
                 class_under_test.__class__.__name__, files))
+
+        # Simulate another process deleting the data after we list contents
+        # but before we actually open them
+        orig_listdir = os.listdir
+
+        def deleting_listdir(d):
+            result = orig_listdir(d)
+            for f in result:
+                os.unlink(os.path.join(d, f))
+            return result
+
+        with create_files(class_under_test, good_files), \
+                mock.patch('swift.obj.diskfile.os.listdir',
+                           side_effect=deleting_listdir), \
+                self.assertRaises(DiskFileNotExist):
+            class_under_test.open()
 
     def test_verify_ondisk_files(self):
         # _verify_ondisk_files should only return False if get_ondisk_files
