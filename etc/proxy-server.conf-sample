@@ -766,6 +766,11 @@ use = egg:swift#slo
 # Default is to use the concurrency value from above; all of the same caveats
 # apply regarding recommended ranges.
 # delete_concurrency = 2
+#
+# In order to keep a connection active during a potentially long PUT request,
+# clients may request that Swift send whitespace ahead of the final response
+# body. This whitespace will be yielded at most every yield_frequency seconds.
+# yield_frequency = 10
 
 # Note: Put after auth and staticweb in the pipeline.
 # If you don't put it in the pipeline, it will be inserted for you.
