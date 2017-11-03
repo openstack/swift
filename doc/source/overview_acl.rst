@@ -131,6 +131,12 @@ Element                        Description
                                does not require a token. In addition,
                                ``.r:*`` does not grant access to the
                                container listing.
+``<role_name>``                A user with the specified role *name* on the
+                               project within which the container is stored is
+                               granted access. A user token scoped to the
+                               project must be included in the request. Access
+                               to the container is also granted when used in
+                               ``X-Container-Read``.
 ============================== ================================================
 
 .. note::
@@ -209,6 +215,18 @@ project must be included in the request::
 
     swift post www --read-acl "77b8f82565f14814bece56e50c4c240f:*" \
                    --write-acl "77b8f82565f14814bece56e50c4c240f:*"
+
+
+Example: Sharing a Container with Users having a specified Role
+---------------------------------------------------------------
+
+The following allows any user that has been assigned the
+``my_read_access_role`` on the project within which the ``www`` container is
+stored to download objects or to list the contents of the ``www`` container. A
+user token scoped to the project must be included in the download or list
+request::
+
+    swift post www --read-acl "my_read_access_role"
 
 
 Example: Allowing a Referrer Domain to Download Objects

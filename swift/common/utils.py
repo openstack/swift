@@ -53,6 +53,7 @@ import datetime
 import eventlet
 import eventlet.debug
 import eventlet.greenthread
+import eventlet.patcher
 import eventlet.semaphore
 from eventlet import GreenPool, sleep, Timeout, tpool
 from eventlet.green import socket, threading
@@ -78,12 +79,6 @@ from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.linkat import linkat
-
-if six.PY3:
-    stdlib_queue = eventlet.patcher.original('queue')
-else:
-    stdlib_queue = eventlet.patcher.original('Queue')
-stdlib_threading = eventlet.patcher.original('threading')
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -485,6 +480,18 @@ def config_read_prefixed_options(conf, prefix_name, defaults):
             else:
                 params[option_name] = value.strip()
     return params
+
+
+def eventlet_monkey_patch():
+    """
+    Install the appropriate Eventlet monkey patches.
+    """
+    # NOTE(sileht):
+    #     monkey-patching thread is required by python-keystoneclient;
+    #     monkey-patching select is required by oslo.messaging pika driver
+    #         if thread is monkey-patched.
+    eventlet.patcher.monkey_patch(all=False, socket=True, select=True,
+                                  thread=True)
 
 
 def noop_libc_function(*args):
@@ -1999,6 +2006,25 @@ def get_hub():
     getting swallowed somewhere. Then when that file descriptor
     was re-used, eventlet would freak right out because it still
     thought it was waiting for activity from it in some other coro.
+
+    Another note about epoll: it's hard to use when forking. epoll works
+    like so:
+
+       * create an epoll instance: efd = epoll_create(...)
+
+       * register file descriptors of interest with epoll_ctl(efd,
+             EPOLL_CTL_ADD, fd, ...)
+
+       * wait for events with epoll_wait(efd, ...)
+
+    If you fork, you and all your child processes end up using the same
+    epoll instance, and everyone becomes confused. It is possible to use
+    epoll and fork and still have a correct program as long as you do the
+    right things, but eventlet doesn't do those things. Really, it can't
+    even try to do those things since it doesn't get notified of forks.
+
+    In contrast, both poll() and select() specify the set of interesting
+    file descriptors with each call, so there's no problem with forking.
     """
     try:
         import select
@@ -2271,8 +2297,45 @@ def hash_path(account, container=None, object=None, raw_digest=False):
                    + HASH_PATH_SUFFIX).hexdigest()
 
 
+def get_zero_indexed_base_string(base, index):
+    """
+    This allows the caller to make a list of things with indexes, where the
+    first item (zero indexed) is just the bare base string, and subsequent
+    indexes are appended '-1', '-2', etc.
+
+    e.g.::
+
+      'lock', None => 'lock'
+      'lock', 0    => 'lock'
+      'lock', 1    => 'lock-1'
+      'object', 2  => 'object-2'
+
+    :param base: a string, the base string; when ``index`` is 0 (or None) this
+                 is the identity function.
+    :param index: a digit, typically an integer (or None); for values other
+                  than 0 or None this digit is appended to the base string
+                  separated by a hyphen.
+    """
+    if index == 0 or index is None:
+        return_string = base
+    else:
+        return_string = base + "-%d" % int(index)
+    return return_string
+
+
+def _get_any_lock(fds):
+    for fd in fds:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except IOError as err:
+            if err.errno != errno.EAGAIN:
+                raise
+    return False
+
+
 @contextmanager
-def lock_path(directory, timeout=10, timeout_class=None):
+def lock_path(directory, timeout=10, timeout_class=None, limit=1):
     """
     Context manager that acquires a lock on a directory.  This will block until
     the lock can be acquired, or the timeout time has expired (whichever occurs
@@ -2288,12 +2351,16 @@ def lock_path(directory, timeout=10, timeout_class=None):
         lock cannot be granted within the timeout. Will be
         constructed as timeout_class(timeout, lockpath). Default:
         LockTimeout
+    :param limit: the maximum number of locks that may be held concurrently on
+        the same directory; defaults to 1
     """
     if timeout_class is None:
         timeout_class = swift.common.exceptions.LockTimeout
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
-    fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
+    fds = [os.open(get_zero_indexed_base_string(lockpath, i),
+                   os.O_WRONLY | os.O_CREAT)
+           for i in range(limit)]
     sleep_time = 0.01
     slower_sleep_time = max(timeout * 0.01, sleep_time)
     slowdown_at = timeout * 0.01
@@ -2301,19 +2368,16 @@ def lock_path(directory, timeout=10, timeout_class=None):
     try:
         with timeout_class(timeout, lockpath):
             while True:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if _get_any_lock(fds):
                     break
-                except IOError as err:
-                    if err.errno != errno.EAGAIN:
-                        raise
                 if time_slept > slowdown_at:
                     sleep_time = slower_sleep_time
                 sleep(sleep_time)
                 time_slept += sleep_time
         yield True
     finally:
-        os.close(fd)
+        for fd in fds:
+            os.close(fd)
 
 
 @contextmanager

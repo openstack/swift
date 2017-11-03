@@ -51,7 +51,7 @@ To create a static large object, divide your content into pieces and
 create (upload) a segment object to contain each piece.
 
 Create a manifest object. Include the ``multipart-manifest=put``
-query string at the end of the manifest object name to indicate that
+query parameter at the end of the manifest object name to indicate that
 this is a manifest object.
 
 The body of the **PUT** request on the manifest object comprises a json
@@ -102,7 +102,7 @@ contrast to dynamic large objects.
         }
     ]
 
-| 
+|
 
 The ``Content-Length`` request header must contain the length of the
 json content—not the length of the segment objects. However, after the
@@ -113,9 +113,22 @@ of the concatenated ``ETag`` values of the object segments. You can also
 set the ``Content-Type`` request header and custom object metadata.
 
 When the **PUT** operation sees the ``multipart-manifest=put`` query
-string, it reads the request body and verifies that each segment
+parameter, it reads the request body and verifies that each segment
 object exists and that the sizes and ETags match. If there is a
-mismatch, the **PUT**\ operation fails.
+mismatch, the **PUT** operation fails.
+
+This verification process can take a long time to complete, particularly
+as the number of segments increases. You may include a ``heartbeat=on``
+query parameter to have the server:
+
+1. send a ``202 Accepted`` response before it begins validating segments,
+2. periodically send whitespace characters to keep the connection alive, and
+3. send a final response code in the body.
+
+.. note::
+    The server may still immediately respond with ``400 Bad Request``
+    if it can determine that the request is invalid before making
+    backend requests.
 
 If everything matches, the manifest object is created. The
 ``X-Static-Large-Object`` metadata is set to ``true`` indicating that
@@ -124,18 +137,18 @@ this is a static object manifest.
 Normally when you perform a **GET** operation on the manifest object,
 the response body contains the concatenated content of the segment
 objects. To download the manifest list, use the
-``multipart-manifest=get`` query string. The resulting list is not
+``multipart-manifest=get`` query parameter. The resulting list is not
 formatted the same as the manifest you originally used in the **PUT**
 operation.
 
 If you use the **DELETE** operation on a manifest object, the manifest
 object is deleted. The segment objects are not affected. However, if you
-add the ``multipart-manifest=delete`` query string, the segment
+add the ``multipart-manifest=delete`` query parameter, the segment
 objects are deleted and if all are successfully deleted, the manifest
 object is also deleted.
 
 To change the manifest, use a **PUT** operation with the
-``multipart-manifest=put`` query string. This request creates a
+``multipart-manifest=put`` query parameter. This request creates a
 manifest object. You can also update the object metadata in the usual
 way.
 
@@ -326,7 +339,7 @@ a manifest object but a normal object with content same as what you would
 get on a **GET** request to the original manifest object.
 
 To copy the manifest object, you include the ``multipart-manifest=get``
-query string in the **COPY**  request. The new object contains the same
+query parameter in the **COPY**  request. The new object contains the same
 manifest as the original. The segment objects are not copied. Instead,
 both the original and new manifest objects share the same set of segment
 objects.

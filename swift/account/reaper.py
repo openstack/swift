@@ -28,13 +28,14 @@ import six
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
+from swift.common.constraints import check_drive
 from swift.common.direct_client import direct_delete_container, \
     direct_delete_object, direct_get_container
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
-from swift.common.utils import get_logger, whataremyips, ismount, \
-    config_true_value, Timestamp
+from swift.common.utils import get_logger, whataremyips, config_true_value, \
+    Timestamp
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES, PolicyError
 
@@ -133,8 +134,7 @@ class AccountReaper(Daemon):
         begin = time()
         try:
             for device in os.listdir(self.devices):
-                if self.mount_check and not ismount(
-                        os.path.join(self.devices, device)):
+                if not check_drive(self.devices, device, self.mount_check):
                     self.logger.increment('errors')
                     self.logger.debug(
                         _('Skipping %s as it is not mounted'), device)

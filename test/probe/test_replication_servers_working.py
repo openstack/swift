@@ -19,6 +19,7 @@ from uuid import uuid4
 import os
 import time
 import shutil
+import re
 
 from swiftclient import client
 from swift.obj.diskfile import get_data_dir
@@ -26,7 +27,7 @@ from swift.obj.diskfile import get_data_dir
 from test.probe.common import ReplProbeTest
 from swift.common.utils import readconf
 
-EXCLUDE_FILES = ['hashes.pkl', 'hashes.invalid', '.lock']
+EXCLUDE_FILES = re.compile('^(hashes\.(pkl|invalid)|lock(-\d+)?)$')
 
 
 def collect_info(path_list):
@@ -43,7 +44,7 @@ def collect_info(path_list):
         temp_files_list = []
         temp_dir_list = []
         for root, dirs, files in os.walk(path):
-            files = [f for f in files if f not in EXCLUDE_FILES]
+            files = [f for f in files if not EXCLUDE_FILES.match(f)]
             temp_files_list += files
             temp_dir_list += dirs
         files_list.append(temp_files_list)

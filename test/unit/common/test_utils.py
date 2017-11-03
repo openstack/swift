@@ -33,6 +33,7 @@ import logging
 import platform
 import os
 import mock
+import pwd
 import random
 import re
 import socket
@@ -73,7 +74,8 @@ from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Request, Response
-from test.unit import FakeLogger, requires_o_tmpfile_support
+from test.unit import FakeLogger, requires_o_tmpfile_support, \
+    quiet_eventlet_exceptions
 
 threading = eventlet.patcher.original('threading')
 
@@ -105,10 +107,10 @@ class MockOs(object):
     setgroups = chdir = setsid = setgid = setuid = umask = pass_func
 
     def called_func(self, name, *args, **kwargs):
-        self.called_funcs[name] = True
+        self.called_funcs[name] = args
 
     def raise_func(self, name, *args, **kwargs):
-        self.called_funcs[name] = True
+        self.called_funcs[name] = args
         raise OSError()
 
     def dup2(self, source, target):
@@ -925,9 +927,20 @@ class TestUtils(unittest.TestCase):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
 
+    def test_get_zero_indexed_base_string(self):
+        self.assertEqual(utils.get_zero_indexed_base_string('something', 0),
+                         'something')
+        self.assertEqual(utils.get_zero_indexed_base_string('something', None),
+                         'something')
+        self.assertEqual(utils.get_zero_indexed_base_string('something', 1),
+                         'something-1')
+        self.assertRaises(ValueError, utils.get_zero_indexed_base_string,
+                          'something', 'not_integer')
+
     def test_lock_path(self):
         tmpdir = mkdtemp()
         try:
+            # 2 locks with limit=1 must fail
             with utils.lock_path(tmpdir, 0.1):
                 exc = None
                 success = False
@@ -936,6 +949,26 @@ class TestUtils(unittest.TestCase):
                         success = True
                 except LockTimeout as err:
                     exc = err
+                self.assertTrue(exc is not None)
+                self.assertTrue(not success)
+
+            # 2 locks with limit=2 must succeed
+            with utils.lock_path(tmpdir, 0.1, limit=2):
+                success = False
+                with utils.lock_path(tmpdir, 0.1, limit=2):
+                    success = True
+                self.assertTrue(success)
+
+            # 3 locks with limit=2 must fail
+            with utils.lock_path(tmpdir, 0.1, limit=2):
+                exc = None
+                success = False
+                with utils.lock_path(tmpdir, 0.1, limit=2):
+                    try:
+                        with utils.lock_path(tmpdir, 0.1, limit=2):
+                            success = True
+                    except LockTimeout as err:
+                        exc = err
                 self.assertTrue(exc is not None)
                 self.assertTrue(not success)
         finally:
@@ -1504,8 +1537,8 @@ class TestUtils(unittest.TestCase):
         syslog_handler_catcher.LOG_LOCAL0 = orig_sysloghandler.LOG_LOCAL0
         syslog_handler_catcher.LOG_LOCAL3 = orig_sysloghandler.LOG_LOCAL3
 
-        try:
-            utils.ThreadSafeSysLogHandler = syslog_handler_catcher
+        with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
+                               syslog_handler_catcher):
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
@@ -1554,8 +1587,6 @@ class TestUtils(unittest.TestCase):
                 ((), {'address': ('syslog.funtimes.com', 2123),
                       'facility': orig_sysloghandler.LOG_LOCAL0})],
                 syslog_handler_args)
-        finally:
-            utils.ThreadSafeSysLogHandler = orig_sysloghandler
 
     @reset_logger_state
     def test_clean_logger_exception(self):
@@ -2134,46 +2165,51 @@ log_name = %(yarr)s'''
         }
         self.assertEqual(conf, expected)
 
-    def test_drop_privileges(self):
+    def _check_drop_privileges(self, mock_os, required_func_calls,
+                               call_setsid=True):
         user = getuser()
+        user_data = pwd.getpwnam(user)
+        self.assertFalse(mock_os.called_funcs)  # sanity check
         # over-ride os with mock
+        with mock.patch('swift.common.utils.os', mock_os):
+            # exercise the code
+            utils.drop_privileges(user, call_setsid=call_setsid)
+
+        for func in required_func_calls:
+            self.assertIn(func, mock_os.called_funcs)
+        self.assertEqual(user_data[5], mock_os.environ['HOME'])
+        groups = {g.gr_gid for g in grp.getgrall() if user in g.gr_mem}
+        self.assertEqual(groups, set(mock_os.called_funcs['setgroups'][0]))
+        self.assertEqual(user_data[3], mock_os.called_funcs['setgid'][0])
+        self.assertEqual(user_data[2], mock_os.called_funcs['setuid'][0])
+        self.assertEqual('/', mock_os.called_funcs['chdir'][0])
+        self.assertEqual(0o22, mock_os.called_funcs['umask'][0])
+
+    def test_drop_privileges(self):
         required_func_calls = ('setgroups', 'setgid', 'setuid', 'setsid',
                                'chdir', 'umask')
-        utils.os = MockOs(called_funcs=required_func_calls)
-        # exercise the code
-        utils.drop_privileges(user)
-        for func in required_func_calls:
-            self.assertTrue(utils.os.called_funcs[func])
-        import pwd
-        self.assertEqual(pwd.getpwnam(user)[5], utils.os.environ['HOME'])
+        mock_os = MockOs(called_funcs=required_func_calls)
+        self._check_drop_privileges(mock_os, required_func_calls)
 
-        groups = [g.gr_gid for g in grp.getgrall() if user in g.gr_mem]
-        groups.append(pwd.getpwnam(user).pw_gid)
-        self.assertEqual(set(groups), set(os.getgroups()))
-
-        # reset; test same args, OSError trying to get session leader
-        utils.os = MockOs(called_funcs=required_func_calls,
-                          raise_funcs=('setsid',))
-        for func in required_func_calls:
-            self.assertFalse(utils.os.called_funcs.get(func, False))
-        utils.drop_privileges(user)
-        for func in required_func_calls:
-            self.assertTrue(utils.os.called_funcs[func])
+    def test_drop_privileges_setsid_error(self):
+        # OSError trying to get session leader
+        required_func_calls = ('setgroups', 'setgid', 'setuid', 'setsid',
+                               'chdir', 'umask')
+        mock_os = MockOs(called_funcs=required_func_calls,
+                         raise_funcs=('setsid',))
+        self._check_drop_privileges(mock_os, required_func_calls)
 
     def test_drop_privileges_no_call_setsid(self):
-        user = getuser()
-        # over-ride os with mock
         required_func_calls = ('setgroups', 'setgid', 'setuid', 'chdir',
                                'umask')
+        # OSError if trying to get session leader, but it shouldn't be called
         bad_func_calls = ('setsid',)
-        utils.os = MockOs(called_funcs=required_func_calls,
-                          raise_funcs=bad_func_calls)
-        # exercise the code
-        utils.drop_privileges(user, call_setsid=False)
-        for func in required_func_calls:
-            self.assertTrue(utils.os.called_funcs[func])
+        mock_os = MockOs(called_funcs=required_func_calls,
+                         raise_funcs=bad_func_calls)
+        self._check_drop_privileges(mock_os, required_func_calls,
+                                    call_setsid=False)
         for func in bad_func_calls:
-            self.assertNotIn(func, utils.os.called_funcs)
+            self.assertNotIn(func, mock_os.called_funcs)
 
     @reset_logger_state
     def test_capture_stdio(self):
@@ -3020,8 +3056,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.last_call[-1] = self.last_call[-1].value
                 return 0
 
-        orig__sys_fallocate = utils._sys_fallocate
-        try:
+        with patch.object(utils, '_sys_fallocate', FallocateWrapper()):
             utils._sys_fallocate = FallocateWrapper()
             # Ensure fallocate calls _sys_fallocate even with 0 bytes
             utils._sys_fallocate.last_call = None
@@ -3043,8 +3078,6 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.fallocate(1234, 10 * 1024 * 1024 * 1024)
             self.assertEqual(utils._sys_fallocate.last_call,
                              [1234, 1, 0, 10 * 1024 * 1024 * 1024])
-        finally:
-            utils._sys_fallocate = orig__sys_fallocate
 
     def test_generate_trans_id(self):
         fake_time = 1366428370.5163341
@@ -6386,8 +6419,9 @@ class TestPipeMutex(unittest.TestCase):
 
     def test_wrong_releaser(self):
         self.mutex.acquire()
-        self.assertRaises(RuntimeError,
-                          eventlet.spawn(self.mutex.release).wait)
+        with quiet_eventlet_exceptions():
+            self.assertRaises(RuntimeError,
+                              eventlet.spawn(self.mutex.release).wait)
 
     def test_blocking(self):
         evt = eventlet.event.Event()

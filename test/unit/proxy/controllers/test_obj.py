@@ -1352,6 +1352,35 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
 
+    def test_GET_not_found_when_404_newer(self):
+        # if proxy receives a 404, it keeps waiting for other connections until
+        # max number of nodes in hopes of finding an object, but if 404 is
+        # more recent than a 200, then it should ignore 200 and return 404
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        codes = [404] * self.obj_ring.replicas + \
+                [200] * self.obj_ring.max_more_nodes
+        ts_iter = iter([2] * self.obj_ring.replicas +
+                       [1] * self.obj_ring.max_more_nodes)
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+
+    def test_GET_x_newest_not_found_when_404_newer(self):
+        # if proxy receives a 404, it keeps waiting for other connections until
+        # max number of nodes in hopes of finding an object, but if 404 is
+        # more recent than a 200, then it should ignore 200 and return 404
+        req = swift.common.swob.Request.blank('/v1/a/c/o',
+                                              headers={'X-Newest': 'true'})
+        codes = ([200] +
+                 [404] * self.obj_ring.replicas +
+                 [200] * (self.obj_ring.max_more_nodes - 1))
+        ts_iter = iter([1] +
+                       [2] * self.obj_ring.replicas +
+                       [1] * (self.obj_ring.max_more_nodes - 1))
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+
     def test_PUT_delete_at(self):
         t = str(int(time.time() + 100))
         req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',

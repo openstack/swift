@@ -353,6 +353,13 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 406)
 
+    def test_HEAD_invalid_accept(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'Accept': 'application/plain;q=1;q=0.5'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(resp.body, '')
+
     def test_HEAD_invalid_format(self):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
         req = Request.blank('/sda1/p/a?format=' + format,
@@ -786,6 +793,13 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['Content-Type'],
                          'application/xml; charset=utf-8')
+
+    def test_GET_invalid_accept(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Accept': 'application/plain;q=foo'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(resp.body, 'Invalid Accept header')
 
     def test_GET_over_limit(self):
         req = Request.blank(
@@ -2096,8 +2110,8 @@ class TestAccountController(unittest.TestCase):
                  StoragePolicy(2, 'two', False),
                  StoragePolicy(3, 'three', False)])
 class TestNonLegacyDefaultStoragePolicy(TestAccountController):
-
     pass
+
 
 if __name__ == '__main__':
     unittest.main()

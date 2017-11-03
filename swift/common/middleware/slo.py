@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
+r"""
 Middleware that will provide Static Large Object (SLO) support.
 
 This feature is very similar to Dynamic Large Object (DLO) support in that
@@ -71,6 +71,33 @@ verification is not performed. If any of the objects fail to verify (not
 found, size/etag mismatch, below minimum size, invalid range) then the user
 will receive a 4xx error response. If everything does match, the user will
 receive a 2xx response and the SLO object is ready for downloading.
+
+Note that large manifests may take a long time to verify; historically,
+clients would need to use a long read timeout for the connection to give
+Swift enough time to send a final ``201 Created`` or ``400 Bad Request``
+response. Now, clients should use the query parameters::
+
+    ?multipart-manifest=put&heartbeat=on
+
+to request that Swift send an immediate ``202 Accepted`` response and periodic
+whitespace to keep the connection alive. A final response code will appear in
+the body. The format of the response body defaults to text/plain but can be
+either json or xml depending on the ``Accept`` header. An example body is as
+follows::
+
+    Response Status: 201 Created
+    Response Body:
+    Etag: "8f481cede6d2ddc07cb36aa084d9a64d"
+    Last Modified: Wed, 25 Oct 2017 17:08:55 GMT
+    Errors:
+
+Or, as a json response::
+
+    {"Response Status": "201 Created",
+     "Response Body": "",
+     "Etag": "\"8f481cede6d2ddc07cb36aa084d9a64d\"",
+     "Last Modified": "Wed, 25 Oct 2017 17:08:55 GMT",
+     "Errors": []}
 
 Behind the scenes, on success, a JSON manifest generated from the user input is
 sent to object servers with an extra ``X-Static-Large-Object: True`` header
@@ -251,12 +278,14 @@ import json
 import mimetypes
 import re
 import six
+import time
 from hashlib import md5
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
-    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, Response, Range
+    HTTPUnauthorized, HTTPConflict, HTTPUnprocessableEntity, Response, Range, \
+    RESPONSE_REASONS
 from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
@@ -273,6 +302,7 @@ from swift.common.middleware.bulk import get_response_body, \
 DEFAULT_RATE_LIMIT_UNDER_SIZE = 1024 * 1024  # 1 MiB
 DEFAULT_MAX_MANIFEST_SEGMENTS = 1000
 DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
+DEFAULT_YIELD_FREQUENCY = 10
 
 
 REQUIRED_SLO_KEYS = set(['path'])
@@ -366,7 +396,7 @@ def parse_and_validate_input(req_body, req_path):
             except (TypeError, ValueError):
                 errors.append("Index %d: invalid size_bytes" % seg_index)
                 continue
-            if seg_size < 1:
+            if seg_size < 1 and seg_index != (len(parsed_data) - 1):
                 errors.append("Index %d: too small; each segment must be "
                               "at least 1 byte."
                               % (seg_index,))
@@ -430,7 +460,7 @@ class SloGetContext(WSGIContext):
         if not sub_resp.is_success:
             close_if_possible(sub_resp.app_iter)
             raise ListingIterError(
-                'ERROR: while fetching %s, GET of submanifest %s '
+                'while fetching %s, GET of submanifest %s '
                 'failed with status %d' % (req.path, sub_req.path,
                                            sub_resp.status_int))
 
@@ -439,7 +469,7 @@ class SloGetContext(WSGIContext):
                 return json.loads(''.join(sub_resp.app_iter))
         except ValueError as err:
             raise ListingIterError(
-                'ERROR: while fetching %s, JSON-decoding of submanifest %s '
+                'while fetching %s, JSON-decoding of submanifest %s '
                 'failed with %s' % (req.path, sub_req.path, err))
 
     def _segment_length(self, seg_dict):
@@ -526,7 +556,9 @@ class SloGetContext(WSGIContext):
                 # do this check here so that we can avoid fetching this last
                 # manifest before raising the exception
                 if recursion_depth >= self.max_slo_recursion_depth:
-                    raise ListingIterError("Max recursion depth exceeded")
+                    raise ListingIterError(
+                        "While processing manifest %r, "
+                        "max recursion depth was exceeded" % req.path)
 
                 sub_path = get_valid_utf8_str(seg_dict['name'])
                 sub_cont, sub_obj = split_path(sub_path, 2, 2, True)
@@ -860,16 +892,26 @@ class StaticLargeObject(object):
 
     :param app: The next WSGI filter or app in the paste.deploy chain.
     :param conf: The configuration dict for the middleware.
+    :param max_manifest_segments: The maximum number of segments allowed in
+                                  newly-created static large objects.
+    :param max_manifest_size: The maximum size (in bytes) of newly-created
+                              static-large-object manifests.
+    :param yield_frequency: If the client included ``heartbeat=on`` in the
+                            query parameters when creating a new static large
+                            object, the period of time to wait between sending
+                            whitespace to keep the connection alive.
     """
 
     def __init__(self, app, conf,
                  max_manifest_segments=DEFAULT_MAX_MANIFEST_SEGMENTS,
-                 max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE):
+                 max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE,
+                 yield_frequency=DEFAULT_YIELD_FREQUENCY):
         self.conf = conf
         self.app = app
         self.logger = get_logger(conf, log_route='slo')
         self.max_manifest_segments = max_manifest_segments
         self.max_manifest_size = max_manifest_size
+        self.yield_frequency = yield_frequency
         self.max_get_time = int(self.conf.get('max_get_time', 86400))
         self.rate_limit_under_size = int(self.conf.get(
             'rate_limit_under_size', DEFAULT_RATE_LIMIT_UNDER_SIZE))
@@ -928,8 +970,10 @@ class StaticLargeObject(object):
             raise HTTPRequestEntityTooLarge(
                 'Number of segments must be <= %d' %
                 self.max_manifest_segments)
-        total_size = 0
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = 'text/plain'  # Ignore invalid header
         if not out_content_type:
             out_content_type = 'text/plain'
         data_for_storage = []
@@ -948,7 +992,8 @@ class StaticLargeObject(object):
                 agent='%(orig)s SLO MultipartPUT', swift_source='SLO')
             return obj_name, sub_req.get_response(self)
 
-        def validate_seg_dict(seg_dict, head_seg_resp):
+        def validate_seg_dict(seg_dict, head_seg_resp, allow_empty_segment):
+            obj_name = seg_dict['path']
             if not head_seg_resp.is_success:
                 problem_segments.append([quote(obj_name),
                                          head_seg_resp.status])
@@ -976,7 +1021,7 @@ class StaticLargeObject(object):
                     seg_dict['range'] = '%d-%d' % (rng[0], rng[1] - 1)
                     segment_length = rng[1] - rng[0]
 
-            if segment_length < 1:
+            if segment_length < 1 and not allow_empty_segment:
                 problem_segments.append(
                     [quote(obj_name),
                      'Too small; each segment must be at least 1 byte.'])
@@ -1006,60 +1051,115 @@ class StaticLargeObject(object):
                 seg_data['sub_slo'] = True
             return segment_length, seg_data
 
+        heartbeat = config_true_value(req.params.get('heartbeat'))
+        separator = ''
+        if heartbeat:
+            # Apparently some ways of deploying require that this to happens
+            # *before* the return? Not sure why.
+            req.environ['eventlet.minimum_write_chunk_size'] = 0
+            start_response('202 Accepted', [  # NB: not 201 !
+                ('Content-Type', out_content_type),
+            ])
+            separator = '\r\n\r\n'
         data_for_storage = [None] * len(parsed_data)
-        with StreamingPile(self.concurrency) as pile:
-            for obj_name, resp in pile.asyncstarmap(do_head, (
-                    (path, ) for path in path2indices)):
-                for i in path2indices[obj_name]:
-                    segment_length, seg_data = validate_seg_dict(
-                        parsed_data[i], resp)
-                    data_for_storage[i] = seg_data
-                    total_size += segment_length
 
-        if problem_segments:
-            resp_body = get_response_body(
-                out_content_type, {}, problem_segments)
-            raise HTTPBadRequest(resp_body, content_type=out_content_type)
+        def resp_iter():
+            total_size = 0
+            # wsgi won't propagate start_response calls until some data has
+            # been yielded so make sure first heartbeat is sent immediately
+            if heartbeat:
+                yield ' '
+            last_yield_time = time.time()
+            with StreamingPile(self.concurrency) as pile:
+                for obj_name, resp in pile.asyncstarmap(do_head, (
+                        (path, ) for path in path2indices)):
+                    now = time.time()
+                    if heartbeat and (now - last_yield_time >
+                                      self.yield_frequency):
+                        # Make sure we've called start_response before
+                        # sending data
+                        yield ' '
+                        last_yield_time = now
+                    for i in path2indices[obj_name]:
+                        segment_length, seg_data = validate_seg_dict(
+                            parsed_data[i], resp,
+                            allow_empty_segment=(i == len(parsed_data) - 1))
+                        data_for_storage[i] = seg_data
+                        total_size += segment_length
 
-        slo_etag = md5()
-        for seg_data in data_for_storage:
-            if seg_data.get('range'):
-                slo_etag.update('%s:%s;' % (seg_data['hash'],
-                                            seg_data['range']))
+            if problem_segments:
+                err = HTTPBadRequest(content_type=out_content_type)
+                resp_dict = {}
+                if heartbeat:
+                    resp_dict['Response Status'] = err.status
+                    resp_dict['Response Body'] = err.body or '\n'.join(
+                        RESPONSE_REASONS.get(err.status_int, ['']))
+                else:
+                    start_response(err.status,
+                                   [(h, v) for h, v in err.headers.items()
+                                    if h.lower() != 'content-length'])
+                yield separator + get_response_body(
+                    out_content_type, resp_dict, problem_segments, 'upload')
+                return
+
+            slo_etag = md5()
+            for seg_data in data_for_storage:
+                if seg_data.get('range'):
+                    slo_etag.update('%s:%s;' % (seg_data['hash'],
+                                                seg_data['range']))
+                else:
+                    slo_etag.update(seg_data['hash'])
+
+            slo_etag = slo_etag.hexdigest()
+            client_etag = req.headers.get('Etag')
+            if client_etag and client_etag.strip('"') != slo_etag:
+                err = HTTPUnprocessableEntity(request=req)
+                if heartbeat:
+                    yield separator + get_response_body(out_content_type, {
+                        'Response Status': err.status,
+                        'Response Body': err.body or '\n'.join(
+                            RESPONSE_REASONS.get(err.status_int, [''])),
+                    }, problem_segments, 'upload')
+                else:
+                    for chunk in err(req.environ, start_response):
+                        yield chunk
+                return
+
+            json_data = json.dumps(data_for_storage)
+            if six.PY3:
+                json_data = json_data.encode('utf-8')
+            req.body = json_data
+            req.headers.update({
+                SYSMETA_SLO_ETAG: slo_etag,
+                SYSMETA_SLO_SIZE: total_size,
+                'X-Static-Large-Object': 'True',
+                'Etag': md5(json_data).hexdigest(),
+            })
+
+            env = req.environ
+            if not env.get('CONTENT_TYPE'):
+                guessed_type, _junk = mimetypes.guess_type(req.path_info)
+                env['CONTENT_TYPE'] = (guessed_type or
+                                       'application/octet-stream')
+            env['swift.content_type_overridden'] = True
+            env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
+
+            resp = req.get_response(self.app)
+            resp_dict = {'Response Status': resp.status}
+            if resp.is_success:
+                resp.etag = slo_etag
+                resp_dict['Etag'] = resp.headers['Etag']
+                resp_dict['Last Modified'] = resp.headers['Last-Modified']
+
+            if heartbeat:
+                resp_dict['Response Body'] = resp.body
+                yield separator + get_response_body(
+                    out_content_type, resp_dict, [], 'upload')
             else:
-                slo_etag.update(seg_data['hash'])
+                for chunk in resp(req.environ, start_response):
+                    yield chunk
 
-        slo_etag = slo_etag.hexdigest()
-        client_etag = req.headers.get('Etag')
-        if client_etag and client_etag.strip('"') != slo_etag:
-            raise HTTPUnprocessableEntity(request=req)
-
-        json_data = json.dumps(data_for_storage)
-        if six.PY3:
-            json_data = json_data.encode('utf-8')
-        req.body = json_data
-        req.headers.update({
-            SYSMETA_SLO_ETAG: slo_etag,
-            SYSMETA_SLO_SIZE: total_size,
-            'X-Static-Large-Object': 'True',
-            'Etag': md5(json_data).hexdigest(),
-        })
-
-        env = req.environ
-        if not env.get('CONTENT_TYPE'):
-            guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            env['CONTENT_TYPE'] = guessed_type or 'application/octet-stream'
-        env['swift.content_type_overridden'] = True
-        env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
-
-        def start_response_wrapper(status, headers, exc_info=None):
-            for i, (header, _value) in enumerate(headers):
-                if header.lower() == 'etag':
-                    headers[i] = ('Etag', '"%s"' % slo_etag)
-                    break
-            return start_response(status, headers, exc_info)
-
-        return self.app(env, start_response_wrapper)
+        return resp_iter()
 
     def get_segments_to_delete_iter(self, req):
         """
@@ -1154,7 +1254,10 @@ class StaticLargeObject(object):
         """
         req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
-        out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        try:
+            out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
+        except ValueError:
+            out_content_type = None  # Ignore invalid header
         if out_content_type:
             resp.content_type = out_content_type
         resp.app_iter = self.bulk_deleter.handle_delete_iter(
@@ -1205,10 +1308,13 @@ def filter_factory(global_conf, **local_conf):
                                          DEFAULT_MAX_MANIFEST_SEGMENTS))
     max_manifest_size = int(conf.get('max_manifest_size',
                                      DEFAULT_MAX_MANIFEST_SIZE))
+    yield_frequency = int(conf.get('yield_frequency',
+                                   DEFAULT_YIELD_FREQUENCY))
 
     register_swift_info('slo',
                         max_manifest_segments=max_manifest_segments,
                         max_manifest_size=max_manifest_size,
+                        yield_frequency=yield_frequency,
                         # this used to be configurable; report it as 1 for
                         # clients that might still care
                         min_segment_size=1)
@@ -1217,5 +1323,6 @@ def filter_factory(global_conf, **local_conf):
         return StaticLargeObject(
             app, conf,
             max_manifest_segments=max_manifest_segments,
-            max_manifest_size=max_manifest_size)
+            max_manifest_size=max_manifest_size,
+            yield_frequency=yield_frequency)
     return slo_filter

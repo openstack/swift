@@ -55,7 +55,7 @@ class TestReceiver(unittest.TestCase):
         self.conf = {
             'devices': self.testdir,
             'mount_check': 'false',
-            'replication_one_per_device': 'false',
+            'replication_concurrency_per_device': '0',
             'log_requests': 'false'}
         utils.mkdirs(os.path.join(self.testdir, 'device', 'partition'))
         self.controller = server.ObjectController(self.conf)
