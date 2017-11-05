@@ -792,6 +792,101 @@ class TestSlo(Base):
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
 
+    def test_slo_put_heartbeating(self):
+        if 'yield_frequency' not in cluster_info['slo']:
+            # old swift?
+            raise SkipTest('Swift does not seem to support heartbeating')
+
+        def do_put(headers=None, include_error=False):
+            file_item = self.env.container.file("manifest-heartbeat")
+            seg_info = self.env.seg_info
+            manifest_data = [seg_info['seg_a'], seg_info['seg_b'],
+                             seg_info['seg_c'], seg_info['seg_d'],
+                             seg_info['seg_e']]
+            if include_error:
+                manifest_data.append({'path': 'non-existent/segment'})
+            resp = file_item.write(
+                json.dumps(manifest_data),
+                parms={'multipart-manifest': 'put', 'heartbeat': 'on'},
+                hdrs=headers, return_resp=True)
+            self.assertEqual(resp.status, 202)
+            self.assertTrue(resp.chunked)
+            body_lines = resp.body.split('\n', 2)
+            self.assertFalse(body_lines[0].strip())  # all whitespace
+            self.assertEqual('\r', body_lines[1])
+            return body_lines[2]
+
+        body_lines = do_put().split('\n')
+        self.assertIn('Response Status: 201 Created', body_lines)
+        self.assertIn('Etag', [line.split(':', 1)[0] for line in body_lines])
+        self.assertIn('Last Modified', [line.split(':', 1)[0]
+                                        for line in body_lines])
+
+        body_lines = do_put({'Accept': 'text/plain'}).split('\n')
+        self.assertIn('Response Status: 201 Created', body_lines)
+        self.assertIn('Etag', [line.split(':', 1)[0] for line in body_lines])
+        self.assertIn('Last Modified', [line.split(':', 1)[0]
+                                        for line in body_lines])
+
+        body = do_put({'Accept': 'application/json'})
+        try:
+            resp = json.loads(body)
+        except ValueError:
+            self.fail('Expected JSON, got %r' % body)
+        self.assertIn('Etag', resp)
+        del resp['Etag']
+        self.assertIn('Last Modified', resp)
+        del resp['Last Modified']
+        self.assertEqual(resp, {
+            'Response Status': '201 Created',
+            'Response Body': '',
+            'Errors': [],
+        })
+
+        body_lines = do_put(include_error=True).split('\n')
+        self.assertIn('Response Status: 400 Bad Request', body_lines)
+        self.assertIn('Response Body: Bad Request', body_lines)
+        self.assertNotIn('Etag', [line.split(':', 1)[0]
+                                  for line in body_lines])
+        self.assertNotIn('Last Modified', [line.split(':', 1)[0]
+                                           for line in body_lines])
+        self.assertEqual(body_lines[-3:], [
+            'Errors:',
+            'non-existent/segment, 404 Not Found',
+            '',
+        ])
+
+        body = do_put({'Accept': 'application/json'}, include_error=True)
+        try:
+            resp = json.loads(body)
+        except ValueError:
+            self.fail('Expected JSON, got %r' % body)
+        self.assertNotIn('Etag', resp)
+        self.assertNotIn('Last Modified', resp)
+        self.assertEqual(resp, {
+            'Response Status': '400 Bad Request',
+            'Response Body': 'Bad Request\nThe server could not comply with '
+                             'the request since it is either malformed or '
+                             'otherwise incorrect.',
+            'Errors': [
+                ['non-existent/segment', '404 Not Found'],
+            ],
+        })
+
+        body = do_put({'Accept': 'application/json', 'ETag': 'bad etag'})
+        try:
+            resp = json.loads(body)
+        except ValueError:
+            self.fail('Expected JSON, got %r' % body)
+        self.assertNotIn('Etag', resp)
+        self.assertNotIn('Last Modified', resp)
+        self.assertEqual(resp, {
+            'Response Status': '422 Unprocessable Entity',
+            'Response Body': 'Unprocessable Entity\nUnable to process the '
+                             'contained instructions',
+            'Errors': [],
+        })
+
     def _make_manifest(self):
         file_item = self.env.container.file("manifest-post")
         seg_info = self.env.seg_info

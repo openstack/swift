@@ -29,9 +29,10 @@ from eventlet import GreenPool, tpool, Timeout, sleep
 from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
+from swift.common.constraints import check_drive
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
-    compute_eta, get_logger, dump_recon_cache, ismount, \
+    compute_eta, get_logger, dump_recon_cache, \
     rsync_module_interpolation, mkdirs, config_true_value, list_from_csv, \
     tpool_reraise, config_auto_int_value, storage_directory
 from swift.common.bufferedhttp import http_connect
@@ -585,10 +586,9 @@ class ObjectReplicator(Daemon):
                               and (override_devices is None
                                    or dev['device'] in override_devices))]:
             found_local = True
-            dev_path = join(self.devices_dir, local_dev['device'])
-            obj_path = join(dev_path, data_dir)
-            tmp_path = join(dev_path, get_tmp_dir(policy))
-            if self.mount_check and not ismount(dev_path):
+            dev_path = check_drive(self.devices_dir, local_dev['device'],
+                                   self.mount_check)
+            if not dev_path:
                 self._add_failure_stats(
                     [(failure_dev['replication_ip'],
                       failure_dev['device'])
@@ -597,6 +597,8 @@ class ObjectReplicator(Daemon):
                 self.logger.warning(
                     _('%s is not mounted'), local_dev['device'])
                 continue
+            obj_path = join(dev_path, data_dir)
+            tmp_path = join(dev_path, get_tmp_dir(policy))
             unlink_older_than(tmp_path, time.time() -
                               df_mgr.reclaim_age)
             if not os.path.exists(obj_path):
@@ -728,8 +730,9 @@ class ObjectReplicator(Daemon):
                 if override_partitions and \
                         job['partition'] not in override_partitions:
                     continue
-                dev_path = join(self.devices_dir, job['device'])
-                if self.mount_check and not ismount(dev_path):
+                dev_path = check_drive(self.devices_dir, job['device'],
+                                       self.mount_check)
+                if not dev_path:
                     self._add_failure_stats([(failure_dev['replication_ip'],
                                               failure_dev['device'])
                                              for failure_dev in job['nodes']])

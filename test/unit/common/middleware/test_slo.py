@@ -313,6 +313,9 @@ class TestSloPutManifest(SloTestCase):
             'PUT', '/', swob.HTTPOk, {}, 'passed')
 
         self.app.register(
+            'HEAD', '/v1/AUTH_test/cont/missing-object',
+            swob.HTTPNotFound, {}, None)
+        self.app.register(
             'HEAD', '/v1/AUTH_test/cont/object',
             swob.HTTPOk,
             {'Content-Length': '100', 'Etag': 'etagoftheobjectsegment'},
@@ -343,7 +346,8 @@ class TestSloPutManifest(SloTestCase):
             {'Content-Length': '1', 'Etag': 'a'},
             None)
         self.app.register(
-            'PUT', '/v1/AUTH_test/c/man', swob.HTTPCreated, {}, None)
+            'PUT', '/v1/AUTH_test/c/man', swob.HTTPCreated,
+            {'Last-Modified': 'Fri, 01 Feb 2012 20:38:36 GMT'}, None)
         self.app.register(
             'DELETE', '/v1/AUTH_test/c/man', swob.HTTPNoContent, {}, None)
 
@@ -432,6 +436,219 @@ class TestSloPutManifest(SloTestCase):
             'Content-Type %r does not end with swift_bytes=100' %
             req.headers['Content-Type'])
 
+    @patch('swift.common.middleware.slo.time')
+    def test_handle_multipart_put_fast_heartbeat(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            1,  # first segment's fast
+            2,  # second segment's also fast!
+        ]
+        test_json_data = json.dumps([{'path': u'/cont/object\u2661',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100},
+                                     {'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put&heartbeat=on',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            body=test_json_data)
+
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('202 Accepted', status)
+        headers_found = [h.lower() for h, v in headers]
+        self.assertNotIn('etag', headers_found)
+        body = ''.join(body)
+        gen_etag = '"' + md5hex('etagoftheobjectsegment' * 2) + '"'
+        self.assertTrue(body.startswith(' \r\n\r\n'),
+                        'Expected body to start with single space and two '
+                        'blank lines; got %r' % body)
+        self.assertIn('\nResponse Status: 201 Created\n', body)
+        self.assertIn('\nResponse Body: \n', body)
+        self.assertIn('\nEtag: %s\n' % gen_etag, body)
+        self.assertIn('\nLast Modified: Fri, 01 Feb 2012 20:38:36 GMT\n', body)
+
+    @patch('swift.common.middleware.slo.time')
+    def test_handle_multipart_long_running_put_success(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            1,  # first segment's fast
+            20,  # second segment's slow
+        ]
+        test_json_data = json.dumps([{'path': u'/cont/object\u2661',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100},
+                                     {'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put&heartbeat=on',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            body=test_json_data)
+
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('202 Accepted', status)
+        headers_found = [h.lower() for h, v in headers]
+        self.assertNotIn('etag', headers_found)
+        body = ''.join(body)
+        gen_etag = '"' + md5hex('etagoftheobjectsegment' * 2) + '"'
+        self.assertTrue(body.startswith('  \r\n\r\n'),
+                        'Expected body to start with two spaces and two '
+                        'blank lines; got %r' % body)
+        self.assertIn('\nResponse Status: 201 Created\n', body)
+        self.assertIn('\nResponse Body: \n', body)
+        self.assertIn('\nEtag: %s\n' % gen_etag, body)
+        self.assertIn('\nLast Modified: Fri, 01 Feb 2012 20:38:36 GMT\n', body)
+
+    @patch('swift.common.middleware.slo.time')
+    def test_handle_multipart_long_running_put_success_json(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            11,  # first segment's slow
+            22,  # second segment's also slow
+        ]
+        test_json_data = json.dumps([{'path': u'/cont/object\u2661',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100},
+                                     {'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put&heartbeat=on',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Accept': 'application/json'},
+            body=test_json_data)
+
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('202 Accepted', status)
+        headers_found = [h.lower() for h, v in headers]
+        self.assertNotIn('etag', headers_found)
+        body = ''.join(body)
+        gen_etag = '"' + md5hex('etagoftheobjectsegment' * 2) + '"'
+        self.assertTrue(body.startswith('   \r\n\r\n'),
+                        'Expected body to start with three spaces and two '
+                        'blank lines; got %r' % body)
+        body = json.loads(body)
+        self.assertEqual(body['Response Status'], '201 Created')
+        self.assertEqual(body['Response Body'], '')
+        self.assertEqual(body['Etag'], gen_etag)
+        self.assertEqual(body['Last Modified'],
+                         'Fri, 01 Feb 2012 20:38:36 GMT')
+
+    @patch('swift.common.middleware.slo.time')
+    def test_handle_multipart_long_running_put_failure(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            1,  # first segment's fast
+            20,  # second segment's slow
+        ]
+        test_json_data = json.dumps([{'path': u'/cont/missing-object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100},
+                                     {'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 99}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put&heartbeat=on',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            body=test_json_data)
+
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('202 Accepted', status)
+        headers_found = [h.lower() for h, v in headers]
+        self.assertNotIn('etag', headers_found)
+        body = ''.join(body).split('\n')
+        self.assertEqual(['  \r', '\r'], body[:2],
+                         'Expected body to start with two spaces and two '
+                         'blank lines; got %r' % '\n'.join(body))
+        self.assertIn('Response Status: 400 Bad Request', body[2:5])
+        self.assertIn('Response Body: Bad Request', body)
+        self.assertIn('The server could not comply with the request since it '
+                      'is either malformed or otherwise incorrect.', body)
+        self.assertFalse(any(line.startswith('Etag: ') for line in body))
+        self.assertFalse(any(line.startswith('Last Modified: ')
+                             for line in body))
+        self.assertEqual(body[-4], 'Errors:')
+        self.assertEqual(sorted(body[-3:-1]), [
+            '/cont/missing-object, 404 Not Found',
+            '/cont/object, Size Mismatch',
+        ])
+        self.assertEqual(body[-1], '')
+
+    @patch('swift.common.middleware.slo.time')
+    def test_handle_multipart_long_running_put_failure_json(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            11,  # first segment's slow
+            22,  # second segment's also slow
+        ]
+        test_json_data = json.dumps([{'path': u'/cont/object\u2661',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 99},
+                                     {'path': '/cont/object',
+                                      'etag': 'some other etag',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put&heartbeat=on',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Accept': 'application/json'},
+            body=test_json_data)
+
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('202 Accepted', status)
+        headers_found = [h.lower() for h, v in headers]
+        self.assertNotIn('etag', headers_found)
+        body = ''.join(body)
+        self.assertTrue(body.startswith('   \r\n\r\n'),
+                        'Expected body to start with three spaces and two '
+                        'blank lines; got %r' % body)
+        body = json.loads(body)
+        self.assertEqual(body['Response Status'], '400 Bad Request')
+        self.assertEqual(body['Response Body'], 'Bad Request\nThe server '
+                         'could not comply with the request since it is '
+                         'either malformed or otherwise incorrect.')
+        self.assertNotIn('Etag', body)
+        self.assertNotIn('Last Modified', body)
+        self.assertEqual(sorted(body['Errors']), [
+            ['/cont/object', 'Etag Mismatch'],
+            [quote(u'/cont/object\u2661'.encode('utf8')), 'Size Mismatch'],
+        ])
+
+    @patch('swift.common.middleware.slo.time')
+    def test_handle_multipart_long_running_put_bad_etag_json(self, mock_time):
+        mock_time.time.side_effect = [
+            0,  # start time
+            11,  # first segment's slow
+            22,  # second segment's also slow
+        ]
+        test_json_data = json.dumps([{'path': u'/cont/object\u2661',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100},
+                                     {'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put&heartbeat=on',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Accept': 'application/json', 'ETag': 'bad etag'},
+            body=test_json_data)
+
+        status, headers, body = self.call_slo(req)
+        self.assertEqual('202 Accepted', status)
+        headers_found = [h.lower() for h, v in headers]
+        self.assertNotIn('etag', headers_found)
+        body = ''.join(body)
+        self.assertTrue(body.startswith('   \r\n\r\n'),
+                        'Expected body to start with three spaces and two '
+                        'blank lines; got %r' % body)
+        body = json.loads(body)
+        self.assertEqual(body['Response Status'], '422 Unprocessable Entity')
+        self.assertEqual('Unprocessable Entity\nUnable to process the '
+                         'contained instructions', body['Response Body'])
+        self.assertNotIn('Etag', body)
+        self.assertNotIn('Last Modified', body)
+        self.assertEqual(body['Errors'], [])
+
     def test_manifest_put_no_etag_success(self):
         req = Request.blank(
             '/v1/AUTH_test/c/man?multipart-manifest=put',
@@ -464,10 +681,10 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual(resp.status_int, 422)
 
     def test_handle_multipart_put_disallow_empty_first_segment(self):
-        test_json_data = json.dumps([{'path': '/cont/object',
+        test_json_data = json.dumps([{'path': '/cont/small_object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 0},
-                                     {'path': '/cont/small_object',
+                                     {'path': '/cont/object',
                                       'etag': 'etagoftheobjectsegment',
                                       'size_bytes': 100}])
         req = Request.blank('/v1/a/c/o?multipart-manifest=put',
@@ -3109,6 +3326,35 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)
         self.assertEqual(swift_info['slo'].get('max_manifest_size'),
                          mware.max_manifest_size)
+        self.assertEqual(1000, mware.max_manifest_segments)
+        self.assertEqual(2097152, mware.max_manifest_size)
+        self.assertEqual(1048576, mware.rate_limit_under_size)
+        self.assertEqual(10, mware.rate_limit_after_segment)
+        self.assertEqual(1, mware.rate_limit_segments_per_sec)
+        self.assertEqual(10, mware.yield_frequency)
+        self.assertEqual(2, mware.concurrency)
+        self.assertEqual(2, mware.bulk_deleter.delete_concurrency)
+
+    def test_registered_non_defaults(self):
+        conf = dict(
+            max_manifest_segments=500, max_manifest_size=1048576,
+            rate_limit_under_size=2097152, rate_limit_after_segment=20,
+            rate_limit_segments_per_sec=2, yield_frequency=5, concurrency=1,
+            delete_concurrency=3)
+        mware = slo.filter_factory(conf)('have to pass in an app')
+        swift_info = utils.get_swift_info()
+        self.assertTrue('slo' in swift_info)
+        self.assertEqual(swift_info['slo'].get('max_manifest_segments'), 500)
+        self.assertEqual(swift_info['slo'].get('min_segment_size'), 1)
+        self.assertEqual(swift_info['slo'].get('max_manifest_size'), 1048576)
+        self.assertEqual(500, mware.max_manifest_segments)
+        self.assertEqual(1048576, mware.max_manifest_size)
+        self.assertEqual(2097152, mware.rate_limit_under_size)
+        self.assertEqual(20, mware.rate_limit_after_segment)
+        self.assertEqual(2, mware.rate_limit_segments_per_sec)
+        self.assertEqual(5, mware.yield_frequency)
+        self.assertEqual(1, mware.concurrency)
+        self.assertEqual(3, mware.bulk_deleter.delete_concurrency)
 
 if __name__ == '__main__':
     unittest.main()

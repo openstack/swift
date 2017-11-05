@@ -92,7 +92,8 @@ def source_key(resp):
 
     :param resp: bufferedhttp response object
     """
-    return Timestamp(resp.getheader('x-backend-timestamp') or
+    return Timestamp(resp.getheader('x-backend-data-timestamp') or
+                     resp.getheader('x-backend-timestamp') or
                      resp.getheader('x-put-timestamp') or
                      resp.getheader('x-timestamp') or 0)
 
@@ -759,6 +760,7 @@ class ResumingGetter(object):
         self.concurrency = concurrency
         self.node = None
         self.header_provider = header_provider
+        self.latest_404_timestamp = Timestamp(0)
 
         # stuff from request
         self.req_method = req.method
@@ -1156,32 +1158,51 @@ class ResumingGetter(object):
                 self.source_headers.append([])
                 close_swift_conn(possible_source)
             else:
-                if self.used_source_etag:
-                    src_headers = dict(
-                        (k.lower(), v) for k, v in
-                        possible_source.getheaders())
+                src_headers = dict(
+                    (k.lower(), v) for k, v in
+                    possible_source.getheaders())
+                if self.used_source_etag and \
+                    self.used_source_etag != src_headers.get(
+                        'x-object-sysmeta-ec-etag',
+                        src_headers.get('etag', '')).strip('"'):
+                    self.statuses.append(HTTP_NOT_FOUND)
+                    self.reasons.append('')
+                    self.bodies.append('')
+                    self.source_headers.append([])
+                    return False
 
-                    if self.used_source_etag != src_headers.get(
-                            'x-object-sysmeta-ec-etag',
-                            src_headers.get('etag', '')).strip('"'):
-                        self.statuses.append(HTTP_NOT_FOUND)
-                        self.reasons.append('')
-                        self.bodies.append('')
-                        self.source_headers.append([])
-                        return False
-
-                self.statuses.append(possible_source.status)
-                self.reasons.append(possible_source.reason)
-                self.bodies.append(None)
-                self.source_headers.append(possible_source.getheaders())
-                self.sources.append((possible_source, node))
-                if not self.newest:  # one good source is enough
-                    return True
+                # a possible source should only be added as a valid source
+                # if its timestamp is newer than previously found tombstones
+                ps_timestamp = Timestamp(
+                    src_headers.get('x-backend-data-timestamp') or
+                    src_headers.get('x-backend-timestamp') or
+                    src_headers.get('x-put-timestamp') or
+                    src_headers.get('x-timestamp') or 0)
+                if ps_timestamp >= self.latest_404_timestamp:
+                    self.statuses.append(possible_source.status)
+                    self.reasons.append(possible_source.reason)
+                    self.bodies.append(None)
+                    self.source_headers.append(possible_source.getheaders())
+                    self.sources.append((possible_source, node))
+                    if not self.newest:  # one good source is enough
+                        return True
         else:
+
             self.statuses.append(possible_source.status)
             self.reasons.append(possible_source.reason)
             self.bodies.append(possible_source.read())
             self.source_headers.append(possible_source.getheaders())
+
+            # if 404, record the timestamp. If a good source shows up, its
+            # timestamp will be compared to the latest 404.
+            # For now checking only on objects, but future work could include
+            # the same check for account and containers. See lp 1560574.
+            if self.server_type == 'Object' and \
+                    possible_source.status == HTTP_NOT_FOUND:
+                hdrs = HeaderKeyDict(possible_source.getheaders())
+                ts = Timestamp(hdrs.get('X-Backend-Timestamp', 0))
+                if ts > self.latest_404_timestamp:
+                    self.latest_404_timestamp = ts
             if possible_source.status == HTTP_INSUFFICIENT_STORAGE:
                 self.app.error_limit(node, _('ERROR Insufficient Storage'))
             elif is_server_error(possible_source.status):
@@ -1218,6 +1239,12 @@ class ResumingGetter(object):
         else:
             # ran out of nodes, see if any stragglers will finish
             any(pile)
+
+        # this helps weed out any sucess status that were found before a 404
+        # and added to the list in the case of x-newest.
+        if self.sources:
+            self.sources = [s for s in self.sources
+                            if source_key(s[0]) >= self.latest_404_timestamp]
 
         if self.sources:
             self.sources.sort(key=lambda s: source_key(s[0]))

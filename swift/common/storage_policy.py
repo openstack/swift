@@ -21,7 +21,7 @@ import six
 from six.moves.configparser import ConfigParser
 from swift.common.utils import (
     config_true_value, quorum_size, whataremyips, list_from_csv,
-    config_positive_int_value)
+    config_positive_int_value, get_zero_indexed_base_string)
 from swift.common.ring import Ring, RingData
 from swift.common import utils
 from swift.common.exceptions import RingLoadError
@@ -92,11 +92,7 @@ class PolicyError(ValueError):
 
 
 def _get_policy_string(base, policy_index):
-    if policy_index == 0 or policy_index is None:
-        return_string = base
-    else:
-        return_string = base + "-%d" % int(policy_index)
-    return return_string
+    return get_zero_indexed_base_string(base, policy_index)
 
 
 def get_policy_string(base, policy_or_index):

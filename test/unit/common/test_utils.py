@@ -924,9 +924,20 @@ class TestUtils(unittest.TestCase):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
 
+    def test_get_zero_indexed_base_string(self):
+        self.assertEqual(utils.get_zero_indexed_base_string('something', 0),
+                         'something')
+        self.assertEqual(utils.get_zero_indexed_base_string('something', None),
+                         'something')
+        self.assertEqual(utils.get_zero_indexed_base_string('something', 1),
+                         'something-1')
+        self.assertRaises(ValueError, utils.get_zero_indexed_base_string,
+                          'something', 'not_integer')
+
     def test_lock_path(self):
         tmpdir = mkdtemp()
         try:
+            # 2 locks with limit=1 must fail
             with utils.lock_path(tmpdir, 0.1):
                 exc = None
                 success = False
@@ -935,6 +946,26 @@ class TestUtils(unittest.TestCase):
                         success = True
                 except LockTimeout as err:
                     exc = err
+                self.assertTrue(exc is not None)
+                self.assertTrue(not success)
+
+            # 2 locks with limit=2 must succeed
+            with utils.lock_path(tmpdir, 0.1, limit=2):
+                success = False
+                with utils.lock_path(tmpdir, 0.1, limit=2):
+                    success = True
+                self.assertTrue(success)
+
+            # 3 locks with limit=2 must fail
+            with utils.lock_path(tmpdir, 0.1, limit=2):
+                exc = None
+                success = False
+                with utils.lock_path(tmpdir, 0.1, limit=2):
+                    try:
+                        with utils.lock_path(tmpdir, 0.1, limit=2):
+                            success = True
+                    except LockTimeout as err:
+                        exc = err
                 self.assertTrue(exc is not None)
                 self.assertTrue(not success)
         finally:
@@ -1503,8 +1534,8 @@ class TestUtils(unittest.TestCase):
         syslog_handler_catcher.LOG_LOCAL0 = orig_sysloghandler.LOG_LOCAL0
         syslog_handler_catcher.LOG_LOCAL3 = orig_sysloghandler.LOG_LOCAL3
 
-        try:
-            utils.ThreadSafeSysLogHandler = syslog_handler_catcher
+        with mock.patch.object(utils, 'ThreadSafeSysLogHandler',
+                               syslog_handler_catcher):
             utils.get_logger({
                 'log_facility': 'LOG_LOCAL3',
             }, 'server', log_route='server')
@@ -1553,8 +1584,6 @@ class TestUtils(unittest.TestCase):
                 ((), {'address': ('syslog.funtimes.com', 2123),
                       'facility': orig_sysloghandler.LOG_LOCAL0})],
                 syslog_handler_args)
-        finally:
-            utils.ThreadSafeSysLogHandler = orig_sysloghandler
 
     @reset_logger_state
     def test_clean_logger_exception(self):
@@ -2977,8 +3006,7 @@ cluster_dfw1 = http://dfw1.host/v1/
                 self.last_call[-1] = self.last_call[-1].value
                 return 0
 
-        orig__sys_fallocate = utils._sys_fallocate
-        try:
+        with patch.object(utils, '_sys_fallocate', FallocateWrapper()):
             utils._sys_fallocate = FallocateWrapper()
             # Ensure fallocate calls _sys_fallocate even with 0 bytes
             utils._sys_fallocate.last_call = None
@@ -3000,8 +3028,6 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.fallocate(1234, 10 * 1024 * 1024 * 1024)
             self.assertEqual(utils._sys_fallocate.last_call,
                              [1234, 1, 0, 10 * 1024 * 1024 * 1024])
-        finally:
-            utils._sys_fallocate = orig__sys_fallocate
 
     def test_generate_trans_id(self):
         fake_time = 1366428370.5163341

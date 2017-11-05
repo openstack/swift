@@ -246,6 +246,69 @@ class TestObjectHandoff(ReplProbeTest):
         else:
             self.fail("Expected ClientException but didn't get it")
 
+    def test_stale_reads(self):
+        # Create container
+        container = 'container-%s' % uuid4()
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
+
+        # Kill one primary obj server
+        obj = 'object-%s' % uuid4()
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, container, obj)
+        onode = onodes[0]
+        kill_server((onode['ip'], onode['port']), self.ipport2server)
+
+        # Create container/obj (goes to two primaries and one handoff)
+        client.put_object(self.url, self.token, container, obj, 'VERIFY')
+        odata = client.get_object(self.url, self.token, container, obj)[-1]
+        if odata != 'VERIFY':
+            raise Exception('Object GET did not return VERIFY, instead it '
+                            'returned: %s' % repr(odata))
+
+        # Stash the on disk data from a primary for future comparison with the
+        # handoff - this may not equal 'VERIFY' if for example the proxy has
+        # crypto enabled
+        direct_get_data = direct_client.direct_get_object(
+            onodes[1], opart, self.account, container, obj, headers={
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
+
+        # Restart the first container/obj primary server again
+        start_server((onode['ip'], onode['port']), self.ipport2server)
+
+        # send a delete request to primaries
+        client.delete_object(self.url, self.token, container, obj)
+
+        # there should be .ts files in all primaries now
+        for node in onodes:
+            try:
+                direct_client.direct_get_object(
+                    node, opart, self.account, container, obj, headers={
+                        'X-Backend-Storage-Policy-Index': self.policy.idx})
+            except ClientException as err:
+                self.assertEqual(err.http_status, 404)
+            else:
+                self.fail("Expected ClientException but didn't get it")
+
+        # verify that handoff still has the data, DELETEs should have gone
+        # only to primaries
+        another_onode = next(self.object_ring.get_more_nodes(opart))
+        handoff_data = direct_client.direct_get_object(
+            another_onode, opart, self.account, container, obj, headers={
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
+        self.assertEqual(handoff_data, direct_get_data)
+
+        # Indirectly (i.e., through proxy) try to GET object, it should return
+        # a 404, before bug #1560574, the proxy would return the stale object
+        # from the handoff
+        try:
+            client.get_object(self.url, self.token, container, obj)
+        except client.ClientException as err:
+            self.assertEqual(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
+
 
 class TestECObjectHandoff(ECProbeTest):
 

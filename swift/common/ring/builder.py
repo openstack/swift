@@ -130,7 +130,7 @@ class RingBuilder(object):
         # within a given number of hours (24 is my usual test). Removing
         # a device overrides this behavior as it's assumed that's only
         # done because of device failure.
-        self._last_part_moves = None
+        self._last_part_moves = array('B', itertools.repeat(0, self.parts))
         # _part_moved_bitmap record parts have been moved
         self._part_moved_bitmap = None
         # _last_part_moves_epoch indicates the time the offsets in
@@ -167,7 +167,7 @@ class RingBuilder(object):
 
     @property
     def ever_rebalanced(self):
-        return self._last_part_moves is not None
+        return self._replica2part2dev is not None
 
     def _set_part_moved(self, part):
         self._last_part_moves[part] = 0
@@ -507,7 +507,7 @@ class RingBuilder(object):
 
         if not self.ever_rebalanced:
             self.logger.debug("New builder; performing initial balance")
-            self._last_part_moves = array('B', itertools.repeat(0, self.parts))
+
         self._update_last_part_moves()
 
         with _set_random_seed(seed):
@@ -925,7 +925,7 @@ class RingBuilder(object):
         """
         self._part_moved_bitmap = bytearray(max(2 ** (self.part_power - 3), 1))
         elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
-        if elapsed_hours <= 0 or not self._last_part_moves:
+        if elapsed_hours <= 0:
             return
         for part in range(self.parts):
             # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"

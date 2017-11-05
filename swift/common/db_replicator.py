@@ -28,10 +28,11 @@ from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
 
 import swift.common.db
+from swift.common.constraints import check_drive
 from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
-    unlink_older_than, dump_recon_cache, rsync_module_interpolation, ismount, \
+    unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     json, Timestamp
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
@@ -636,8 +637,8 @@ class Replicator(Daemon):
                                         node['replication_ip'],
                                         node['replication_port']):
                 found_local = True
-                if self.mount_check and not ismount(
-                        os.path.join(self.root, node['device'])):
+                if not check_drive(self.root, node['device'],
+                                   self.mount_check):
                     self._add_failure_stats(
                         [(failure_dev['replication_ip'],
                           failure_dev['device'])
@@ -696,7 +697,7 @@ class ReplicatorRpc(object):
             return HTTPBadRequest(body='Invalid object type')
         op = args.pop(0)
         drive, partition, hsh = replicate_args
-        if self.mount_check and not ismount(os.path.join(self.root, drive)):
+        if not check_drive(self.root, drive, self.mount_check):
             return Response(status='507 %s is not mounted' % drive)
         db_file = os.path.join(self.root, drive,
                                storage_directory(self.datadir, partition, hsh),

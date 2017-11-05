@@ -25,7 +25,7 @@ from hashlib import md5
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
-from test.unit import (FakeLogger, patch_policies, make_timestamp_iter,
+from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE)
 from swift.obj import auditor, replicator
 from swift.obj.diskfile import (
@@ -66,7 +66,7 @@ class TestAuditor(unittest.TestCase):
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         self.rcache = os.path.join(self.testdir, 'object.recon')
-        self.logger = FakeLogger()
+        self.logger = debug_logger()
         rmtree(self.testdir, ignore_errors=1)
         mkdirs(os.path.join(self.devices, 'sda'))
         os.mkdir(os.path.join(self.devices, 'sdb'))
@@ -246,7 +246,8 @@ class TestAuditor(unittest.TestCase):
                 writer.put(metadata)
                 writer.commit(Timestamp(timestamp))
 
-            auditor_worker = auditor.AuditorWorker(self.conf, FakeLogger(),
+            self.logger.clear()
+            auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                    self.rcache, self.devices)
             self.assertEqual(0, auditor_worker.quarantines)  # sanity check
             auditor_worker.object_audit(
@@ -600,20 +601,19 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(auditor_worker.stats_buckets['OVER'], 2)
 
     def test_object_run_logging(self):
-        logger = FakeLogger()
-        auditor_worker = auditor.AuditorWorker(self.conf, logger,
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
         auditor_worker.audit_all_objects(device_dirs=['sda'])
-        log_lines = logger.get_lines_for_level('info')
+        log_lines = self.logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ALL - parallel, sda'))
 
-        logger = FakeLogger()
-        auditor_worker = auditor.AuditorWorker(self.conf, logger,
+        self.logger.clear()
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices,
                                                zero_byte_only_at_fps=50)
         auditor_worker.audit_all_objects(device_dirs=['sda'])
-        log_lines = logger.get_lines_for_level('info')
+        log_lines = self.logger.get_lines_for_level('info')
         self.assertGreater(len(log_lines), 0)
         self.assertTrue(log_lines[0].index('ZBF - sda'))
 
@@ -984,8 +984,7 @@ class TestAuditor(unittest.TestCase):
 
     def _test_expired_object_is_ignored(self, zero_byte_fps):
         # verify that an expired object does not get mistaken for a tombstone
-        audit = auditor.ObjectAuditor(self.conf)
-        audit.logger = FakeLogger()
+        audit = auditor.ObjectAuditor(self.conf, logger=self.logger)
         audit.log_time = 0
         now = time.time()
         write_diskfile(self.disk_file, Timestamp(now - 20),

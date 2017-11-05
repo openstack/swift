@@ -26,11 +26,12 @@ from tempfile import mkstemp
 from eventlet import spawn, Timeout
 
 import swift.common.db
+from swift.common.constraints import check_drive
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, config_true_value, ismount, \
+from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, majority_size, Timestamp, ratelimit_sleep, \
     eventlet_monkey_patch
 from swift.common.daemon import Daemon
@@ -40,9 +41,9 @@ from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 class ContainerUpdater(Daemon):
     """Update container information in account listings."""
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='container-updater')
+        self.logger = logger or get_logger(conf, log_route='container-updater')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -100,8 +101,8 @@ class ContainerUpdater(Daemon):
         """
         paths = []
         for device in self._listdir(self.devices):
-            dev_path = os.path.join(self.devices, device)
-            if self.mount_check and not ismount(dev_path):
+            dev_path = check_drive(self.devices, device, self.mount_check)
+            if not dev_path:
                 self.logger.warning(_('%s is not mounted'), device)
                 continue
             con_path = os.path.join(dev_path, DATADIR)

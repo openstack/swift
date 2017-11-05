@@ -41,11 +41,10 @@ import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool
 from swift.obj.diskfile import MD5_OF_EMPTY_STRING, update_auditor_status
-from test.unit import (FakeLogger, mock as unit_mock, temptree,
+from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, debug_logger, EMPTY_ETAG,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
-                       requires_o_tmpfile_support, encode_frag_archive_bodies,
-                       mock_check_drive)
+                       requires_o_tmpfile_support, encode_frag_archive_bodies)
 from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
@@ -167,7 +166,8 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1')
-        self.df_mgr = diskfile.DiskFileManager(self.conf, FakeLogger())
+        self.logger = debug_logger()
+        self.df_mgr = diskfile.DiskFileManager(self.conf, logger=self.logger)
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -456,40 +456,38 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(locations, expected)
 
     def test_skipping_unmounted_devices(self):
-        def mock_ismount(path):
-            return path.endswith('sdp')
+        with temptree([]) as tmpdir, mock_check_drive() as mocks:
+            mocks['ismount'].side_effect = lambda path: path.endswith('sdp')
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects",
+                                     "2607", "df3",
+                                     "ec2871fe724411f91787462f97d30df3"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects",
+                                     "9785", "a10",
+                                     "4993d582f41be9771505a8d4cb237a10"))
 
-        with mock.patch('swift.obj.diskfile.ismount', mock_ismount):
-            with temptree([]) as tmpdir:
-                os.makedirs(os.path.join(tmpdir, "sdp", "objects",
-                                         "2607", "df3",
-                                         "ec2871fe724411f91787462f97d30df3"))
-                os.makedirs(os.path.join(tmpdir, "sdq", "objects",
-                                         "9785", "a10",
-                                         "4993d582f41be9771505a8d4cb237a10"))
+            locations = [
+                (loc.path, loc.device, loc.partition, loc.policy)
+                for loc in diskfile.object_audit_location_generator(
+                    devices=tmpdir, mount_check=True)]
+            locations.sort()
 
-                locations = [
-                    (loc.path, loc.device, loc.partition, loc.policy)
-                    for loc in diskfile.object_audit_location_generator(
-                        devices=tmpdir, mount_check=True)]
-                locations.sort()
+            self.assertEqual(
+                locations,
+                [(os.path.join(tmpdir, "sdp", "objects",
+                               "2607", "df3",
+                               "ec2871fe724411f91787462f97d30df3"),
+                  "sdp", "2607", POLICIES[0])])
 
-                self.assertEqual(
-                    locations,
-                    [(os.path.join(tmpdir, "sdp", "objects",
-                                   "2607", "df3",
-                                   "ec2871fe724411f91787462f97d30df3"),
-                      "sdp", "2607", POLICIES[0])])
-
-                # Do it again, this time with a logger.
-                ml = mock.MagicMock()
-                locations = [
-                    (loc.path, loc.device, loc.partition, loc.policy)
-                    for loc in diskfile.object_audit_location_generator(
-                        devices=tmpdir, mount_check=True, logger=ml)]
-                ml.debug.assert_called_once_with(
-                    'Skipping %s as it is not mounted',
-                    'sdq')
+            # Do it again, this time with a logger.
+            logger = debug_logger()
+            locations = [
+                (loc.path, loc.device, loc.partition, loc.policy)
+                for loc in diskfile.object_audit_location_generator(
+                    devices=tmpdir, mount_check=True, logger=logger)]
+            debug_lines = logger.get_lines_for_level('debug')
+            self.assertEqual([
+                'Skipping sdq as it is not mounted',
+            ], debug_lines)
 
     def test_skipping_files(self):
         with temptree([]) as tmpdir:
@@ -512,14 +510,38 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                   "sdp", "2607", POLICIES[0])])
 
             # Do it again, this time with a logger.
-            ml = mock.MagicMock()
+            logger = debug_logger('test')
             locations = [
                 (loc.path, loc.device, loc.partition, loc.policy)
                 for loc in diskfile.object_audit_location_generator(
-                    devices=tmpdir, mount_check=False, logger=ml)]
-            ml.debug.assert_called_once_with(
-                'Skipping %s: Not a directory' %
-                os.path.join(tmpdir, "garbage"))
+                    devices=tmpdir, mount_check=False, logger=logger)]
+            debug_lines = logger.get_lines_for_level('debug')
+            self.assertEqual([
+                'Skipping garbage as it is not a dir',
+            ], debug_lines)
+            logger.clear()
+            with mock_check_drive(isdir=True):
+                locations = [
+                    (loc.path, loc.device, loc.partition, loc.policy)
+                    for loc in diskfile.object_audit_location_generator(
+                        devices=tmpdir, mount_check=False, logger=logger)]
+            debug_lines = logger.get_lines_for_level('debug')
+            self.assertEqual([
+                'Skipping %s: Not a directory' % os.path.join(
+                    tmpdir, "garbage"),
+            ], debug_lines)
+            logger.clear()
+            with mock_check_drive() as mocks:
+                mocks['ismount'].side_effect = lambda path: (
+                    False if path.endswith('garbage') else True)
+                locations = [
+                    (loc.path, loc.device, loc.partition, loc.policy)
+                    for loc in diskfile.object_audit_location_generator(
+                        devices=tmpdir, mount_check=True, logger=logger)]
+            debug_lines = logger.get_lines_for_level('debug')
+            self.assertEqual([
+                'Skipping garbage as it is not mounted',
+            ], debug_lines)
 
     def test_only_catch_expected_errors(self):
         # Crazy exceptions should still escape object_audit_location_generator
@@ -558,7 +580,8 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "sdf", "objects", "2", "a", "b"))
 
             # Pretend that some time passed between each partition
-            with mock.patch('os.stat') as mock_stat:
+            with mock.patch('os.stat') as mock_stat, \
+                    mock_check_drive(isdir=True):
                 mock_stat.return_value.st_mtime = time() - 60
                 # Auditor starts, there are two partitions to check
                 gen = diskfile.object_audit_location_generator(tmpdir, False)
@@ -569,15 +592,17 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             # the generator and restarts There is now only one remaining
             # partition to check
             gen = diskfile.object_audit_location_generator(tmpdir, False)
-            gen.next()
+            with mock_check_drive(isdir=True):
+                gen.next()
 
-            # There are no more remaining partitions
-            self.assertRaises(StopIteration, gen.next)
+                # There are no more remaining partitions
+                self.assertRaises(StopIteration, gen.next)
 
             # There are no partitions to check if the auditor restarts another
             # time and the status files have not been cleared
             gen = diskfile.object_audit_location_generator(tmpdir, False)
-            self.assertRaises(StopIteration, gen.next)
+            with mock_check_drive(isdir=True):
+                self.assertRaises(StopIteration, gen.next)
 
             # Reset status file
             diskfile.clear_auditor_status(tmpdir)
@@ -586,8 +611,9 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             # check two partitions again, because the remaining
             # partitions were empty and a new listdir was executed
             gen = diskfile.object_audit_location_generator(tmpdir, False)
-            gen.next()
-            gen.next()
+            with mock_check_drive(isdir=True):
+                gen.next()
+                gen.next()
 
     def test_update_auditor_status_throttle(self):
         # If there are a lot of nearly empty partitions, the
@@ -864,9 +890,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         tomb_file = timestamp.internal + '.ts'
         for policy in POLICIES:
             for unexpected in unexpected_files:
+                self.logger.clear()
                 files = [unexpected, tomb_file]
                 df_mgr = self.df_router[policy]
-                df_mgr.logger = FakeLogger()
                 datadir = os.path.join('/srv/node/sdb1/',
                                        diskfile.get_data_dir(policy))
 
@@ -874,7 +900,6 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
                 expected = {'ts_file': os.path.join(datadir, tomb_file)}
                 self._assertDictContainsSubset(expected, results)
-
                 log_lines = df_mgr.logger.get_lines_for_level('warning')
                 self.assertTrue(
                     log_lines[0].startswith(
@@ -960,9 +985,66 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         locations = list(self.df_mgr.object_audit_location_generator())
         self.assertEqual(locations, [])
 
+    def test_replication_one_per_device_deprecation(self):
+        conf = dict(**self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 1)
+
+        conf = dict(replication_concurrency_per_device='0', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 0)
+
+        conf = dict(replication_concurrency_per_device='2', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+
+        conf = dict(replication_concurrency_per_device=2, **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+
+        # Check backward compatibility
+        conf = dict(replication_one_per_device='true', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 1)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device is deprecated',
+                      log_lines[-1])
+
+        conf = dict(replication_one_per_device='false', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 0)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device is deprecated',
+                      log_lines[-1])
+
+        # If defined, new parameter has precedence
+        conf = dict(replication_concurrency_per_device='2',
+                    replication_one_per_device='true', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device ignored',
+                      log_lines[-1])
+
+        conf = dict(replication_concurrency_per_device='2',
+                    replication_one_per_device='false', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 2)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device ignored',
+                      log_lines[-1])
+
+        conf = dict(replication_concurrency_per_device='0',
+                    replication_one_per_device='true', **self.conf)
+        mgr = diskfile.DiskFileManager(conf, self.logger)
+        self.assertEqual(mgr.replication_concurrency_per_device, 0)
+        log_lines = mgr.logger.get_lines_for_level('warning')
+        self.assertIn('replication_one_per_device ignored',
+                      log_lines[-1])
+
     def test_replication_lock_on(self):
         # Double check settings
-        self.df_mgr.replication_one_per_device = True
+        self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
         dev_path = os.path.join(self.testdir, self.existing_device)
         with self.df_mgr.replication_lock(self.existing_device):
@@ -981,14 +1063,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_replication_lock_off(self):
         # Double check settings
-        self.df_mgr.replication_one_per_device = False
+        self.df_mgr.replication_concurrency_per_device = 0
         self.df_mgr.replication_lock_timeout = 0.1
         dev_path = os.path.join(self.testdir, self.existing_device)
-        with self.df_mgr.replication_lock(dev_path):
+
+        # 2 locks must succeed
+        with self.df_mgr.replication_lock(self.existing_device):
             lock_exc = None
             exc = None
             try:
-                with self.df_mgr.replication_lock(dev_path):
+                with self.df_mgr.replication_lock(self.existing_device):
                     raise Exception(
                         '%r was not replication locked!' % dev_path)
             except ReplicationLockTimeout as err:
@@ -998,9 +1082,62 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.assertTrue(lock_exc is None)
             self.assertTrue(exc is not None)
 
+        # 3 locks must succeed
+        with self.df_mgr.replication_lock(self.existing_device):
+            with self.df_mgr.replication_lock(self.existing_device):
+                lock_exc = None
+                exc = None
+                try:
+                    with self.df_mgr.replication_lock(self.existing_device):
+                        raise Exception(
+                            '%r was not replication locked!' % dev_path)
+                except ReplicationLockTimeout as err:
+                    lock_exc = err
+                except Exception as err:
+                    exc = err
+                self.assertTrue(lock_exc is None)
+                self.assertTrue(exc is not None)
+
+    def test_replication_lock_2(self):
+        # Double check settings
+        self.df_mgr.replication_concurrency_per_device = 2
+        self.df_mgr.replication_lock_timeout = 0.1
+        dev_path = os.path.join(self.testdir, self.existing_device)
+
+        # 2 locks with replication_concurrency_per_device=2 must succeed
+        with self.df_mgr.replication_lock(self.existing_device):
+            lock_exc = None
+            exc = None
+            try:
+                with self.df_mgr.replication_lock(self.existing_device):
+                    raise Exception(
+                        '%r was not replication locked!' % dev_path)
+            except ReplicationLockTimeout as err:
+                lock_exc = err
+            except Exception as err:
+                exc = err
+            self.assertTrue(lock_exc is None)
+            self.assertTrue(exc is not None)
+
+        # 3 locks with replication_concurrency_per_device=2 must fail
+        with self.df_mgr.replication_lock(self.existing_device):
+            with self.df_mgr.replication_lock(self.existing_device):
+                lock_exc = None
+                exc = None
+                try:
+                    with self.df_mgr.replication_lock(self.existing_device):
+                        raise Exception(
+                            '%r was not replication locked!' % dev_path)
+                except ReplicationLockTimeout as err:
+                    lock_exc = err
+                except Exception as err:
+                    exc = err
+                self.assertTrue(lock_exc is not None)
+                self.assertTrue(exc is None)
+
     def test_replication_lock_another_device_fine(self):
         # Double check settings
-        self.df_mgr.replication_one_per_device = True
+        self.df_mgr.replication_concurrency_per_device = 1
         self.df_mgr.replication_lock_timeout = 0.1
         with self.df_mgr.replication_lock(self.existing_device):
             lock_exc = None
@@ -1012,12 +1149,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.assertTrue(lock_exc is None)
 
     def test_missing_splice_warning(self):
-        logger = FakeLogger()
         with mock.patch('swift.common.splice.splice._c_splice', None):
             self.conf['splice'] = 'yes'
-            mgr = diskfile.DiskFileManager(self.conf, logger)
+            mgr = diskfile.DiskFileManager(self.conf, logger=self.logger)
 
-        warnings = logger.get_lines_for_level('warning')
+        warnings = self.logger.get_lines_for_level('warning')
         self.assertGreater(len(warnings), 0)
         self.assertTrue('splice()' in warnings[-1])
         self.assertFalse(mgr.use_splice)

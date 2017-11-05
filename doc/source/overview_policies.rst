@@ -219,13 +219,13 @@ used.  :ref:`configure-policy` describes how to deprecate a policy.
 
 Swift's behavior with deprecated policies is as follows:
 
- * The deprecated policy will not appear in /info
- * PUT/GET/DELETE/POST/HEAD are still allowed on the pre-existing containers
-   created with a deprecated policy
- * Clients will get an ''400 Bad Request'' error when trying to create a new
-   container using the deprecated policy
- * Clients still have access to policy statistics via HEAD on pre-existing
-   containers
+* The deprecated policy will not appear in /info
+* PUT/GET/DELETE/POST/HEAD are still allowed on the pre-existing containers
+  created with a deprecated policy
+* Clients will get an ''400 Bad Request'' error when trying to create a new
+  container using the deprecated policy
+* Clients still have access to policy statistics via HEAD on pre-existing
+  containers
 
 .. note::
 
@@ -272,10 +272,10 @@ section name must be of the form ``[storage-policy:<N>]`` where ``<N>`` is the
 policy index. There's no reason other than readability that policy indexes be
 sequential but the following rules are enforced:
 
-    * If a policy with index ``0`` is not declared and no other policies are
-      defined, Swift will create a default policy with index ``0``.
-    * The policy index must be a non-negative integer.
-    * Policy indexes must be unique.
+* If a policy with index ``0`` is not declared and no other policies are
+  defined, Swift will create a default policy with index ``0``.
+* The policy index must be a non-negative integer.
+* Policy indexes must be unique.
 
 .. warning::
 
@@ -284,46 +284,46 @@ sequential but the following rules are enforced:
 
 Each policy section contains the following options:
 
-    * ``name = <policy_name>`` (required)
-        - The primary name of the policy.
-        - Policy names are case insensitive.
-        - Policy names must contain only letters, digits or a dash.
-        - Policy names must be unique.
-        - Policy names can be changed.
-        - The name ``Policy-0`` can only be used for the policy with
-          index ``0``.
-    * ``alias = <policy_name>[, <policy_name>, ...]`` (optional)
-        - A comma-separated list of alternative names for the policy.
-        - The default value is an empty list (i.e. no aliases).
-        - All alias names must follow the rules for the ``name`` option.
-        - Aliases can be added to and removed from the list.
-        - Aliases can be useful to retain support for old primary names if the
-          primary name is changed.
-    * ``default = [true|false]`` (optional)
-        - If ``true`` then this policy will be used when the client does not
-          specify a policy.
-        - The default value is ``false``.
-        - The default policy can be changed at any time, by setting
-          ``default = true`` in the desired policy section.
-        - If no policy is declared as the default and no other policies are
-          defined, the policy with index ``0`` is set as the default;
-        - Otherwise, exactly one policy must be declared default.
-        - Deprecated policies cannot be declared the default.
-        - See :ref:`default-policy` for more information.
-    * ``deprecated = [true|false]`` (optional)
-        - If ``true`` then new containers cannot be created using this policy.
-        - The default value is ``false``.
-        - Any policy may be deprecated by adding the ``deprecated`` option to
-          the desired policy section. However, a deprecated policy may not also
-          be declared the default. Therefore, since there must always be a
-          default policy, there must also always be at least one policy which
-          is not deprecated.
-        - See :ref:`deprecate-policy` for more information.
-    * ``policy_type = [replication|erasure_coding]`` (optional)
-        - The option ``policy_type`` is used to distinguish between different
-          policy types.
-        - The default value is ``replication``.
-        - When defining an EC policy use the value ``erasure_coding``.
+* ``name = <policy_name>`` (required)
+    - The primary name of the policy.
+    - Policy names are case insensitive.
+    - Policy names must contain only letters, digits or a dash.
+    - Policy names must be unique.
+    - Policy names can be changed.
+    - The name ``Policy-0`` can only be used for the policy with
+      index ``0``.
+* ``aliases = <policy_name>[, <policy_name>, ...]`` (optional)
+    - A comma-separated list of alternative names for the policy.
+    - The default value is an empty list (i.e. no aliases).
+    - All alias names must follow the rules for the ``name`` option.
+    - Aliases can be added to and removed from the list.
+    - Aliases can be useful to retain support for old primary names if the
+      primary name is changed.
+* ``default = [true|false]`` (optional)
+    - If ``true`` then this policy will be used when the client does not
+      specify a policy.
+    - The default value is ``false``.
+    - The default policy can be changed at any time, by setting
+      ``default = true`` in the desired policy section.
+    - If no policy is declared as the default and no other policies are
+      defined, the policy with index ``0`` is set as the default;
+    - Otherwise, exactly one policy must be declared default.
+    - Deprecated policies cannot be declared the default.
+    - See :ref:`default-policy` for more information.
+* ``deprecated = [true|false]`` (optional)
+    - If ``true`` then new containers cannot be created using this policy.
+    - The default value is ``false``.
+    - Any policy may be deprecated by adding the ``deprecated`` option to
+      the desired policy section. However, a deprecated policy may not also
+      be declared the default. Therefore, since there must always be a
+      default policy, there must also always be at least one policy which
+      is not deprecated.
+    - See :ref:`deprecate-policy` for more information.
+* ``policy_type = [replication|erasure_coding]`` (optional)
+    - The option ``policy_type`` is used to distinguish between different
+      policy types.
+    - The default value is ``replication``.
+    - When defining an EC policy use the value ``erasure_coding``.
 
 The EC policy type has additional required options. See
 :ref:`using_ec_policy` for details.
@@ -648,10 +648,10 @@ that you wanted to take an existing cluster that already has lots of data on it
 and upgrade to Swift with Storage Policies. From there you want to go ahead and
 create a policy and test a few things out.  All you need to do is:
 
-  #. Upgrade all of your Swift nodes to a policy-aware version of Swift
-  #. Define your policies in ``/etc/swift/swift.conf``
-  #. Create the corresponding object rings
-  #. Create containers and objects and confirm their placement is as expected
+#. Upgrade all of your Swift nodes to a policy-aware version of Swift
+#. Define your policies in ``/etc/swift/swift.conf``
+#. Create the corresponding object rings
+#. Create containers and objects and confirm their placement is as expected
 
 For a specific example that takes you through these steps, please see
 :doc:`policies_saio`
