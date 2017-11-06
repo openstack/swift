@@ -169,8 +169,10 @@ class BaseObjectControllerMixin(object):
 
         self.logger = debug_logger('proxy-server')
         self.logger.thread_locals = ('txn1', '127.0.0.2')
+        # increase connection timeout to avoid intermittent failures
+        conf = {'conn_timeout': 1.0}
         self.app = PatchedObjControllerApp(
-            None, FakeMemcache(), account_ring=FakeRing(),
+            conf, FakeMemcache(), account_ring=FakeRing(),
             container_ring=FakeRing(), logger=self.logger)
 
         # you can over-ride the container_info just by setting it on the app
