@@ -2018,7 +2018,7 @@ foo = bar
 [section2]
 log_name = yarr'''
         # setup a real file
-        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        fd, temppath = tempfile.mkstemp()
         with os.fdopen(fd, 'wb') as f:
             f.write(conf)
         make_filename = lambda: temppath
@@ -2067,7 +2067,7 @@ foo = bar
 [section2]
 log_name = %(yarr)s'''
         # setup a real file
-        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        fd, temppath = tempfile.mkstemp()
         with os.fdopen(fd, 'wb') as f:
             f.write(conf)
         make_filename = lambda: temppath
@@ -3275,7 +3275,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         tmpdir = mkdtemp()
         try:
             link = os.path.join(tmpdir, "tmp")
-            os.symlink("/tmp", link)
+            os.symlink(tempfile.gettempdir(), link)
             self.assertFalse(utils.ismount(link))
         finally:
             shutil.rmtree(tmpdir)
@@ -3580,7 +3580,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         tempdir = None
         fd = None
         try:
-            tempdir = mkdtemp(dir='/tmp')
+            tempdir = mkdtemp()
             fd, temppath = tempfile.mkstemp(dir=tempdir)
 
             _mock_fsync = mock.Mock()
@@ -3618,7 +3618,7 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_renamer_with_fsync_dir(self):
         tempdir = None
         try:
-            tempdir = mkdtemp(dir='/tmp')
+            tempdir = mkdtemp()
             # Simulate part of object path already existing
             part_dir = os.path.join(tempdir, 'objects/1234/')
             os.makedirs(part_dir)
@@ -3665,7 +3665,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         tempdir = None
         fd = None
         try:
-            tempdir = mkdtemp(dir='/tmp')
+            tempdir = mkdtemp()
             os.makedirs(os.path.join(tempdir, 'a/b'))
             # 4 new dirs created
             dirpath = os.path.join(tempdir, 'a/b/1/2/3/4')
@@ -3788,7 +3788,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     @requires_o_tmpfile_support
     def test_link_fd_to_path_linkat_success(self):
-        tempdir = mkdtemp(dir='/tmp')
+        tempdir = mkdtemp()
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
         data = "I'm whatever Gotham needs me to be"
         _m_fsync_dir = mock.Mock()
@@ -3808,7 +3808,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     @requires_o_tmpfile_support
     def test_link_fd_to_path_target_exists(self):
-        tempdir = mkdtemp(dir='/tmp')
+        tempdir = mkdtemp()
         # Create and write to a file
         fd, path = tempfile.mkstemp(dir=tempdir)
         os.write(fd, "hello world")
@@ -3843,7 +3843,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     @requires_o_tmpfile_support
     def test_linkat_race_dir_not_exists(self):
-        tempdir = mkdtemp(dir='/tmp')
+        tempdir = mkdtemp()
         target_dir = os.path.join(tempdir, uuid4().hex)
         target_path = os.path.join(target_dir, uuid4().hex)
         os.mkdir(target_dir)

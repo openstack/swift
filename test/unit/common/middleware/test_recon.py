@@ -268,7 +268,8 @@ class TestReconSuccess(TestCase):
         return app
 
     def _create_ring(self, ringpath, replica_map, devs, part_shift):
-        ring.RingData(replica_map, devs, part_shift).save(ringpath)
+        ring.RingData(replica_map, devs, part_shift).save(ringpath,
+                                                          mtime=None)
 
     def _create_rings(self):
         # make the rings unique so they have different md5 sums

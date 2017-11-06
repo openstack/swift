@@ -42,6 +42,9 @@ class TestObject(unittest2.TestCase):
     def setUp(self):
         if tf.skip or tf.skip2:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
         self.container = uuid4().hex
 
         self.containers = []

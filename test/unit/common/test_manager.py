@@ -24,6 +24,7 @@ import signal
 import errno
 from collections import defaultdict
 from time import sleep, time
+import tempfile
 
 from six.moves import reload_module
 
@@ -115,7 +116,8 @@ class TestManagerModule(unittest.TestCase):
             ]
             self.assertEqual(manager.resource.called_with_args, expected)
             self.assertTrue(
-                manager.os.environ['PYTHON_EGG_CACHE'].startswith('/tmp'))
+                manager.os.environ['PYTHON_EGG_CACHE'].startswith(
+                    tempfile.gettempdir()))
 
             # test error condition
             manager.resource = MockResource(error=ValueError())
@@ -123,7 +125,8 @@ class TestManagerModule(unittest.TestCase):
             manager.setup_env()
             self.assertEqual(manager.resource.called_with_args, [])
             self.assertTrue(
-                manager.os.environ['PYTHON_EGG_CACHE'].startswith('/tmp'))
+                manager.os.environ['PYTHON_EGG_CACHE'].startswith(
+                    tempfile.gettempdir()))
 
             manager.resource = MockResource(error=OSError())
             manager.os.environ = {}

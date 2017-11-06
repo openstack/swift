@@ -82,6 +82,12 @@ You can run unit tests with ``.unittests``, functional tests with
 ``.functests``, and probe tests with ``.probetests``. There is an
 additional ``.alltests`` script that wraps the other three.
 
+To fully run the tests, the target environment must use a filesystem that
+supports large xattrs. XFS is strongly recommended. For unit tests and in-
+process functional tests, either mount ``/tmp`` with XFS or provide another
+XFS filesystem via the ``TMPDIR`` environment variable. Without this setting,
+tests should still pass, but a very large number will be skipped.
+
 Code Organization
 ~~~~~~~~~~~~~~~~~
 

@@ -438,6 +438,9 @@ class TestContainer(unittest2.TestCase):
         if tf.skip:
             raise SkipTest
 
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
+
         def post(url, token, parsed, conn, extra_headers):
             headers = {'X-Auth-Token': token}
             headers.update(extra_headers)
@@ -580,6 +583,9 @@ class TestContainer(unittest2.TestCase):
     def test_cross_account_public_container(self):
         if tf.skip or tf.skip2:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
         # Obtain the first account's string
         first_account = ['unknown']
 
@@ -649,6 +655,9 @@ class TestContainer(unittest2.TestCase):
     def test_nonadmin_user(self):
         if tf.skip or tf.skip3:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
         # Obtain the first account's string
         first_account = ['unknown']
 
@@ -1561,6 +1570,9 @@ class TestContainer(unittest2.TestCase):
     def test_container_quota_bytes(self):
         if 'container_quotas' not in cluster_info:
             raise SkipTest('Container quotas not enabled')
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
         def post(url, token, parsed, conn, name, value):
             conn.request('POST', parsed.path + '/' + self.name, '',

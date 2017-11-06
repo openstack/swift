@@ -70,7 +70,8 @@ from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
-    ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported
+    ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported, \
+    DiskFileBadMetadataChecksum
 from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import (
     get_policy_string, split_policy_string, PolicyError, POLICIES,
@@ -83,6 +84,7 @@ DEFAULT_RECLAIM_AGE = timedelta(weeks=1).total_seconds()
 HASH_FILE = 'hashes.pkl'
 HASH_INVALIDATIONS_FILE = 'hashes.invalid'
 METADATA_KEY = 'user.swift.metadata'
+METADATA_CHECKSUM_KEY = 'user.swift.metadata_checksum'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
@@ -145,16 +147,33 @@ def read_metadata(fd):
                                                      (key or '')))
             key += 1
     except (IOError, OSError) as e:
-        for err in 'ENOTSUP', 'EOPNOTSUPP':
-            if hasattr(errno, err) and e.errno == getattr(errno, err):
-                msg = "Filesystem at %s does not support xattr" % \
-                      _get_filename(fd)
-                logging.exception(msg)
-                raise DiskFileXattrNotSupported(e)
+        if errno.errorcode.get(e.errno) in ('ENOTSUP', 'EOPNOTSUPP'):
+            msg = "Filesystem at %s does not support xattr"
+            logging.exception(msg, _get_filename(fd))
+            raise DiskFileXattrNotSupported(e)
         if e.errno == errno.ENOENT:
             raise DiskFileNotExist()
         # TODO: we might want to re-raise errors that don't denote a missing
         # xattr here.  Seems to be ENODATA on linux and ENOATTR on BSD/OSX.
+
+    metadata_checksum = None
+    try:
+        metadata_checksum = xattr.getxattr(fd, METADATA_CHECKSUM_KEY)
+    except (IOError, OSError) as e:
+        # All the interesting errors were handled above; the only thing left
+        # here is ENODATA / ENOATTR to indicate that this attribute doesn't
+        # exist. This is fine; it just means that this object predates the
+        # introduction of metadata checksums.
+        pass
+
+    if metadata_checksum:
+        computed_checksum = hashlib.md5(metadata).hexdigest()
+        if metadata_checksum != computed_checksum:
+            raise DiskFileBadMetadataChecksum(
+                "Metadata checksum mismatch for %s: "
+                "stored checksum='%s', computed='%s'" % (
+                    fd, metadata_checksum, computed_checksum))
+
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
@@ -169,25 +188,27 @@ def write_metadata(fd, metadata, xattr_size=65536):
     :param metadata: metadata to write
     """
     metastr = pickle.dumps(_encode_metadata(metadata), PICKLE_PROTOCOL)
+    metastr_md5 = hashlib.md5(metastr).hexdigest()
     key = 0
-    while metastr:
-        try:
+    try:
+        while metastr:
             xattr.setxattr(fd, '%s%s' % (METADATA_KEY, key or ''),
                            metastr[:xattr_size])
             metastr = metastr[xattr_size:]
             key += 1
-        except IOError as e:
-            for err in 'ENOTSUP', 'EOPNOTSUPP':
-                if hasattr(errno, err) and e.errno == getattr(errno, err):
-                    msg = "Filesystem at %s does not support xattr" % \
-                          _get_filename(fd)
-                    logging.exception(msg)
-                    raise DiskFileXattrNotSupported(e)
-            if e.errno in (errno.ENOSPC, errno.EDQUOT):
-                msg = "No space left on device for %s" % _get_filename(fd)
-                logging.exception(msg)
-                raise DiskFileNoSpace()
-            raise
+        xattr.setxattr(fd, METADATA_CHECKSUM_KEY, metastr_md5)
+    except IOError as e:
+        # errno module doesn't always have both of these, hence the ugly
+        # check
+        if errno.errorcode.get(e.errno) in ('ENOTSUP', 'EOPNOTSUPP'):
+            msg = "Filesystem at %s does not support xattr"
+            logging.exception(msg, _get_filename(fd))
+            raise DiskFileXattrNotSupported(e)
+        elif e.errno in (errno.ENOSPC, errno.EDQUOT):
+            msg = "No space left on device for %s" % _get_filename(fd)
+            logging.exception(msg)
+            raise DiskFileNoSpace()
+        raise
 
 
 def extract_policy(obj_path):
@@ -2389,6 +2410,8 @@ class BaseDiskFile(object):
             return read_metadata(source)
         except (DiskFileXattrNotSupported, DiskFileNotExist):
             raise
+        except DiskFileBadMetadataChecksum as err:
+            raise self._quarantine(quarantine_filename, str(err))
         except Exception as err:
             raise self._quarantine(
                 quarantine_filename,

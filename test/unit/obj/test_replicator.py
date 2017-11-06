@@ -30,7 +30,8 @@ from eventlet.green import subprocess
 from eventlet import Timeout
 
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       mocked_http_conn, FakeLogger, mock_check_drive)
+                       mocked_http_conn, FakeLogger, mock_check_drive,
+                       skip_if_no_xattrs)
 from swift.common import utils
 from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
                                 storage_directory)
@@ -179,6 +180,7 @@ def _create_test_rings(path, devs=None, next_part_power=None):
 class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = ''
         # recon cache path
