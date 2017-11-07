@@ -103,8 +103,8 @@ swift_test_domain = ['', '', '', '', '', '']
 swift_test_user_id = ['', '', '', '', '', '']
 swift_test_tenant_id = ['', '', '', '', '', '']
 
-skip, skip2, skip3, skip_service_tokens, skip_if_no_reseller_admin = \
-    False, False, False, False, False
+skip, skip2, skip3, skip_if_not_v3, skip_service_tokens, \
+    skip_if_no_reseller_admin = False, False, False, False, False, False
 
 orig_collate = ''
 insecure = False

@@ -18,7 +18,6 @@ import json
 import shutil
 import tempfile
 import unittest
-from nose import SkipTest
 
 from six import BytesIO
 
@@ -49,9 +48,8 @@ class FakeApp(object):
 
 class TestXProfile(unittest.TestCase):
 
+    @unittest.skipIf(xprofile is None, "can't import xprofile")
     def test_get_profiler(self):
-        if xprofile is None:
-            raise SkipTest
         self.assertTrue(xprofile.get_profiler('cProfile') is not None)
         self.assertTrue(xprofile.get_profiler('eventlet.green.profile')
                         is not None)
@@ -59,9 +57,8 @@ class TestXProfile(unittest.TestCase):
 
 class TestProfilers(unittest.TestCase):
 
+    @unittest.skipIf(xprofile is None, "can't import xprofile")
     def setUp(self):
-        if xprofile is None:
-            raise SkipTest
         self.profilers = [xprofile.get_profiler('cProfile'),
                           xprofile.get_profiler('eventlet.green.profile')]
 
@@ -83,9 +80,8 @@ class TestProfilers(unittest.TestCase):
 
 class TestProfileMiddleware(unittest.TestCase):
 
+    @unittest.skipIf(xprofile is None, "can't import xprofile")
     def setUp(self):
-        if xprofile is None:
-            raise SkipTest
         self.got_statuses = []
         self.app = ProfileMiddleware(FakeApp, {})
         self.tempdir = os.path.dirname(self.app.log_filename_prefix)
@@ -191,10 +187,8 @@ class TestProfileMiddleware(unittest.TestCase):
 
 class Test_profile_log(unittest.TestCase):
 
+    @unittest.skipIf(xprofile is None, "can't import xprofile")
     def setUp(self):
-        if xprofile is None:
-            raise SkipTest
-
         self.dir1 = tempfile.mkdtemp()
         self.log_filename_prefix1 = self.dir1 + '/unittest.profile'
         self.profile_log1 = ProfileLog(self.log_filename_prefix1, False)
@@ -282,9 +276,8 @@ class Test_profile_log(unittest.TestCase):
 
 class Test_html_viewer(unittest.TestCase):
 
+    @unittest.skipIf(xprofile is None, "can't import xprofile")
     def setUp(self):
-        if xprofile is None:
-            raise SkipTest
         self.app = ProfileMiddleware(FakeApp, {})
         self.log_files = []
         self.tempdir = tempfile.mkdtemp()
@@ -473,9 +466,8 @@ class Test_html_viewer(unittest.TestCase):
 
 class TestStats2(unittest.TestCase):
 
+    @unittest.skipIf(xprofile is None, "can't import xprofile")
     def setUp(self):
-        if xprofile is None:
-            raise SkipTest
         self.profile_file = tempfile.mktemp('profile', 'unittest')
         self.profilers = [xprofile.get_profiler('cProfile'),
                           xprofile.get_profiler('eventlet.green.profile')]

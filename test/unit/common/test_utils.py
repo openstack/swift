@@ -57,7 +57,6 @@ from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
 from mock import MagicMock, patch
-from nose import SkipTest
 from six.moves.configparser import NoSectionError, NoOptionError
 from uuid import uuid4
 
@@ -3697,7 +3696,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         try:
             utils.NR_ioprio_set()
         except OSError as e:
-            raise SkipTest(e)
+            raise unittest.SkipTest(e)
 
         with patch('swift.common.utils._libc_setpriority',
                    _fake_setpriority), \

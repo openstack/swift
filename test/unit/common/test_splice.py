@@ -25,7 +25,6 @@ import contextlib
 import re
 
 import mock
-import nose
 import six
 
 from swift.common.splice import splice, tee
@@ -73,7 +72,7 @@ class TestSplice(unittest.TestCase):
 
     def setUp(self):
         if not splice.available:
-            raise nose.SkipTest('splice not available')
+            raise unittest.SkipTest('splice not available')
 
     def test_flags(self):
         '''Test flag attribute availability'''
@@ -228,7 +227,7 @@ class TestTee(unittest.TestCase):
 
     def setUp(self):
         if not tee.available:
-            raise nose.SkipTest('tee not available')
+            raise unittest.SkipTest('tee not available')
 
     @mock.patch('swift.common.splice.tee._c_tee', None)
     def test_available(self):

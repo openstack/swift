@@ -31,7 +31,6 @@ if six.PY2:
     import mimetools
 
 import mock
-import nose
 
 import swift.common.middleware.catch_errors
 import swift.common.middleware.gatekeeper
@@ -75,10 +74,8 @@ class TestWSGI(unittest.TestCase):
         if six.PY2:
             mimetools.Message.parsetype = self._orig_parsetype
 
+    @unittest.skipIf(six.PY3, "test specific to Python 2")
     def test_monkey_patch_mimetools(self):
-        if six.PY3:
-            raise nose.SkipTest('test specific to Python 2')
-
         sio = StringIO('blah')
         self.assertEqual(mimetools.Message(sio).type, 'text/plain')
         sio = StringIO('blah')
