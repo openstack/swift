@@ -15,7 +15,7 @@
 
 """Tests for swift.common.utils"""
 from __future__ import print_function
-from test.unit import temptree, debug_logger, make_timestamp_iter
+from test.unit import temptree, debug_logger, make_timestamp_iter, with_tempdir
 
 import ctypes
 import contextlib
@@ -934,45 +934,37 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.get_zero_indexed_base_string,
                           'something', 'not_integer')
 
-    def test_lock_path(self):
-        tmpdir = mkdtemp()
-        try:
-            # 2 locks with limit=1 must fail
-            with utils.lock_path(tmpdir, 0.1):
-                exc = None
-                success = False
-                try:
-                    with utils.lock_path(tmpdir, 0.1):
-                        success = True
-                except LockTimeout as err:
-                    exc = err
-                self.assertTrue(exc is not None)
-                self.assertTrue(not success)
+    @with_tempdir
+    def test_lock_path(self, tmpdir):
+        # 2 locks with limit=1 must fail
+        success = False
+        with utils.lock_path(tmpdir, 0.1):
+            with self.assertRaises(LockTimeout):
+                with utils.lock_path(tmpdir, 0.1):
+                    success = True
+        self.assertFalse(success)
 
-            # 2 locks with limit=2 must succeed
-            with utils.lock_path(tmpdir, 0.1, limit=2):
-                success = False
+        # 2 locks with limit=2 must succeed
+        success = False
+        with utils.lock_path(tmpdir, 0.1, limit=2):
+            try:
                 with utils.lock_path(tmpdir, 0.1, limit=2):
                     success = True
-                self.assertTrue(success)
+            except LockTimeout as exc:
+                self.fail('Unexpected exception %s' % exc)
+        self.assertTrue(success)
 
-            # 3 locks with limit=2 must fail
+        # 3 locks with limit=2 must fail
+        success = False
+        with utils.lock_path(tmpdir, 0.1, limit=2):
             with utils.lock_path(tmpdir, 0.1, limit=2):
-                exc = None
-                success = False
-                with utils.lock_path(tmpdir, 0.1, limit=2):
-                    try:
-                        with utils.lock_path(tmpdir, 0.1, limit=2):
-                            success = True
-                    except LockTimeout as err:
-                        exc = err
-                self.assertTrue(exc is not None)
-                self.assertTrue(not success)
-        finally:
-            shutil.rmtree(tmpdir)
+                with self.assertRaises(LockTimeout):
+                    with utils.lock_path(tmpdir, 0.1):
+                        success = True
+        self.assertFalse(success)
 
-    def test_lock_path_num_sleeps(self):
-        tmpdir = mkdtemp()
+    @with_tempdir
+    def test_lock_path_num_sleeps(self, tmpdir):
         num_short_calls = [0]
         exception_raised = [False]
 
@@ -990,43 +982,38 @@ class TestUtils(unittest.TestCase):
         except Exception as e:
             exception_raised[0] = True
             self.assertTrue('sleep time changed' in str(e))
-        finally:
-            shutil.rmtree(tmpdir)
         self.assertEqual(num_short_calls[0], 11)
         self.assertTrue(exception_raised[0])
 
-    def test_lock_path_class(self):
-        tmpdir = mkdtemp()
-        try:
-            with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
-                exc = None
-                exc2 = None
-                success = False
-                try:
-                    with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
-                        success = True
-                except ReplicationLockTimeout as err:
-                    exc = err
-                except LockTimeout as err:
-                    exc2 = err
-                self.assertTrue(exc is not None)
-                self.assertTrue(exc2 is None)
-                self.assertTrue(not success)
-                exc = None
-                exc2 = None
-                success = False
-                try:
-                    with utils.lock_path(tmpdir, 0.1):
-                        success = True
-                except ReplicationLockTimeout as err:
-                    exc = err
-                except LockTimeout as err:
-                    exc2 = err
-                self.assertTrue(exc is None)
-                self.assertTrue(exc2 is not None)
-                self.assertTrue(not success)
-        finally:
-            shutil.rmtree(tmpdir)
+    @with_tempdir
+    def test_lock_path_class(self, tmpdir):
+        with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+            exc = None
+            exc2 = None
+            success = False
+            try:
+                with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+                    success = True
+            except ReplicationLockTimeout as err:
+                exc = err
+            except LockTimeout as err:
+                exc2 = err
+            self.assertTrue(exc is not None)
+            self.assertTrue(exc2 is None)
+            self.assertTrue(not success)
+            exc = None
+            exc2 = None
+            success = False
+            try:
+                with utils.lock_path(tmpdir, 0.1):
+                    success = True
+            except ReplicationLockTimeout as err:
+                exc = err
+            except LockTimeout as err:
+                exc2 = err
+            self.assertTrue(exc is None)
+            self.assertTrue(exc2 is not None)
+            self.assertTrue(not success)
 
     def test_normalize_timestamp(self):
         # Test swift.common.utils.normalize_timestamp

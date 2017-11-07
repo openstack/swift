@@ -2334,8 +2334,10 @@ def lock_path(directory, timeout=10, timeout_class=None, limit=1):
         lock cannot be granted within the timeout. Will be
         constructed as timeout_class(timeout, lockpath). Default:
         LockTimeout
-    :param limit: the maximum number of locks that may be held concurrently on
-        the same directory; defaults to 1
+    :param limit: The maximum number of locks that may be held concurrently on
+        the same directory at the time this method is called. Note that this
+        limit is only applied during the current call to this method and does
+        not prevent subsequent calls giving a larger limit. Defaults to 1.
     """
     if timeout_class is None:
         timeout_class = swift.common.exceptions.LockTimeout
