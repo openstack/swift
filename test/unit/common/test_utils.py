@@ -964,6 +964,26 @@ class TestUtils(unittest.TestCase):
         self.assertFalse(success)
 
     @with_tempdir
+    def test_lock_path_invalid_limit(self, tmpdir):
+        success = False
+        with self.assertRaises(ValueError):
+            with utils.lock_path(tmpdir, 0.1, limit=0):
+                success = True
+        self.assertFalse(success)
+        with self.assertRaises(ValueError):
+            with utils.lock_path(tmpdir, 0.1, limit=-1):
+                success = True
+        self.assertFalse(success)
+        with self.assertRaises(TypeError):
+            with utils.lock_path(tmpdir, 0.1, limit='1'):
+                success = True
+        self.assertFalse(success)
+        with self.assertRaises(TypeError):
+            with utils.lock_path(tmpdir, 0.1, limit=1.1):
+                success = True
+        self.assertFalse(success)
+
+    @with_tempdir
     def test_lock_path_num_sleeps(self, tmpdir):
         num_short_calls = [0]
         exception_raised = [False]
