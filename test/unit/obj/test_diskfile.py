@@ -46,7 +46,6 @@ from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
                        requires_o_tmpfile_support, encode_frag_archive_bodies,
                        skip_if_no_xattrs)
-from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, Timestamp, \
@@ -4714,8 +4713,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_zero_copy_cache_dropping(self):
         if not self._system_can_zero_copy():
-            raise SkipTest("zero-copy support is missing")
-
+            raise unittest.SkipTest("zero-copy support is missing")
         self.conf['splice'] = 'on'
         self.conf['keep_cache_size'] = 16384
         self.conf['disk_chunk_size'] = 4096
@@ -4735,7 +4733,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_zero_copy_turns_off_when_md5_sockets_not_supported(self):
         if not self._system_can_zero_copy():
-            raise SkipTest("zero-copy support is missing")
+            raise unittest.SkipTest("zero-copy support is missing")
         df_mgr = self.df_router[POLICIES.default]
         self.conf['splice'] = 'on'
         with mock.patch('swift.obj.diskfile.get_md5_socket') as mock_md5sock:
@@ -4750,8 +4748,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_tee_to_md5_pipe_length_mismatch(self):
         if not self._system_can_zero_copy():
-            raise SkipTest("zero-copy support is missing")
-
+            raise unittest.SkipTest("zero-copy support is missing")
         self.conf['splice'] = 'on'
 
         df = self._get_open_disk_file(fsize=16385)
@@ -4773,8 +4770,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_splice_to_wsockfd_blocks(self):
         if not self._system_can_zero_copy():
-            raise SkipTest("zero-copy support is missing")
-
+            raise unittest.SkipTest("zero-copy support is missing")
         self.conf['splice'] = 'on'
 
         df = self._get_open_disk_file(fsize=16385)

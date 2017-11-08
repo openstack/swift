@@ -17,8 +17,6 @@ import time
 import uuid
 import unittest
 
-from nose import SkipTest
-
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.manager import Manager
 from swift.common.utils import Timestamp
@@ -36,7 +34,7 @@ class TestObjectExpirer(ReplProbeTest):
         self.expirer.start()
         err = self.expirer.stop()
         if err:
-            raise SkipTest('Unable to verify object-expirer service')
+            raise unittest.SkipTest('Unable to verify object-expirer service')
 
         conf_files = []
         for server in self.expirer.servers:
@@ -59,10 +57,8 @@ class TestObjectExpirer(ReplProbeTest):
 
         return False
 
+    @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
     def test_expirer_object_split_brain(self):
-        if len(ENABLED_POLICIES) < 2:
-            raise SkipTest('Need more than one policy')
-
         old_policy = random.choice(ENABLED_POLICIES)
         wrong_policy = random.choice([p for p in ENABLED_POLICIES
                                       if p != old_policy])

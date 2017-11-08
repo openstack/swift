@@ -39,8 +39,6 @@ from textwrap import dedent
 from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
 from eventlet.green import httplib
 
-from nose import SkipTest
-
 from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test import listen_zero
@@ -6408,7 +6406,7 @@ class TestObjectController(unittest.TestCase):
         except NotImplementedError:
             # On some operating systems (at a minimum, OS X) it's not possible
             # to introspect the value of a semaphore
-            raise SkipTest
+            raise unittest.SkipTest
         else:
             self.assertEqual(value, 4)
 
@@ -7636,7 +7634,7 @@ class TestZeroCopy(unittest.TestCase):
     def setUp(self):
         skip_if_no_xattrs()
         if not self._system_can_zero_copy():
-            raise SkipTest("zero-copy support is missing")
+            raise unittest.SkipTest("zero-copy support is missing")
 
         self.testdir = mkdtemp(suffix="obj_server_zero_copy")
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))

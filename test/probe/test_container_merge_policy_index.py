@@ -18,8 +18,6 @@ import uuid
 import random
 import unittest
 
-from nose import SkipTest
-
 from six.moves.urllib.parse import urlparse
 from swift.common.manager import Manager
 from swift.common.internal_client import InternalClient
@@ -37,9 +35,8 @@ TIMEOUT = 60
 
 class TestContainerMergePolicyIndex(ReplProbeTest):
 
+    @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
     def setUp(self):
-        if len(ENABLED_POLICIES) < 2:
-            raise SkipTest('Need more than one policy')
         super(TestContainerMergePolicyIndex, self).setUp()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
@@ -247,10 +244,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                                      urlparse(self.url).netloc)
         proxy_conn = client.http_connection(info_url)
         cluster_info = client.get_capabilities(proxy_conn)
-        if 'slo' not in cluster_info:
-            raise SkipTest("SLO not enabled in proxy; "
-                           "can't test manifest reconciliation")
 
+        if 'slo' not in cluster_info:
+            raise unittest.SkipTest(
+                "SLO not enabled in proxy; can't test manifest reconciliation")
         # this test is not only testing a split brain scenario on
         # multiple policies with mis-placed objects - it even writes out
         # a static large object directly to the storage nodes while the
