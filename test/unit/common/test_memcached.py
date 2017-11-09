@@ -359,7 +359,7 @@ class TestMemcached(unittest.TestCase):
         with patch("sys.stdout", fake_stdout),\
                 patch('swift.common.memcached.logging', logger):
             mock.read_return_empty_str = True
-            self.assertEqual(memcache_client.get('some_key'), None)
+            self.assertIsNone(memcache_client.get('some_key'))
         log_lines = logger.get_lines_for_level('error')
         self.assertIn('Error talking to memcached', log_lines[0])
         self.assertFalse(log_lines[1:])
