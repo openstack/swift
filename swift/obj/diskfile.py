@@ -1477,7 +1477,10 @@ class BaseDiskFileManager(object):
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
                          Timestamp(timestamp).internal),
             tmp_dir)
-        self.logger.increment('async_pendings')
+        if account == '.expiring_objects':
+            self.logger.increment('async_pendings_for_expiring_objects')
+        else:
+            self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
                      policy, **kwargs):
