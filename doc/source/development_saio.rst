@@ -11,11 +11,12 @@ development.  The virtual machine will emulate running a four node Swift
 cluster. To begin:
 
 * Get a linux system server image, this guide will cover:
+
   * Ubuntu 14.04, 16.04 LTS
-  * Fedora/CentOS.
+  * Fedora/CentOS
   * OpenSuse
 
-* Create guest virtual machine from the image.
+- Create guest virtual machine from the image.
 
 ----------------------------
 What's in a <your-user-name>
