@@ -76,7 +76,7 @@ commit hook. You only need to do this once::
     git review -s
 
 To create your development branch (substitute branch_name for a name of your
-choice:
+choice::
 
     git checkout -b <branch_name>
 
