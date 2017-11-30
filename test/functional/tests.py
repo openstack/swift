@@ -851,12 +851,6 @@ class TestContainer(Base):
                                                     'limit': 2})
             self.assertEqual(len(files), 2)
 
-    def testTooLongName(self):
-        cont = self.env.account.container('x' * 257)
-        self.assertFalse(cont.create(),
-                         'created container with name %s' % (cont.name))
-        self.assert_status(400)
-
     def testContainerExistenceCachingProblem(self):
         cont = self.env.account.container(Utils.create_name())
         self.assertRaises(ResponseError, cont.files)
@@ -2459,11 +2453,6 @@ class TestFile(Base):
             file_item.write(data)
 
         self.assertEqual(file_item.read(), data)
-
-    def testTooLongName(self):
-        file_item = self.env.container.file('x' * 1025)
-        self.assertRaises(ResponseError, file_item.write)
-        self.assert_status(400)
 
     def testZeroByteFile(self):
         file_item = self.env.container.file(Utils.create_name())
