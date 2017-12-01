@@ -5582,11 +5582,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
                                                 req, 'sda1', policy)
-        self.assertEqual(
-            self.logger.get_lines_for_level('warning'),
-            ['X-Delete-At-Container header must be specified for expiring '
-             'objects background PUT to work properly. Making best guess as '
-             'to the container name for now.'])
+        self.assertEqual(given_args, [])
 
     def test_delete_at_update_delete(self):
         policy = random.choice(list(POLICIES))

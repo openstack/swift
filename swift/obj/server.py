@@ -391,15 +391,10 @@ class ObjectController(BaseStorageServer):
         if op != 'DELETE':
             delete_at_container = headers_in.get('X-Delete-At-Container', None)
             if not delete_at_container:
-                self.logger.warning(
-                    'X-Delete-At-Container header must be specified for '
-                    'expiring objects background %s to work properly. Making '
-                    'best guess as to the container name for now.' % op)
-                # TODO(gholt): In a future release, change the above warning to
-                # a raised exception and remove the guess code below.
-                delete_at_container = get_expirer_container(
-                    delete_at, self.expiring_objects_container_divisor,
-                    account, container, obj)
+                # If header is missing, no update needed as sufficient other
+                # object servers should perform the required update.
+                return
+
             partition = headers_in.get('X-Delete-At-Partition', None)
             hosts = headers_in.get('X-Delete-At-Host', '')
             contdevices = headers_in.get('X-Delete-At-Device', '')
