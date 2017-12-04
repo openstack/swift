@@ -240,7 +240,7 @@ class AuditorWorker(object):
         df = diskfile_mgr.get_diskfile_from_audit_location(location)
         reader = None
         try:
-            with df.open():
+            with df.open(modernize=True):
                 metadata = df.get_metadata()
                 obj_size = int(metadata['Content-Length'])
                 if self.stats_sizes:

@@ -15,10 +15,8 @@
 # limitations under the License.
 
 from io import StringIO
-from unittest import main
+from unittest import main, SkipTest
 from uuid import uuid4
-
-from nose import SkipTest
 
 from swiftclient import client
 from swiftclient.exceptions import ClientException
@@ -65,7 +63,7 @@ class TestObjectAsyncUpdate(ReplProbeTest):
         # In this test, we need to put container at handoff devices, so we
         # need container devices more than replica count
         if len(self.container_ring.devs) <= self.container_ring.replica_count:
-            raise SkipTest('Need devices more that replica count')
+            raise SkipTest("Need devices more that replica count")
 
         container = 'container-%s' % uuid4()
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)

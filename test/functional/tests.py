@@ -87,16 +87,19 @@ class BaseEnv(object):
 
 
 class Base(unittest2.TestCase):
-    # subclasses may override env class
     env = BaseEnv
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.env.tearDown()
 
     @classmethod
     def setUpClass(cls):
         cls.env.setUp()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.env.tearDown()
+    def setUp(self):
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
     def assert_body(self, body):
         response_body = self.env.conn.response.read()
@@ -847,12 +850,6 @@ class TestContainer(Base):
             files = self.env.container.files(parms={'format': format_type,
                                                     'limit': 2})
             self.assertEqual(len(files), 2)
-
-    def testTooLongName(self):
-        cont = self.env.account.container('x' * 257)
-        self.assertFalse(cont.create(),
-                         'created container with name %s' % (cont.name))
-        self.assert_status(400)
 
     def testContainerExistenceCachingProblem(self):
         cont = self.env.account.container(Utils.create_name())
@@ -2457,11 +2454,6 @@ class TestFile(Base):
 
         self.assertEqual(file_item.read(), data)
 
-    def testTooLongName(self):
-        file_item = self.env.container.file('x' * 1025)
-        self.assertRaises(ResponseError, file_item.write)
-        self.assert_status(400)
-
     def testZeroByteFile(self):
         file_item = self.env.container.file(Utils.create_name())
 
@@ -2720,6 +2712,9 @@ class TestServiceToken(unittest2.TestCase):
     def setUp(self):
         if tf.skip_service_tokens:
             raise SkipTest
+
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
         self.SET_TO_USERS_TOKEN = 1
         self.SET_TO_SERVICE_TOKEN = 2

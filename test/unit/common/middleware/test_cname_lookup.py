@@ -15,7 +15,6 @@
 
 import unittest
 import mock
-from nose import SkipTest
 
 try:
     # this test requires the dnspython package to be installed
@@ -50,9 +49,8 @@ def start_response(*args):
 
 class TestCNAMELookup(unittest.TestCase):
 
+    @unittest.skipIf(skip, "can't import dnspython")
     def setUp(self):
-        if skip:
-            raise SkipTest
         self.app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
                                                       {'lookup_depth': 2})
 

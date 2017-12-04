@@ -85,7 +85,7 @@ Let's say ``sig`` ends up equaling
 You may also use ISO 8601 UTC timestamps with the format
 ``"%Y-%m-%dT%H:%M:%SZ"`` instead of UNIX timestamps in the URL
 (but NOT in the code above for generating the signature!).
-So, the latter URL could also be formulated as:
+So, the latter URL could also be formulated as::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object?
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&

@@ -77,6 +77,9 @@ To execute the tests:
   --recreate`` or remove the ``.tox`` directory to force ``tox`` to recreate the
   dependency list.
 
+  Swift's tests require having an XFS directory available in ``/tmp`` or
+  in the ``TMPDIR`` environment variable.
+
 Swift's functional tests may be executed against a :doc:`development_saio` or
 other running Swift cluster using the command::
 

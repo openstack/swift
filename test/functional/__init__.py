@@ -31,7 +31,6 @@ from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
-from unittest2 import SkipTest
 
 from six.moves.configparser import ConfigParser, NoSectionError
 from six.moves import http_client
@@ -44,10 +43,13 @@ from swift.common.utils import set_swift_dir
 from test import get_config, listen_zero
 from test.functional.swift_test_client import Account, Connection, Container, \
     ResponseError
-# This has the side effect of mocking out the xattr module so that unit tests
-# (and in this case, when in-process functional tests are called for) can run
-# on file systems that don't support extended attributes.
+
 from test.unit import debug_logger, FakeMemcache
+# importing skip_if_no_xattrs so that functional tests can grab it from the
+# test.functional namespace. Importing SkipTest so this works under both
+# nose and testr test runners.
+from test.unit import skip_if_no_xattrs as real_skip_if_no_xattrs
+from test.unit import SkipTest
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
@@ -101,8 +103,8 @@ swift_test_domain = ['', '', '', '', '', '']
 swift_test_user_id = ['', '', '', '', '', '']
 swift_test_tenant_id = ['', '', '', '', '', '']
 
-skip, skip2, skip3, skip_service_tokens, skip_if_no_reseller_admin = \
-    False, False, False, False, False
+skip, skip2, skip3, skip_if_not_v3, skip_service_tokens, \
+    skip_if_no_reseller_admin = False, False, False, False, False, False
 
 orig_collate = ''
 insecure = False
@@ -110,6 +112,7 @@ insecure = False
 in_process = False
 _testdir = _test_servers = _test_coros = _test_socks = None
 policy_specified = None
+skip_if_no_xattrs = None
 
 
 class FakeMemcacheMiddleware(MemcacheMiddleware):
@@ -660,6 +663,7 @@ def get_cluster_info():
 def setup_package():
 
     global policy_specified
+    global skip_if_no_xattrs
     policy_specified = os.environ.get('SWIFT_TEST_POLICY')
     in_process_env = os.environ.get('SWIFT_TEST_IN_PROCESS')
     if in_process_env is not None:
@@ -698,6 +702,7 @@ def setup_package():
     if in_process:
         in_mem_obj_env = os.environ.get('SWIFT_TEST_IN_MEMORY_OBJ')
         in_mem_obj = utils.config_true_value(in_mem_obj_env)
+        skip_if_no_xattrs = real_skip_if_no_xattrs
         try:
             in_process_setup(the_object_server=(
                 mem_object_server if in_mem_obj else object_server))
@@ -705,6 +710,8 @@ def setup_package():
             print(('Exception during in-process setup: %s'
                    % str(exc)), file=sys.stderr)
             raise
+    else:
+        skip_if_no_xattrs = lambda: None
 
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')

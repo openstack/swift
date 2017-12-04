@@ -11,11 +11,12 @@ development.  The virtual machine will emulate running a four node Swift
 cluster. To begin:
 
 * Get a linux system server image, this guide will cover:
+
   * Ubuntu 14.04, 16.04 LTS
-  * Fedora/CentOS.
+  * Fedora/CentOS
   * OpenSuse
 
-* Create guest virtual machine from the image.
+- Create guest virtual machine from the image.
 
 ----------------------------
 What's in a <your-user-name>
@@ -200,6 +201,23 @@ Note that on some systems you might have to create ``/etc/rc.local``.
 On Fedora 19 or later, you need to place these in ``/etc/rc.d/rc.local``.
 
 On OpenSuse you need to place these in ``/etc/init.d/boot.local``.
+
+Creating an XFS tmp dir
+-----------------------
+
+Tests require having an XFS directory available in ``/tmp`` or in the
+``TMPDIR`` environment variable. To set up ``/tmp`` with an XFS filesystem,
+do the following::
+
+        cd ~
+        truncate -s 1GB xfs_file  # create 1GB fil for XFS in your home directory
+        mkfs.xfs xfs_file
+        sudo mount -o loop,noatime,nodiratime xfs_file /tmp
+        sudo chmod -R 1777 /tmp
+
+To persist this, edit and add the following to ``/etc/fstab``::
+
+        /home/swift/xfs_file /tmp xfs rw,noatime,nodiratime,attr2,inode64,noquota 0 0
 
 ----------------
 Getting the code

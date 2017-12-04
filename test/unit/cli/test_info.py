@@ -20,7 +20,7 @@ from shutil import rmtree
 from tempfile import mkdtemp
 
 from six.moves import cStringIO as StringIO
-from test.unit import patch_policies, write_fake_ring
+from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs
 
 from swift.common import ring, utils
 from swift.common.swob import Request
@@ -40,6 +40,7 @@ from swift.obj.diskfile import write_metadata
                  StoragePolicy(3, 'three', False)])
 class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
         utils.HASH_PATH_PREFIX = 'info'
         utils.HASH_PATH_SUFFIX = 'info'

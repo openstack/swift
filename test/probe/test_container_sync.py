@@ -14,7 +14,6 @@
 import json
 import uuid
 import random
-from nose import SkipTest
 import unittest
 
 from six.moves.urllib.parse import urlparse
@@ -33,16 +32,16 @@ def get_current_realm_cluster(url):
     try:
         info = client.get_capabilities(http_conn)
     except client.ClientException:
-        raise SkipTest('Unable to retrieve cluster info')
+        raise unittest.SkipTest('Unable to retrieve cluster info')
     try:
         realms = info['container_sync']['realms']
     except KeyError:
-        raise SkipTest('Unable to find container sync realms')
+        raise unittest.SkipTest('Unable to find container sync realms')
     for realm, realm_info in realms.items():
         for cluster, options in realm_info['clusters'].items():
             if options.get('current', False):
                 return realm, cluster
-    raise SkipTest('Unable find current realm cluster')
+    raise unittest.SkipTest('Unable find current realm cluster')
 
 
 class TestContainerSync(ReplProbeTest):

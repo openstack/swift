@@ -20,6 +20,7 @@ import unittest
 import os
 import mock
 from uuid import uuid4
+from tempfile import gettempdir
 
 from swift.common.linkat import linkat
 from swift.common.utils import O_TMPFILE
@@ -42,7 +43,7 @@ class TestLinkat(unittest.TestCase):
         with open('/dev/null', 'r') as fd:
             self.assertRaises(IOError, linkat,
                               linkat.AT_FDCWD, "/proc/self/fd/%s" % (fd),
-                              linkat.AT_FDCWD, "/tmp/testlinkat",
+                              linkat.AT_FDCWD, "%s/testlinkat" % gettempdir(),
                               linkat.AT_SYMLINK_FOLLOW)
         self.assertEqual(ctypes.get_errno(), 0)
 
@@ -83,8 +84,8 @@ class TestLinkat(unittest.TestCase):
         path = None
         ret = -1
         try:
-            fd = os.open('/tmp', O_TMPFILE | os.O_WRONLY)
-            path = os.path.join('/tmp', uuid4().hex)
+            fd = os.open(gettempdir(), O_TMPFILE | os.O_WRONLY)
+            path = os.path.join(gettempdir(), uuid4().hex)
             ret = linkat(linkat.AT_FDCWD, "/proc/self/fd/%d" % (fd),
                          linkat.AT_FDCWD, path, linkat.AT_SYMLINK_FOLLOW)
             self.assertEqual(ret, 0)

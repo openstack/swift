@@ -23,6 +23,7 @@ import time
 import subprocess
 import re
 from swift import gettext_ as _
+import tempfile
 
 from swift.common.utils import search_tree, remove_file, write_file
 from swift.common.exceptions import InvalidPidFileException
@@ -82,7 +83,7 @@ def setup_env():
                 "Running as non-root?"))
 
     # Set PYTHON_EGG_CACHE if it isn't already set
-    os.environ.setdefault('PYTHON_EGG_CACHE', '/tmp')
+    os.environ.setdefault('PYTHON_EGG_CACHE', tempfile.gettempdir())
 
 
 def command(func):

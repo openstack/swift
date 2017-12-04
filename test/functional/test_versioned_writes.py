@@ -379,6 +379,9 @@ class TestObjectVersioning(Base):
             self.assertNotIn('x-object-manifest', resp_headers)
 
     def _test_versioning_dlo_setup(self):
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
+
         container = self.env.container
         versions_container = self.env.versions_container
         obj_name = Utils.create_name()
@@ -695,6 +698,8 @@ class TestSloWithVersioning(unittest2.TestCase):
     def setUp(self):
         if 'slo' not in cluster_info:
             raise SkipTest("SLO not enabled")
+        if tf.in_process:
+            tf.skip_if_no_xattrs()
 
         self.conn = Connection(tf.config)
         self.conn.authenticate()
