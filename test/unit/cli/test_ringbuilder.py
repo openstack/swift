@@ -46,7 +46,6 @@ class RunSwiftRingBuilderMixin(object):
 
         if 'exp_results' in kwargs:
             exp_results = kwargs['exp_results']
-            argv = argv[:-1]
         else:
             exp_results = None
 
@@ -2077,6 +2076,13 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
         argv = ["", self.tmpfile, "write_ring"]
         self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+
+    def test_write_empty_ring(self):
+        ring = RingBuilder(6, 3, 1)
+        ring.save(self.tmpfile)
+        exp_results = {'valid_exit_codes': [2]}
+        out, err = self.run_srb("write_ring", exp_results=exp_results)
+        self.assertEqual('Unable to write empty ring.\n', out)
 
     def test_write_builder(self):
         # Test builder file already exists
