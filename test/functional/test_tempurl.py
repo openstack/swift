@@ -90,7 +90,7 @@ class TestTempurlEnv(TestTempurlBaseEnv):
 
 class TestTempurl(Base):
     env = TestTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         super(TestTempurl, self).setUp()
@@ -102,6 +102,8 @@ class TestTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
+        # N.B. The default to 'sha1' in case the info has nothing is for
+        # extremely old clusters, which presumably use SHA1.
         if self.digest_name not in cluster_info['tempurl'].get(
                 'allowed_digests', ['sha1']):
             raise SkipTest("tempurl does not support %s signatures" %
@@ -461,7 +463,7 @@ class TestContainerTempurlEnv(BaseEnv):
 
 class TestContainerTempurl(Base):
     env = TestContainerTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         super(TestContainerTempurl, self).setUp()
@@ -736,7 +738,7 @@ class TestSloTempurlEnv(TestTempurlBaseEnv):
 
 class TestSloTempurl(Base):
     env = TestSloTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         super(TestSloTempurl, self).setUp()

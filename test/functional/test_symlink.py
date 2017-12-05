@@ -2268,7 +2268,7 @@ class TestSymlinkComparison(TestSymlinkTargetObjectComparison):
 
 class TestSymlinkAccountTempurl(Base):
     env = TestTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         super(TestSymlinkAccountTempurl, self).setUp()
@@ -2364,7 +2364,7 @@ class TestSymlinkAccountTempurl(Base):
 
 class TestSymlinkContainerTempurl(Base):
     env = TestContainerTempurlEnv
-    digest_name = 'sha1'
+    digest_name = 'sha256'
 
     def setUp(self):
         super(TestSymlinkContainerTempurl, self).setUp()

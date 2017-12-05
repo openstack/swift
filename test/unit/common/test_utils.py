@@ -3828,6 +3828,25 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac(u'GET', u'/path', 1, u'abc', ip_range=u'127.0.0.1'),
             'b30dde4d2b8562b8496466c3b46b2b9ac5054461')
 
+    def test_get_hmac_digest(self):
+        self.assertEqual(
+            utils.get_hmac(u'GET', u'/path', 1, u'abc', digest='sha256'),
+            '64c5558394f86b042ce1e929b34907abd9d0a57f3e20cd3f93cffd83de0206a7')
+        self.assertEqual(
+            utils.get_hmac(u'GET', u'/path', 1, u'abc', digest=hashlib.sha256),
+            '64c5558394f86b042ce1e929b34907abd9d0a57f3e20cd3f93cffd83de0206a7')
+
+        self.assertEqual(
+            utils.get_hmac(u'GET', u'/path', 1, u'abc', digest='sha512'),
+            '7e95af818aec1b69b53fc2cb6d69456ec64ebda6c17b8fc8b7303b78acc8ca'
+            '14fc4aed96c1614a8e9d6ff45a6237711d8be294cda679624825d79aa6959b'
+            '5229')
+        self.assertEqual(
+            utils.get_hmac(u'GET', u'/path', 1, u'abc', digest=hashlib.sha512),
+            '7e95af818aec1b69b53fc2cb6d69456ec64ebda6c17b8fc8b7303b78acc8ca'
+            '14fc4aed96c1614a8e9d6ff45a6237711d8be294cda679624825d79aa6959b'
+            '5229')
+
     def test_parse_override_options(self):
         # When override_<thing> is passed in, it takes precedence.
         opts = utils.parse_override_options(
