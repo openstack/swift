@@ -1581,6 +1581,7 @@ class TestSymlinkComparison(TestSymlinkTargetObjectComparison):
 
 class TestSymlinkAccountTempurl(Base):
     env = TestTempurlEnv
+    digest_name = 'sha1'
 
     def setUp(self):
         super(TestSymlinkAccountTempurl, self).setUp()
@@ -1592,6 +1593,12 @@ class TestSymlinkAccountTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
+        if self.digest_name not in cluster_info['tempurl'].get(
+                'allowed_digests', ['sha1']):
+            raise SkipTest("tempurl does not support %s signatures" %
+                           self.digest_name)
+
+        self.digest = getattr(hashlib, self.digest_name)
         self.expires = int(time.time()) + 86400
         self.obj_tempurl_parms = self.tempurl_parms(
             'GET', self.expires, self.env.conn.make_path(self.env.obj.path),
@@ -1601,7 +1608,7 @@ class TestSymlinkAccountTempurl(Base):
         sig = hmac.new(
             key,
             '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
-            hashlib.sha1).hexdigest()
+            self.digest).hexdigest()
         return {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
 
     def test_PUT_symlink(self):
@@ -1665,6 +1672,7 @@ class TestSymlinkAccountTempurl(Base):
 
 class TestSymlinkContainerTempurl(Base):
     env = TestContainerTempurlEnv
+    digest_name = 'sha1'
 
     def setUp(self):
         super(TestSymlinkContainerTempurl, self).setUp()
@@ -1676,6 +1684,12 @@ class TestSymlinkContainerTempurl(Base):
                 "Expected tempurl_enabled to be True/False, got %r" %
                 (self.env.tempurl_enabled,))
 
+        if self.digest_name not in cluster_info['tempurl'].get(
+                'allowed_digests', ['sha1']):
+            raise SkipTest("tempurl does not support %s signatures" %
+                           self.digest_name)
+
+        self.digest = getattr(hashlib, self.digest_name)
         expires = int(time.time()) + 86400
         sig = self.tempurl_sig(
             'GET', expires, self.env.conn.make_path(self.env.obj.path),
@@ -1687,7 +1701,7 @@ class TestSymlinkContainerTempurl(Base):
         return hmac.new(
             key,
             '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
-            hashlib.sha1).hexdigest()
+            self.digest).hexdigest()
 
     def test_PUT_symlink(self):
         new_sym = self.env.container.file(Utils.create_name())

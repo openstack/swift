@@ -646,6 +646,10 @@ use = egg:swift#tempurl
 # whitespace delimited list of header names and names can optionally end with
 # '*' to indicate a prefix match.
 # outgoing_allow_headers = x-object-meta-public-*
+#
+# The digest algorithm(s) supported for generating signatures;
+# whitespace-delimited.
+# allowed_digests = sha1 sha256 sha512
 
 # Note: Put formpost just before your auth filter(s) in the pipeline
 [filter:formpost]
