@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import unittest
 import test.functional as tf
 from test.functional.tests import Utils, Base, Base2, BaseEnv
 from test.functional.swift_test_client import Connection, ResponseError
@@ -31,11 +32,6 @@ class TestDloEnv(BaseEnv):
     @classmethod
     def setUp(cls):
         super(TestDloEnv, cls).setUp()
-        config2 = tf.config.copy()
-        config2['username'] = tf.config['username3']
-        config2['password'] = tf.config['password3']
-        cls.conn2 = Connection(config2)
-        cls.conn2.authenticate()
 
         cls.container = cls.account.container(Utils.create_name())
         cls.container2 = cls.account.container(Utils.create_name())
@@ -243,9 +239,15 @@ class TestDlo(Base):
         manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
         self.assert_status(200)
 
+    @unittest.skipIf('username3' not in tf.config, "Requires user 3")
     def test_dlo_referer_on_segment_container(self):
         # First the account2 (test3) should fail
-        headers = {'X-Auth-Token': self.env.conn2.storage_token,
+        config2 = tf.config.copy()
+        config2['username'] = tf.config['username3']
+        config2['password'] = tf.config['password3']
+        conn2 = Connection(config2)
+        conn2.authenticate()
+        headers = {'X-Auth-Token': conn2.storage_token,
                    'Referer': 'http://blah.example.com'}
         dlo_file = self.env.container.file("mancont2")
         self.assertRaises(ResponseError, dlo_file.read,
