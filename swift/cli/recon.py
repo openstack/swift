@@ -1027,7 +1027,7 @@ class SwiftRecon(object):
         args.add_option('--all', action="store_true",
                         help="Perform all checks. Equal to \t\t\t-arudlqT "
                         "--md5 --sockstat --auditor --updater --expirer "
-                        "--driveaudit --validate-servers --swift-versons")
+                        "--driveaudit --validate-servers --swift-versions")
         args.add_option('--region', type="int",
                         help="Only query servers in specified region")
         args.add_option('--zone', '-z', type="int",
