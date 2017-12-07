@@ -2918,6 +2918,22 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          utils.Timestamp(timestamp).internal)
 
+    def test_GET_range_zero_byte_object(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/zero-byte',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test'})
+        req.body = ''
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/zero-byte',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Range': 'bytes=-10'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
     def test_GET_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={

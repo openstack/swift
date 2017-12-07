@@ -1256,6 +1256,20 @@ class Response(object):
                 # body text from RESPONSE_REASONS.
                 body = None
                 app_iter = None
+            elif self.content_length == 0:
+                # If ranges_for_length found ranges but our content length
+                # is 0, then that means we got a suffix-byte-range request
+                # (e.g. "bytes=-512"). This is asking for *up to* the last N
+                # bytes of the file. If we had any bytes to send at all,
+                # we'd return a 206 with an apropriate Content-Range header,
+                # but we can't construct a Content-Range header because we
+                # have no byte indices because we have no bytes.
+                #
+                # The only reasonable thing to do is to return a 200 with
+                # the whole object (all zero bytes of it). This is also what
+                # Apache and Nginx do, so if we're wrong, at least we're in
+                # good company.
+                pass
             elif ranges:
                 range_size = len(ranges)
                 if range_size > 0:
