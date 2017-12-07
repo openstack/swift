@@ -3143,6 +3143,32 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # original sysmeta keys are preserved
             self.assertEqual('Value1', df._metadata['X-Object-Sysmeta-Key1'])
 
+    def test_disk_file_preserves_slo(self):
+        # build an object with some meta (at t0)
+        orig_metadata = {'X-Static-Large-Object': 'True',
+                         'Content-Type': 'text/garbage'}
+        df = self._get_open_disk_file(ts=self.ts().internal,
+                                      extra_metadata=orig_metadata)
+
+        # sanity test
+        with df.open():
+            self.assertEqual('True', df._metadata['X-Static-Large-Object'])
+            if df.policy.policy_type == EC_POLICY:
+                expected = df.policy.pyeclib_driver.get_segment_info(
+                    1024, df.policy.ec_segment_size)['fragment_size']
+            else:
+                expected = 1024
+            self.assertEqual(str(expected), df._metadata['Content-Length'])
+
+        # write some new metadata (fast POST, don't send orig meta, at t0+1s)
+        df = self._simple_get_diskfile()
+        df.write_metadata({'X-Timestamp': self.ts().internal})
+        df = self._simple_get_diskfile()
+        with df.open():
+            # non-fast-post updateable keys are preserved
+            self.assertEqual('text/garbage', df._metadata['Content-Type'])
+            self.assertEqual('True', df._metadata['X-Static-Large-Object'])
+
     def test_disk_file_reader_iter(self):
         df, df_data = self._create_test_file('1234567890')
         quarantine_msgs = []
