@@ -15,6 +15,7 @@
 import os
 import shutil
 from contextlib import contextmanager
+from tempfile import mkdtemp
 
 import mock
 import unittest
@@ -27,8 +28,7 @@ from swift.container.sharder import ContainerSharder, RangeAnalyser, \
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps
 
-from test.unit import FakeLogger, debug_logger, FakeRing, \
-    make_timestamp_iter, get_tempdir
+from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter
 
 
 class TestRangeAnalyser(unittest.TestCase):
@@ -302,7 +302,11 @@ class TestRangeAnalyser(unittest.TestCase):
 
 class TestSharder(unittest.TestCase):
     def setUp(self):
-        self.tempdir_base, self.tempdir = get_tempdir()
+        self.tempdir_base = mkdtemp()
+        # add swift path structure needed for some tests
+        self.tempdir = os.path.join(
+            self.tempdir_base, 'part', 'suffix', 'hash')
+        os.makedirs(self.tempdir)
         self.ts_iter = make_timestamp_iter()
 
     def ts_internal(self):
