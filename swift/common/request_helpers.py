@@ -645,7 +645,7 @@ def resolve_etag_is_at_header(req, metadata):
     middleware's alternate etag sysmeta (X-Object-Sysmeta-Crypto-Etag) but will
     then find the EC alternate etag (if EC policy). But if the object *is*
     encrypted then X-Object-Sysmeta-Crypto-Etag is found and used, which is
-    correct because it should be preferred over X-Object-Sysmeta-Crypto-Etag.
+    correct because it should be preferred over X-Object-Sysmeta-Ec-Etag.
 
     :param req: a swob Request
     :param metadata: a dict containing object metadata
