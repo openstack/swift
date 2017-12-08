@@ -322,6 +322,12 @@ class DatabaseBroker(object):
             self._delete_db(conn, timestamp)
             conn.commit()
 
+    def get_device_path(self):
+        prefix_path = os.path.dirname(self.db_dir)
+        partition_path = os.path.dirname(prefix_path)
+        dbs_path = os.path.dirname(partition_path)
+        return os.path.dirname(dbs_path)
+
     def possibly_quarantine(self, exc_type, exc_value, exc_traceback):
         """
         Checks the exception info to see if it indicates a quarantine situation
@@ -341,10 +347,8 @@ class DatabaseBroker(object):
             exc_hint = 'disk error while accessing'
         else:
             six.reraise(exc_type, exc_value, exc_traceback)
-        prefix_path = os.path.dirname(self.db_dir)
-        partition_path = os.path.dirname(prefix_path)
-        dbs_path = os.path.dirname(partition_path)
-        device_path = os.path.dirname(dbs_path)
+
+        device_path = self.get_device_path()
         quar_path = os.path.join(device_path, 'quarantined',
                                  self.db_type + 's',
                                  os.path.basename(self.db_dir))

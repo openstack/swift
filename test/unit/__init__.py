@@ -431,19 +431,27 @@ def temptree(files, contents=''):
         rmtree(tempdir)
 
 
+def get_tempdir():
+    basedir = mkdtemp()
+    # add swift path structure needed for some tests
+    tempdir = os.path.join(basedir, 'part', 'suffix', 'hash')
+    os.makedirs(tempdir)
+    return basedir, tempdir
+
+
 def with_tempdir(f):
     """
     Decorator to give a single test a tempdir as argument to test method.
     """
     @functools.wraps(f)
     def wrapped(*args, **kwargs):
-        tempdir = mkdtemp()
+        basedir, tempdir = get_tempdir()
         args = list(args)
         args.append(tempdir)
         try:
             return f(*args, **kwargs)
         finally:
-            rmtree(tempdir)
+            rmtree(basedir)
     return wrapped
 
 

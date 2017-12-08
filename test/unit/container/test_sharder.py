@@ -15,7 +15,6 @@
 import os
 import shutil
 from contextlib import contextmanager
-from tempfile import mkdtemp
 
 import mock
 import unittest
@@ -28,7 +27,8 @@ from swift.container.sharder import ContainerSharder, RangeAnalyser, \
 from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps
 
-from test.unit import FakeLogger, debug_logger, FakeRing, make_timestamp_iter
+from test.unit import FakeLogger, debug_logger, FakeRing, \
+    make_timestamp_iter, get_tempdir
 
 
 class TestRangeAnalyser(unittest.TestCase):
@@ -302,7 +302,7 @@ class TestRangeAnalyser(unittest.TestCase):
 
 class TestSharder(unittest.TestCase):
     def setUp(self):
-        self.tempdir = mkdtemp()
+        self.tempdir_base, self.tempdir = get_tempdir()
         self.ts_iter = make_timestamp_iter()
 
     def ts_internal(self):
@@ -316,7 +316,7 @@ class TestSharder(unittest.TestCase):
             timestamps[0], timestamps[1], timestamps[3])
 
     def tearDown(self):
-        shutil.rmtree(self.tempdir, ignore_errors=True)
+        shutil.rmtree(self.tempdir_base, ignore_errors=True)
 
     def test_init(self):
         def do_test(conf, expected):

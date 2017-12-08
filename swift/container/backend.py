@@ -28,7 +28,7 @@ import sqlite3
 
 from swift.common.utils import Timestamp, encode_timestamps, \
     decode_timestamps, extract_swift_bytes, ShardRange, renamer, \
-    find_shard_range
+    find_shard_range, MD5_OF_EMPTY_STRING, mkdirs
 from swift.common.db import DatabaseBroker, utf8encode, BROKER_TIMEOUT
 
 
@@ -1507,10 +1507,15 @@ class ContainerBroker(DatabaseBroker):
         # For this initial version, we'll create a new container along side.
         # Later we will remove parts so the shard range DB only has what it
         # really needs
-        # TODO: do we need to think about cleaning these tmp files?
         info = self.get_info()
-        tmp_db_file = os.path.join(os.path.dirname(self._shard_db_file),
-                                   str(uuid4()))
+
+        # The tmp_dir is cleaned up by the replicators after reclaim_age, so
+        # if we initially create the new DB there, we will already have cleanup
+        # covered if there is an error.
+        tmp_dir = os.path.join(self.get_device_path(), 'tmp')
+        if not os.path.exists(tmp_dir):
+            mkdirs(tmp_dir)
+        tmp_db_file = os.path.join(tmp_dir, "preshard_%s.db" % str(uuid4()))
         sub_broker = ContainerBroker(tmp_db_file, self.timeout,
                                      self.logger, self.account, self.container,
                                      self.pending_timeout, self.stale_reads_ok)
@@ -1543,13 +1548,29 @@ class ContainerBroker(DatabaseBroker):
                       "(ROWID, name, created_at, size, content_type, etag) " \
                     "values (?, 'pivted_remove', ?, 0, '', ?)"
                 conn.execute(sql, (max_row, Timestamp.now().internal,
-                                   '68b329da9893e34099c7d8ad5cb9c940'))
-                # TODO: what is this hash ^^^^^ ?
+                                   MD5_OF_EMPTY_STRING))
                 conn.execute('DELETE FROM object WHERE ROWID = %d' % max_row)
                 conn.commit()
             except sqlite3.OperationalError as err:
                 self.logger.error('Failed to set the ROWID of the shard range '
                                   'database for %s/%s: %s', self.account,
+                                  self.container, err)
+
+            # set the the create_at and hash in the container_info table the
+            # same in both brokers
+            try:
+                data = self.conn.execute('SELECT hash, created_at '
+                                         'FROM container_stat')
+                data.row_factory = None
+                old_hash, created_at = data.fetchone()
+                conn.execute('UPDATE container_stat SET '
+                             'hash=?, created_at=?',
+                             (old_hash, created_at))
+                conn.commit()
+            except sqlite3.OperationalError as err:
+                self.logger.error('Failed to set matching hash and created_at '
+                                  'fields in the shard range database for '
+                                  '%s/%s: %s', self.account,
                                   self.container, err)
 
         # Rename to the new database
