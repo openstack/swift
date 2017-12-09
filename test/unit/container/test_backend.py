@@ -1015,12 +1015,13 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_get_items_since_with_shard_db(self, tempdir):
         acct = 'account'
-        cont = 'continer'
+        cont = 'container'
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
         db_shard_file = "%s_shard.db" % hsh
-        db_path = os.path.join(tempdir, db_file)
-        db_shard_path = os.path.join(tempdir, db_shard_file)
+        db_path = os.path.join(tempdir, 'part', 'suffix', 'hash', db_file)
+        db_shard_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', db_shard_file)
         ts = make_timestamp_iter()
 
         broker = ContainerBroker(db_path, account=acct, container=cont)
@@ -2810,8 +2811,10 @@ class TestContainerBroker(unittest.TestCase):
     @with_tempdir
     def test_set_sharding_states(self, tempdir):
         ts_iter = make_timestamp_iter()
-        db_path = os.path.join(tempdir, 'container.db')
-        new_db_path = os.path.join(tempdir, 'container_shard.db')
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        new_db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container_shard.db')
         broker = ContainerBroker(
             db_path, account='a', container='c')
         broker.initialize(next(ts_iter).internal, 0)
