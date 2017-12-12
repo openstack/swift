@@ -53,7 +53,7 @@ returns the following values for this header,
     An OPTIONS request to a symlink object will respond with the options for
     the symlink only, the request will not be redirected to the target object.
     Therefore, if the symlink's target object is in another container with
-    cors settings, the response will not reflect the settings.
+    CORS settings, the response will not reflect the settings.
 
 
 -----------------

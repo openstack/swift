@@ -933,7 +933,8 @@ use = egg:swift#listing_formats
 # pipeline.
 [filter:symlink]
 use = egg:swift#symlink
-# Symlinks can point to other symlinks up to the symloop_max value. If the
-# number of chained symlinks exceeds the limit ``symloop_max`` a 409
-# (HTTPConflict) error response will be produced.
+# Symlinks can point to other symlinks provided the number of symlinks in a
+# chain does not exceed the symloop_max value. If the number of chained
+# symlinks exceeds the limit symloop_max a 409 (HTTPConflict) error
+# response will be produced.
 # symloop_max = 2
