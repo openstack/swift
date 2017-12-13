@@ -397,6 +397,24 @@ def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
     return ctx.create()
 
 
+def load_app_config(conf_file):
+    """
+    Read the app config section from a config file.
+
+    :param conf_file: path to a config file
+    :return: a dict
+    """
+    app_conf = {}
+    try:
+        ctx = loadcontext(loadwsgi.APP, conf_file)
+    except LookupError:
+        pass
+    else:
+        app_conf.update(ctx.app_context.global_conf)
+        app_conf.update(ctx.app_context.local_conf)
+    return app_conf
+
+
 def run_server(conf, logger, sock, global_conf=None):
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime') on
     # some platforms. This locks in reported times to UTC.

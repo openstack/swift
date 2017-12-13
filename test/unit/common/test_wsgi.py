@@ -198,6 +198,97 @@ class TestWSGI(unittest.TestCase):
         app = wsgi.loadapp(wsgi.ConfigString(conf_body))
         self.assertTrue(isinstance(app, obj_server.ObjectController))
 
+    @with_tempdir
+    def test_load_app_config(self, tempdir):
+        conf_file = os.path.join(tempdir, 'file.conf')
+
+        def _write_and_load_conf_file(conf):
+            with open(conf_file, 'wb') as fd:
+                fd.write(dedent(conf))
+            return wsgi.load_app_config(conf_file)
+
+        # typical case - DEFAULT options override same option in other sections
+        conf_str = """
+            [DEFAULT]
+            dflt_option = dflt-value
+
+            [pipeline:main]
+            pipeline = proxy-logging proxy-server
+
+            [filter:proxy-logging]
+            use = egg:swift#proxy_logging
+
+            [app:proxy-server]
+            use = egg:swift#proxy
+            proxy_option = proxy-value
+            dflt_option = proxy-dflt-value
+            """
+
+        proxy_conf = _write_and_load_conf_file(conf_str)
+        self.assertEqual('proxy-value', proxy_conf['proxy_option'])
+        self.assertEqual('dflt-value', proxy_conf['dflt_option'])
+
+        # 'set' overrides DEFAULT option
+        conf_str = """
+            [DEFAULT]
+            dflt_option = dflt-value
+
+            [pipeline:main]
+            pipeline = proxy-logging proxy-server
+
+            [filter:proxy-logging]
+            use = egg:swift#proxy_logging
+
+            [app:proxy-server]
+            use = egg:swift#proxy
+            proxy_option = proxy-value
+            set dflt_option = proxy-dflt-value
+            """
+
+        proxy_conf = _write_and_load_conf_file(conf_str)
+        self.assertEqual('proxy-value', proxy_conf['proxy_option'])
+        self.assertEqual('proxy-dflt-value', proxy_conf['dflt_option'])
+
+        # actual proxy server app name is dereferenced
+        conf_str = """
+            [pipeline:main]
+            pipeline = proxy-logging proxyserverapp
+
+            [filter:proxy-logging]
+            use = egg:swift#proxy_logging
+
+            [app:proxyserverapp]
+            use = egg:swift#proxy
+            proxy_option = proxy-value
+            dflt_option = proxy-dflt-value
+            """
+        proxy_conf = _write_and_load_conf_file(conf_str)
+        self.assertEqual('proxy-value', proxy_conf['proxy_option'])
+        self.assertEqual('proxy-dflt-value', proxy_conf['dflt_option'])
+
+        # no pipeline
+        conf_str = """
+            [filter:proxy-logging]
+            use = egg:swift#proxy_logging
+
+            [app:proxy-server]
+            use = egg:swift#proxy
+            proxy_option = proxy-value
+            """
+        proxy_conf = _write_and_load_conf_file(conf_str)
+        self.assertEqual({}, proxy_conf)
+
+        # no matching section
+        conf_str = """
+            [pipeline:main]
+            pipeline = proxy-logging proxy-server
+
+            [filter:proxy-logging]
+            use = egg:swift#proxy_logging
+            """
+        proxy_conf = _write_and_load_conf_file(conf_str)
+        self.assertEqual({}, proxy_conf)
+
     def test_init_request_processor_from_conf_dir(self):
         config_dir = {
             'proxy-server.conf.d/pipeline.conf': """
