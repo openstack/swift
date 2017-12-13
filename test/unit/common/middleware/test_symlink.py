@@ -18,7 +18,7 @@ import unittest
 import json
 import mock
 
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qs
 from swift.common import swob
 from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats
@@ -528,29 +528,59 @@ class SymlinkCopyingTestCase(TestSymlinkMiddlewareBase):
         return self.call_app(req, app=self.copy, **kwargs)
 
     def test_copy_symlink_target(self):
+        req = Request.blank('/v1/a/src_cont/symlink', method='COPY',
+                            headers={'Destination': 'tgt_cont/tgt_obj'})
+        self._test_copy_symlink_target(req)
+        req = Request.blank('/v1/a/tgt_cont/tgt_obj', method='PUT',
+                            headers={'X-Copy-From': 'src_cont/symlink'})
+        self._test_copy_symlink_target(req)
+
+    def _test_copy_symlink_target(self, req):
         self.app.register('GET', '/v1/a/src_cont/symlink', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
                            'X-Object-Sysmeta-Symlink-Target-Account': 'a2'})
         self.app.register('GET', '/v1/a2/c1/o', swob.HTTPOk, {}, 'resp_body')
         self.app.register('PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated,
                           {}, 'resp_body')
-        req = Request.blank('/v1/a/src_cont/symlink', method='COPY',
-                            headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_copy(req)
+        method, path, hdrs = self.app.calls_with_headers[0]
+        self.assertEqual(method, 'GET')
+        self.assertEqual(path, '/v1/a/src_cont/symlink')
+        self.assertEqual('/src_cont/symlink', hdrs.get('X-Copy-From'))
+        method, path, hdrs = self.app.calls_with_headers[1]
+        self.assertEqual(method, 'GET')
+        self.assertEqual(path, '/v1/a2/c1/o')
+        self.assertEqual('/src_cont/symlink', hdrs.get('X-Copy-From'))
+        method, path, hdrs = self.app.calls_with_headers[2]
+        self.assertEqual(method, 'PUT')
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        # this is raw object copy
+        self.assertEqual(val, None)
         self.assertEqual(status, '201 Created')
 
     def test_copy_symlink(self):
+        req = Request.blank(
+            '/v1/a/src_cont/symlink?symlink=get', method='COPY',
+            headers={'Destination': 'tgt_cont/tgt_obj'})
+        self._test_copy_symlink(req)
+        req = Request.blank(
+            '/v1/a/tgt_cont/tgt_obj?symlink=get', method='PUT',
+            headers={'X-Copy-From': 'src_cont/symlink'})
+        self._test_copy_symlink(req)
+
+    def _test_copy_symlink(self, req):
         self.app.register('GET', '/v1/a/src_cont/symlink', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
                            'X-Object-Sysmeta-Symlink-Target-Account': 'a2'})
         self.app.register('PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated,
                           {'X-Symlink-Target': 'c1/o',
                            'X-Symlink-Target-Account': 'a2'})
-        req = Request.blank('/v1/a/src_cont/symlink?symlink=get',
-                            method='COPY',
-                            headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_copy(req)
         self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[0]
+        self.assertEqual(method, 'GET')
+        self.assertEqual(path, '/v1/a/src_cont/symlink?symlink=get')
+        self.assertEqual('/src_cont/symlink', hdrs.get('X-Copy-From'))
         method, path, hdrs = self.app.calls_with_headers[1]
         val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
         self.assertEqual(val, 'c1/o')
@@ -558,19 +588,32 @@ class SymlinkCopyingTestCase(TestSymlinkMiddlewareBase):
             hdrs.get('X-Object-Sysmeta-Symlink-Target-Account'), 'a2')
 
     def test_copy_symlink_new_target(self):
+        req = Request.blank(
+            '/v1/a/src_cont/symlink?symlink=get', method='COPY',
+            headers={'Destination': 'tgt_cont/tgt_obj',
+                     'X-Symlink-Target': 'new_cont/new_obj',
+                     'X-Symlink-Target-Account': 'new_acct'})
+        self._test_copy_symlink_new_target(req)
+        req = Request.blank(
+            '/v1/a/tgt_cont/tgt_obj?symlink=get', method='PUT',
+            headers={'X-Copy-From': 'src_cont/symlink',
+                     'X-Symlink-Target': 'new_cont/new_obj',
+                     'X-Symlink-Target-Account': 'new_acct'})
+        self._test_copy_symlink_new_target(req)
+
+    def _test_copy_symlink_new_target(self, req):
         self.app.register('GET', '/v1/a/src_cont/symlink', swob.HTTPOk,
                           {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
                            'X-Object-Sysmeta-Symlink-Target-Account': 'a2'})
         self.app.register('PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated,
                           {'X-Symlink-Target': 'c1/o',
                            'X-Symlink-Target-Account': 'a2'})
-        req = Request.blank('/v1/a/src_cont/symlink?symlink=get',
-                            method='COPY',
-                            headers={'Destination': 'tgt_cont/tgt_obj',
-                                     'X-Symlink-Target': 'new_cont/new_obj',
-                                     'X-Symlink-Target-Account': 'new_acct'})
         status, headers, body = self.call_copy(req)
         self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[0]
+        self.assertEqual(method, 'GET')
+        self.assertEqual(path, '/v1/a/src_cont/symlink?symlink=get')
+        self.assertEqual('/src_cont/symlink', hdrs.get('X-Copy-From'))
         method, path, hdrs = self.app.calls_with_headers[1]
         self.assertEqual(method, 'PUT')
         self.assertEqual(path, '/v1/a/tgt_cont/tgt_obj?symlink=get')
@@ -578,6 +621,42 @@ class SymlinkCopyingTestCase(TestSymlinkMiddlewareBase):
         self.assertEqual(val, 'new_cont/new_obj')
         self.assertEqual(hdrs.get('X-Object-Sysmeta-Symlink-Target-Account'),
                          'new_acct')
+
+    def test_copy_symlink_with_slo_query(self):
+        req = Request.blank(
+            '/v1/a/src_cont/symlink?multipart-manifest=get&symlink=get',
+            method='COPY', headers={'Destination': 'tgt_cont/tgt_obj'})
+        self._test_copy_symlink_with_slo_query(req)
+        req = Request.blank(
+            '/v1/a/tgt_cont/tgt_obj?multipart-manifest=get&symlink=get',
+            method='PUT', headers={'X-Copy-From': 'src_cont/symlink'})
+        self._test_copy_symlink_with_slo_query(req)
+
+    def _test_copy_symlink_with_slo_query(self, req):
+        self.app.register('GET', '/v1/a/src_cont/symlink', swob.HTTPOk,
+                          {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
+                           'X-Object-Sysmeta-Symlink-Target-Account': 'a2'})
+        self.app.register('PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated,
+                          {'X-Symlink-Target': 'c1/o',
+                           'X-Symlink-Target-Account': 'a2'})
+        status, headers, body = self.call_copy(req)
+        self.assertEqual(status, '201 Created')
+        method, path, hdrs = self.app.calls_with_headers[0]
+        self.assertEqual(method, 'GET')
+        path, query = path.split('?')
+        query_dict = parse_qs(query)
+        self.assertEqual(
+            path, '/v1/a/src_cont/symlink')
+        self.assertEqual(
+            query_dict,
+            {'multipart-manifest': ['get'], 'symlink': ['get'],
+             'format': ['raw']})
+        self.assertEqual('/src_cont/symlink', hdrs.get('X-Copy-From'))
+        method, path, hdrs = self.app.calls_with_headers[1]
+        val = hdrs.get('X-Object-Sysmeta-Symlink-Target')
+        self.assertEqual(val, 'c1/o')
+        self.assertEqual(
+            hdrs.get('X-Object-Sysmeta-Symlink-Target-Account'), 'a2')
 
 
 class SymlinkVersioningTestCase(TestSymlinkMiddlewareBase):
