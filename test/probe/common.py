@@ -14,6 +14,9 @@
 # limitations under the License.
 
 from __future__ import print_function
+
+from contextlib import contextmanager
+
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -475,6 +478,13 @@ class ProbeTest(unittest.TestCase):
             return internal_client.InternalClient(conf_path, 'test', 1)
         finally:
             shutil.rmtree(tempdir)
+
+    @contextmanager
+    def annotate_failure(self, msg):
+        try:
+            yield
+        except AssertionError as err:
+            self.fail('%s Failed with %s' % (msg, err))
 
 
 class ReplProbeTest(ProbeTest):
