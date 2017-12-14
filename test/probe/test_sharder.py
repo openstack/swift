@@ -166,7 +166,7 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(expected_items, filtered_actual)
 
     def assert_shard_ranges_contiguous(self, expected_number, shard_ranges):
-        if isinstance(shard_ranges[0], ShardRange):
+        if shard_ranges and isinstance(shard_ranges[0], ShardRange):
             actual_shard_ranges = sorted(shard_ranges)
         else:
             actual_shard_ranges = sorted([ShardRange.from_dict(d)
