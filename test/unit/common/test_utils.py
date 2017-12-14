@@ -38,6 +38,7 @@ import string
 import sys
 import json
 import math
+import inspect
 
 import six
 from six import BytesIO, StringIO
@@ -3889,7 +3890,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))
 
-    def test_base64decode(self):
+    def test_strict_b64decode(self):
         expectations = {
             None: ValueError,
             0: ValueError,
@@ -3914,19 +3915,23 @@ cluster_dfw1 = http://dfw1.host/v1/
 
         failures = []
         for value, expected in expectations.items():
-            if expected is ValueError:
-                try:
-                    result = utils.base64decode(value)
-                except ValueError:
-                    pass
+            try:
+                result = utils.strict_b64decode(value)
+            except Exception as e:
+                if inspect.isclass(expected) and issubclass(
+                        expected, Exception):
+                    if not isinstance(e, expected):
+                        failures.append('%r raised %r (expected to raise %r)' %
+                                        (value, e, expected))
                 else:
-                    failures.append('%r => %r (expected to raise ValueError)' %
-                                    (value, result))
+                    failures.append('%r raised %r (expected to return %r)' %
+                                    (value, e, expected))
             else:
-                try:
-                    result = utils.base64decode(value)
-                    self.assertEqual(expected, result)
-                except AssertionError:
+                if inspect.isclass(expected) and issubclass(
+                        expected, Exception):
+                    failures.append('%r => %r (expected to raise %r)' %
+                                    (value, result, expected))
+                elif result != expected:
                     failures.append('%r => %r (expected %r)' % (
                         value, result, expected))
         if failures:
