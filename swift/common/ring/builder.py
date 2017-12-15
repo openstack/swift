@@ -623,22 +623,22 @@ class RingBuilder(object):
 
                 if old_device != dev['id']:
                     changed_parts += 1
-            part_at_risk = False
             # update running totals for each tiers' number of parts with a
             # given replica count
+            part_risk_depth = defaultdict(int)
+            part_risk_depth[0] = 0
             for tier, replicas in replicas_at_tier.items():
                 if tier not in dispersion_graph:
                     dispersion_graph[tier] = [self.parts] + [0] * int_replicas
                 dispersion_graph[tier][0] -= 1
                 dispersion_graph[tier][replicas] += 1
                 if replicas > max_allowed_replicas[tier]:
-                    part_at_risk = True
-            # this part may be at risk in multiple tiers, but we only count it
-            # as at_risk once
-            if part_at_risk:
-                parts_at_risk += 1
+                    part_risk_depth[len(tier)] += (
+                        replicas - max_allowed_replicas[tier])
+            # count each part-replica once at tier where dispersion is worst
+            parts_at_risk += max(part_risk_depth.values())
         self._dispersion_graph = dispersion_graph
-        self.dispersion = 100.0 * parts_at_risk / self.parts
+        self.dispersion = 100.0 * parts_at_risk / (self.parts * self.replicas)
         return changed_parts
 
     def validate(self, stats=False):
