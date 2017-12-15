@@ -6729,7 +6729,7 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual(ts_4, pr.meta_timestamp)
 
     def test_shard_range(self):
-        # first test infinite range (no boundries)
+        # first test infinite range (no boundaries)
         inf_pr = utils.ShardRange('a/test', utils.Timestamp.now())
         self.assertEqual('', inf_pr.upper)
         self.assertEqual('', inf_pr.lower)
@@ -6749,7 +6749,7 @@ class TestShardRange(unittest.TestCase):
         with self.assertRaises(ValueError):
             utils.ShardRange('f-a', ts, 'f', 'a')
 
-        # test basic boundries
+        # test basic boundaries
         atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
         ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
         ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
@@ -6773,7 +6773,7 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse(ltor > rtoz)
 
         # test range < and > to an item
-        # range is > lower and <= upper to lower boundry is't
+        # range is > lower and <= upper to lower boundary isn't
         # actually included
         self.assertTrue(ftol > 'f')
         self.assertFalse(atof < 'f')
@@ -6791,7 +6791,7 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse('f' < atof)
         self.assertFalse('y' < ltor)
 
-        # Now test ranges with only 1 boundry
+        # Now test ranges with only 1 boundary
         start_to_l = utils.ShardRange('a/None-l', ts, '', 'l')
         l_to_end = utils.ShardRange('a/l-None', ts, 'l', '')
 
@@ -6805,7 +6805,7 @@ class TestShardRange(unittest.TestCase):
                 self.assertTrue(start_to_l < x)
                 self.assertTrue(x > start_to_l)
 
-        # Now test some of the range to range checks with missing boundries
+        # Now test some of the range to range checks with missing boundaries
         self.assertFalse(atof < start_to_l)
         self.assertFalse(start_to_l < inf_pr)
 
@@ -6818,6 +6818,13 @@ class TestShardRange(unittest.TestCase):
         self.assertTrue(dtom.overlaps(ftol))
         self.assertTrue(ftol.overlaps(dtom))
         self.assertFalse(start_to_l.overlaps(l_to_end))
+
+    def test_repr(self):
+        ts = utils.Timestamp.now(offset=1234)
+        sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000)
+        self.assertEqual(
+            "ShardRange<'l' to 'u' as of %s (100, 1000)>" % ts.internal,
+            str(sr))
 
 
 if __name__ == '__main__':
