@@ -24,11 +24,11 @@ from collections import defaultdict
 import unittest
 from hashlib import md5
 from uuid import uuid4
-
-from six.moves.http_client import HTTPConnection
 import shutil
+from six.moves.http_client import HTTPConnection
+from six.moves.urllib.parse import urlparse
 
-from swiftclient import get_auth, head_account
+from swiftclient import get_auth, head_account, client
 from swift.common import internal_client
 from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
@@ -384,6 +384,10 @@ class ProbeTest(unittest.TestCase):
                     Manager(['all']).kill()
                 except Exception:
                     pass
+        info_url = "%s://%s/info" % (urlparse(self.url).scheme,
+                                     urlparse(self.url).netloc)
+        proxy_conn = client.http_connection(info_url)
+        self.cluster_info = client.get_capabilities(proxy_conn)
 
     def tearDown(self):
         Manager(['all']).kill()
