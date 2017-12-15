@@ -87,11 +87,12 @@ error. The account level tempurl will allow cross container symlinks.
 If a symlink object is overwritten while it is in a versioned container, the
 symlink object itself is versioned, not the referenced object.
 
-A GET request with query parameter ``?format=json`` or ``?format=xml`` to a
-container which contains symlinks will respond with additional information
-``symlink_path`` for each symlink object in the container listing. The
-``symlink_path`` value is the target path of the symlink. Clients can
-differentiate symlinks and other objects by this function.
+A GET request with query parameter ``?format=json`` to a container which
+contains symlinks will respond with additional information ``symlink_path``
+for each symlink object in the container listing. The ``symlink_path`` value
+is the target path of the symlink. Clients can differentiate symlinks and
+other objects by this function. Note that responses of any other format
+(e.g.``?format=xml``) won't include ``symlink_path`` info.
 
 Errors
 

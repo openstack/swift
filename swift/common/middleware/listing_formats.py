@@ -93,10 +93,6 @@ def container_to_xml(listing, base_name):
                 SubElement(sub, field).text = six.text_type(
                     record.pop(field))
 
-            if 'symlink_path' in record:
-                SubElement(sub, 'symlink_path').text = six.text_type(
-                    record.pop('symlink_path'))
-
     return tostring(doc, encoding='UTF-8').replace(
         "<?xml version='1.0' encoding='UTF-8'?>",
         '<?xml version="1.0" encoding="UTF-8"?>', 1)

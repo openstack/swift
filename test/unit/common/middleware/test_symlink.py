@@ -922,7 +922,6 @@ class TestSymlinkContainerContext(TestSymlinkMiddlewareBase):
             '<hash>etag</hash><bytes>0</bytes>'
             '<content_type>text/plain</content_type>'
             '<last_modified>2014-11-21T14:23:02.206740</last_modified>'
-            '<symlink_path>/v1/a/c/o</symlink_path>'
             '</object>'
             '<object><name>normal_obj</name><hash>etag2</hash>'
             '<bytes>32</bytes><content_type>text/plain</content_type>'
