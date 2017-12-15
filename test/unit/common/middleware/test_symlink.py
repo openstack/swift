@@ -171,13 +171,21 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                           {'X-Object-Sysmeta-Symlink-Target': 'c1/o',
                            'X-Object-Sysmeta-Symlink-Target-Account': 'a2'})
         self.app.register('GET', '/v1/a2/c1/o', swob.HTTPOk, {}, 'resp_body')
-        req = Request.blank('/v1/a/c/symlink', method='GET')
+        req_headers = {'X-Newest': 'True', 'X-Backend-Something': 'future'}
+        req = Request.blank('/v1/a/c/symlink', method='GET',
+                            headers=req_headers)
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, 'resp_body')
         self.assertNotIn('X-Symlink-Target', dict(headers))
         self.assertNotIn('X-Symlink-Target-Account', dict(headers))
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
+        calls = self.app.calls_with_headers
+        req_headers['Host'] = 'localhost:80'
+        self.assertEqual(req_headers, calls[0].headers)
+        req_headers['User-Agent'] = 'Swift'
+        self.assertEqual(req_headers, calls[1].headers)
+        self.assertFalse(calls[2:])
 
     def test_get_target_object_not_found(self):
         self.app.register('GET', '/v1/a/c/symlink', swob.HTTPOk,
@@ -272,7 +280,9 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
                            'X-Object-Meta-Color': 'Red'})
         self.app.register('HEAD', '/v1/a2/c1/o', swob.HTTPOk,
                           {'X-Object-Meta-Color': 'Green'})
-        req = Request.blank('/v1/a/c/symlink', method='HEAD')
+        req_headers = {'X-Newest': 'True', 'X-Backend-Something': 'future'}
+        req = Request.blank('/v1/a/c/symlink', method='HEAD',
+                            headers=req_headers)
         status, headers, body = self.call_sym(req)
         self.assertEqual(status, '200 OK')
         self.assertNotIn('X-Symlink-Target', dict(headers))
@@ -280,6 +290,12 @@ class TestSymlinkMiddleware(TestSymlinkMiddlewareBase):
         self.assertNotIn(('X-Object-Meta-Color', 'Red'), headers)
         self.assertIn(('X-Object-Meta-Color', 'Green'), headers)
         self.assertIn(('Content-Location', '/v1/a2/c1/o'), headers)
+        calls = self.app.calls_with_headers
+        req_headers['Host'] = 'localhost:80'
+        self.assertEqual(req_headers, calls[0].headers)
+        req_headers['User-Agent'] = 'Swift'
+        self.assertEqual(req_headers, calls[1].headers)
+        self.assertFalse(calls[2:])
 
     def test_symlink_too_deep(self):
         self.app.register('HEAD', '/v1/a/c/symlink', swob.HTTPOk,
