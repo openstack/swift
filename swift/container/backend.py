@@ -1147,6 +1147,9 @@ class ContainerBroker(DatabaseBroker):
                           'lower', 'upper', 'object_count', 'bytes_used',
                           'meta_timestamp', 'deleted'}
         """
+        if not item_list:
+            return
+
         for item in item_list:
             for col in ('name', 'lower', 'upper'):
                 if isinstance(item[col], six.text_type):
@@ -1185,9 +1188,9 @@ class ContainerBroker(DatabaseBroker):
                     if item_ident in records:
                         to_delete[item_ident] = item
                     # duplicate entries in item_list
-                    if item_ident in to_add:
-                        merge_shards(item, to_add[item_ident])
-                    to_add[item_ident] = item
+                    if (item_ident not in to_add or
+                            merge_shards(item, to_add[item_ident])):
+                        to_add[item_ident] = item
 
             if to_delete:
                 curs.executemany(

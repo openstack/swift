@@ -2942,6 +2942,101 @@ class TestContainerBroker(unittest.TestCase):
         check_broker_info(broker.get_info())
         check_sharded_state(broker)
 
+    @with_tempdir
+    def test_merge_shard_ranges(self, tempdir):
+        def assert_shard_ranges(broker, expected):
+            actual = broker.get_shard_ranges(include_deleted=True)
+            self.assertEqual([dict(sr) for sr in expected],
+                             [dict(sr) for sr in actual])
+
+        ts_iter = make_timestamp_iter()
+        ts = [next(ts_iter) for _ in range(13)]
+        db_path = os.path.join(
+            tempdir, 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(
+            db_path, account='a', container='c')
+        broker.initialize(next(ts_iter).internal, 0)
+
+        # sanity check
+        self.assertFalse(broker.get_shard_ranges(include_deleted=True))
+
+        broker.merge_shard_ranges(None)
+        self.assertFalse(broker.get_shard_ranges(include_deleted=True))
+
+        # merge item at ts1
+        # sr_<upper>_<created ts>_<meta ts>
+        sr_b_1_1 = ShardRange('a/c_b', ts[1], lower='a', upper='b',
+                              object_count=2)
+        broker.merge_shard_ranges([dict(sr_b_1_1)])
+        assert_shard_ranges(broker, [sr_b_1_1])
+
+        # merge older item - ignored
+        sr_b_0_0 = ShardRange('a/c_b', ts[0], lower='a', upper='b',
+                              object_count=1)
+        broker.merge_shard_ranges([dict(sr_b_0_0)])
+        assert_shard_ranges(broker, [sr_b_1_1])
+
+        # merge same timestamp - ignored
+        broker.merge_shard_ranges([dict(sr_b_1_1, object_count=99)])
+        assert_shard_ranges(broker, [sr_b_1_1])
+
+        # merge list with older item *after* newer item
+        sr_c_2_2 = ShardRange('a/c_c', ts[2], lower='b', upper='c',
+                              object_count=3)
+        sr_c_3_3 = ShardRange('a/c_c', ts[3], lower='b', upper='c',
+                              object_count=4)
+        broker.merge_shard_ranges([dict(sr_c_3_3), dict(sr_c_2_2)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_3_3])
+
+        # merge newer item - updated
+        sr_c_5_5 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
+                              object_count=5)
+        broker.merge_shard_ranges([dict(sr_c_5_5)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
+
+        # merge older metadata item - ignored
+        sr_c_5_4 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
+                              object_count=6, meta_timestamp=ts[4])
+        broker.merge_shard_ranges([dict(sr_c_5_4)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_5])
+
+        # merge newer metadata item - updated
+        sr_c_5_6 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
+                              object_count=7, meta_timestamp=ts[6])
+        broker.merge_shard_ranges([dict(sr_c_5_6)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
+
+        # merge older created_at, newer metadata item - ignored
+        sr_c_4_7 = ShardRange('a/c_c', ts[4], lower='b', upper='c',
+                              object_count=8, meta_timestamp=ts[7])
+        broker.merge_shard_ranges([dict(sr_c_4_7)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_6])
+
+        # merge list with older metadata item *after* newer metadata item
+        sr_c_5_11 = ShardRange('a/c_c', ts[5], lower='b', upper='c',
+                               object_count=9, meta_timestamp=ts[11])
+        broker.merge_shard_ranges([dict(sr_c_5_11), dict(sr_c_5_6)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_11])
+
+        # delete item at *same timestamp* as existing - ignored
+        broker.merge_shard_ranges([dict(sr_b_1_1, deleted=1, object_count=0)])
+        assert_shard_ranges(broker, [sr_b_1_1, sr_c_5_11])
+
+        # delete item at *newer timestamp* - updated
+        sr_b_2_2_deleted = ShardRange('a/c_b', ts[2], lower='a', upper='b',
+                                      object_count=0, deleted=1)
+        broker.merge_shard_ranges([dict(sr_b_2_2_deleted)])
+        assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_5_11])
+
+        # merge list with older undeleted item *after* newer deleted item
+        # NB deleted timestamp trumps newer meta timestamp
+        sr_c_9_12 = ShardRange('a/c_c', ts[9], lower='b', upper='c',
+                               object_count=10, meta_timestamp=ts[12])
+        sr_c_10_10_deleted = ShardRange('a/c_c', ts[10], lower='b', upper='c',
+                                        object_count=0, deleted=1)
+        broker.merge_shard_ranges([dict(sr_c_10_10_deleted), dict(sr_c_9_12)])
+        assert_shard_ranges(broker, [sr_b_2_2_deleted, sr_c_10_10_deleted])
+
 
 class TestCommonContainerBroker(test_db.TestExampleBroker):
 
