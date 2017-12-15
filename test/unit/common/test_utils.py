@@ -3895,6 +3895,50 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))
 
+    def test_base64decode(self):
+        expectations = {
+            None: ValueError,
+            0: ValueError,
+            b'': b'',
+            u'': b'',
+            b'A': ValueError,
+            b'AA': ValueError,
+            b'AAA': ValueError,
+            b'AAAA': b'\x00\x00\x00',
+            u'AAAA': b'\x00\x00\x00',
+            b'////': b'\xff\xff\xff',
+            u'////': b'\xff\xff\xff',
+            b'A===': ValueError,
+            b'AA==': b'\x00',
+            b'AAA=': b'\x00\x00',
+            b' AAAA': ValueError,
+            b'AAAA ': ValueError,
+            b'AAAA============': b'\x00\x00\x00',
+            b'AA&AA==': ValueError,
+            b'====': b'',
+        }
+
+        failures = []
+        for value, expected in expectations.items():
+            if expected is ValueError:
+                try:
+                    result = utils.base64decode(value)
+                except ValueError:
+                    pass
+                else:
+                    failures.append('%r => %r (expected to raise ValueError)' %
+                                    (value, result))
+            else:
+                try:
+                    result = utils.base64decode(value)
+                    self.assertEqual(expected, result)
+                except AssertionError:
+                    failures.append('%r => %r (expected %r)' % (
+                        value, result, expected))
+        if failures:
+            self.fail('Invalid results from pure function:\n%s' %
+                      '\n'.join(failures))
+
     def test_replace_partition_in_path(self):
         # Check for new part = part * 2
         old = '/s/n/d/o/700/c77/af088baea4806dcaba30bf07d9e64c77/f'
