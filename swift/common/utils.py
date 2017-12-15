@@ -4343,7 +4343,7 @@ def safe_json_loads(value):
     return None
 
 
-def base64decode(value, allow_line_breaks=False):
+def strict_b64decode(value, allow_line_breaks=False):
     '''
     Validate and decode Base64-encoded data.
 

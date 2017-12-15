@@ -18,7 +18,7 @@ import os
 
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import readconf, base64decode
+from swift.common.utils import readconf, strict_b64decode
 from swift.common.wsgi import WSGIContext
 
 
@@ -137,8 +137,8 @@ class KeyMaster(object):
             conf = readconf(self.keymaster_config_path, 'keymaster')
         b64_root_secret = conf.get('encryption_root_secret')
         try:
-            binary_root_secret = base64decode(b64_root_secret,
-                                              allow_line_breaks=True)
+            binary_root_secret = strict_b64decode(b64_root_secret,
+                                                  allow_line_breaks=True)
             if len(binary_root_secret) < 32:
                 raise ValueError
             return binary_root_secret
