@@ -16,12 +16,12 @@
 """
 Symlink Middleware
 
-Symlinks are objects stored in Swift that contains a reference to another
+Symlinks are objects stored in Swift that contain a reference to another
 object (hereinafter, this is called "target object"). They are analogous to
 symbolic links in Unix-like operating systems. The existence of a symlink
 object does not affect the target object in any way. An important use case is
 to use a path in one container to access an object in a different container,
-with a different policy. This allows policy cost/performance tradeoffs to be
+with a different policy. This allows policy cost/performance trade-offs to be
 made on individual objects.
 
 Clients create a Swift symlink by performing a zero-length PUT request
@@ -33,30 +33,30 @@ object in the PUT request process.
 Symlinks must be zero-byte objects. Attempting to PUT a symlink
 with a non-empty request body will result in a 400-series error. Also, POST
 with X-Symlink-Target header always results in a 400-series error. The target
-object need not exist at symlink-creation time. It is suggested to set the
+object need not exist at symlink creation time. It is suggested to set the
 ``Content-Type`` of symlink objects to a distinct value such as
 ``application/symlink``.
 
-A GET/HEAD request to a symlink will resolve in a request to the target
+A GET/HEAD request to a symlink will result in a request to the target
 object referenced by the symlink's ``X-Symlink-Target-Account`` and
 ``X-Symlink-Target`` headers. The response of the GET/HEAD request will contain
 a ``Content-Location`` header with the path location of the target object. A
 GET/HEAD request to a symlink with the query parameter ``?symlink=get`` will
-resolve in the request targeting the symlink itself.
+result in the request targeting the symlink itself.
 
 A symlink can point to another symlink. Chained symlinks will be traversed
 until target is not a symlink. If the number of chained symlinks exceeds the
 limit ``symloop_max`` an error response will be produced. The value of
 ``symloop_max`` can be defined in the symlink config section of
-proxy-server.conf. If not specified, the default ``symloop_max`` value is 2. If
-a value less than 1 is specified, the default value will be used.
+`proxy-server.conf`. If not specified, the default ``symloop_max`` value is 2.
+If a value less than 1 is specified, the default value will be used.
 
 A HEAD/GET request to a symlink object behaves as a normal HEAD/GET request
 to the target object. Therefore issuing a HEAD request to the symlink will
 return the target metadata, and issuing a GET request to the symlink will
-return the data and metadata of the target object. Only when a GET/HEAD
-request sent to a symlink object with the ``?symlink=get`` query string
-will return the symlink metadata with empty body.
+return the data and metadata of the target object. To return the symlink
+metadata (with its empty body) a GET/HEAD request with the ``?symlink=get``
+query parameter must be sent to a symlink object.
 
 A POST request to a symlink will result in a 307 TemporaryRedirect response.
 The response will contain a ``Location`` header with the path of the target
@@ -74,7 +74,7 @@ parameter ``?symlink=get`` will copy the symlink itself.
 
 An OPTIONS request to a symlink will respond with the options for the symlink
 only, the request will not be redirected to the target object. Please note that
-if the symlink's target object is in another container with cors settings, the
+if the symlink's target object is in another container with CORS settings, the
 response will not reflect the settings.
 
 Tempurls can be used to GET/HEAD symlink objects, but PUT is not allowed and
@@ -87,10 +87,11 @@ error. The account level tempurl will allow cross container symlinks.
 If a symlink object is overwritten while it is in a versioned container, the
 symlink object itself is versioned, not the referenced object.
 
-A GET request to a container which contains symlinks will respond with
-additional information ``symlink_path`` for each symlink objects.
-``symlink_path`` information are target path strings of the symlinks. Clients
-can differentiate symlinks and other objects by this function.
+A GET request with query parameter ``?format=json`` or ``?format=xml`` to a
+container which contains symlinks will respond with additional information
+``symlink_path`` for each symlink object in the container listing. The
+``symlink_path`` value is the target path of the symlink. Clients can
+differentiate symlinks and other objects by this function.
 
 Errors
 
@@ -188,11 +189,13 @@ def _check_symlink_header(req):
     :param req: HTTP request object
     :raise: HTTPPreconditionFailed if x-symlink-target value
             is not well formatted.
+    :raise: HTTPBadRequest if the x-symlink-target value points to the request
+            path.
     """
     # N.B. check_path_header doesn't assert the leading slash and
-    # copy middleware may accpet the format. In the symlink, API
+    # copy middleware may accept the format. In the symlink, API
     # says apparently to use "container/object" format so add the
-    # validation fist, here.
+    # validation first, here.
     if unquote(req.headers[TGT_OBJ_SYMLINK_HDR]).startswith('/'):
         raise HTTPPreconditionFailed(
             body='X-Symlink-Target header must be of the '
@@ -225,7 +228,7 @@ def _check_symlink_header(req):
 
 def symlink_usermeta_to_sysmeta(headers):
     """
-    Helper fucntion to translate from X-Symlink-Target and
+    Helper function to translate from X-Symlink-Target and
     X-Symlink-Target-Account to X-Object-Sysmeta-Symlink-Target
     and X-Object-Sysmeta-Symlink-Target-Account.
 
@@ -244,7 +247,7 @@ def symlink_usermeta_to_sysmeta(headers):
 
 def symlink_sysmeta_to_usermeta(headers):
     """
-    Helper fucntion to translate from X-Object-Sysmeta-Symlink-Target and
+    Helper function to translate from X-Object-Sysmeta-Symlink-Target and
     X-Object-Sysmeta-Symlink-Target-Account to X-Symlink-Target and
     X-Sysmeta-Symlink-Target-Account
 
@@ -263,12 +266,15 @@ def symlink_sysmeta_to_usermeta(headers):
 class SymlinkContainerContext(WSGIContext):
     def __init__(self, wsgi_app, logger):
         super(SymlinkContainerContext, self).__init__(wsgi_app)
-        self.app = wsgi_app
         self.logger = logger
 
     def handle_container(self, req, start_response):
         """
         Handle container requests.
+
+        :param req: a :class:`~swift.common.swob.Request`
+        :param start_response: start_response function
+
         :return: Response Iterator after start_response called.
         """
         app_resp = self._app_call(req.environ)
@@ -326,11 +332,10 @@ class SymlinkObjectContext(WSGIContext):
 
     def __init__(self, wsgi_app, logger, symloop_max):
         super(SymlinkObjectContext, self).__init__(wsgi_app)
-        self.app = wsgi_app
         self.symloop_max = symloop_max
         self.logger = logger
         # N.B. _loop_count and _last_target_path are used to keep
-        # the statement in the _recursive_get. Hence it should not be touched
+        # the statement in the _recursive_get. Hence they should not be touched
         # from other resources.
         self._loop_count = 0
         self._last_target_path = None
@@ -342,7 +347,6 @@ class SymlinkObjectContext(WSGIContext):
         :param req: HTTP GET or HEAD object request with param ?symlink=get
         :returns: Response Iterator
         """
-
         resp = self._app_call(req.environ)
         response_header_dict = HeaderKeyDict(self._response_headers)
         symlink_sysmeta_to_usermeta(response_header_dict)
@@ -463,7 +467,7 @@ class SymlinkObjectContext(WSGIContext):
         the stored object is a symlink or not.
 
         :param req: HTTP POST object request
-        :returns: HTTPTemporaryRedirect if POSTing to a symlink.
+        :raises: HTTPTemporaryRedirect if POSTing to a symlink.
         :returns: Response Iterator
         """
         if TGT_OBJ_SYMLINK_HDR in req.headers:
@@ -493,7 +497,11 @@ class SymlinkObjectContext(WSGIContext):
 
     def handle_object(self, req, start_response):
         """
-        Handle object requests
+        Handle object requests.
+
+        :param req: a :class:`~swift.common.swob.Request`
+        :param start_response: start_response function
+        :returns: Response Iterator after start_response has been called
         """
         if req.method in ('GET', 'HEAD'):
             # if GET request came from versioned writes, then it should get
@@ -522,10 +530,10 @@ class SymlinkMiddleware(object):
     """
     Middleware that implements symlinks.
 
-    Symlinks are objects stored in Swift that contains a reference to another
+    Symlinks are objects stored in Swift that contain a reference to another
     object (i.e., the target object). An important use case is to use a path in
     one container to access an object in a different container, with a
-    different policy. This allows policy cost/performance tradeoffs to be made
+    different policy. This allows policy cost/performance trade-offs to be made
     on individual objects.
     """
 
