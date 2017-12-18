@@ -17,14 +17,13 @@
 import json
 import time
 import unittest2
-from unittest2 import SkipTest
 
 import test.functional as tf
 from copy import deepcopy
 
 from swift.common.utils import MD5_OF_EMPTY_STRING
 from test.functional.tests import Base, Base2, BaseEnv, Utils
-from test.functional import cluster_info
+from test.functional import cluster_info, SkipTest
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 

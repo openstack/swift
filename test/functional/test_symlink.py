@@ -22,11 +22,11 @@ import time
 
 from six.moves import urllib
 from uuid import uuid4
-from unittest2 import SkipTest
 
 from swift.common.utils import json, MD5_OF_EMPTY_STRING
 from swift.common.middleware.slo import SloGetContext
-from test.functional import check_response, retry, requires_acls, cluster_info
+from test.functional import check_response, retry, requires_acls, \
+    cluster_info, SkipTest
 from test.functional.tests import Base, TestFileComparisonEnv, Utils, BaseEnv
 from test.functional.test_slo import TestSloEnv
 from test.functional.test_dlo import TestDloEnv
