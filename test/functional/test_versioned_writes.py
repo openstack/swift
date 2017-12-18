@@ -21,6 +21,8 @@ from unittest2 import SkipTest
 
 import test.functional as tf
 from copy import deepcopy
+
+from swift.common.utils import MD5_OF_EMPTY_STRING
 from test.functional.tests import Base, Base2, BaseEnv, Utils
 from test.functional import cluster_info
 from test.functional.swift_test_client import Account, Connection, \
@@ -209,6 +211,8 @@ class TestObjectVersioning(Base):
             # as they were configured in self.env
             self.env.versions_container.delete_files()
             self.env.container.delete_files()
+            # in history mode, cleanup after deleting 'container' files
+            self.env.versions_container.delete_files()
         except ResponseError:
             pass
 
@@ -579,6 +583,53 @@ class TestObjectVersioning(Base):
         versioned_obj.delete()
         self.assertEqual("aaaaa", versioned_obj.read())
 
+    def _check_overwriting_symlink(self):
+        # assertions common to x-versions-location and x-history-location modes
+        container = self.env.container
+        versions_container = self.env.versions_container
+
+        tgt_a_name = Utils.create_name()
+        tgt_b_name = Utils.create_name()
+
+        tgt_a = container.file(tgt_a_name)
+        tgt_a.write("aaaaa")
+
+        tgt_b = container.file(tgt_b_name)
+        tgt_b.write("bbbbb")
+
+        symlink_name = Utils.create_name()
+        sym_tgt_header = '%s/%s' % (container.name, tgt_a_name)
+        sym_headers_a = {'X-Symlink-Target': sym_tgt_header}
+        symlink = container.file(symlink_name)
+        symlink.write("", hdrs=sym_headers_a)
+        self.assertEqual("aaaaa", symlink.read())
+
+        sym_headers_b = {'X-Symlink-Target': '%s/%s' % (container.name,
+                                                        tgt_b_name)}
+        symlink.write("", hdrs=sym_headers_b)
+        self.assertEqual("bbbbb", symlink.read())
+
+        # the old version got saved off
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version_info = prev_version.info(parms={'symlink': 'get'})
+        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(MD5_OF_EMPTY_STRING, prev_version_info['etag'])
+        self.assertEqual(sym_tgt_header,
+                         prev_version_info['x_symlink_target'])
+        return symlink, tgt_a
+
+    def test_overwriting_symlink(self):
+        symlink, target = self._check_overwriting_symlink()
+        # test delete
+        symlink.delete()
+        sym_info = symlink.info(parms={'symlink': 'get'})
+        self.assertEqual("aaaaa", symlink.read())
+        self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
+        self.assertEqual('%s/%s' % (self.env.container.name, target.name),
+                         sym_info['x_symlink_target'])
+
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
 
@@ -691,6 +742,14 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         for actual, expected in zip(files, ['aaaaa', 'bbbbb', '']):
             prev_version = self.env.versions_container.file(actual)
             self.assertEqual(expected, prev_version.read())
+
+    def test_overwriting_symlink(self):
+        symlink, target = self._check_overwriting_symlink()
+        # test delete
+        symlink.delete()
+        with self.assertRaises(ResponseError) as cm:
+            symlink.read()
+        self.assertEqual(404, cm.exception.status)
 
 
 class TestSloWithVersioning(unittest2.TestCase):

@@ -33,7 +33,6 @@ from test.functional.test_dlo import TestDloEnv
 from test.functional.test_tempurl import TestContainerTempurlEnv, \
     TestTempurlEnv
 from test.functional.swift_test_client import ResponseError
-from test.functional.test_versioned_writes import TestObjectVersioningEnv
 import test.functional as tf
 
 TARGET_BODY = 'target body'
@@ -1762,77 +1761,6 @@ class TestSymlinkContainerTempurl(Base):
             self.assertEqual(e.status, 401)
         else:
             self.fail('request did not error')
-
-
-class TestSymlinkVersioning(Base):
-    env = TestObjectVersioningEnv
-
-    def setUp(self):
-        super(TestSymlinkVersioning, self).setUp()
-        if self.env.versioning_enabled is False:
-            raise SkipTest("Object versioning not enabled")
-        elif self.env.versioning_enabled is not True:
-            # just some sanity checking
-            raise Exception(
-                "Expected versioning_enabled to be True/False, got %r" %
-                (self.env.versioning_enabled,))
-
-    def _tear_down_files(self):
-        try:
-            # only delete files and not containers
-            # as they were configured in self.env
-            self.env.versions_container.delete_files()
-            self.env.container.delete_files()
-        except ResponseError:
-            pass
-
-    def tearDown(self):
-        super(TestSymlinkVersioning, self).tearDown()
-        self._tear_down_files()
-
-    def test_overwriting(self):
-        container = self.env.container
-        versions_container = self.env.versions_container
-
-        symlink_name = Utils.create_name()
-        tgt_a_name = Utils.create_name()
-        tgt_b_name = Utils.create_name()
-
-        tgt_a = container.file(tgt_a_name)
-        tgt_a.write("aaaaa")
-
-        tgt_b = container.file(tgt_b_name)
-        tgt_b.write("bbbbb")
-
-        symlink_name = Utils.create_name()
-        sym_tgt_header = '%s/%s' % (container.name, tgt_a_name)
-        sym_headers_a = {'X-Symlink-Target': sym_tgt_header}
-        symlink = container.file(symlink_name)
-        symlink.write("", hdrs=sym_headers_a)
-        self.assertEqual("aaaaa", symlink.read())
-
-        sym_headers_b = {'X-Symlink-Target': '%s/%s' % (container.name,
-                                                        tgt_b_name)}
-        symlink.write("", hdrs=sym_headers_b)
-        self.assertEqual("bbbbb", symlink.read())
-
-        # the old version got saved off
-        self.assertEqual(1, versions_container.info()['object_count'])
-        versioned_obj_name = versions_container.files()[0]
-        prev_version = versions_container.file(versioned_obj_name)
-        prev_version_info = prev_version.info(parms={'symlink': 'get'})
-        self.assertEqual("aaaaa", prev_version.read())
-        self.assertEqual(MD5_OF_EMPTY_STRING, prev_version_info['etag'])
-        self.assertEqual(sym_tgt_header,
-                         prev_version_info['x_symlink_target'])
-
-        # test delete
-        symlink.delete()
-        sym_info = symlink.info(parms={'symlink': 'get'})
-        self.assertEqual("aaaaa", symlink.read())
-        self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
-        self.assertEqual(sym_tgt_header,
-                         sym_info['x_symlink_target'])
 
 
 if __name__ == '__main__':
