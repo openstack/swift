@@ -1072,6 +1072,11 @@ class TestRingBuilder(unittest.TestCase):
                 new_dev_parts[dev_id] += 1
         for dev in rb._iter_devs():
             dev['parts'] = new_dev_parts[dev['id']]
+        # reset the _last_part_gather_start otherwise
+        # there is a chance it'll unluckly wrap and try and
+        # move one of the device 1's from replica 2
+        # causing the intermitant failure in bug 1724356
+        rb._last_part_gather_start = 0
 
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
