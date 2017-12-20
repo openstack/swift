@@ -4423,9 +4423,10 @@ class ShardRange(object):
         return not (self == other)
 
     def __repr__(self):
-        return '%s<%r to %r as of %s (%d, %d)>' % (
+        return '%s<%r to %r as of %s, (%d, %d) as of %s>' % (
             self.__class__.__name__, self.lower, self.upper,
-            self.timestamp.internal, self.object_count, self.bytes_used)
+            self.timestamp.internal, self.object_count, self.bytes_used,
+            self.meta_timestamp.internal)
 
     def entire_namespace(self):
         return self.lower == self.upper == ''

@@ -6820,11 +6820,14 @@ class TestShardRange(unittest.TestCase):
         self.assertFalse(start_to_l.overlaps(l_to_end))
 
     def test_repr(self):
-        ts = utils.Timestamp.now(offset=1234)
-        sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000)
+        ts = next(self.ts_iter)
+        ts.offset = 1234
+        meta_ts = next(self.ts_iter)
+        sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000,
+                              meta_timestamp=meta_ts)
         self.assertEqual(
-            "ShardRange<'l' to 'u' as of %s (100, 1000)>" % ts.internal,
-            str(sr))
+            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s>" %
+            (ts.internal, meta_ts.internal), str(sr))
 
 
 if __name__ == '__main__':
