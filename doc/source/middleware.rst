@@ -277,3 +277,10 @@ XProfile
 .. automodule:: swift.common.middleware.xprofile
     :members:
     :show-inheritance:
+
+s3api
+==============
+
+.. automodule:: swift.common.middleware.s3api.s3api
+    :members:
+    :show-inheritance:

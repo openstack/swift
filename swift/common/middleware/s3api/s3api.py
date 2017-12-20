@@ -12,35 +12,19 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 The s3api middleware will emulate the S3 REST api on top of swift.
 
-The following operations are currently supported:
-
-    * GET Service
-    * DELETE Bucket
-    * GET Bucket (List Objects)
-    * PUT Bucket
-    * DELETE Object
-    * Delete Multiple Objects
-    * GET Object
-    * HEAD Object
-    * PUT Object
-    * PUT Object (Copy)
-
-To add this middleware to your configuration, add the s3api middleware
-in front of the auth middleware, and before any other middleware that
-look at swift requests (like rate limiting).
+To enable this middleware to your configuration, add the s3api middleware
+in front of the auth middleware. See ``proxy-server.conf-sample`` for more
+detail and configurable options.
 
 To set up your client, the access key will be the concatenation of the
 account and user strings that should look like test:tester, and the
 secret access key is the account password.  The host should also point
-to the swift storage hostname.  It also will have to use the old style
-calling format, and not the hostname based container format.
+to the swift storage hostname.
 
-An example client using the python boto library might look like the
-following for an SAIO setup::
+An example client using the python boto library is as follows::
 
     from boto.s3.connection import S3Connection
     connection = S3Connection(
@@ -50,6 +34,7 @@ following for an SAIO setup::
         host='127.0.0.1',
         is_secure=False,
         calling_format=boto.s3.connection.OrdinaryCallingFormat())
+
 """
 
 from paste.deploy import loadwsgi
