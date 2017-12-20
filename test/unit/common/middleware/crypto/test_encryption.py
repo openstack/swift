@@ -29,7 +29,7 @@ from swift.common.ring import Ring
 from swift.common.swob import Request
 from swift.obj import diskfile
 
-from test.unit import FakeLogger
+from test.unit import FakeLogger, skip_if_no_xattrs
 from test.unit.common.middleware.crypto.crypto_helpers import (
     md5hex, encrypt, TEST_KEYMASTER_CONF)
 from test.unit.helpers import setup_servers, teardown_servers
@@ -54,6 +54,7 @@ class TestCryptoPipelineChanges(unittest.TestCase):
             cls._test_context = None
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.plaintext = 'unencrypted body content'
         self.plaintext_etag = md5hex(self.plaintext)
         self._setup_crypto_app()

@@ -85,7 +85,7 @@ Let's say ``sig`` ends up equaling
 You may also use ISO 8601 UTC timestamps with the format
 ``"%Y-%m-%dT%H:%M:%SZ"`` instead of UNIX timestamps in the URL
 (but NOT in the code above for generating the signature!).
-So, the latter URL could also be formulated as:
+So, the latter URL could also be formulated as::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object?
     temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709&
@@ -222,7 +222,7 @@ from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote
 
 
-DISALLOWED_INCOMING_HEADERS = 'x-object-manifest'
+DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
 
 #: Default headers to remove from incoming requests. Simply a whitespace
 #: delimited list of header names and names can optionally end with '*' to

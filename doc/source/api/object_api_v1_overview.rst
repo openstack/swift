@@ -87,7 +87,9 @@ The Object Storage system organizes data in a hierarchy, as follows:
       object.
 
    -  Upload objects directly to the Object Storage system from a
-      browser by using form **POST** middleware
+      browser by using form **POST** middleware.
+
+   -  Create symbolic links to other objects.
 
 The account, container, and object hierarchy affects the way you
 interact with the Object Storage API.

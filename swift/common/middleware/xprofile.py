@@ -63,13 +63,13 @@ as proxy, account, container and object servers. Please refer to the sample
 configuration files in etc directory.
 
 The profiling data is provided with four formats such as binary(by default),
-json, csv and odf spreadsheet which requires installing odfpy library.
+json, csv and odf spreadsheet which requires installing odfpy library::
 
     sudo pip install odfpy
 
 There's also a simple visualization capability which is enabled by using
 matplotlib toolkit. it is also required to be installed if you want to use
-it to visualize statistic data.
+it to visualize statistic data::
 
     sudo apt-get install python-matplotlib
 """

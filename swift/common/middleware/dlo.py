@@ -119,10 +119,8 @@ Here's an example using ``curl`` with tiny 1-byte segments::
 """
 
 import json
-import os
 
 import six
-from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 from six.moves.urllib.parse import unquote
 
 from hashlib import md5
@@ -132,10 +130,9 @@ from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict
 from swift.common.utils import get_logger, \
-    RateLimitedIterator, read_conf_dir, quote, close_if_possible, \
-    closing_if_possible
+    RateLimitedIterator, quote, close_if_possible, closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
-from swift.common.wsgi import WSGIContext, make_subrequest
+from swift.common.wsgi import WSGIContext, make_subrequest, load_app_config
 
 
 class GetContext(WSGIContext):
@@ -381,26 +378,12 @@ class DynamicLargeObject(object):
                 '__file__' not in conf):
             return
 
-        cp = ConfigParser()
-        if os.path.isdir(conf['__file__']):
-            read_conf_dir(cp, conf['__file__'])
-        else:
-            cp.read(conf['__file__'])
-
-        try:
-            pipe = cp.get("pipeline:main", "pipeline")
-        except (NoSectionError, NoOptionError):
-            return
-
-        proxy_name = pipe.rsplit(None, 1)[-1]
-        proxy_section = "app:" + proxy_name
+        proxy_conf = load_app_config(conf['__file__'])
         for setting in ('rate_limit_after_segment',
                         'rate_limit_segments_per_sec',
                         'max_get_time'):
-            try:
-                conf[setting] = cp.get(proxy_section, setting)
-            except (NoSectionError, NoOptionError):
-                pass
+            if setting in proxy_conf:
+                conf[setting] = proxy_conf[setting]
 
     def __call__(self, env, start_response):
         """

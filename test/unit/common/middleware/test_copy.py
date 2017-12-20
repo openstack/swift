@@ -1309,6 +1309,9 @@ class TestServerSideCopyConfiguration(unittest.TestCase):
         [pipeline:main]
         pipeline = catch_errors copy ye-olde-proxy-server
 
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
         [filter:copy]
         use = egg:swift#copy
 

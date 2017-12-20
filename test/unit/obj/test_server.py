@@ -39,15 +39,13 @@ from textwrap import dedent
 from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
 from eventlet.green import httplib
 
-from nose import SkipTest
-
 from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test import listen_zero
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
-    make_timestamp_iter, DEFAULT_TEST_EC_TYPE, mock_check_drive
-from test.unit import connect_tcp, readuntil2crlfs, patch_policies, \
-    encode_frag_archive_bodies
+    make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
+    connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
+    mock_check_drive
 from swift.obj import server as object_server
 from swift.obj import updater
 from swift.obj import diskfile
@@ -140,6 +138,7 @@ class TestObjectController(unittest.TestCase):
 
     def setUp(self):
         """Set up for testing swift.object.server.ObjectController"""
+        skip_if_no_xattrs()
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
         self.tmpdir = mkdtemp()
@@ -6407,7 +6406,7 @@ class TestObjectController(unittest.TestCase):
         except NotImplementedError:
             # On some operating systems (at a minimum, OS X) it's not possible
             # to introspect the value of a semaphore
-            raise SkipTest
+            raise unittest.SkipTest
         else:
             self.assertEqual(value, 4)
 
@@ -6942,6 +6941,7 @@ class TestObjectController(unittest.TestCase):
 class TestObjectServer(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         # dirs
         self.tmpdir = mkdtemp()
         self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')
@@ -7632,8 +7632,9 @@ class TestZeroCopy(unittest.TestCase):
         return True
 
     def setUp(self):
+        skip_if_no_xattrs()
         if not self._system_can_zero_copy():
-            raise SkipTest("zero-copy support is missing")
+            raise unittest.SkipTest("zero-copy support is missing")
 
         self.testdir = mkdtemp(suffix="obj_server_zero_copy")
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))

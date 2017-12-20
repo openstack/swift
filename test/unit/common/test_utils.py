@@ -15,7 +15,7 @@
 
 """Tests for swift.common.utils"""
 from __future__ import print_function
-from test.unit import temptree, debug_logger, make_timestamp_iter
+from test.unit import temptree, debug_logger, make_timestamp_iter, with_tempdir
 
 import ctypes
 import contextlib
@@ -38,6 +38,7 @@ import string
 import sys
 import json
 import math
+import inspect
 
 import six
 from six import BytesIO, StringIO
@@ -57,7 +58,6 @@ from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
 from mock import MagicMock, patch
-from nose import SkipTest
 from six.moves.configparser import NoSectionError, NoOptionError
 from uuid import uuid4
 
@@ -934,45 +934,57 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.get_zero_indexed_base_string,
                           'something', 'not_integer')
 
-    def test_lock_path(self):
-        tmpdir = mkdtemp()
-        try:
-            # 2 locks with limit=1 must fail
-            with utils.lock_path(tmpdir, 0.1):
-                exc = None
-                success = False
-                try:
-                    with utils.lock_path(tmpdir, 0.1):
-                        success = True
-                except LockTimeout as err:
-                    exc = err
-                self.assertTrue(exc is not None)
-                self.assertTrue(not success)
+    @with_tempdir
+    def test_lock_path(self, tmpdir):
+        # 2 locks with limit=1 must fail
+        success = False
+        with utils.lock_path(tmpdir, 0.1):
+            with self.assertRaises(LockTimeout):
+                with utils.lock_path(tmpdir, 0.1):
+                    success = True
+        self.assertFalse(success)
 
-            # 2 locks with limit=2 must succeed
-            with utils.lock_path(tmpdir, 0.1, limit=2):
-                success = False
+        # 2 locks with limit=2 must succeed
+        success = False
+        with utils.lock_path(tmpdir, 0.1, limit=2):
+            try:
                 with utils.lock_path(tmpdir, 0.1, limit=2):
                     success = True
-                self.assertTrue(success)
+            except LockTimeout as exc:
+                self.fail('Unexpected exception %s' % exc)
+        self.assertTrue(success)
 
-            # 3 locks with limit=2 must fail
+        # 3 locks with limit=2 must fail
+        success = False
+        with utils.lock_path(tmpdir, 0.1, limit=2):
             with utils.lock_path(tmpdir, 0.1, limit=2):
-                exc = None
-                success = False
-                with utils.lock_path(tmpdir, 0.1, limit=2):
-                    try:
-                        with utils.lock_path(tmpdir, 0.1, limit=2):
-                            success = True
-                    except LockTimeout as err:
-                        exc = err
-                self.assertTrue(exc is not None)
-                self.assertTrue(not success)
-        finally:
-            shutil.rmtree(tmpdir)
+                with self.assertRaises(LockTimeout):
+                    with utils.lock_path(tmpdir, 0.1):
+                        success = True
+        self.assertFalse(success)
 
-    def test_lock_path_num_sleeps(self):
-        tmpdir = mkdtemp()
+    @with_tempdir
+    def test_lock_path_invalid_limit(self, tmpdir):
+        success = False
+        with self.assertRaises(ValueError):
+            with utils.lock_path(tmpdir, 0.1, limit=0):
+                success = True
+        self.assertFalse(success)
+        with self.assertRaises(ValueError):
+            with utils.lock_path(tmpdir, 0.1, limit=-1):
+                success = True
+        self.assertFalse(success)
+        with self.assertRaises(TypeError):
+            with utils.lock_path(tmpdir, 0.1, limit='1'):
+                success = True
+        self.assertFalse(success)
+        with self.assertRaises(TypeError):
+            with utils.lock_path(tmpdir, 0.1, limit=1.1):
+                success = True
+        self.assertFalse(success)
+
+    @with_tempdir
+    def test_lock_path_num_sleeps(self, tmpdir):
         num_short_calls = [0]
         exception_raised = [False]
 
@@ -990,43 +1002,38 @@ class TestUtils(unittest.TestCase):
         except Exception as e:
             exception_raised[0] = True
             self.assertTrue('sleep time changed' in str(e))
-        finally:
-            shutil.rmtree(tmpdir)
         self.assertEqual(num_short_calls[0], 11)
         self.assertTrue(exception_raised[0])
 
-    def test_lock_path_class(self):
-        tmpdir = mkdtemp()
-        try:
-            with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
-                exc = None
-                exc2 = None
-                success = False
-                try:
-                    with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
-                        success = True
-                except ReplicationLockTimeout as err:
-                    exc = err
-                except LockTimeout as err:
-                    exc2 = err
-                self.assertTrue(exc is not None)
-                self.assertTrue(exc2 is None)
-                self.assertTrue(not success)
-                exc = None
-                exc2 = None
-                success = False
-                try:
-                    with utils.lock_path(tmpdir, 0.1):
-                        success = True
-                except ReplicationLockTimeout as err:
-                    exc = err
-                except LockTimeout as err:
-                    exc2 = err
-                self.assertTrue(exc is None)
-                self.assertTrue(exc2 is not None)
-                self.assertTrue(not success)
-        finally:
-            shutil.rmtree(tmpdir)
+    @with_tempdir
+    def test_lock_path_class(self, tmpdir):
+        with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+            exc = None
+            exc2 = None
+            success = False
+            try:
+                with utils.lock_path(tmpdir, 0.1, ReplicationLockTimeout):
+                    success = True
+            except ReplicationLockTimeout as err:
+                exc = err
+            except LockTimeout as err:
+                exc2 = err
+            self.assertTrue(exc is not None)
+            self.assertTrue(exc2 is None)
+            self.assertTrue(not success)
+            exc = None
+            exc2 = None
+            success = False
+            try:
+                with utils.lock_path(tmpdir, 0.1):
+                    success = True
+            except ReplicationLockTimeout as err:
+                exc = err
+            except LockTimeout as err:
+                exc2 = err
+            self.assertTrue(exc is None)
+            self.assertTrue(exc2 is not None)
+            self.assertTrue(not success)
 
     def test_normalize_timestamp(self):
         # Test swift.common.utils.normalize_timestamp
@@ -2018,7 +2025,7 @@ foo = bar
 [section2]
 log_name = yarr'''
         # setup a real file
-        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        fd, temppath = tempfile.mkstemp()
         with os.fdopen(fd, 'wb') as f:
             f.write(conf)
         make_filename = lambda: temppath
@@ -2067,7 +2074,7 @@ foo = bar
 [section2]
 log_name = %(yarr)s'''
         # setup a real file
-        fd, temppath = tempfile.mkstemp(dir='/tmp')
+        fd, temppath = tempfile.mkstemp()
         with os.fdopen(fd, 'wb') as f:
             f.write(conf)
         make_filename = lambda: temppath
@@ -3275,7 +3282,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         tmpdir = mkdtemp()
         try:
             link = os.path.join(tmpdir, "tmp")
-            os.symlink("/tmp", link)
+            os.symlink(tempfile.gettempdir(), link)
             self.assertFalse(utils.ismount(link))
         finally:
             shutil.rmtree(tmpdir)
@@ -3580,7 +3587,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         tempdir = None
         fd = None
         try:
-            tempdir = mkdtemp(dir='/tmp')
+            tempdir = mkdtemp()
             fd, temppath = tempfile.mkstemp(dir=tempdir)
 
             _mock_fsync = mock.Mock()
@@ -3618,7 +3625,7 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_renamer_with_fsync_dir(self):
         tempdir = None
         try:
-            tempdir = mkdtemp(dir='/tmp')
+            tempdir = mkdtemp()
             # Simulate part of object path already existing
             part_dir = os.path.join(tempdir, 'objects/1234/')
             os.makedirs(part_dir)
@@ -3665,7 +3672,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         tempdir = None
         fd = None
         try:
-            tempdir = mkdtemp(dir='/tmp')
+            tempdir = mkdtemp()
             os.makedirs(os.path.join(tempdir, 'a/b'))
             # 4 new dirs created
             dirpath = os.path.join(tempdir, 'a/b/1/2/3/4')
@@ -3697,7 +3704,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         try:
             utils.NR_ioprio_set()
         except OSError as e:
-            raise SkipTest(e)
+            raise unittest.SkipTest(e)
 
         with patch('swift.common.utils._libc_setpriority',
                    _fake_setpriority), \
@@ -3788,7 +3795,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     @requires_o_tmpfile_support
     def test_link_fd_to_path_linkat_success(self):
-        tempdir = mkdtemp(dir='/tmp')
+        tempdir = mkdtemp()
         fd = os.open(tempdir, utils.O_TMPFILE | os.O_WRONLY)
         data = "I'm whatever Gotham needs me to be"
         _m_fsync_dir = mock.Mock()
@@ -3808,7 +3815,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     @requires_o_tmpfile_support
     def test_link_fd_to_path_target_exists(self):
-        tempdir = mkdtemp(dir='/tmp')
+        tempdir = mkdtemp()
         # Create and write to a file
         fd, path = tempfile.mkstemp(dir=tempdir)
         os.write(fd, "hello world")
@@ -3843,7 +3850,7 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     @requires_o_tmpfile_support
     def test_linkat_race_dir_not_exists(self):
-        tempdir = mkdtemp(dir='/tmp')
+        tempdir = mkdtemp()
         target_dir = os.path.join(tempdir, uuid4().hex)
         target_path = os.path.join(target_dir, uuid4().hex)
         os.mkdir(target_dir)
@@ -3885,6 +3892,54 @@ cluster_dfw1 = http://dfw1.host/v1/
             except AssertionError:
                 failures.append('%r => %r (expected %r)' % (
                     value, result, expected))
+        if failures:
+            self.fail('Invalid results from pure function:\n%s' %
+                      '\n'.join(failures))
+
+    def test_strict_b64decode(self):
+        expectations = {
+            None: ValueError,
+            0: ValueError,
+            b'': b'',
+            u'': b'',
+            b'A': ValueError,
+            b'AA': ValueError,
+            b'AAA': ValueError,
+            b'AAAA': b'\x00\x00\x00',
+            u'AAAA': b'\x00\x00\x00',
+            b'////': b'\xff\xff\xff',
+            u'////': b'\xff\xff\xff',
+            b'A===': ValueError,
+            b'AA==': b'\x00',
+            b'AAA=': b'\x00\x00',
+            b' AAAA': ValueError,
+            b'AAAA ': ValueError,
+            b'AAAA============': b'\x00\x00\x00',
+            b'AA&AA==': ValueError,
+            b'====': b'',
+        }
+
+        failures = []
+        for value, expected in expectations.items():
+            try:
+                result = utils.strict_b64decode(value)
+            except Exception as e:
+                if inspect.isclass(expected) and issubclass(
+                        expected, Exception):
+                    if not isinstance(e, expected):
+                        failures.append('%r raised %r (expected to raise %r)' %
+                                        (value, e, expected))
+                else:
+                    failures.append('%r raised %r (expected to return %r)' %
+                                    (value, e, expected))
+            else:
+                if inspect.isclass(expected) and issubclass(
+                        expected, Exception):
+                    failures.append('%r => %r (expected to raise %r)' %
+                                    (value, result, expected))
+                elif result != expected:
+                    failures.append('%r => %r (expected %r)' % (
+                        value, result, expected))
         if failures:
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))

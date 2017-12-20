@@ -1701,11 +1701,6 @@ etc/proxy-server.conf-sample in the source code repository.
 
 The following configuration sections are available:
 
-An example Account Server configuration can be found at
-etc/account-server.conf-sample in the source code repository.
-
-The following configuration sections are available:
-
 * :ref:`[DEFAULT] <proxy_server_default_options>`
 * `[proxy-server]`_
 * Individual sections for `Proxy middlewares`_

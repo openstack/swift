@@ -86,7 +86,7 @@ class KeystoneAuth(object):
 
     It is possible to have several accounts associated with the same project.
     This is done by listing several prefixes as shown in the following
-    example:
+    example::
 
         reseller_prefix = AUTH, SERVICE
 
@@ -95,7 +95,7 @@ class KeystoneAuth(object):
     using roles that a user has with that project. The core use of this feature
     is that it is possible to provide different rules for each account
     prefix. The following parameters may be prefixed with the appropriate
-    prefix:
+    prefix::
 
         operator_roles
         service_roles

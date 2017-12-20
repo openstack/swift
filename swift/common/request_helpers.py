@@ -34,7 +34,8 @@ from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import HTTPBadRequest, \
-    HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator
+    HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator, \
+    HTTPPreconditionFailed
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, maybe_multipart_byteranges_to_document_iters, \
     multipart_byteranges_to_document_iters, parse_content_type, \
@@ -279,6 +280,31 @@ def copy_header_subset(from_r, to_r, condition):
     for k, v in from_r.headers.items():
         if condition(k):
             to_r.headers[k] = v
+
+
+def check_path_header(req, name, length, error_msg):
+    """
+    Validate that the value of path-like header is
+    well formatted. We assume the caller ensures that
+    specific header is present in req.headers.
+
+    :param req: HTTP request object
+    :param name: header name
+    :param length: length of path segment check
+    :param error_msg: error message for client
+    :returns: A tuple with path parts according to length
+    :raise: HTTPPreconditionFailed if header value
+            is not well formatted.
+    """
+    hdr = unquote(req.headers.get(name))
+    if not hdr.startswith('/'):
+        hdr = '/' + hdr
+    try:
+        return split_path(hdr, length, length, True)
+    except ValueError:
+        raise HTTPPreconditionFailed(
+            request=req,
+            body=error_msg)
 
 
 class SegmentedIterable(object):
@@ -645,7 +671,7 @@ def resolve_etag_is_at_header(req, metadata):
     middleware's alternate etag sysmeta (X-Object-Sysmeta-Crypto-Etag) but will
     then find the EC alternate etag (if EC policy). But if the object *is*
     encrypted then X-Object-Sysmeta-Crypto-Etag is found and used, which is
-    correct because it should be preferred over X-Object-Sysmeta-Crypto-Etag.
+    correct because it should be preferred over X-Object-Sysmeta-Ec-Etag.
 
     :param req: a swob Request
     :param metadata: a dict containing object metadata

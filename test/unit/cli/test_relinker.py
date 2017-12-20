@@ -26,11 +26,12 @@ from swift.common.storage_policy import (
 
 from swift.obj.diskfile import write_metadata
 
-from test.unit import FakeLogger
+from test.unit import FakeLogger, skip_if_no_xattrs
 
 
 class TestRelinker(unittest.TestCase):
     def setUp(self):
+        skip_if_no_xattrs()
         self.logger = FakeLogger()
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')

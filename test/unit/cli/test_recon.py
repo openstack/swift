@@ -1093,6 +1093,37 @@ class TestReconCommands(unittest.TestCase):
         mock_print.assert_has_calls(default_calls, any_order=True)
 
     @mock.patch('six.moves.builtins.print')
+    def test_version_check(self, mock_print):
+        version = "2.7.1.dev144"
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6010/recon/version',
+                 {'version': version},
+                 200,
+                 0,
+                 0),
+                ('http://127.0.0.1:6020/recon/version',
+                 {'version': version},
+                 200,
+                 0,
+                 0),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call("Versions matched (%s), "
+                      "0 error[s] while checking hosts." % version)
+        ]
+
+        cli.version_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_time_check_jitter_mismatch(self, mock_now, mock_print):
         now = 1430000000.0
@@ -1126,7 +1157,35 @@ class TestReconCommands(unittest.TestCase):
         ]
 
         cli.time_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)], 3)
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)
 
+    @mock.patch('six.moves.builtins.print')
+    def test_version_check_differs(self, mock_print):
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6010/recon/version',
+                 {'version': "2.7.1.dev144"},
+                 200,
+                 0,
+                 0),
+                ('http://127.0.0.1:6020/recon/version',
+                 {'version': "2.7.1.dev145"},
+                 200,
+                 0,
+                 0),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call("Versions not matched (2.7.1.dev144, 2.7.1.dev145), "
+                      "0 error[s] while checking hosts.")
+        ]
+
+        cli.version_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
         # We need any_order=True because the order of calls depends on the dict
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)

@@ -14,19 +14,19 @@
 # limitations under the License.
 import json
 
-from test import unit
 import unittest
 import mock
 import os
 import time
 import string
+import xattr
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       DEFAULT_TEST_EC_TYPE)
+                       DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs)
 from swift.obj import auditor, replicator
 from swift.obj.diskfile import (
     DiskFile, write_metadata, invalidate_hash, get_data_dir,
@@ -63,6 +63,7 @@ def works_only_once(callable_thing, exception):
 class TestAuditor(unittest.TestCase):
 
     def setUp(self):
+        skip_if_no_xattrs()
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         self.rcache = os.path.join(self.testdir, 'object.recon')
@@ -118,7 +119,6 @@ class TestAuditor(unittest.TestCase):
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
-        unit.xattr_data = {}
 
     def test_worker_conf_parms(self):
         def check_common_defaults():
@@ -188,6 +188,74 @@ class TestAuditor(unittest.TestCase):
         run_tests(self.disk_file)
         run_tests(self.disk_file_p1)
         run_tests(self.disk_file_ec)
+
+    def test_object_audit_adds_metadata_checksums(self):
+        disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o-md',
+                                             policy=POLICIES.legacy)
+
+        # simulate a PUT
+        now = time.time()
+        data = b'boots and cats and ' * 1024
+        hasher = md5()
+        with disk_file.create() as writer:
+            writer.write(data)
+            hasher.update(data)
+            etag = hasher.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': str(normalize_timestamp(now)),
+                'Content-Length': len(data),
+                'Content-Type': 'the old type',
+            }
+            writer.put(metadata)
+            writer.commit(Timestamp(now))
+
+        # simulate a subsequent POST
+        post_metadata = metadata.copy()
+        post_metadata['Content-Type'] = 'the new type'
+        post_metadata['X-Object-Meta-Biff'] = 'buff'
+        post_metadata['X-Timestamp'] = str(normalize_timestamp(now + 1))
+        disk_file.write_metadata(post_metadata)
+
+        file_paths = [os.path.join(disk_file._datadir, fname)
+                      for fname in os.listdir(disk_file._datadir)
+                      if fname not in ('.', '..')]
+        file_paths.sort()
+
+        # sanity check: make sure we have a .data and a .meta file
+        self.assertEqual(len(file_paths), 2)
+        self.assertTrue(file_paths[0].endswith(".data"))
+        self.assertTrue(file_paths[1].endswith(".meta"))
+
+        # Go remove the xattr "user.swift.metadata_checksum" as if this
+        # object were written before Swift supported metadata checksums.
+        for file_path in file_paths:
+            xattr.removexattr(file_path, "user.swift.metadata_checksum")
+
+        # Run the auditor...
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+        auditor_worker.object_audit(
+            AuditLocation(disk_file._datadir, 'sda', '0',
+                          policy=disk_file.policy))
+        self.assertEqual(auditor_worker.quarantines, 0)  # sanity
+
+        # ...and the checksums are back
+        for file_path in file_paths:
+            metadata = xattr.getxattr(file_path, "user.swift.metadata")
+            i = 1
+            while True:
+                try:
+                    metadata += xattr.getxattr(
+                        file_path, "user.swift.metadata%d" % i)
+                    i += 1
+                except (IOError, OSError):
+                    break
+
+            checksum = xattr.getxattr(
+                file_path, "user.swift.metadata_checksum")
+
+            self.assertEqual(checksum, md5(metadata).hexdigest())
 
     def test_object_audit_diff_data(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,

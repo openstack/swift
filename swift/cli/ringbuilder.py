@@ -1085,14 +1085,16 @@ swift-ring-builder <builder_file> write_ring
     'set_info' calls when no rebalance is needed but you want to send out the
     new device information.
         """
+        if not builder.devs:
+            print('Unable to write empty ring.')
+            exit(EXIT_ERROR)
+
         ring_data = builder.get_ring()
         if not ring_data._replica2part2dev_id:
             if ring_data.devs:
                 print('Warning: Writing a ring with no partition '
                       'assignments but with devices; did you forget to run '
                       '"rebalance"?')
-            else:
-                print('Warning: Writing an empty ring')
         ring_data.save(
             pathjoin(backup_dir, '%d.' % time() + basename(ring_file)))
         ring_data.save(ring_file)

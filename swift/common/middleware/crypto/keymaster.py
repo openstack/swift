@@ -12,17 +12,13 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import base64
 import hashlib
 import hmac
 import os
-import string
-
-import six
 
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import readconf
+from swift.common.utils import readconf, strict_b64decode
 from swift.common.wsgi import WSGIContext
 
 
@@ -141,17 +137,12 @@ class KeyMaster(object):
             conf = readconf(self.keymaster_config_path, 'keymaster')
         b64_root_secret = conf.get('encryption_root_secret')
         try:
-            # b64decode will silently discard bad characters, but we should
-            # treat them as an error
-            if not isinstance(b64_root_secret, six.string_types) or any(
-                    c not in string.digits + string.ascii_letters + '/+\r\n'
-                    for c in b64_root_secret.strip('\r\n=')):
-                raise ValueError
-            binary_root_secret = base64.b64decode(b64_root_secret)
+            binary_root_secret = strict_b64decode(b64_root_secret,
+                                                  allow_line_breaks=True)
             if len(binary_root_secret) < 32:
                 raise ValueError
             return binary_root_secret
-        except (TypeError, ValueError):
+        except ValueError:
             raise ValueError(
                 'encryption_root_secret option in %s must be a base64 '
                 'encoding of at least 32 raw bytes' % (

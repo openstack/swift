@@ -244,6 +244,15 @@ StaticWeb
     :members:
     :show-inheritance:
 
+.. _symlink:
+
+Symlink
+=======
+
+.. automodule:: swift.common.middleware.symlink
+    :members:
+    :show-inheritance:
+
 .. _common_tempauth:
 
 TempAuth
