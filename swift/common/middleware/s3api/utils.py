@@ -22,15 +22,11 @@ import time
 from urllib import unquote
 import uuid
 
-from swift.common.utils import get_logger
-
 # Need for check_path_header
 from swift.common import utils
 from swift.common.swob import HTTPPreconditionFailed
 
 from swift.common.middleware.s3api.cfg import CONF
-
-LOGGER = get_logger(CONF, log_route='swift3')
 
 MULTIUPLOAD_SUFFIX = '+segments'
 

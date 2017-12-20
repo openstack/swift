@@ -60,7 +60,7 @@ from swift.common.middleware.s3api.response import InvalidArgument, \
     InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
     NoSuchBucket
 from swift.common.middleware.s3api.exception import BadSwiftRequest
-from swift.common.middleware.s3api.utils import LOGGER, unique_id, \
+from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
@@ -335,7 +335,6 @@ class UploadsController(Controller):
         upload_id = unique_id()
 
         container = req.container_name + MULTIUPLOAD_SUFFIX
-
         content_type = req.headers.get('Content-Type')
         if content_type:
             req.headers[sysmeta_header('object', 'has-content-type')] = 'yes'
@@ -562,7 +561,8 @@ class UploadController(Controller):
             if not xml:
                 raise InvalidRequest(msg='You must specify at least one part')
 
-            complete_elem = fromstring(xml, 'CompleteMultipartUpload')
+            complete_elem = fromstring(
+                xml, 'CompleteMultipartUpload', self.logger)
             for part_elem in complete_elem.iterchildren('Part'):
                 part_number = int(part_elem.find('./PartNumber').text)
 
@@ -589,7 +589,7 @@ class UploadController(Controller):
             raise
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            LOGGER.error(e)
+            self.logger.error(e)
             raise exc_type, exc_value, exc_traceback
 
         # Following swift commit 7f636a5, zero-byte segments aren't allowed,

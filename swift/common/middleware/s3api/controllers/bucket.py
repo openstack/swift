@@ -28,7 +28,7 @@ from swift.common.middleware.s3api.response import HTTPOk, S3NotImplemented, \
     MalformedXML, InvalidLocationConstraint, NoSuchBucket, \
     BucketNotEmpty, InternalError, ServiceUnavailable, NoSuchKey
 from swift.common.middleware.s3api.cfg import CONF
-from swift.common.middleware.s3api.utils import LOGGER, MULTIUPLOAD_SUFFIX
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX
 
 MAX_PUT_BUCKET_BODY_SIZE = 10240
 
@@ -212,13 +212,14 @@ class BucketController(Controller):
         if xml:
             # check location
             try:
-                elem = fromstring(xml, 'CreateBucketConfiguration')
+                elem = fromstring(
+                    xml, 'CreateBucketConfiguration', self.logger)
                 location = elem.find('./LocationConstraint').text
             except (XMLSyntaxError, DocumentInvalid):
                 raise MalformedXML()
             except Exception as e:
                 exc_type, exc_value, exc_traceback = sys.exc_info()
-                LOGGER.error(e)
+                self.logger.error(e)
                 raise exc_type, exc_value, exc_traceback
 
             if location != CONF.location:

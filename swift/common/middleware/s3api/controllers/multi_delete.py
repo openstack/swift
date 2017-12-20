@@ -25,7 +25,6 @@ from swift.common.middleware.s3api.response import HTTPOk, S3NotImplemented, \
     NoSuchKey, ErrorResponse, MalformedXML, UserKeyMustBeSpecified, \
     AccessDenied, MissingRequestBodyError
 from swift.common.middleware.s3api.cfg import CONF
-from swift.common.middleware.s3api.utils import LOGGER
 
 MAX_MULTI_DELETE_BODY_SIZE = 61365
 
@@ -71,7 +70,7 @@ class MultiObjectDeleteController(Controller):
                 raise MissingRequestBodyError()
 
             req.check_md5(xml)
-            elem = fromstring(xml, 'Delete')
+            elem = fromstring(xml, 'Delete', self.logger)
 
             quiet = elem.find('./Quiet')
             if quiet is not None and quiet.text.lower() == 'true':
@@ -88,7 +87,7 @@ class MultiObjectDeleteController(Controller):
             raise
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            LOGGER.error(e)
+            self.logger.error(e)
             raise exc_type, exc_value, exc_traceback
 
         elem = Element('DeleteResult')

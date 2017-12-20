@@ -20,9 +20,9 @@ from swift.common.middleware.s3api.response import MissingSecurityHeader, \
     MalformedACLError, UnexpectedContent
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
-from swift.common.middleware.s3api.utils import LOGGER, MULTIUPLOAD_SUFFIX, \
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
     sysmeta_header
-
+from contextlib import contextmanager
 
 """
 Acl Handlers:
@@ -53,34 +53,6 @@ the end of method.
 """
 
 
-def get_acl(headers, body, bucket_owner, object_owner=None):
-    """
-    Get ACL instance from S3 (e.g. x-amz-grant) headers or S3 acl xml body.
-    """
-    acl = ACL.from_headers(headers, bucket_owner, object_owner,
-                           as_private=False)
-
-    if acl is None:
-        # Get acl from request body if possible.
-        if not body:
-            raise MissingSecurityHeader(missing_header_name='x-amz-acl')
-        try:
-            elem = fromstring(body, ACL.root_tag)
-            acl = ACL.from_elem(elem)
-        except(XMLSyntaxError, DocumentInvalid):
-            raise MalformedACLError()
-        except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            LOGGER.error(e)
-            raise exc_type, exc_value, exc_traceback
-    else:
-        if body:
-            # Specifying grant with both header and xml is not allowed.
-            raise UnexpectedContent()
-
-    return acl
-
-
 def get_acl_handler(controller_name):
     for base_klass in [BaseAclHandler, MultiUploadAclHandler]:
         # pylint: disable-msg=E1101
@@ -96,21 +68,40 @@ class BaseAclHandler(object):
     """
     BaseAclHandler: Handling ACL for basic requests mapped on ACL_MAP
     """
-    def __init__(self, req, container, obj, headers):
+    def __init__(self, req, logger):
         self.req = req
-        self.container = self.req.container_name if container is None \
-            else container
-        self.obj = self.req.object_name if obj is None else obj
+        self.container = self.req.container_name
+        self.obj = self.req.object_name
         self.method = req.environ['REQUEST_METHOD']
         self.user_id = self.req.user_id
-        self.headers = self.req.headers if headers is None else headers
+        self.headers = self.req.headers
+        self.logger = logger
 
-    def handle_acl(self, app, method):
+    @contextmanager
+    def request_with(self, container=None, obj=None, headers=None):
+        try:
+            org_cont = self.container
+            org_obj = self.obj
+            org_headers = self.headers
+
+            self.container = container or org_cont
+            self.obj = obj or org_obj
+            self.headers = headers or org_headers
+            yield
+
+        finally:
+            self.container = org_cont
+            self.obj = org_obj
+            self.headers = org_headers
+
+    def handle_acl(self, app, method, container=None, obj=None, headers=None):
         method = method or self.method
-        if hasattr(self, method):
-            return getattr(self, method)(app)
-        else:
-            return self._handle_acl(app, method)
+
+        with self.request_with(container, obj, headers):
+            if hasattr(self, method):
+                return getattr(self, method)(app)
+            else:
+                return self._handle_acl(app, method)
 
     def _handle_acl(self, app, sw_method, container=None, obj=None,
                     permission=None, headers=None):
@@ -136,6 +127,8 @@ class BaseAclHandler(object):
             permission = acl_check['Permission']
 
         if not permission:
+            self.logger.debug(
+                '%s %s %s %s' % (container, obj, sw_method, headers))
             raise Exception('No permission to be checked exists')
 
         if resource == 'object':
@@ -152,6 +145,33 @@ class BaseAclHandler(object):
 
         if sw_method == 'HEAD':
             return resp
+
+    def get_acl(self, headers, body, bucket_owner, object_owner=None):
+        """
+        Get ACL instance from S3 (e.g. x-amz-grant) headers or S3 acl xml body.
+        """
+        acl = ACL.from_headers(headers, bucket_owner, object_owner,
+                               as_private=False)
+
+        if acl is None:
+            # Get acl from request body if possible.
+            if not body:
+                raise MissingSecurityHeader(missing_header_name='x-amz-acl')
+            try:
+                elem = fromstring(body, ACL.root_tag)
+                acl = ACL.from_elem(elem)
+            except(XMLSyntaxError, DocumentInvalid):
+                raise MalformedACLError()
+            except Exception as e:
+                exc_type, exc_value, exc_traceback = sys.exc_info()
+                self.logger.error(e)
+                raise exc_type, exc_value, exc_traceback
+        else:
+            if body:
+                # Specifying grant with both header and xml is not allowed.
+                raise UnexpectedContent()
+
+        return acl
 
 
 class BucketAclHandler(BaseAclHandler):
@@ -225,18 +245,19 @@ class S3AclHandler(BaseAclHandler):
         if self.req.is_object_request:
             b_resp = self.req.get_acl_response(app, 'HEAD', obj='')
             o_resp = self._handle_acl(app, 'HEAD', permission='WRITE_ACP')
-            req_acl = get_acl(self.req.headers,
-                              self.req.xml(ACL.max_xml_length),
-                              b_resp.bucket_acl.owner,
-                              o_resp.object_acl.owner)
+            req_acl = self.get_acl(self.req.headers,
+                                   self.req.xml(ACL.max_xml_length),
+                                   b_resp.bucket_acl.owner,
+                                   o_resp.object_acl.owner)
 
             # Don't change the owner of the resource by PUT acl request.
             o_resp.object_acl.check_owner(req_acl.owner.id)
 
             for g in req_acl.grants:
-                LOGGER.debug('Grant %s %s permission on the object /%s/%s' %
-                             (g.grantee, g.permission, self.req.container_name,
-                              self.req.object_name))
+                self.logger.debug(
+                    'Grant %s %s permission on the object /%s/%s' %
+                    (g.grantee, g.permission, self.req.container_name,
+                     self.req.object_name))
             self.req.object_acl = req_acl
         else:
             self._handle_acl(app, self.method)
@@ -245,17 +266,17 @@ class S3AclHandler(BaseAclHandler):
         if self.req.is_bucket_request:
             resp = self._handle_acl(app, 'HEAD', permission='WRITE_ACP')
 
-            req_acl = get_acl(self.req.headers,
-                              self.req.xml(ACL.max_xml_length),
-                              resp.bucket_acl.owner)
+            req_acl = self.get_acl(self.req.headers,
+                                   self.req.xml(ACL.max_xml_length),
+                                   resp.bucket_acl.owner)
 
             # Don't change the owner of the resource by PUT acl request.
             resp.bucket_acl.check_owner(req_acl.owner.id)
 
             for g in req_acl.grants:
-                LOGGER.debug('Grant %s %s permission on the bucket /%s' %
-                             (g.grantee, g.permission,
-                              self.req.container_name))
+                self.logger.debug(
+                    'Grant %s %s permission on the bucket /%s' %
+                    (g.grantee, g.permission, self.req.container_name))
             self.req.bucket_acl = req_acl
         else:
             self._handle_acl(app, self.method)
@@ -297,18 +318,18 @@ class MultiUploadAclHandler(BaseAclHandler):
      -------------------------------------------------
 
     """
-    def __init__(self, req, container, obj, headers):
-        super(MultiUploadAclHandler, self).__init__(req, container, obj,
-                                                    headers)
-        self.container = self.container[:-len(MULTIUPLOAD_SUFFIX)]
+    def __init__(self, req, logger):
+        super(MultiUploadAclHandler, self).__init__(req, logger)
+        self.acl_checked = False
 
-    def handle_acl(self, app, method):
+    def handle_acl(self, app, method, container=None, obj=None, headers=None):
         method = method or self.method
-        # MultiUpload stuffs don't need acl check basically.
-        if hasattr(self, method):
-            return getattr(self, method)(app)
-        else:
-            pass
+        with self.request_with(container, obj, headers):
+            # MultiUpload stuffs don't need acl check basically.
+            if hasattr(self, method):
+                return getattr(self, method)(app)
+            else:
+                pass
 
     def HEAD(self, app):
         # For _check_upload_info
@@ -319,23 +340,18 @@ class PartAclHandler(MultiUploadAclHandler):
     """
     PartAclHandler: Handler for PartController
     """
-    def __init__(self, req, container, obj, headers):
+    def __init__(self, req, logger):
         # pylint: disable-msg=E1003
-        super(MultiUploadAclHandler, self).__init__(req, container, obj,
-                                                    headers)
-        self.check_copy_src = False
-        if self.container.endswith(MULTIUPLOAD_SUFFIX):
-            self.container = self.container[:-len(MULTIUPLOAD_SUFFIX)]
-        else:
-            self.check_copy_src = True
+        super(MultiUploadAclHandler, self).__init__(req, logger)
 
     def HEAD(self, app):
-        if self.check_copy_src:
+        if self.container.endswith(MULTIUPLOAD_SUFFIX):
+            # For _check_upload_info
+            container = self.container[:-len(MULTIUPLOAD_SUFFIX)]
+            self._handle_acl(app, 'HEAD', container, '')
+        else:
             # For check_copy_source
             return self._handle_acl(app, 'HEAD', self.container, self.obj)
-        else:
-            # For _check_upload_info
-            self._handle_acl(app, 'HEAD', self.container, '')
 
 
 class UploadsAclHandler(MultiUploadAclHandler):
@@ -347,17 +363,16 @@ class UploadsAclHandler(MultiUploadAclHandler):
         self._handle_acl(app, 'GET', self.container, '')
 
     def PUT(self, app):
-        if not self.obj:
-            # Initiate Multipart Uploads (put +segment container)
-            resp = self._handle_acl(app, 'HEAD')
+        if not self.acl_checked:
+            # Initiate Multipart Uploads
+            resp = self._handle_acl(app, 'HEAD', obj='')
             req_acl = ACL.from_headers(self.req.headers,
                                        resp.bucket_acl.owner,
                                        Owner(self.user_id, self.user_id))
             acl_headers = encode_acl('object', req_acl)
             self.req.headers[sysmeta_header('object', 'tmpacl')] = \
                 acl_headers[sysmeta_header('object', 'acl')]
-
-        # No check needed at Initiate Multipart Uploads (put upload id object)
+            self.acl_checked = True
 
 
 class UploadAclHandler(MultiUploadAclHandler):

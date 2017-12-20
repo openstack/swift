@@ -31,4 +31,6 @@ class ACLError(S3Exception):
 
 
 class InvalidSubresource(S3Exception):
-    pass
+    def __init__(self, resource, cause):
+        self.resourece = resource
+        self.cause = cause

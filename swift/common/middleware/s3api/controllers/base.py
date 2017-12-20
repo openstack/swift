@@ -17,7 +17,7 @@ import functools
 
 from swift.common.middleware.s3api.response import S3NotImplemented, \
     InvalidRequest
-from swift.common.middleware.s3api.utils import LOGGER, camel_to_snake
+from swift.common.middleware.s3api.utils import camel_to_snake
 
 
 def bucket_operation(func=None, err_resp=None, err_msg=None):
@@ -34,7 +34,7 @@ def bucket_operation(func=None, err_resp=None, err_msg=None):
                 if err_resp:
                     raise err_resp(msg=err_msg)
 
-                LOGGER.debug('A key is specified for bucket API.')
+                self.logger.debug('A key is specified for bucket API.')
                 req.object_name = None
 
             return func(self, req)
@@ -78,8 +78,10 @@ class Controller(object):
     """
     Base WSGI controller class for the middleware
     """
-    def __init__(self, app, **kwargs):
+    def __init__(self, app, conf, logger, **kwargs):
         self.app = app
+        self.conf = conf
+        self.logger = logger
 
     @classmethod
     def resource_type(cls):
@@ -94,5 +96,5 @@ class UnsupportedController(Controller):
     """
     Handles unsupported requests.
     """
-    def __init__(self, app, **kwargs):
+    def __init__(self, app, conf, logger, **kwargs):
         raise S3NotImplemented('The requested resource is not implemented')

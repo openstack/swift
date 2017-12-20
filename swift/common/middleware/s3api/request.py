@@ -52,14 +52,13 @@ from swift.common.middleware.s3api.response import AccessDenied, \
     BadDigest, AuthorizationHeaderMalformed, AuthorizationQueryParametersError
 from swift.common.middleware.s3api.exception import NotS3Request, \
     BadSwiftRequest
-from swift.common.middleware.s3api.utils import utf8encode, LOGGER, \
+from swift.common.middleware.s3api.utils import utf8encode, \
     check_path_header, S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.cfg import CONF
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     validate_bucket_name
 from swift.common.middleware.s3api.acl_utils import handle_acl_header
-from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 
 
 # List of sub-resources that must be maintained as part of the HMAC
@@ -869,7 +868,6 @@ class Request(swob.Request):
         if not self.slo_enabled:
             multi_part = ['partNumber', 'uploadId', 'uploads']
             if len([p for p in multi_part if p in self.params]):
-                LOGGER.warning('multipart: No SLO middleware in pipeline')
                 raise S3NotImplemented("Multi-part feature isn't support")
 
         if 'acl' in self.params:
@@ -1268,12 +1266,17 @@ class Request(swob.Request):
             return headers_to_container_info(
                 resp.sw_headers, resp.status_int)  # pylint: disable-msg=E1101
 
-    def gen_multipart_manifest_delete_query(self, app):
+    def gen_multipart_manifest_delete_query(self, app, obj=None):
         if not CONF.allow_multipart_uploads:
             return None
         query = {'multipart-manifest': 'delete'}
-        resp = self.get_response(app, 'HEAD')
+        if not obj:
+            obj = self.object_name
+        resp = self.get_response(app, 'HEAD', obj=obj)
         return query if resp.is_slo else None
+
+    def set_acl_handler(self, handler):
+        pass
 
 
 class S3AclRequest(Request):
@@ -1283,6 +1286,7 @@ class S3AclRequest(Request):
     def __init__(self, env, app, slo_enabled=True):
         super(S3AclRequest, self).__init__(env, slo_enabled)
         self.authenticate(app)
+        self.acl_handler = None
 
     @property
     def controller(self):
@@ -1344,9 +1348,9 @@ class S3AclRequest(Request):
 
         resp = self._get_response(
             app, method, container, obj, headers, body, query)
-
         resp.bucket_acl = decode_acl('container', resp.sysmeta_headers)
         resp.object_acl = decode_acl('object', resp.sysmeta_headers)
+
         return resp
 
     def get_response(self, app, method=None, container=None, obj=None,
@@ -1354,9 +1358,11 @@ class S3AclRequest(Request):
         """
         Wrap up get_response call to hook with acl handling method.
         """
-        acl_handler = get_acl_handler(self.controller_name)(
-            self, container, obj, headers)
-        resp = acl_handler.handle_acl(app, method)
+        if not self.acl_handler:
+            # we should set acl_handler all time before calling get_response
+            raise Exception('get_response called before set_acl_handler')
+        resp = self.acl_handler.handle_acl(
+            app, method, container, obj, headers)
 
         # possible to skip recalling get_response_acl if resp is not
         # None (e.g. HEAD)
@@ -1364,6 +1370,9 @@ class S3AclRequest(Request):
             return resp
         return self.get_acl_response(app, method, container, obj,
                                      headers, body, query)
+
+    def set_acl_handler(self, acl_handler):
+        self.acl_handler = acl_handler
 
 
 class SigV4Request(SigV4Mixin, Request):

@@ -41,19 +41,23 @@ from paste.deploy import loadwsgi
 
 from swift.common.wsgi import PipelineWrapper, loadcontext
 
-from swift.common.middleware.s3api.exception import NotS3Request
+from swift.common.middleware.s3api.exception import NotS3Request, \
+    InvalidSubresource
 from swift.common.middleware.s3api.request import get_request_class
 from swift.common.middleware.s3api.response import ErrorResponse, \
-    InternalError, MethodNotAllowed, ResponseBase
+    InternalError, MethodNotAllowed, ResponseBase, S3NotImplemented
 from swift.common.middleware.s3api.cfg import CONF
-from swift.common.middleware.s3api.utils import LOGGER
 from swift.common.utils import get_logger, register_swift_info
+from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 
 
 class S3ApiMiddleware(object):
     """S3Api: S3 compatibility middleware"""
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
+        self.conf = conf
+        self.logger = get_logger(
+            conf, log_route=conf.get('log_name', 's3api'))
         self.slo_enabled = conf['allow_multipart_uploads']
         self.check_pipeline(conf)
 
@@ -64,12 +68,14 @@ class S3ApiMiddleware(object):
             resp = self.handle_request(req)
         except NotS3Request:
             resp = self.app
+        except InvalidSubresource as e:
+            self.logger.debug(e.cause)
         except ErrorResponse as err_resp:
             if isinstance(err_resp, InternalError):
-                LOGGER.exception(err_resp)
+                self.logger.exception(err_resp)
             resp = err_resp
         except Exception as e:
-            LOGGER.exception(e)
+            self.logger.exception(e)
             resp = InternalError(reason=e)
 
         if isinstance(resp, ResponseBase) and 'swift.trans_id' in env:
@@ -79,10 +85,18 @@ class S3ApiMiddleware(object):
         return resp(env, start_response)
 
     def handle_request(self, req):
-        LOGGER.debug('Calling S3Api Middleware')
-        LOGGER.debug(req.__dict__)
+        self.logger.debug('Calling S3Api Middleware')
+        self.logger.debug(req.__dict__)
+        try:
+            controller = req.controller(self.app, self.conf, self.logger)
+        except S3NotImplemented:
+            # TODO: Probably we should distinct the error to log this warning
+            self.logger.warning('multipart: No SLO middleware in pipeline')
+            raise
 
-        controller = req.controller(self.app)
+        acl_handler = get_acl_handler(req.controller_name)(req, self.logger)
+        req.set_acl_handler(acl_handler)
+
         if hasattr(controller, req.method):
             handler = getattr(controller, req.method)
             if not getattr(handler, 'publicly_accessible', False):
@@ -106,7 +120,7 @@ class S3ApiMiddleware(object):
         pipeline = str(PipelineWrapper(ctx)).split(' ')
 
         # Add compatible with 3rd party middleware.
-        check_filter_order(pipeline, ['s3api', 'proxy-server'])
+        self.check_filter_order(pipeline, ['s3api', 'proxy-server'])
 
         auth_pipeline = pipeline[pipeline.index('s3api') + 1:
                                  pipeline.index('proxy-server')]
@@ -114,58 +128,53 @@ class S3ApiMiddleware(object):
         # Check SLO middleware
         if self.slo_enabled and 'slo' not in auth_pipeline:
             self.slo_enabled = False
-            LOGGER.warning('s3api middleware requires SLO middleware '
-                           'to support multi-part upload, please add it '
-                           'in pipeline')
+            self.logger.warning('s3api middleware requires SLO middleware '
+                                'to support multi-part upload, please add it '
+                                'in pipeline')
 
         if not conf.auth_pipeline_check:
-            LOGGER.debug('Skip pipeline auth check.')
+            self.logger.debug('Skip pipeline auth check.')
             return
 
         if 'tempauth' in auth_pipeline:
-            LOGGER.debug('Use tempauth middleware.')
+            self.logger.debug('Use tempauth middleware.')
         elif 'keystoneauth' in auth_pipeline:
-            check_filter_order(auth_pipeline,
-                               ['s3token',
-                                'keystoneauth'])
-            LOGGER.debug('Use keystone middleware.')
+            self.check_filter_order(
+                auth_pipeline,
+                ['s3token', 'keystoneauth'])
+            self.logger.debug('Use keystone middleware.')
         elif len(auth_pipeline):
-            LOGGER.debug('Use third party(unknown) auth middleware.')
+            self.logger.debug('Use third party(unknown) auth middleware.')
         else:
             raise ValueError('Invalid pipeline %r: expected auth between '
                              's3api and proxy-server ' % pipeline)
 
+    def check_filter_order(self, pipeline, required_filters):
+        """
+        Check that required filters are present in order in the pipeline.
+        """
+        indexes = []
+        missing_filters = []
+        for required_filter in required_filters:
+            try:
+                indexes.append(pipeline.index(required_filter))
+            except ValueError as e:
+                self.logger.debug(e)
+                missing_filters.append(required_filter)
 
-def check_filter_order(pipeline, required_filters):
-    """
-    Check that required filters are present in order in the pipeline.
-    """
-    indexes = []
-    missing_filters = []
-    for filter in required_filters:
-        try:
-            indexes.append(pipeline.index(filter))
-        except ValueError as e:
-            LOGGER.debug(e)
-            missing_filters.append(filter)
+        if missing_filters:
+            raise ValueError('Invalid pipeline %r: missing filters %r' % (
+                pipeline, missing_filters))
 
-    if missing_filters:
-        raise ValueError('Invalid pipeline %r: missing filters %r' % (
-            pipeline, missing_filters))
-
-    if indexes != sorted(indexes):
-        raise ValueError('Invalid pipeline %r: expected filter %s' % (
-            pipeline, ' before '.join(required_filters)))
+        if indexes != sorted(indexes):
+            raise ValueError('Invalid pipeline %r: expected filter %s' % (
+                pipeline, ' before '.join(required_filters)))
 
 
 def filter_factory(global_conf, **local_conf):
     """Standard filter factory to use the middleware with paste.deploy"""
     CONF.update(global_conf)
     CONF.update(local_conf)
-
-    # Reassign config to logger
-    global LOGGER
-    LOGGER = get_logger(CONF, log_route=CONF.get('log_name', 's3api'))
 
     register_swift_info(
         's3api',

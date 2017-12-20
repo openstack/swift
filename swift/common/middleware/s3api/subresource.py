@@ -20,7 +20,7 @@ from swift.common.utils import json
 from swift.common.middleware.s3api.response import InvalidArgument, \
     MalformedACLError, S3NotImplemented, InvalidRequest, AccessDenied
 from swift.common.middleware.s3api.etree import Element, SubElement
-from swift.common.middleware.s3api.utils import LOGGER, sysmeta_header
+from swift.common.middleware.s3api.utils import sysmeta_header
 from swift.common.middleware.s3api.cfg import CONF
 from swift.common.middleware.s3api.exception import InvalidSubresource
 
@@ -119,10 +119,7 @@ def decode_acl(resource, headers):
                 grants.append(Grant(grantee, permission))
         return ACL(Owner(id, name), grants)
     except Exception as e:
-        LOGGER.debug(e)
-        pass
-
-    raise InvalidSubresource((resource, 'acl', value))
+        raise InvalidSubresource((resource, 'acl', value), e)
 
 
 class Grantee(object):

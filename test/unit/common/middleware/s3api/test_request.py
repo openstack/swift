@@ -18,8 +18,8 @@ import unittest
 
 from swift.common import swob
 from swift.common.swob import Request, HTTPNoContent
-
 from swift.common.middleware.s3api.utils import mktime
+from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
     Grant, encode_acl
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
@@ -31,6 +31,7 @@ from swift.common.middleware.s3api.response import InvalidArgument, \
     NoSuchBucket, InternalError, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed
 
+from test.unit import DebugLogger
 
 Fake_ACL_MAP = {
     # HEAD Bucket
@@ -109,6 +110,8 @@ class TestRequest(S3ApiTestCase):
             s3_req = req_klass(req.environ, MagicMock())
         else:
             s3_req = req_klass(req.environ)
+        s3_req.set_acl_handler(
+            get_acl_handler(s3_req.controller_name)(s3_req, DebugLogger()))
         with patch('swift.common.middleware.s3api.request.Request.'
                    '_get_response') as mock_get_resp, \
                 patch('swift.common.middleware.s3api.subresource.ACL.'

@@ -20,7 +20,7 @@ from pkg_resources import resource_stream  # pylint: disable-msg=E0611
 import sys
 
 from swift.common.middleware.s3api.exception import S3Exception
-from swift.common.middleware.s3api.utils import LOGGER, camel_to_snake, \
+from swift.common.middleware.s3api.utils import camel_to_snake, \
     utf8encode, utf8decode
 
 XMLNS_S3 = 'http://s3.amazonaws.com/doc/2006-03-01/'
@@ -56,11 +56,12 @@ def cleanup_namespaces(elem):
         cleanup_namespaces(e)
 
 
-def fromstring(text, root_tag=None):
+def fromstring(text, root_tag=None, logger=None):
     try:
         elem = lxml.etree.fromstring(text, parser)
     except lxml.etree.XMLSyntaxError as e:
-        LOGGER.debug(e)
+        if logger:
+            logger.debug(e)
         raise XMLSyntaxError(e)
 
     cleanup_namespaces(elem)
@@ -74,10 +75,12 @@ def fromstring(text, root_tag=None):
         except IOError as e:
             # Probably, the schema file doesn't exist.
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            LOGGER.error(e)
+            if logger:
+                logger.debug(e)
             raise exc_type, exc_value, exc_traceback
         except lxml.etree.DocumentInvalid as e:
-            LOGGER.debug(e)
+            if logger:
+                logger.debug(e)
             raise DocumentInvalid(e)
 
     return elem
