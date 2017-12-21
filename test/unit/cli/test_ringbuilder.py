@@ -1916,7 +1916,102 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring.save(self.tmpfile)
         # Test No change to the device
         argv = ["", self.tmpfile, "rebalance", "3"]
+        with mock.patch('swift.common.ring.RingBuilder.save') as mock_save:
+            self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        self.assertEqual(len(mock_save.calls), 0)
+
+    def test_rebalance_saves_dispersion_improvement(self):
+        # We set up a situation where dispersion improves but balance
+        # doesn't. We construct a ring with one zone, then add a second zone
+        # concurrently with a new device in the first zone. That first
+        # device won't acquire any partitions, so the ring's balance won't
+        # change. However, dispersion will improve.
+
+        ring = RingBuilder(6, 5, 1)
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': 'sda'})
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': 'sdb'})
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': 'sdc'})
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': 'sdd'})
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': 'sde'})
+        ring.rebalance()
+
+        # The last guy in zone 1
+        ring.add_dev({
+            'region': 1, 'zone': 1,
+            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+            'device': 'sdf'})
+
+        # Add zone 2 (same total weight as zone 1)
+        ring.add_dev({
+            'region': 1, 'zone': 2,
+            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+            'device': 'sda'})
+        ring.add_dev({
+            'region': 1, 'zone': 2,
+            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+            'device': 'sdb'})
+        ring.add_dev({
+            'region': 1, 'zone': 2,
+            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+            'device': 'sdc'})
+        ring.add_dev({
+            'region': 1, 'zone': 2,
+            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+            'device': 'sdd'})
+        ring.add_dev({
+            'region': 1, 'zone': 2,
+            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+            'device': 'sde'})
+        ring.add_dev({
+            'region': 1, 'zone': 2,
+            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+            'device': 'sdf'})
+        ring.pretend_min_part_hours_passed()
+        ring.save(self.tmpfile)
+        del ring
+
+        # Rebalance once: this gets 1/5 replica into zone 2; the ring is
+        # saved because devices changed.
+        argv = ["", self.tmpfile, "rebalance", "5759339"]
         self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        rb = RingBuilder.load(self.tmpfile)
+        self.assertEqual(rb.dispersion, 100)
+        self.assertEqual(rb.get_balance(), 100)
+        self.run_srb('pretend_min_part_hours_passed')
+
+        # Rebalance again: this gets 2/5 replica into zone 2, but no devices
+        # changed and the balance stays the same. The only improvement is
+        # dispersion.
+
+        captured = {}
+
+        def capture_save(rb, path):
+            captured['dispersion'] = rb.dispersion
+            captured['balance'] = rb.get_balance()
+        # The warning is benign; it's just telling the user to keep on
+        # rebalancing. The important assertion is that the builder was
+        # saved.
+        with mock.patch('swift.common.ring.RingBuilder.save', capture_save):
+            self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+        self.assertEqual(captured, {
+            'dispersion': 0,
+            'balance': 100,
+        })
 
     def test_rebalance_no_devices(self):
         # Test no devices

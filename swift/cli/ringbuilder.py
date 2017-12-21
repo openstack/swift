@@ -898,7 +898,9 @@ swift-ring-builder <builder_file> rebalance [options]
         min_part_seconds_left = builder.min_part_seconds_left
         try:
             last_balance = builder.get_balance()
+            last_dispersion = builder.dispersion
             parts, balance, removed_devs = builder.rebalance(seed=get_seed(3))
+            dispersion = builder.dispersion
         except exceptions.RingBuilderError as e:
             print('-' * 79)
             print("An error has occurred during ring validation. Common\n"
@@ -922,9 +924,25 @@ swift-ring-builder <builder_file> rebalance [options]
         # special value(MAX_BALANCE) until zero weighted device return all
         # its partitions. So we cannot check balance has changed.
         # Thus we need to check balance or last_balance is special value.
-        if not options.force and \
-                not devs_changed and abs(last_balance - balance) < 1 and \
-                not (last_balance == MAX_BALANCE and balance == MAX_BALANCE):
+        be_cowardly = True
+        if options.force:
+            # User said save it, so we save it.
+            be_cowardly = False
+        elif devs_changed:
+            # We must save if a device changed; this could be something like
+            # a changed IP address.
+            be_cowardly = False
+        else:
+            # If balance or dispersion changed (presumably improved), then
+            # we should save to get the improvement.
+            balance_changed = (
+                abs(last_balance - balance) >= 1 or
+                (last_balance == MAX_BALANCE and balance == MAX_BALANCE))
+            dispersion_changed = abs(last_dispersion - dispersion) >= 1
+            if balance_changed or dispersion_changed:
+                be_cowardly = False
+
+        if be_cowardly:
             print('Cowardly refusing to save rebalance as it did not change '
                   'at least 1%.')
             exit(EXIT_WARNING)
