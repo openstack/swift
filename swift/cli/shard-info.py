@@ -78,11 +78,12 @@ def print_db(node, broker, expect_type='ROOT', indent_level=0):
 
 def print_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
-    print('%s%r-%r, objs: %s, bytes: %s, created: %s, modified: %s, '
+    print('%s%r-%r, objs: %s, bytes: %s, created: %s (%s), modified: %s (%s), '
           'deleted: %s (%s)' %
           (indent, sr.lower, sr.upper, sr.object_count, sr.bytes_used,
-           Timestamp(sr.timestamp).isoformat,
-           Timestamp(sr.meta_timestamp).isoformat, sr.deleted, node))
+           Timestamp(sr.timestamp).isoformat, sr.timestamp.internal,
+           Timestamp(sr.meta_timestamp).isoformat, sr.meta_timestamp.internal,
+           sr.deleted, node))
 
 
 def print_shard_range_info(node, shard_ranges, indent_level=0):
@@ -115,7 +116,7 @@ def print_container(name, name2nodes2brokers, expect_type='ROOT',
     print(indent + 'Shard range info:')
     shard_names = set()
     for node, broker in node2broker.items():
-        shard_ranges = broker.get_shard_ranges()
+        shard_ranges = broker.get_shard_ranges(include_deleted=True)
         for sr_name in shard_ranges:
             shard_names.add(sr_name.name)
         print_shard_range_info(node, shard_ranges,
