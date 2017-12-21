@@ -209,9 +209,12 @@ class TestObjectVersioning(Base):
         try:
             # only delete files and not containers
             # as they were configured in self.env
+            # get rid of any versions so they aren't restored
             self.env.versions_container.delete_files()
+            # get rid of originals
             self.env.container.delete_files()
-            # in history mode, cleanup after deleting 'container' files
+            # in history mode, deleted originals got copied to versions, so
+            # clear that again
             self.env.versions_container.delete_files()
         except ResponseError:
             pass
@@ -630,6 +633,69 @@ class TestObjectVersioning(Base):
         self.assertEqual('%s/%s' % (self.env.container.name, target.name),
                          sym_info['x_symlink_target'])
 
+    def _setup_symlink(self):
+        target = self.env.container.file('target-object')
+        target.write('target object data')
+        symlink = self.env.container.file('symlink')
+        symlink.write('', hdrs={
+            'Content-Type': 'application/symlink',
+            'X-Symlink-Target': '%s/%s' % (
+                self.env.container.name, target.name)})
+        return symlink, target
+
+    def _assert_symlink(self, symlink, target):
+        self.assertEqual('target object data', symlink.read())
+        self.assertEqual(target.info(), symlink.info())
+        self.assertEqual('application/symlink',
+                         symlink.info(parms={
+                             'symlink': 'get'})['content_type'])
+
+    def _check_copy_destination_restore_symlink(self):
+        # assertions common to x-versions-location and x-history-location modes
+        symlink, target = self._setup_symlink()
+        symlink.write('this is not a symlink')
+        # the symlink is versioned
+        version_container_files = self.env.versions_container.files(
+            parms={'format': 'json'})
+        self.assertEqual(1, len(version_container_files))
+        versioned_obj_info = version_container_files[0]
+        self.assertEqual('application/symlink',
+                         versioned_obj_info['content_type'])
+        versioned_obj = self.env.versions_container.file(
+            versioned_obj_info['name'])
+        # the symlink is still a symlink
+        self._assert_symlink(versioned_obj, target)
+        # test manual restore (this creates a new backup of the overwrite)
+        versioned_obj.copy(self.env.container.name, symlink.name,
+                           parms={'symlink': 'get'})
+        self._assert_symlink(symlink, target)
+        # symlink overwritten by write then copy -> 2 versions
+        self.assertEqual(2, self.env.versions_container.info()['object_count'])
+        return symlink, target
+
+    def test_copy_destination_restore_symlink(self):
+        symlink, target = self._check_copy_destination_restore_symlink()
+        # and versioned writes restore
+        symlink.delete()
+        self.assertEqual(1, self.env.versions_container.info()['object_count'])
+        self.assertEqual('this is not a symlink', symlink.read())
+        symlink.delete()
+        self.assertEqual(0, self.env.versions_container.info()['object_count'])
+        self._assert_symlink(symlink, target)
+
+    def test_put_x_copy_from_restore_symlink(self):
+        symlink, target = self._setup_symlink()
+        symlink.write('this is not a symlink')
+        version_container_files = self.env.versions_container.files()
+        self.assertEqual(1, len(version_container_files))
+        versioned_obj = self.env.versions_container.file(
+            version_container_files[0])
+        symlink.write(parms={'symlink': 'get'}, cfg={
+            'no_content_type': True}, hdrs={
+                'X-Copy-From': '%s/%s' % (
+                    self.env.versions_container, versioned_obj.name)})
+        self._assert_symlink(symlink, target)
+
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
 
@@ -750,6 +816,15 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         with self.assertRaises(ResponseError) as cm:
             symlink.read()
         self.assertEqual(404, cm.exception.status)
+
+    def test_copy_destination_restore_symlink(self):
+        symlink, target = self._check_copy_destination_restore_symlink()
+        symlink.delete()
+        with self.assertRaises(ResponseError) as cm:
+            symlink.read()
+        self.assertEqual(404, cm.exception.status)
+        # 2 versions plus delete marker and deleted version
+        self.assertEqual(4, self.env.versions_container.info()['object_count'])
 
 
 class TestSloWithVersioning(unittest2.TestCase):
