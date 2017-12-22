@@ -533,7 +533,7 @@ class TestContainer(Base):
             cont = self.env.account.container('a' * l)
             if l <= limit:
                 self.assertTrue(cont.create())
-                self.assert_status(201)
+                self.assert_status((201, 202))
             else:
                 self.assertFalse(cont.create())
                 self.assert_status(400)
