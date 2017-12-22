@@ -482,7 +482,11 @@ swift-ring-builder <builder_file>
                             if d is not None))
             dev_count = len([dev for dev in builder.devs
                              if dev is not None])
-            balance = builder.get_balance()
+            try:
+                balance = builder.get_balance()
+            except Exception as e:
+                print(e)
+                exit(EXIT_ERROR)
         dispersion_trailer = '' if builder.dispersion is None else (
             ', %.02f dispersion' % (builder.dispersion))
         print('%d partitions, %.6f replicas, %d regions, %d zones, '

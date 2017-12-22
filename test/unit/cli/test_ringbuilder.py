@@ -1885,6 +1885,26 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring_invalid_re = re.compile("Ring file .*\.ring\.gz is invalid")
         self.assertTrue(ring_invalid_re.findall(mock_stdout.getvalue()))
 
+    def test_default_no_device_ring_without_exception(self):
+        self.create_sample_ring()
+
+        # remove devices from ring file
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+        for device in ["d0", "d1", "d2", "d3"]:
+            argv = ["", self.tmpfile, "remove", device]
+            with mock.patch("sys.stdout", mock_stdout):
+                with mock.patch("sys.stderr", mock_stderr):
+                    self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
+        # default ring file without exception
+        argv = ["", self.tmpfile, "default"]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+        ring_invalid_re = re.compile("all devices have been deleted")
+        self.assertTrue(ring_invalid_re.findall(mock_stdout.getvalue()))
+
     def test_pretend_min_part_hours_passed(self):
         self.run_srb("create", 8, 3, 1)
         argv_pretend = ["", self.tmpfile, "pretend_min_part_hours_passed"]
