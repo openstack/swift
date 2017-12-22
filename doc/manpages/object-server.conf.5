@@ -495,7 +495,7 @@ Logging address. The default is /dev/log.
 .IP \fBinterval\fR
 Minimum time for a pass to take. The default is 300 seconds.
 .IP \fBconcurrency\fR
-Number of reaper workers to spawn. The default is 1.
+Number of updater workers to spawn. The default is 1.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 10 seconds.
 .IP \fBobjects_per_second\fR
@@ -546,7 +546,7 @@ system specs. 0 is unlimited. The default is 20.
 Maximum bytes audited per second. Should be tuned according to individual
 system specs. 0 is unlimited. The default is 10000000.
 .IP \fBconcurrency\fR
-Number of reaper workers to spawn. The default is 1.
+Number of auditor workers to spawn. The default is 1.
 .IP \fBlog_time\fR
 The default is 3600 seconds.
 .IP \fBzero_byte_files_per_second\fR
