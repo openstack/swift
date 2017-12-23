@@ -375,6 +375,14 @@ class TestContainerSharding(ReplProbeTest):
         self.assertEqual(409, cm.exception.http_status)
         # but once the sharders run and shards update the root...
         self.sharders.once()
+        # TODO: this extra cycle of the sharders is currently needed because
+        # sometimes (one of) the emptied shards are shrunk during previous
+        # cycle and the shrink process in root copies the old non-zero object
+        # count from the acceptor shard range to a newly time-stamped version
+        # of the acceptor shard range in competition with the old timestamp
+        # acceptor being updated to object count of zero. Hopefully we'll fix
+        # that race and not need this next cycle...
+        self.sharders.once()
         client.delete_container(self.url, self.token, self.container_name)
 
     def test_sharded_listing_no_replicators(self):
@@ -680,7 +688,8 @@ class TestContainerSharding(ReplProbeTest):
         # all objects should now be in this shard
         self.assertEqual(exp_obj_count, obj_count)
 
-        # the donor shard is gone
+        # the donor shard is also still intact
+        # TODO: once we have figured out when these redundant donors are
+        # deleted, test for deletion/clean up
         self.direct_get_container_shard_ranges(
-            orig_shard_ranges[0].account, orig_shard_ranges[0].container,
-            expect_failure=True)
+            orig_shard_ranges[0].account, orig_shard_ranges[0].container)

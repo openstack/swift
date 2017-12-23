@@ -84,7 +84,8 @@ class ContainerReplicator(db_replicator.Replicator):
         hsh = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, hsh)
         db_path = os.path.join(self.root, device, db_dir, hsh + '.db')
-        broker = ContainerBroker(db_path, account=account, container=container)
+        broker = ContainerBroker(db_path, account=account, container=container,
+                                 logger=self.logger)
         if not os.path.exists(broker.db_file):
             try:
                 broker.initialize(**kwargs)

@@ -483,6 +483,7 @@ class Replicator(Daemon):
             rinfo = json.loads(response.data)
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if self._in_sync(rinfo, info, broker, local_sync):
+                self.logger.debug('in sync, nothing to do')
                 return True
             # if the difference in rowids between the two differs by
             # more than 50% and the difference is greater than per_diff,
