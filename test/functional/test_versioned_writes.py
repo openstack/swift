@@ -623,6 +623,9 @@ class TestObjectVersioning(Base):
         return symlink, tgt_a
 
     def test_overwriting_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
         symlink, target = self._check_overwriting_symlink()
         # test delete
         symlink.delete()
@@ -673,6 +676,9 @@ class TestObjectVersioning(Base):
         return symlink, target
 
     def test_copy_destination_restore_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
         symlink, target = self._check_copy_destination_restore_symlink()
         # and versioned writes restore
         symlink.delete()
@@ -683,6 +689,9 @@ class TestObjectVersioning(Base):
         self._assert_symlink(symlink, target)
 
     def test_put_x_copy_from_restore_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
         symlink, target = self._setup_symlink()
         symlink.write('this is not a symlink')
         version_container_files = self.env.versions_container.files()
@@ -809,6 +818,9 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
             self.assertEqual(expected, prev_version.read())
 
     def test_overwriting_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
         symlink, target = self._check_overwriting_symlink()
         # test delete
         symlink.delete()
@@ -817,6 +829,9 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         self.assertEqual(404, cm.exception.status)
 
     def test_copy_destination_restore_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
         symlink, target = self._check_copy_destination_restore_symlink()
         symlink.delete()
         with self.assertRaises(ResponseError) as cm:
