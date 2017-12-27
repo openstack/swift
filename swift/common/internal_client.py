@@ -22,14 +22,13 @@ from six.moves import urllib
 import struct
 from sys import exc_info, exit
 import zlib
-from swift import gettext_ as _
 from time import gmtime, strftime, time
 from zlib import compressobj
 
 from swift.common.exceptions import ClientException
 from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES
 from swift.common.swob import Request
-from swift.common.utils import quote
+from swift.common.utils import quote, closing_if_possible
 from swift.common.wsgi import loadapp, pipeline_property
 
 if six.PY3:
@@ -199,10 +198,22 @@ class InternalClient(object):
                 exc_type, exc_value, exc_traceback = exc_info()
             # sleep only between tries, not after each one
             if attempt < self.request_tries - 1:
+                if resp:
+                    # always close any resp.app_iter before we discard it
+                    with closing_if_possible(resp.app_iter):
+                        # for non 2XX requests it's safe and useful to drain
+                        # the response body so we log the correct status code
+                        if resp.status_int // 100 != 2:
+                            for iter_body in resp.app_iter:
+                                pass
                 sleep(2 ** (attempt + 1))
         if resp:
-            raise UnexpectedResponse(
-                _('Unexpected response: %s') % resp.status, resp)
+            msg = 'Unexpected response: %s' % resp.status
+            if resp.status_int // 100 != 2 and resp.body:
+                # provide additional context (and drain the response body) for
+                # non 2XX responses
+                msg += ' (%s)' % resp.body
+            raise UnexpectedResponse(msg, resp)
         if exc_type:
             # To make pep8 tool happy, in place of raise t, v, tb:
             six.reraise(exc_type(*exc_value.args), None, exc_traceback)

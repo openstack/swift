@@ -19,6 +19,7 @@ import unittest
 import zlib
 from textwrap import dedent
 import os
+from itertools import izip_longest
 
 import six
 from six import StringIO
@@ -28,9 +29,11 @@ from test.unit import FakeLogger
 from swift.common import exceptions, internal_client, swob
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import StoragePolicy
+from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 
-from test.unit import with_tempdir, write_fake_ring, patch_policies
-from test.unit.common.middleware.helpers import FakeSwift
+from test.unit import with_tempdir, write_fake_ring, patch_policies, \
+    DebugLogger
+from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
 if six.PY3:
     from eventlet.green.urllib import request as urllib2
@@ -433,6 +436,74 @@ class TestInternalClient(unittest.TestCase):
             client.make_request('GET', path, {'X-Test': path}, (200,))
             self.assertEqual(client.env['PATH_INFO'], path)
             self.assertEqual(client.env['HTTP_X_TEST'], path)
+
+    def test_make_request_error_case(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                self.logger = DebugLogger()
+                # wrap the fake app with ProxyLoggingMiddleware
+                self.app = ProxyLoggingMiddleware(
+                    self.fake_app, {}, self.logger)
+                self.user_agent = 'some_agent'
+                self.request_tries = 3
+
+            def fake_app(self, env, start_response):
+                body = 'fake error response'
+                start_response('409 Conflict',
+                               [('Content-Length', str(len(body)))])
+                return [body]
+
+        client = InternalClient()
+        with self.assertRaises(internal_client.UnexpectedResponse), \
+                mock.patch('swift.common.internal_client.sleep'):
+            client.make_request('DELETE', '/container', {}, (200,))
+
+        for logline in client.logger.get_lines_for_level('info'):
+            # add spaces before/after 409 because it can match with
+            # something like timestamp
+            self.assertIn(' 409 ', logline)
+
+    def test_make_request_acceptable_status_not_2xx(self):
+        closed_paths = []
+
+        def mark_closed(path):
+            closed_paths.append(path)
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                self.logger = DebugLogger()
+                # wrap the fake app with ProxyLoggingMiddleware
+                self.app = ProxyLoggingMiddleware(
+                    self.fake_app, {}, self.logger)
+                self.user_agent = 'some_agent'
+                self.request_tries = 3
+
+            def fake_app(self, env, start_response):
+                body = 'fake error response'
+                start_response('200 Ok', [('Content-Length', str(len(body)))])
+                return LeakTrackingIter((c for c in body),
+                                        mark_closed, env['PATH_INFO'])
+
+        client = InternalClient()
+        with self.assertRaises(internal_client.UnexpectedResponse) as ctx, \
+                mock.patch('swift.common.internal_client.sleep'):
+            # This is obvious strange tests to expect only 400 Bad Request
+            # but this test intended to avoid extra body drain if it's
+            # correct object body with 2xx.
+            client.make_request('GET', '/cont/obj', {}, (400,))
+        self.assertEqual(closed_paths, ['/cont/obj'] * 2)
+        # swob's body resp property will call close
+        self.assertEqual(ctx.exception.resp.body, 'fake error response')
+        self.assertEqual(closed_paths, ['/cont/obj'] * 3)
+
+        # Retries like this will cause 499 because internal_client won't
+        # automatically consume (potentially large) 2XX responses.
+        expected = (' 499 ', ' 499 ', ' 200 ')
+        loglines = client.logger.get_lines_for_level('info')
+        for expected, logline in izip_longest(expected, loglines):
+            if not expected:
+                self.fail('Unexpected extra log line: %r' % logline)
+            self.assertIn(expected, logline)
 
     def test_make_request_codes(self):
         class InternalClient(internal_client.InternalClient):
