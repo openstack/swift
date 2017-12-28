@@ -1023,7 +1023,11 @@ class ECAppIter(object):
         """
         self.mime_boundary = resp.boundary
 
-        self.stashed_iter = reiterate(self._real_iter(req, resp.headers))
+        try:
+            self.stashed_iter = reiterate(self._real_iter(req, resp.headers))
+        except Exception:
+            self.close()
+            raise
 
         if self.learned_content_type is not None:
             resp.content_type = self.learned_content_type
@@ -2083,7 +2087,7 @@ class ECGetResponseCollection(object):
         Return the best bucket in the collection.
 
         The "best" bucket is the newest timestamp with sufficient getters, or
-        the closest to having a sufficient getters, unless it is bettered by a
+        the closest to having sufficient getters, unless it is bettered by a
         bucket with potential alternate nodes.
 
         :return: An instance of :class:`~ECGetResponseBucket` or None if there

@@ -59,6 +59,7 @@ from test.unit.helpers import setup_servers, teardown_servers
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.obj import server as object_server
+from swift.common.bufferedhttp import BufferedHTTPResponse
 from swift.common.middleware import proxy_logging, versioned_writes, \
     copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
@@ -7167,6 +7168,48 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual('bytes', headers.get('Accept-Ranges'))
         self.assertIn('Content-Range', headers)
         self.assertEqual('bytes */%d' % obj_len, headers['Content-Range'])
+
+    def test_unsatisfiable_socket_leak(self):
+        unclosed_http_responses = {}
+        tracked_responses = [0]
+
+        class LeakTrackingHTTPResponse(BufferedHTTPResponse):
+            def begin(self):
+                # no super(); we inherit from an old-style class (it's
+                # httplib's fault; don't try and fix it).
+                retval = BufferedHTTPResponse.begin(self)
+                if self.status != 204:
+                    # This mock is overly broad and catches account and
+                    # container HEAD requests too. We don't care about
+                    # those; it's the object GETs that were leaky.
+                    #
+                    # Unfortunately, we don't have access to the request
+                    # path here, so we use "status == 204" as a crude proxy
+                    # for "not an object response".
+                    unclosed_http_responses[id(self)] = self
+                    tracked_responses[0] += 1
+                return retval
+
+            def close(self, *args, **kwargs):
+                rv = BufferedHTTPResponse.close(self, *args, **kwargs)
+                unclosed_http_responses.pop(id(self), None)
+                return rv
+
+            def __repr__(self):
+                swift_conn = getattr(self, 'swift_conn', None)
+                method = getattr(swift_conn, '_method', '<unknown>')
+                path = getattr(swift_conn, '_path', '<unknown>')
+                return '%s<method=%r path=%r>' % (
+                    self.__class__.__name__, method, path)
+
+        obj_len = len(self.obj)
+        with mock.patch('swift.common.bufferedhttp.BufferedHTTPConnection'
+                        '.response_class', LeakTrackingHTTPResponse):
+            status, headers, _junk = self._get_obj(
+                "bytes=%d-%d" % (obj_len, obj_len + 100))
+        self.assertEqual(status, 416)  # sanity check
+        self.assertGreater(tracked_responses[0], 0)  # ensure tracking happened
+        self.assertEqual(unclosed_http_responses, {})
 
     def test_off_end(self):
         # Ranged GET that's mostly off the end of the object, but overlaps
