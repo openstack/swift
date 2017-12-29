@@ -997,6 +997,7 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
 
     Output report on dispersion.
 
+    --recalculate option will rebuild cached dispersion info and save builder
     --verbose option will display dispersion graph broken down by tier
 
     You can filter which tiers are evaluated to drill down using a regex
@@ -1035,6 +1036,8 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             exit(EXIT_ERROR)
         usage = Commands.dispersion.__doc__.strip()
         parser = optparse.OptionParser(usage)
+        parser.add_option('--recalculate', action='store_true',
+                          help='Rebuild cached dispersion info and save')
         parser.add_option('-v', '--verbose', action='store_true',
                           help='Display dispersion report for tiers')
         options, args = parser.parse_args(argv)
@@ -1042,8 +1045,13 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             search_filter = args[3]
         else:
             search_filter = None
+        orig_version = builder.version
         report = dispersion_report(builder, search_filter=search_filter,
-                                   verbose=options.verbose)
+                                   verbose=options.verbose,
+                                   recalculate=options.recalculate)
+        if builder.version != orig_version:
+            # we've already done the work, better go ahead and save it!
+            builder.save(builder_file)
         print('Dispersion is %.06f, Balance is %.06f, Overload is %0.2f%%' % (
             builder.dispersion, builder.get_balance(), builder.overload * 100))
         print('Required overload is %.6f%%' % (

@@ -2255,6 +2255,28 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertIn('dispersion', out.lower())
         self.assertFalse(err)
 
+    def test_dispersion_command_recalculate(self):
+        rb = RingBuilder(8, 3, 0)
+        for i in range(3):
+            i += 1
+            rb.add_dev({'region': 1, 'zone': i, 'weight': 1.0,
+                        'ip': '127.0.0.%d' % i, 'port': 6000, 'device': 'sda'})
+        # extra device in z1
+        rb.add_dev({'region': 1, 'zone': 1, 'weight': 1.0,
+                    'ip': '127.0.0.1', 'port': 6000, 'device': 'sdb'})
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 16.666666666666668)
+        # simulate an out-of-date dispersion calculation
+        rb.dispersion = 50
+        rb.save(self.tempfile)
+        old_version = rb.version
+        out, err = self.run_srb('dispersion')
+        self.assertIn('Dispersion is 50.000000', out)
+        out, err = self.run_srb('dispersion --recalculate')
+        self.assertIn('Dispersion is 16.666667', out)
+        rb = RingBuilder.load(self.tempfile)
+        self.assertEqual(rb.version, old_version + 1)
+
     def test_use_ringfile_as_builderfile(self):
         mock_stdout = six.StringIO()
         mock_stderr = six.StringIO()
