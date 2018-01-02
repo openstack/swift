@@ -63,6 +63,7 @@ class TestContainerSharding(ReplProbeTest):
 
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
+        client.logger.setLevel(client.logging.WARNING)
 
     def get_container_shard_ranges(self, account=None, container=None):
         account = account if account else self.account
