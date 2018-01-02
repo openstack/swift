@@ -794,7 +794,8 @@ class File(Base):
                   ['content_type', 'content-type'],
                   ['last_modified', 'last-modified'],
                   ['etag', 'etag']]
-        optional_fields = [['x_object_manifest', 'x-object-manifest']]
+        optional_fields = [['x_object_manifest', 'x-object-manifest'],
+                           ['x_symlink_target', 'x-symlink-target']]
 
         header_fields = self.header_fields(fields,
                                            optional_fields=optional_fields)

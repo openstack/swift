@@ -36,8 +36,14 @@ synchronization key.
 .. note::
 
     If you are using encryption middleware in the cluster from which objects
-    are being synced, then you should follow the instructions to configure
+    are being synced, then you should follow the instructions for
     :ref:`container_sync_client_config` to be compatible with encryption.
+
+.. note::
+
+    If you are using symlink middleware in the cluster from which objects
+    are being synced, then you should follow the instructions for
+    :ref:`symlink_container_sync_client_config` to be compatible with symlinks.
 
 --------------------------
 Configuring Container Sync
@@ -440,7 +446,7 @@ then a symlink to the container database is created in a sync-containers
 sub-directory on the same device.
 
 Similarly, when the container sync metadata keys are deleted, the container
-server and container-replicator would take care of deleting the symlinks 
+server and container-replicator would take care of deleting the symlinks
 from ``sync-containers``.
 
 .. note::

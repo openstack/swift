@@ -906,6 +906,41 @@ class SwiftRecon(object):
             matches, len(hosts), errors))
         print("=" * 79)
 
+    def version_check(self, hosts):
+        """
+        Check OS Swift version of hosts. Inform if differs.
+
+        :param hosts: set of hosts to check. in the format of:
+            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+        """
+        versions = set()
+        errors = 0
+        print("[%s] Checking versions" % self._ptime())
+        recon = Scout("version", self.verbose, self.suppress_errors,
+                      self.timeout)
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
+            if status != 200:
+                errors = errors + 1
+                continue
+            versions.add(response['version'])
+            if self.verbose:
+                print("-> %s installed version %s" % (
+                    url, response['version']))
+
+        if not len(versions):
+            print("No hosts returned valid data.")
+        elif len(versions) == 1:
+            print("Versions matched (%s), "
+                  "%s error[s] while checking hosts." % (
+                      versions.pop(), errors))
+        else:
+            print("Versions not matched (%s), "
+                  "%s error[s] while checking hosts." % (
+                      ", ".join(sorted(versions)), errors))
+
+        print("=" * 79)
+
     def _get_ring_names(self, policy=None):
         """
         Retrieve name of ring files.
@@ -982,6 +1017,8 @@ class SwiftRecon(object):
                         help="Check time synchronization")
         args.add_option('--jitter', type="float", default=0.0,
                         help="Maximal allowed time jitter")
+        args.add_option('--swift-versions', action="store_true",
+                        help="Check swift versions")
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
         args.add_option('--lowest', type='int', metavar='COUNT', default=0,
@@ -990,7 +1027,7 @@ class SwiftRecon(object):
         args.add_option('--all', action="store_true",
                         help="Perform all checks. Equal to \t\t\t-arudlqT "
                         "--md5 --sockstat --auditor --updater --expirer "
-                        "--driveaudit --validate-servers")
+                        "--driveaudit --validate-servers --swift-versions")
         args.add_option('--region', type="int",
                         help="Only query servers in specified region")
         args.add_option('--zone', '-z', type="int",
@@ -1063,6 +1100,7 @@ class SwiftRecon(object):
                 self.server_type_check(hosts)
                 self.driveaudit_check(hosts)
                 self.time_check(hosts, options.jitter)
+                self.version_check(hosts)
             else:
                 if options.async:
                     if self.server_type == 'object':
@@ -1112,6 +1150,8 @@ class SwiftRecon(object):
                     self.driveaudit_check(hosts)
                 if options.time:
                     self.time_check(hosts, options.jitter)
+                if options.swift_versions:
+                    self.version_check(hosts)
 
 
 def main():

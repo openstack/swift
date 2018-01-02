@@ -23,7 +23,7 @@ import os
 import six
 from six import StringIO
 from six.moves import range
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl
 from test.unit import FakeLogger
 from swift.common import exceptions, internal_client, swob
 from swift.common.header_key_dict import HeaderKeyDict
@@ -315,6 +315,29 @@ class TestInternalClient(unittest.TestCase):
 
         client = InternalClient(self)
         client.make_request('GET', '/', {}, (200,))
+
+    def test_make_request_sets_query_string(self):
+        captured_envs = []
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test):
+                self.test = test
+                self.app = self.fake_app
+                self.user_agent = 'some_agent'
+                self.request_tries = 1
+
+            def fake_app(self, env, start_response):
+                captured_envs.append(env)
+                start_response('200 Ok', [('Content-Length', '0')])
+                return []
+
+        client = InternalClient(self)
+        params = {'param1': 'p1', 'tasty': 'soup'}
+        client.make_request('GET', '/', {}, (200,), params=params)
+        actual_params = dict(parse_qsl(captured_envs[0]['QUERY_STRING'],
+                                       keep_blank_values=True,
+                                       strict_parsing=True))
+        self.assertEqual(params, actual_params)
 
     def test_make_request_retries(self):
         class InternalClient(internal_client.InternalClient):
@@ -1047,10 +1070,11 @@ class TestInternalClient(unittest.TestCase):
         client, app = get_client_app()
         headers = {'foo': 'bar'}
         body = 'some_object_body'
+        params = {'symlink': 'get'}
         app.register('GET', path_info, swob.HTTPOk, headers, body)
         req_headers = {'x-important-header': 'some_important_value'}
         status_int, resp_headers, obj_iter = client.get_object(
-            account, container, obj, req_headers)
+            account, container, obj, req_headers, params=params)
         self.assertEqual(status_int // 100, 2)
         for k, v in headers.items():
             self.assertEqual(v, resp_headers[k])
@@ -1062,7 +1086,7 @@ class TestInternalClient(unittest.TestCase):
             'user-agent': 'test',   # from InternalClient.make_request
         })
         self.assertEqual(app.calls_with_headers, [(
-            'GET', path_info, HeaderKeyDict(req_headers))])
+            'GET', path_info + '?symlink=get', HeaderKeyDict(req_headers))])
 
     def test_iter_object_lines(self):
         class InternalClient(internal_client.InternalClient):

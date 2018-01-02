@@ -49,6 +49,12 @@ returns the following values for this header,
   ``X-Object-Meta-*`` for objects)
 * headers listed in ``X-Container-Meta-Access-Control-Expose-Headers``
 
+.. note::
+    An OPTIONS request to a symlink object will respond with the options for
+    the symlink only, the request will not be redirected to the target object.
+    Therefore, if the symlink's target object is in another container with
+    CORS settings, the response will not reflect the settings.
+
 
 -----------------
 Sample Javascript

@@ -25,14 +25,17 @@ from test.probe.brain import BrainSplitter
 from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 
-def get_current_realm_cluster(url):
+def get_info(url):
     parts = urlparse(url)
     url = parts.scheme + '://' + parts.netloc + '/info'
     http_conn = client.http_connection(url)
     try:
-        info = client.get_capabilities(http_conn)
+        return client.get_capabilities(http_conn)
     except client.ClientException:
         raise unittest.SkipTest('Unable to retrieve cluster info')
+
+
+def get_current_realm_cluster(info):
     try:
         realms = info['container_sync']['realms']
     except KeyError:
@@ -44,11 +47,12 @@ def get_current_realm_cluster(url):
     raise unittest.SkipTest('Unable find current realm cluster')
 
 
-class TestContainerSync(ReplProbeTest):
+class BaseTestContainerSync(ReplProbeTest):
 
     def setUp(self):
-        super(TestContainerSync, self).setUp()
-        self.realm, self.cluster = get_current_realm_cluster(self.url)
+        super(BaseTestContainerSync, self).setUp()
+        self.info = get_info(self.url)
+        self.realm, self.cluster = get_current_realm_cluster(self.info)
 
     def _setup_synced_containers(
             self, source_overrides=None, dest_overrides=None):
@@ -91,6 +95,9 @@ class TestContainerSync(ReplProbeTest):
                              headers=source_headers)
 
         return source['name'], dest['name']
+
+
+class TestContainerSync(BaseTestContainerSync):
 
     def test_sync(self):
         source_container, dest_container = self._setup_synced_containers()
@@ -375,6 +382,185 @@ class TestContainerSync(ReplProbeTest):
         resp_headers, body = client.get_object(self.url, self.token,
                                                dest_container, object_name)
         self.assertEqual(body, 'new-test-body')
+
+
+class TestContainerSyncAndSymlink(BaseTestContainerSync):
+
+    def setUp(self):
+        super(TestContainerSyncAndSymlink, self).setUp()
+        symlinks_enabled = self.info.get('symlink') or False
+        if not symlinks_enabled:
+            raise unittest.SkipTest("Symlinks not enabled")
+
+    def test_sync_symlink(self):
+        # Verify that symlinks are sync'd as symlinks.
+        dest_account = self.account_2
+        source_container, dest_container = self._setup_synced_containers(
+            dest_overrides=dest_account
+        )
+
+        # Create source and dest containers for target objects in separate
+        # accounts.
+        # These containers must have same name for the destination symlink
+        # to use the same target object. Initially the destination has no sync
+        # key so target will not sync.
+        tgt_container = 'targets-%s' % uuid.uuid4()
+        dest_tgt_info = dict(dest_account)
+        dest_tgt_info.update({'name': tgt_container, 'sync_key': None})
+        self._setup_synced_containers(
+            source_overrides={'name': tgt_container, 'sync_key': 'tgt_key'},
+            dest_overrides=dest_tgt_info)
+
+        # upload a target to source
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = 'target body'
+        client.put_object(
+            self.url, self.token, tgt_container, target_name,
+            target_body)
+
+        # Note that this tests when the target object is in the same account
+        target_path = '%s/%s' % (tgt_container, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {'X-Symlink-Target': target_path}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual('', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify symlink was sync'd
+        resp_headers, dest_listing = client.get_container(
+            dest_account['url'], dest_account['token'], dest_container)
+        self.assertFalse(dest_listing[1:])
+        self.assertEqual(symlink_name, dest_listing[0]['name'])
+
+        # verify symlink remained only a symlink
+        resp_headers, symlink_body = client.get_object(
+            dest_account['url'], dest_account['token'], dest_container,
+            symlink_name, query_string='symlink=get')
+        self.assertEqual('', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+
+        # attempt to GET the target object via symlink will fail because
+        # the target wasn't sync'd
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(dest_account['url'], dest_account['token'],
+                              dest_container, symlink_name)
+        self.assertEqual(404, cm.exception.http_status)
+
+        # now set sync key on destination target container
+        client.put_container(
+            dest_account['url'], dest_account['token'], tgt_container,
+            headers={'X-Container-Sync-Key': 'tgt_key'})
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # sanity:
+        resp_headers, body = client.get_object(
+            dest_account['url'], dest_account['token'],
+            tgt_container, target_name)
+
+        # sanity check - verify symlink remained only a symlink
+        resp_headers, symlink_body = client.get_object(
+            dest_account['url'], dest_account['token'], dest_container,
+            symlink_name, query_string='symlink=get')
+        self.assertEqual('', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+
+        # verify GET of target object via symlink now succeeds
+        resp_headers, actual_target_body = client.get_object(
+            dest_account['url'], dest_account['token'], dest_container,
+            symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
+    def test_sync_cross_acc_symlink(self):
+        # Verify that cross-account symlinks are sync'd as cross-account
+        # symlinks.
+        source_container, dest_container = self._setup_synced_containers()
+
+        # Sync'd symlinks will have the same target path "/a/c/o".
+        # So if we want to execute probe test with syncing targets,
+        # two swift clusters will be required.
+        # Therefore, for probe test in single cluster, target object is not
+        # sync'd in this test.
+        tgt_account = self.account_2
+        tgt_container = 'targets-%s' % uuid.uuid4()
+
+        tgt_container_headers = {'X-Container-Read': 'test:tester'}
+        if len(ENABLED_POLICIES) > 1:
+            tgt_policy = random.choice(ENABLED_POLICIES)
+            tgt_container_headers['X-Storage-Policy'] = tgt_policy.name
+        client.put_container(tgt_account['url'], tgt_account['token'],
+                             tgt_container, headers=tgt_container_headers)
+
+        # upload a target to source
+        target_name = 'target-%s' % uuid.uuid4()
+        target_body = 'target body'
+        client.put_object(tgt_account['url'], tgt_account['token'],
+                          tgt_container, target_name, target_body)
+
+        # Note that this tests when the target object is in a different account
+        target_path = '%s/%s' % (tgt_container, target_name)
+        symlink_name = 'symlink-%s' % uuid.uuid4()
+        put_headers = {
+            'X-Symlink-Target': target_path,
+            'X-Symlink-Target-Account': tgt_account['account']}
+
+        # upload the symlink
+        client.put_object(
+            self.url, self.token, source_container, symlink_name,
+            '', headers=put_headers)
+
+        # verify object is a cross-account symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, source_container, symlink_name,
+            query_string='symlink=get')
+        self.assertEqual('', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-account', resp_headers)
+
+        # verify symlink behavior
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, source_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify symlink was sync'd
+        resp_headers, dest_listing = client.get_container(
+            self.url, self.token, dest_container)
+        self.assertFalse(dest_listing[1:])
+        self.assertEqual(symlink_name, dest_listing[0]['name'])
+
+        # verify symlink remained only a symlink
+        resp_headers, symlink_body = client.get_object(
+            self.url, self.token, dest_container,
+            symlink_name, query_string='symlink=get')
+        self.assertEqual('', symlink_body)
+        self.assertIn('x-symlink-target', resp_headers)
+        self.assertIn('x-symlink-target-account', resp_headers)
+
+        # verify GET of target object via symlink now succeeds
+        resp_headers, actual_target_body = client.get_object(
+            self.url, self.token, dest_container, symlink_name)
+        self.assertEqual(target_body, actual_target_body)
 
 
 if __name__ == "__main__":

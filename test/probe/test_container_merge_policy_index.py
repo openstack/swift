@@ -18,7 +18,6 @@ import uuid
 import random
 import unittest
 
-from six.moves.urllib.parse import urlparse
 from swift.common.manager import Manager
 from swift.common.internal_client import InternalClient
 from swift.common import utils, direct_client
@@ -240,12 +239,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                         orig_policy_index, node))
 
     def test_reconcile_manifest(self):
-        info_url = "%s://%s/info" % (urlparse(self.url).scheme,
-                                     urlparse(self.url).netloc)
-        proxy_conn = client.http_connection(info_url)
-        cluster_info = client.get_capabilities(proxy_conn)
-
-        if 'slo' not in cluster_info:
+        if 'slo' not in self.cluster_info:
             raise unittest.SkipTest(
                 "SLO not enabled in proxy; can't test manifest reconciliation")
         # this test is not only testing a split brain scenario on
@@ -366,6 +360,80 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                                       self.object_name)
         self.assertEqual(int(metadata['content-length']),
                          sum(part['size_bytes'] for part in manifest_data))
+
+    def test_reconcile_symlink(self):
+        if 'symlink' not in self.cluster_info:
+            raise unittest.SkipTest(
+                "Symlink not enabled in proxy; can't test "
+                "symlink reconciliation")
+        wrong_policy = random.choice(ENABLED_POLICIES)
+        policy = random.choice([p for p in ENABLED_POLICIES
+                                if p is not wrong_policy])
+        # get an old container stashed
+        self.brain.stop_primary_half()
+        self.brain.put_container(int(policy))
+        self.brain.start_primary_half()
+        # write some target data
+        client.put_object(self.url, self.token, self.container_name, 'target',
+                          contents='this is the target data')
+
+        # write the symlink
+        self.brain.stop_handoff_half()
+        self.brain.put_container(int(wrong_policy))
+        client.put_object(
+            self.url, self.token, self.container_name, 'symlink',
+            headers={
+                'X-Symlink-Target': '%s/target' % self.container_name,
+                'Content-Type': 'application/symlink',
+            })
+
+        # at this point we have a broken symlink (the container_info has the
+        # proxy looking for the target in the wrong policy)
+        with self.assertRaises(ClientException) as ctx:
+            client.get_object(self.url, self.token, self.container_name,
+                              'symlink')
+        self.assertEqual(ctx.exception.http_status, 404)
+
+        # of course the symlink itself is fine
+        metadata, body = client.get_object(self.url, self.token,
+                                           self.container_name, 'symlink',
+                                           query_string='symlink=get')
+        self.assertEqual(metadata['x-symlink-target'],
+                         '%s/target' % self.container_name)
+        self.assertEqual(metadata['content-type'], 'application/symlink')
+        self.assertEqual(body, '')
+        # ... although in the wrong policy
+        object_ring = POLICIES.get_object_ring(int(wrong_policy), '/etc/swift')
+        part, nodes = object_ring.get_nodes(
+            self.account, self.container_name, 'symlink')
+        for node in nodes:
+            metadata = direct_client.direct_head_object(
+                node, part, self.account, self.container_name, 'symlink',
+                headers={'X-Backend-Storage-Policy-Index': int(wrong_policy)})
+            self.assertEqual(metadata['X-Object-Sysmeta-Symlink-Target'],
+                             '%s/target' % self.container_name)
+
+        # let the reconciler run
+        self.brain.start_handoff_half()
+        self.get_to_final_state()
+        Manager(['container-reconciler']).once()
+        # clear proxy cache
+        client.post_container(self.url, self.token, self.container_name, {})
+
+        # now the symlink works
+        metadata, body = client.get_object(self.url, self.token,
+                                           self.container_name, 'symlink')
+        self.assertEqual(body, 'this is the target data')
+        # and it's in the correct policy
+        object_ring = POLICIES.get_object_ring(int(policy), '/etc/swift')
+        part, nodes = object_ring.get_nodes(
+            self.account, self.container_name, 'symlink')
+        for node in nodes:
+            metadata = direct_client.direct_head_object(
+                node, part, self.account, self.container_name, 'symlink',
+                headers={'X-Backend-Storage-Policy-Index': int(policy)})
+            self.assertEqual(metadata['X-Object-Sysmeta-Symlink-Target'],
+                             '%s/target' % self.container_name)
 
     def test_reconciler_move_object_twice(self):
         # select some policies

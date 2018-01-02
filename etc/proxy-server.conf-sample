@@ -94,12 +94,12 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes symlink proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
 # covered further below in the filter sections for authtoken and keystoneauth.
-#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes symlink proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -869,12 +869,6 @@ use = egg:swift#versioned_writes
 # If you don't put it in the pipeline, it will be inserted for you.
 [filter:copy]
 use = egg:swift#copy
-# By default object POST requests update metadata without modification of the
-# original data file
-# Set this to True to enable the old, slow behavior wherein object POST
-# requests are transformed into COPY requests where source and destination are
-# the same. All client-visible behavior (save response time) should be
-# identical.
 
 # Note: To enable encryption, add the following 2 dependent pieces of crypto
 # middleware to the proxy-server pipeline. They should be to the right of all
@@ -934,3 +928,13 @@ use = egg:swift#encryption
 # be automatically inserted for you.
 [filter:listing_formats]
 use = egg:swift#listing_formats
+
+# Note: Put after slo, dlo, versioned_writes, but before encryption in the
+# pipeline.
+[filter:symlink]
+use = egg:swift#symlink
+# Symlinks can point to other symlinks provided the number of symlinks in a
+# chain does not exceed the symloop_max value. If the number of chained
+# symlinks exceeds the limit symloop_max a 409 (HTTPConflict) error
+# response will be produced.
+# symloop_max = 2

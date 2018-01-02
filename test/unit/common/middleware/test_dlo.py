@@ -811,6 +811,9 @@ class TestDloConfiguration(unittest.TestCase):
         [pipeline:main]
         pipeline = catch_errors dlo ye-olde-proxy-server
 
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
         [filter:dlo]
         use = egg:swift#dlo
         max_get_time = 3600
@@ -845,13 +848,16 @@ class TestDloConfiguration(unittest.TestCase):
         [pipeline:main]
         pipeline = catch_errors dlo ye-olde-proxy-server
 
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
         [filter:dlo]
         use = egg:swift#dlo
 
         [app:ye-olde-proxy-server]
         use = egg:swift#proxy
         rate_limit_after_segment = 13
-        max_get_time = 2900
+        set max_get_time = 2900
         """)
 
         conffile = tempfile.NamedTemporaryFile()
@@ -878,6 +884,9 @@ class TestDloConfiguration(unittest.TestCase):
         """)
 
         proxy_conf2 = dedent("""
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
         [filter:dlo]
         use = egg:swift#dlo
 

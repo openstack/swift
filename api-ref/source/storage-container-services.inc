@@ -96,6 +96,7 @@ Response Parameters
    - content_type: content_type
    - bytes: bytes_in_container_get
    - name: name_in_container_get
+   - symlink_path: symlink_path
 
 
 Response Example format=json

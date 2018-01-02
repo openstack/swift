@@ -19,14 +19,13 @@ import hashlib
 import json
 from copy import deepcopy
 from six.moves import urllib
-from unittest2 import SkipTest
 from time import time, strftime, gmtime
 
 import test.functional as tf
 from swift.common.middleware import tempurl
 from test.functional import cluster_info
 from test.functional.tests import Utils, Base, Base2, BaseEnv
-from test.functional import requires_acls
+from test.functional import requires_acls, SkipTest
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 

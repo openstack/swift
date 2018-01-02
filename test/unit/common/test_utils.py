@@ -41,6 +41,7 @@ import string
 import sys
 import json
 import math
+import inspect
 
 import six
 from six import BytesIO, StringIO
@@ -3972,6 +3973,54 @@ cluster_dfw1 = http://dfw1.host/v1/
             except AssertionError:
                 failures.append('%r => %r (expected %r)' % (
                     value, result, expected))
+        if failures:
+            self.fail('Invalid results from pure function:\n%s' %
+                      '\n'.join(failures))
+
+    def test_strict_b64decode(self):
+        expectations = {
+            None: ValueError,
+            0: ValueError,
+            b'': b'',
+            u'': b'',
+            b'A': ValueError,
+            b'AA': ValueError,
+            b'AAA': ValueError,
+            b'AAAA': b'\x00\x00\x00',
+            u'AAAA': b'\x00\x00\x00',
+            b'////': b'\xff\xff\xff',
+            u'////': b'\xff\xff\xff',
+            b'A===': ValueError,
+            b'AA==': b'\x00',
+            b'AAA=': b'\x00\x00',
+            b' AAAA': ValueError,
+            b'AAAA ': ValueError,
+            b'AAAA============': b'\x00\x00\x00',
+            b'AA&AA==': ValueError,
+            b'====': b'',
+        }
+
+        failures = []
+        for value, expected in expectations.items():
+            try:
+                result = utils.strict_b64decode(value)
+            except Exception as e:
+                if inspect.isclass(expected) and issubclass(
+                        expected, Exception):
+                    if not isinstance(e, expected):
+                        failures.append('%r raised %r (expected to raise %r)' %
+                                        (value, e, expected))
+                else:
+                    failures.append('%r raised %r (expected to return %r)' %
+                                    (value, e, expected))
+            else:
+                if inspect.isclass(expected) and issubclass(
+                        expected, Exception):
+                    failures.append('%r => %r (expected to raise %r)' %
+                                    (value, result, expected))
+                elif result != expected:
+                    failures.append('%r => %r (expected %r)' % (
+                        value, result, expected))
         if failures:
             self.fail('Invalid results from pure function:\n%s' %
                       '\n'.join(failures))

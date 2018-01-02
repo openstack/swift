@@ -114,45 +114,18 @@ greater than 5GB.
 
 """
 
-import os
-from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
-from six.moves.urllib.parse import quote, unquote
+from six.moves.urllib.parse import quote
 
-from swift.common import utils
-from swift.common.utils import get_logger, \
-    config_true_value, FileLikeIter, read_conf_dir, close_if_possible
+from swift.common.utils import get_logger, config_true_value, FileLikeIter, \
+    close_if_possible
 from swift.common.swob import Request, HTTPPreconditionFailed, \
     HTTPRequestEntityTooLarge, HTTPBadRequest, HTTPException
 from swift.common.http import HTTP_MULTIPLE_CHOICES, is_success, HTTP_OK
 from swift.common.constraints import check_account_format, MAX_FILE_SIZE
 from swift.common.request_helpers import copy_header_subset, remove_items, \
-    is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta
-from swift.common.wsgi import WSGIContext, make_subrequest
-
-
-def _check_path_header(req, name, length, error_msg):
-    """
-    Validate that the value of path-like header is
-    well formatted. We assume the caller ensures that
-    specific header is present in req.headers.
-
-    :param req: HTTP request object
-    :param name: header name
-    :param length: length of path segment check
-    :param error_msg: error message for client
-    :returns: A tuple with path parts according to length
-    :raise HTTPPreconditionFailed: if header value
-            is not well formatted.
-    """
-    src_header = unquote(req.headers.get(name))
-    if not src_header.startswith('/'):
-        src_header = '/' + src_header
-    try:
-        return utils.split_path(src_header, length, length, True)
-    except ValueError:
-        raise HTTPPreconditionFailed(
-            request=req,
-            body=error_msg)
+    is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
+    check_path_header
+from swift.common.wsgi import WSGIContext, make_subrequest, load_app_config
 
 
 def _check_copy_from_header(req):
@@ -166,9 +139,9 @@ def _check_copy_from_header(req):
     :raise HTTPPreconditionFailed: if x-copy-from value
             is not well formatted.
     """
-    return _check_path_header(req, 'X-Copy-From', 2,
-                              'X-Copy-From header must be of the form '
-                              '<container name>/<object name>')
+    return check_path_header(req, 'X-Copy-From', 2,
+                             'X-Copy-From header must be of the form '
+                             '<container name>/<object name>')
 
 
 def _check_destination_header(req):
@@ -182,9 +155,9 @@ def _check_destination_header(req):
     :raise HTTPPreconditionFailed: if destination value
             is not well formatted.
     """
-    return _check_path_header(req, 'Destination', 2,
-                              'Destination header must be of the form '
-                              '<container name>/<object name>')
+    return check_path_header(req, 'Destination', 2,
+                             'Destination header must be of the form '
+                             '<container name>/<object name>')
 
 
 def _copy_headers(src, dest):
@@ -263,25 +236,9 @@ class ServerSideCopyMiddleware(object):
             # This takes preference over the one set in proxy app
             return
 
-        cp = ConfigParser()
-        if os.path.isdir(conf['__file__']):
-            read_conf_dir(cp, conf['__file__'])
-        else:
-            cp.read(conf['__file__'])
-
-        try:
-            pipe = cp.get("pipeline:main", "pipeline")
-        except (NoSectionError, NoOptionError):
-            return
-
-        proxy_name = pipe.rsplit(None, 1)[-1]
-        proxy_section = "app:" + proxy_name
-
-        try:
-            conf['object_post_as_copy'] = cp.get(proxy_section,
-                                                 'object_post_as_copy')
-        except (NoSectionError, NoOptionError):
-            pass
+        proxy_conf = load_app_config(conf['__file__'])
+        if 'object_post_as_copy' in proxy_conf:
+            conf['object_post_as_copy'] = proxy_conf['object_post_as_copy']
 
     def __call__(self, env, start_response):
         req = Request(env)

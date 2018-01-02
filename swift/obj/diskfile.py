@@ -2468,7 +2468,12 @@ class BaseDiskFile(object):
         :raises DiskFileError: various exceptions from
                     :func:`swift.obj.diskfile.DiskFile._verify_data_file`
         """
-        fp = open(data_file, 'rb')
+        try:
+            fp = open(data_file, 'rb')
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                raise DiskFileNotExist()
+            raise
         self._datafile_metadata = self._failsafe_read_metadata(
             fp, data_file,
             add_missing_checksum=modernize)

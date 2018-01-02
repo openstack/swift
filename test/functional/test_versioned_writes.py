@@ -17,12 +17,13 @@
 import json
 import time
 import unittest2
-from unittest2 import SkipTest
 
 import test.functional as tf
 from copy import deepcopy
+
+from swift.common.utils import MD5_OF_EMPTY_STRING
 from test.functional.tests import Base, Base2, BaseEnv, Utils
-from test.functional import cluster_info
+from test.functional import cluster_info, SkipTest
 from test.functional.swift_test_client import Account, Connection, \
     ResponseError
 
@@ -207,8 +208,13 @@ class TestObjectVersioning(Base):
         try:
             # only delete files and not containers
             # as they were configured in self.env
+            # get rid of any versions so they aren't restored
             self.env.versions_container.delete_files()
+            # get rid of originals
             self.env.container.delete_files()
+            # in history mode, deleted originals got copied to versions, so
+            # clear that again
+            self.env.versions_container.delete_files()
         except ResponseError:
             pass
 
@@ -579,6 +585,125 @@ class TestObjectVersioning(Base):
         versioned_obj.delete()
         self.assertEqual("aaaaa", versioned_obj.read())
 
+    def _check_overwriting_symlink(self):
+        # assertions common to x-versions-location and x-history-location modes
+        container = self.env.container
+        versions_container = self.env.versions_container
+
+        tgt_a_name = Utils.create_name()
+        tgt_b_name = Utils.create_name()
+
+        tgt_a = container.file(tgt_a_name)
+        tgt_a.write("aaaaa")
+
+        tgt_b = container.file(tgt_b_name)
+        tgt_b.write("bbbbb")
+
+        symlink_name = Utils.create_name()
+        sym_tgt_header = '%s/%s' % (container.name, tgt_a_name)
+        sym_headers_a = {'X-Symlink-Target': sym_tgt_header}
+        symlink = container.file(symlink_name)
+        symlink.write("", hdrs=sym_headers_a)
+        self.assertEqual("aaaaa", symlink.read())
+
+        sym_headers_b = {'X-Symlink-Target': '%s/%s' % (container.name,
+                                                        tgt_b_name)}
+        symlink.write("", hdrs=sym_headers_b)
+        self.assertEqual("bbbbb", symlink.read())
+
+        # the old version got saved off
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version_info = prev_version.info(parms={'symlink': 'get'})
+        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(MD5_OF_EMPTY_STRING, prev_version_info['etag'])
+        self.assertEqual(sym_tgt_header,
+                         prev_version_info['x_symlink_target'])
+        return symlink, tgt_a
+
+    def test_overwriting_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
+        symlink, target = self._check_overwriting_symlink()
+        # test delete
+        symlink.delete()
+        sym_info = symlink.info(parms={'symlink': 'get'})
+        self.assertEqual("aaaaa", symlink.read())
+        self.assertEqual(MD5_OF_EMPTY_STRING, sym_info['etag'])
+        self.assertEqual('%s/%s' % (self.env.container.name, target.name),
+                         sym_info['x_symlink_target'])
+
+    def _setup_symlink(self):
+        target = self.env.container.file('target-object')
+        target.write('target object data')
+        symlink = self.env.container.file('symlink')
+        symlink.write('', hdrs={
+            'Content-Type': 'application/symlink',
+            'X-Symlink-Target': '%s/%s' % (
+                self.env.container.name, target.name)})
+        return symlink, target
+
+    def _assert_symlink(self, symlink, target):
+        self.assertEqual('target object data', symlink.read())
+        self.assertEqual(target.info(), symlink.info())
+        self.assertEqual('application/symlink',
+                         symlink.info(parms={
+                             'symlink': 'get'})['content_type'])
+
+    def _check_copy_destination_restore_symlink(self):
+        # assertions common to x-versions-location and x-history-location modes
+        symlink, target = self._setup_symlink()
+        symlink.write('this is not a symlink')
+        # the symlink is versioned
+        version_container_files = self.env.versions_container.files(
+            parms={'format': 'json'})
+        self.assertEqual(1, len(version_container_files))
+        versioned_obj_info = version_container_files[0]
+        self.assertEqual('application/symlink',
+                         versioned_obj_info['content_type'])
+        versioned_obj = self.env.versions_container.file(
+            versioned_obj_info['name'])
+        # the symlink is still a symlink
+        self._assert_symlink(versioned_obj, target)
+        # test manual restore (this creates a new backup of the overwrite)
+        versioned_obj.copy(self.env.container.name, symlink.name,
+                           parms={'symlink': 'get'})
+        self._assert_symlink(symlink, target)
+        # symlink overwritten by write then copy -> 2 versions
+        self.assertEqual(2, self.env.versions_container.info()['object_count'])
+        return symlink, target
+
+    def test_copy_destination_restore_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
+        symlink, target = self._check_copy_destination_restore_symlink()
+        # and versioned writes restore
+        symlink.delete()
+        self.assertEqual(1, self.env.versions_container.info()['object_count'])
+        self.assertEqual('this is not a symlink', symlink.read())
+        symlink.delete()
+        self.assertEqual(0, self.env.versions_container.info()['object_count'])
+        self._assert_symlink(symlink, target)
+
+    def test_put_x_copy_from_restore_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
+        symlink, target = self._setup_symlink()
+        symlink.write('this is not a symlink')
+        version_container_files = self.env.versions_container.files()
+        self.assertEqual(1, len(version_container_files))
+        versioned_obj = self.env.versions_container.file(
+            version_container_files[0])
+        symlink.write(parms={'symlink': 'get'}, cfg={
+            'no_content_type': True}, hdrs={
+                'X-Copy-From': '%s/%s' % (
+                    self.env.versions_container, versioned_obj.name)})
+        self._assert_symlink(symlink, target)
+
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
 
@@ -691,6 +816,29 @@ class TestObjectVersioningHistoryMode(TestObjectVersioning):
         for actual, expected in zip(files, ['aaaaa', 'bbbbb', '']):
             prev_version = self.env.versions_container.file(actual)
             self.assertEqual(expected, prev_version.read())
+
+    def test_overwriting_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
+        symlink, target = self._check_overwriting_symlink()
+        # test delete
+        symlink.delete()
+        with self.assertRaises(ResponseError) as cm:
+            symlink.read()
+        self.assertEqual(404, cm.exception.status)
+
+    def test_copy_destination_restore_symlink(self):
+        if 'symlink' not in cluster_info:
+            raise SkipTest("Symlinks not enabled")
+
+        symlink, target = self._check_copy_destination_restore_symlink()
+        symlink.delete()
+        with self.assertRaises(ResponseError) as cm:
+            symlink.read()
+        self.assertEqual(404, cm.exception.status)
+        # 2 versions plus delete marker and deleted version
+        self.assertEqual(4, self.env.versions_container.info()['object_count'])
 
 
 class TestSloWithVersioning(unittest2.TestCase):

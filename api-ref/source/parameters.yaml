@@ -164,7 +164,7 @@ ETag_obj_req:
     manifest objects, this value is the MD5 checksum of the
     concatenated string of ETag values for each of the segments in
     the manifest. You are strongly recommended to compute
-    the MD5 checksum value and include it in the request. This 
+    the MD5 checksum value and include it in the request. This
     enables the Object Storage API to check the integrity of the
     upload. The value is not quoted.
   in: header
@@ -850,6 +850,44 @@ X-Storage-Policy:
   in: header
   required: false
   type: string
+X-Symlink-Target:
+  description: |
+    Set to specify that this is a symlink object.
+    The value is the relative path of the target object in the
+    format <container>/<object>.  The target object does not need to
+    exist at the time of symlink creation.
+    You must UTF-8-encode and then URL-encode the names of the
+    container and object before you include them in this header.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target-Account:
+  description: |
+    Set to specify that this is a cross-account symlink to
+    an object in the account specified in the value.
+    The ``X-Symlink-Target`` must also be set for this to
+    be effective.
+    You must UTF-8-encode and then URL-encode the account name
+    before you include it in this header.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target-Account_resp:
+  description: |
+    If present, and ``X-Symlink-Target`` is present, then
+    this is a cross-account symlink to
+    an object in the account specified in the value.
+  in: header
+  required: false
+  type: string
+X-Symlink-Target_resp:
+  description: |
+    If present, this is a symlink object.
+    The value is the relative path of the target object in the
+    format <container>/<object>.
+  in: header
+  required: false
+  type: string
 X-Timestamp:
   description: |
     The date and time in `UNIX Epoch time stamp
@@ -1092,6 +1130,23 @@ swiftinfo_sig:
   in: query
   required: false
   type: string
+symlink:
+  description: |
+    If you include the ``symlink=get`` query parameter
+    and the object is a symlink, then the response will include
+    data and metadata from the symlink itself rather than from the target.
+  in: query
+  required: false
+  type: string
+symlink_copy:
+  description: |
+    If you include the ``symlink=get`` query parameter
+    and the object is a symlink, the target object
+    contents are not copied. Instead, the symlink is copied to
+    create a new symlink to the same target.
+  in: query
+  required: false
+  type: string
 temp_url_expires:
   description: |
     The date and time in `UNIX Epoch time stamp
@@ -1177,6 +1232,13 @@ name_in_account_get:
 name_in_container_get:
   description: |
     The name of the object.
+  in: body
+  required: true
+  type: string
+symlink_path:
+  description: |
+    This field exists only when the object is symlink.
+    This is the target path of the symlink object.
   in: body
   required: true
   type: string

@@ -222,7 +222,7 @@ from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote
 
 
-DISALLOWED_INCOMING_HEADERS = 'x-object-manifest'
+DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
 
 #: Default headers to remove from incoming requests. Simply a whitespace
 #: delimited list of header names and names can optionally end with '*' to

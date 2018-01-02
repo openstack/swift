@@ -92,6 +92,7 @@ def container_to_xml(listing, base_name):
                           'last_modified'):
                 SubElement(sub, field).text = six.text_type(
                     record.pop(field))
+
     return tostring(doc, encoding='UTF-8').replace(
         "<?xml version='1.0' encoding='UTF-8'?>",
         '<?xml version="1.0" encoding="UTF-8"?>', 1)
