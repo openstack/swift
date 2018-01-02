@@ -233,8 +233,12 @@ class TestContainerSharding(ReplProbeTest):
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('unsharded', DB_STATE[broker.get_db_state()])
-            self.assertEqual(expected_shard_ranges,
-                             [dict(sr) for sr in broker.get_shard_ranges()])
+            # the sharded db had shard range meta_timestamps updated during
+            # cleaving, so we do not expect those to be equal on other nodes
+            self.assertEqual([dict(sr, meta_timestamp=None)
+                              for sr in expected_shard_ranges],
+                             [dict(sr, meta_timestamp=None)
+                              for sr in broker.get_shard_ranges()])
 
         if run_replicators:
             Manager(['container-replicator']).once()
@@ -424,8 +428,12 @@ class TestContainerSharding(ReplProbeTest):
         for db_file in found['normal_dbs']:
             broker = ContainerBroker(db_file)
             self.assertIs(True, broker.is_root_container())
-            self.assertEqual(expected_shard_ranges,
-                             [dict(sr) for sr in broker.get_shard_ranges()])
+            # the sharded db had shard range meta_timestamps updated during
+            # cleaving, so we do not expect those to be equal on other nodes
+            self.assertEqual([dict(sr, meta_timestamp=None)
+                              for sr in expected_shard_ranges],
+                             [dict(sr, meta_timestamp=None)
+                              for sr in broker.get_shard_ranges()])
             if db_file.startswith(os.path.dirname(node_index_zero_db)):
                 self.assertEqual('sharding', DB_STATE[broker.get_db_state()])
                 self.assertEqual(len(obj_names) * 3 // 5,

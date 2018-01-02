@@ -796,6 +796,14 @@ class ContainerSharder(ContainerReplicator):
             self.logger.increment('shard_ranges_found')
             self.stats['container_shard_ranges'] += 1
 
+        self.logger.info(
+            "Completed scan for shard ranges: %d found, %d created.",
+            len(found_ranges), len(shard_ranges))
+        if last_found:
+            # We've found the last shard range, so mark that in metadata
+            update_sharding_info(broker, {'Scan-Done': True})
+            self.logger.info("Final shard range reached.")
+
         # persist shard ranges for successfully created shard containers and
         # replicate this container db
         # TODO: better if we persist the found ranges even if we fail to create
@@ -805,14 +813,8 @@ class ContainerSharder(ContainerReplicator):
         broker.merge_shard_ranges([dict(sr) for sr in shard_ranges])
         self.cpool.spawn(
             self._replicate_object, part, broker.db_file, node['id'])
+        any(self.cpool)
 
-        self.logger.info(
-            "Completed scan for shard ranges: %d found, %d created.",
-            len(found_ranges), len(shard_ranges))
-        if last_found:
-            # We've found the last shard range, so mark that in metadata
-            update_sharding_info(broker, {'Scan-Done': True})
-            self.logger.info("Final shard range reached.")
         return last_found
 
     def _find_shrinks(self, broker, node, part):
