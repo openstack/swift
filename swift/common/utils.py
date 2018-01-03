@@ -4457,6 +4457,18 @@ class ShardRange(object):
             (self.upper > other.upper and self.lower < other.lower) or \
             (other.lower < self.lower and other.upper > self.upper)
 
+    def includes(self, other):
+        """
+        Returns True if this namespace includes the whole of the other
+        namespace, False otherwise.
+        """
+        if self.entire_namespace():
+            return True
+        includes_lower = self.lower == other.lower or other.lower in self
+        includes_upper = (self.upper == other.upper or
+                          other.upper and other.upper in self)
+        return includes_lower and includes_upper
+
     def newer(self, other):
         if self._timestamp:
             return self._timestamp > other.timestamp

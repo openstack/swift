@@ -6777,21 +6777,25 @@ class TestShardRange(unittest.TestCase):
         self.assertEqual(ts_4, pr.timestamp)
         self.assertEqual(ts_4, pr.meta_timestamp)
 
-    def test_shard_range(self):
-        # first test infinite range (no boundaries)
-        inf_pr = utils.ShardRange('a/test', utils.Timestamp.now())
-        self.assertEqual('', inf_pr.upper)
-        self.assertEqual('', inf_pr.lower)
-        self.assertIs(True, inf_pr.entire_namespace())
+    def test_entire_namespace(self):
+        # test infinite range (no boundaries)
+        inf_sr = utils.ShardRange('a/test', utils.Timestamp.now())
+        self.assertEqual('', inf_sr.upper)
+        self.assertEqual('', inf_sr.lower)
+        self.assertIs(True, inf_sr.entire_namespace())
 
         for x in range(100):
-            self.assertTrue(x in inf_pr)
-            self.assertTrue(str(x) in inf_pr)
-            self.assertTrue(chr(x) in inf_pr)
+            self.assertTrue(x in inf_sr)
+            self.assertTrue(str(x) in inf_sr)
+            self.assertTrue(chr(x) in inf_sr)
 
         for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
-            self.assertTrue(x in inf_pr)
+            self.assertTrue(x in inf_sr)
 
+        inf_sr.lower = 'a'
+        self.assertIs(False, inf_sr.entire_namespace())
+
+    def test_comparisons(self):
         ts = utils.Timestamp.now().internal
 
         # upper (if provided) *must* be greater than lower
@@ -6799,10 +6803,14 @@ class TestShardRange(unittest.TestCase):
             utils.ShardRange('f-a', ts, 'f', 'a')
 
         # test basic boundaries
+        btoc = utils.ShardRange('a/b-c', ts, 'b', 'c')
         atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
         ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
         ltor = utils.ShardRange('a/l-r', ts, 'l', 'r')
         rtoz = utils.ShardRange('a/r-z', ts, 'r', 'z')
+        lower = utils.ShardRange('a/lower', ts, '', 'mid')
+        upper = utils.ShardRange('a/upper', ts, 'mid', '')
+        entire = utils.ShardRange('a/test', utils.Timestamp.now())
 
         # overlapping ranges
         dtof = utils.ShardRange('a/d-f', ts, 'd', 'f')
@@ -6820,6 +6828,26 @@ class TestShardRange(unittest.TestCase):
         self.assertTrue(atof < ftol)
         self.assertTrue(ltor > ftol)
         self.assertFalse(ltor > rtoz)
+
+        self.assertFalse(btoc < atof)
+        self.assertFalse(btoc > atof)
+        self.assertTrue(atof < btoc)
+        self.assertTrue(atof > btoc)
+
+        self.assertFalse(dtof < dtom)
+        self.assertFalse(dtof > dtom)
+        self.assertTrue(atof < dtom)
+        self.assertFalse(atof > dtom)
+        self.assertTrue(ltor > dtom)
+
+        self.assertFalse(lower < entire)
+        self.assertFalse(entire > lower)
+        self.assertFalse(lower > entire)
+        self.assertFalse(entire < lower)
+        self.assertFalse(upper < entire)
+        self.assertFalse(upper > entire)
+        self.assertFalse(entire < entire)
+        self.assertFalse(entire > entire)
 
         # test range < and > to an item
         # range is > lower and <= upper to lower boundary isn't
@@ -6856,7 +6884,7 @@ class TestShardRange(unittest.TestCase):
 
         # Now test some of the range to range checks with missing boundaries
         self.assertFalse(atof < start_to_l)
-        self.assertFalse(start_to_l < inf_pr)
+        self.assertFalse(start_to_l < entire)
 
         # Now test ShardRange.overlaps(other)
         self.assertFalse(atof.overlaps(ftol))
@@ -6867,6 +6895,64 @@ class TestShardRange(unittest.TestCase):
         self.assertTrue(dtom.overlaps(ftol))
         self.assertTrue(ftol.overlaps(dtom))
         self.assertFalse(start_to_l.overlaps(l_to_end))
+
+    def test_contains(self):
+        ts = utils.Timestamp.now().internal
+        lower = utils.ShardRange('a/-h', ts, '', 'h')
+        mid = utils.ShardRange('a/h-p', ts, 'h', 'p')
+        upper = utils.ShardRange('a/p-', ts, 'p', '')
+        entire = utils.ShardRange('a/all', ts, '', '')
+
+        self.assertTrue('a' in entire)
+        self.assertTrue('x' in entire)
+
+        self.assertTrue('' in lower)
+        self.assertTrue('a' in lower)
+        self.assertTrue('h' in lower)
+        self.assertFalse('i' in lower)
+
+        self.assertFalse('h' in mid)
+        self.assertTrue('p' in mid)
+
+        self.assertFalse('p' in upper)
+        self.assertTrue('x' in upper)
+        self.assertFalse('' in upper)
+
+    def test_includes(self):
+        ts = utils.Timestamp.now().internal
+        _to_h = utils.ShardRange('a/-h', ts, '', 'h')
+        d_to_t = utils.ShardRange('a/d-t', ts, 'd', 't')
+        d_to_k = utils.ShardRange('a/d-k', ts, 'd', 'k')
+        e_to_l = utils.ShardRange('a/e-l', ts, 'e', 'l')
+        k_to_t = utils.ShardRange('a/k-t', ts, 'k', 't')
+        p_to_ = utils.ShardRange('a/p-', ts, 'p', '')
+        t_to_ = utils.ShardRange('a/t-', ts, 't', '')
+        entire = utils.ShardRange('a/all', ts, '', '')
+
+        self.assertTrue(entire.includes(entire))
+        self.assertTrue(d_to_t.includes(d_to_t))
+        self.assertTrue(_to_h.includes(_to_h))
+        self.assertTrue(p_to_.includes(p_to_))
+
+        self.assertTrue(entire.includes(_to_h))
+        self.assertTrue(entire.includes(d_to_t))
+        self.assertTrue(entire.includes(p_to_))
+
+        self.assertTrue(d_to_t.includes(d_to_k))
+        self.assertTrue(d_to_t.includes(e_to_l))
+        self.assertTrue(d_to_t.includes(k_to_t))
+        self.assertTrue(p_to_.includes(t_to_))
+
+        self.assertFalse(_to_h.includes(d_to_t))
+        self.assertFalse(p_to_.includes(d_to_t))
+        self.assertFalse(k_to_t.includes(d_to_k))
+        self.assertFalse(d_to_k.includes(e_to_l))
+        self.assertFalse(k_to_t.includes(e_to_l))
+        self.assertFalse(t_to_.includes(p_to_))
+
+        self.assertFalse(_to_h.includes(entire))
+        self.assertFalse(p_to_.includes(entire))
+        self.assertFalse(d_to_t.includes(entire))
 
     def test_repr(self):
         ts = next(self.ts_iter)
