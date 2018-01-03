@@ -52,7 +52,8 @@ DB_STATE = [
 # attribute names in order used when transforming shard ranges from dicts to
 # tuples and vice-versa
 SHARD_RANGE_KEYS = ('name', 'created_at', 'lower', 'upper', 'object_count',
-                    'bytes_used', 'meta_timestamp', 'deleted')
+                    'bytes_used', 'meta_timestamp', 'deleted', 'state',
+                    'state_timestamp')
 
 POLICY_STAT_TABLE_CREATE = '''
     CREATE TABLE policy_stat (
@@ -250,14 +251,26 @@ def merge_shards(item, existing):
     if not existing:
         return True
     if existing['created_at'] < item['created_at']:
+        # note that currently we do not roll forward any meta or state from
+        # an item that was created at older time, newer created time trumps
         return True
     elif existing['created_at'] > item['created_at']:
         return False
 
+    new_content = False
     # created_at must be the same, now we need to look for meta data updates
-    if existing['meta_timestamp'] < item['meta_timestamp']:
-        return True
-    return False
+    if existing['meta_timestamp'] >= item['meta_timestamp']:
+        for k in ('object_count', 'bytes_used', 'meta_timestamp'):
+            item[k] = existing[k]
+    else:
+        new_content = True
+
+    if existing['state_timestamp'] >= item['state_timestamp']:
+        for k in ('state', 'state_timestamp'):
+            item[k] = existing[k]
+    else:
+        new_content = True
+    return new_content
 
 
 class ContainerBroker(DatabaseBroker):
@@ -450,6 +463,8 @@ class ContainerBroker(DatabaseBroker):
                 bytes_used INTEGER DEFAULT 0,
                 created_at TEXT,
                 meta_timestamp TEXT,
+                state TEXT,
+                state_timestamp TEXT,
                 deleted INTEGER DEFAULT 0
             );
         """)
@@ -1392,10 +1407,18 @@ class ContainerBroker(DatabaseBroker):
                     raise
                 return {'bytes_used': 0, 'object_count': 0}
 
-    def _get_shard_range_rows(self, connection=None, include_deleted=False):
+    def _get_shard_range_rows(self, connection=None, include_deleted=False,
+                              state=None):
         def do_query(conn):
             try:
-                condition = '' if include_deleted else ' WHERE deleted=0 '
+                condition = ''
+                conditions = []
+                if not include_deleted:
+                    conditions.append('deleted=0')
+                if state is not None:
+                    conditions.append('state=%s' % state)
+                if conditions:
+                    condition = ' WHERE ' + ' AND '.join(conditions)
                 sql = '''
                 SELECT %s
                 FROM shard_ranges%s
@@ -1417,7 +1440,7 @@ class ContainerBroker(DatabaseBroker):
                 return do_query(conn)
 
     def get_shard_ranges(self, marker=None, end_marker=None, includes=None,
-                         reverse=False, include_deleted=False):
+                         reverse=False, include_deleted=False, state=None):
         """
         Returns a list of persisted shard ranges.
 
@@ -1430,12 +1453,14 @@ class ContainerBroker(DatabaseBroker):
             ``marker`` and ``end_marker`` are ignored.
         :param reverse: reverse the result order.
         :param include_deleted: include items that have the delete marker set
+        :param state: restricts the returned list to shard ranges that have the
+            given state.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         shard_ranges = [
             ShardRange(*row)
             for row in self._get_shard_range_rows(
-                include_deleted=include_deleted)]
+                include_deleted=include_deleted, state=state)]
         if includes:
             shard_range = find_shard_range(includes, shard_ranges)
             return [shard_range] if shard_range else []

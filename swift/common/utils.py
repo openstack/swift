@@ -4270,9 +4270,19 @@ def get_md5_socket():
 
 
 class ShardRange(object):
+    CREATED = 0
+    ACTIVE = 1
+    SHARDED = 2
+    SHRUNK = 3
+    STATES = {CREATED: 'created',
+              ACTIVE: 'active',
+              SHARDED: 'sharded',
+              SHRUNK: 'shrunk'}
+    STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
+
     def __init__(self, name, created_at, lower='', upper='',
                  object_count=0, bytes_used=0, meta_timestamp=None,
-                 deleted=0, **kwargs):
+                 deleted=0, state=None, state_timestamp=None, **kwargs):
         """
         A ShardRange encapsulates state related to a container shard.
 
@@ -4288,6 +4298,8 @@ class ShardRange(object):
         :param meta_timestamp: the timestamp at which the shard state was last
             updated; defaults to the value of ``created_at``.
         :param deleted: if set the shard range is considered to be deleted.
+        :param state: the state, must be one of ShardRange.STATES, defaults to
+            CREATED
         """
         self.account, self.container = self.validate_name(name)
         self.name = name
@@ -4301,11 +4313,16 @@ class ShardRange(object):
                              (upper, lower or ''))
         self.upper = upper
         self.timestamp = created_at
+        self._meta_timestamp = None
         self.meta_timestamp = meta_timestamp
         self.object_count = object_count
         self.bytes_used = bytes_used
         # TODO: add getter/setter for deleted similar to other attrs & validate
         self.deleted = deleted
+        self._state = None
+        self.state = self.CREATED if state is None else state
+        self._state_timestamp = None
+        self.state_timestamp = state_timestamp
 
     @classmethod
     def validate_name(cls, name):
@@ -4377,6 +4394,29 @@ class ShardRange(object):
             raise ValueError('bytes_used cannot be < 0')
         self._bytes = bytes_used
 
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, state):
+        try:
+            float_state = float(state)
+            int_state = int(float_state)
+        except (ValueError, TypeError):
+            raise ValueError('Invalid state %r' % state)
+        if int_state != float_state or int_state not in self.STATES:
+            raise ValueError('Invalid state %r' % state)
+        self._state = int_state
+
+    @property
+    def state_timestamp(self):
+        return self._state_timestamp or self.timestamp
+
+    @state_timestamp.setter
+    def state_timestamp(self, ts):
+        self._state_timestamp = self._to_timestamp(ts)
+
     def __contains__(self, item):
         if not self.lower and not self.upper:
             # No limits so must match
@@ -4425,10 +4465,11 @@ class ShardRange(object):
         return not (self == other)
 
     def __repr__(self):
-        return '%s<%r to %r as of %s, (%d, %d) as of %s>' % (
+        return '%s<%r to %r as of %s, (%d, %d) as of %s, %s as of %s>' % (
             self.__class__.__name__, self.lower, self.upper,
             self.timestamp.internal, self.object_count, self.bytes_used,
-            self.meta_timestamp.internal)
+            self.meta_timestamp.internal, self.state,
+            self.state_timestamp.internal)
 
     def entire_namespace(self):
         return self.lower == self.upper == ''
@@ -4484,6 +4525,8 @@ class ShardRange(object):
         yield 'bytes_used', self.bytes_used
         yield 'meta_timestamp', self.meta_timestamp.internal
         yield 'deleted', 1 if self.deleted else 0
+        yield 'state', self.state
+        yield 'state_timestamp', self.state_timestamp.internal
 
     def copy(self, timestamp=None):
         """
@@ -4497,7 +4540,7 @@ class ShardRange(object):
         new = ShardRange.from_dict(dict(self))
         if timestamp:
             new.timestamp = timestamp
-            new.meta_timestamp = None
+            new.meta_timestamp = new.state_timestamp = None
         return new
 
     @classmethod
@@ -4513,7 +4556,8 @@ class ShardRange(object):
         return cls(params['name'], params['created_at'], params['lower'],
                    params['upper'], params['object_count'],
                    params['bytes_used'], params['meta_timestamp'],
-                   params['deleted'])
+                   params['deleted'], params['state'],
+                   params['state_timestamp'])
 
 
 def find_shard_range(item, ranges):

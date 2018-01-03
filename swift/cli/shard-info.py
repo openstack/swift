@@ -19,7 +19,7 @@ from collections import defaultdict
 from swift.common import utils
 from swift.common.db_replicator import roundrobin_datadirs
 from swift.common.ring import ring
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, ShardRange
 from swift.container.backend import ContainerBroker, DATADIR, DB_STATE
 from swift.container.sharder import get_sharding_info
 
@@ -79,11 +79,12 @@ def print_db(node, broker, expect_type='ROOT', indent_level=0):
 def print_shard_range(node, sr, indent_level):
     indent = indent_level * TAB
     print('%s%r-%r, objs: %s, bytes: %s, created: %s (%s), modified: %s (%s), '
-          'deleted: %s (%s)' %
+          '%s: %s (%s), deleted: %s (%s)' %
           (indent, sr.lower, sr.upper, sr.object_count, sr.bytes_used,
            Timestamp(sr.timestamp).isoformat, sr.timestamp.internal,
            Timestamp(sr.meta_timestamp).isoformat, sr.meta_timestamp.internal,
-           sr.deleted, node))
+           ShardRange.STATES[sr.state], sr.state_timestamp.isoformat,
+           sr.state_timestamp.internal, sr.deleted, node))
 
 
 def print_shard_range_info(node, shard_ranges, indent_level=0):

@@ -6613,9 +6613,11 @@ class TestShardRange(unittest.TestCase):
 
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
+        ts_3 = next(self.ts_iter)
         empty_run = dict(name=None, created_at=None, lower=None,
                          upper=None, object_count=0, bytes_used=0,
-                         meta_timestamp=None, deleted=0)
+                         meta_timestamp=None, deleted=0,
+                         state=0, state_timestamp=None)
         # name, timestamp must be given
         assert_initialisation_fails(empty_run.copy())
         assert_initialisation_fails(dict(empty_run, name='a/c'), TypeError)
@@ -6637,15 +6639,17 @@ class TestShardRange(unittest.TestCase):
 
         expect = dict(name='a/c', created_at=ts_1.internal, lower='',
                       upper='', object_count=0, bytes_used=0,
-                      meta_timestamp=ts_1.internal, deleted=0)
+                      meta_timestamp=ts_1.internal, deleted=0,
+                      state=0, state_timestamp=ts_1.internal)
         assert_initialisation_ok(dict(name='a/c', created_at=ts_1), expect)
 
         good_run = dict(name='a/c', created_at=ts_1, lower='l',
                         upper='u', object_count=2, bytes_used=10,
-                        meta_timestamp=ts_2, deleted=0)
+                        meta_timestamp=ts_2, deleted=0,
+                        state=1, state_timestamp=ts_3.internal)
         expect.update({'lower': 'l', 'upper': 'u', 'object_count': 2,
                        'bytes_used': 10, 'meta_timestamp': ts_2.internal,
-                       'deleted': 0})
+                       'state': 1, 'state_timestamp': ts_3.internal})
         assert_initialisation_ok(good_run.copy(), expect)
 
         # obj count and bytes used as int strings
@@ -6680,45 +6684,68 @@ class TestShardRange(unittest.TestCase):
         assert_initialisation_fails(dict(good_run, object_count=-1))
 
         assert_initialisation_fails(dict(good_run, bytes_used=-1))
+        assert_initialisation_fails(dict(good_run, state=-1))
+        assert_initialisation_fails(dict(good_run, state_timestamp='not a ts'))
 
     def test_create(self):
-        now = next(self.ts_iter)
-        then = next(self.ts_iter)
+        ts0 = next(self.ts_iter)
+        ts1 = next(self.ts_iter)
+        ts2 = next(self.ts_iter)
 
-        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+        with mock.patch('swift.common.utils.time.time', lambda: float(ts0)):
             sr = utils.ShardRange.create('acc', 'con', 'l', 'u')
 
         expected_account = '.sharded_acc'
         expected_container = 'con-%s' % hashlib.md5(
-            'u-%s' % now.internal).hexdigest()
+            'u-%s' % ts0.internal).hexdigest()
         self.assertEqual(expected_account, sr.account)
         self.assertEqual(expected_container, sr.container)
         expected_name = '%s/%s' % (expected_account, expected_container)
-        expected = dict(name=expected_name, created_at=now.internal, lower='l',
+        expected = dict(name=expected_name, created_at=ts0.internal, lower='l',
                         upper='u', object_count=0, bytes_used=0,
-                        meta_timestamp=now.internal, deleted=0)
+                        meta_timestamp=ts0.internal, deleted=0,
+                        state=0, state_timestamp=ts0.internal)
         self.assertEqual(expected, dict(sr))
 
-        with mock.patch('swift.common.utils.time.time', lambda: float(now)):
+        # with meta and meta_timestamp
+        with mock.patch('swift.common.utils.time.time', lambda: float(ts0)):
             sr = utils.ShardRange.create('acc', 'con', 'l', 'u',
                                          object_count=2, bytes_used=3,
-                                         meta_timestamp=then, deleted=1)
+                                         meta_timestamp=ts1, deleted=1)
 
         self.assertEqual(expected_account, sr.account)
         self.assertEqual(expected_container, sr.container)
         expected = dict(expected, object_count=2, bytes_used=3,
-                        meta_timestamp=then.internal, deleted=1)
+                        meta_timestamp=ts1.internal, deleted=1,
+                        state=0, state_timestamp=ts0.internal)
+        self.assertEqual(expected, dict(sr))
+
+        # with state and state_timestamp
+        with mock.patch('swift.common.utils.time.time', lambda: float(ts0)):
+            sr = utils.ShardRange.create('acc', 'con', 'l', 'u',
+                                         object_count=2, bytes_used=3,
+                                         meta_timestamp=ts1, deleted=1,
+                                         state=1, state_timestamp=ts2)
+
+        self.assertEqual(expected_account, sr.account)
+        self.assertEqual(expected_container, sr.container)
+        expected = dict(expected, object_count=2, bytes_used=3,
+                        meta_timestamp=ts1.internal, deleted=1,
+                        state=1, state_timestamp=ts2.internal)
         self.assertEqual(expected, dict(sr))
 
     def test_to_from_dict(self):
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
-        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 10, 100, ts_2)
+        ts_3 = next(self.ts_iter)
+        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 10, 100, ts_2,
+                              state=1, state_timestamp=ts_3)
         pr_dict = dict(pr)
         expected = {
             'name': 'a/test', 'created_at': ts_1.internal, 'lower': 'l',
             'upper': 'u', 'object_count': 10, 'bytes_used': 100,
-            'meta_timestamp': ts_2.internal, 'deleted': 0}
+            'meta_timestamp': ts_2.internal, 'deleted': 0,
+            'state': 1, 'state_timestamp': ts_3.internal}
         self.assertEqual(expected, pr_dict)
         pr_new = utils.ShardRange.from_dict(pr_dict)
         self.assertEqual(pr, pr_new)
@@ -6776,6 +6803,26 @@ class TestShardRange(unittest.TestCase):
         pr.timestamp = ts_4
         self.assertEqual(ts_4, pr.timestamp)
         self.assertEqual(ts_4, pr.meta_timestamp)
+
+    def test_state_setter(self):
+
+        for state in utils.ShardRange.STATES:
+            for test_value in (state, str(state)):
+                sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
+                sr.state = test_value
+                actual = sr.state
+                self.assertEqual(
+                    state, actual,
+                    'Expected %s but got %s for %s' %
+                    (state, actual, test_value)
+                )
+
+        for bad_state in (max(utils.ShardRange.STATES) + 1,
+                          -1, 99, None, 'stringy', 1.1):
+            sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
+            with self.assertRaises(ValueError) as cm:
+                sr.state = bad_state
+            self.assertIn('Invalid state', str(cm.exception))
 
     def test_entire_namespace(self):
         # test infinite range (no boundaries)
@@ -6958,22 +7005,26 @@ class TestShardRange(unittest.TestCase):
         ts = next(self.ts_iter)
         ts.offset = 1234
         meta_ts = next(self.ts_iter)
+        state_ts = next(self.ts_iter)
         sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000,
-                              meta_timestamp=meta_ts)
+                              meta_timestamp=meta_ts, state=1,
+                              state_timestamp=state_ts)
         self.assertEqual(
-            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s>" %
-            (ts.internal, meta_ts.internal), str(sr))
+            "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, 1 as of %s>"
+            % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
 
     def test_copy(self):
         sr = utils.ShardRange('a/c', next(self.ts_iter), 'x', 'y', 99, 99000,
-                              meta_timestamp=next(self.ts_iter))
+                              meta_timestamp=next(self.ts_iter), state=1,
+                              state_timestamp=next(self.ts_iter))
         new = sr.copy()
         self.assertEqual(dict(sr), dict(new))
 
         new_timestamp = next(self.ts_iter)
         new = sr.copy(timestamp=new_timestamp)
         self.assertEqual(dict(sr, created_at=new_timestamp.internal,
-                              meta_timestamp=new_timestamp.internal),
+                              meta_timestamp=new_timestamp.internal,
+                              state_timestamp=new_timestamp.internal),
                          dict(new))
 
 
