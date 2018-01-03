@@ -1950,74 +1950,41 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         # device won't acquire any partitions, so the ring's balance won't
         # change. However, dispersion will improve.
 
-        ring = RingBuilder(6, 5, 1)
-        ring.add_dev({
-            'region': 1, 'zone': 1,
-            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
-            'device': 'sda'})
-        ring.add_dev({
-            'region': 1, 'zone': 1,
-            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
-            'device': 'sdb'})
-        ring.add_dev({
-            'region': 1, 'zone': 1,
-            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
-            'device': 'sdc'})
-        ring.add_dev({
-            'region': 1, 'zone': 1,
-            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
-            'device': 'sdd'})
-        ring.add_dev({
-            'region': 1, 'zone': 1,
-            'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
-            'device': 'sde'})
+        ring = RingBuilder(6, 6, 1)
+        devs = ('d%s' % i for i in itertools.count())
+        for i in range(6):
+            ring.add_dev({
+                'region': 1, 'zone': 1,
+                'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
+                'device': next(devs)})
         ring.rebalance()
 
         # The last guy in zone 1
         ring.add_dev({
             'region': 1, 'zone': 1,
             'ip': '10.0.0.1', 'port': 20001, 'weight': 1000,
-            'device': 'sdf'})
+            'device': next(devs)})
 
         # Add zone 2 (same total weight as zone 1)
-        ring.add_dev({
-            'region': 1, 'zone': 2,
-            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
-            'device': 'sda'})
-        ring.add_dev({
-            'region': 1, 'zone': 2,
-            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
-            'device': 'sdb'})
-        ring.add_dev({
-            'region': 1, 'zone': 2,
-            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
-            'device': 'sdc'})
-        ring.add_dev({
-            'region': 1, 'zone': 2,
-            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
-            'device': 'sdd'})
-        ring.add_dev({
-            'region': 1, 'zone': 2,
-            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
-            'device': 'sde'})
-        ring.add_dev({
-            'region': 1, 'zone': 2,
-            'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
-            'device': 'sdf'})
+        for i in range(7):
+            ring.add_dev({
+                'region': 1, 'zone': 2,
+                'ip': '10.0.0.2', 'port': 20001, 'weight': 1000,
+                'device': next(devs)})
         ring.pretend_min_part_hours_passed()
         ring.save(self.tmpfile)
         del ring
 
-        # Rebalance once: this gets 1/5 replica into zone 2; the ring is
+        # Rebalance once: this gets 1/6th replica into zone 2; the ring is
         # saved because devices changed.
         argv = ["", self.tmpfile, "rebalance", "5759339"]
         self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
         rb = RingBuilder.load(self.tmpfile)
-        self.assertEqual(rb.dispersion, 100)
+        self.assertEqual(rb.dispersion, 33.333333333333336)
         self.assertEqual(rb.get_balance(), 100)
         self.run_srb('pretend_min_part_hours_passed')
 
-        # Rebalance again: this gets 2/5 replica into zone 2, but no devices
+        # Rebalance again: this gets 2/6th replica into zone 2, but no devices
         # changed and the balance stays the same. The only improvement is
         # dispersion.
 
@@ -2032,7 +1999,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch('swift.common.ring.RingBuilder.save', capture_save):
             self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
         self.assertEqual(captured, {
-            'dispersion': 0,
+            'dispersion': 16.666666666666668,
             'balance': 100,
         })
 
