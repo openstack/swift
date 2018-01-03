@@ -475,6 +475,7 @@ swift-ring-builder <builder_file>
         zones = 0
         balance = 0
         dev_count = 0
+        ring_empty_error = None
         if builder.devs:
             regions = len(set(d['region'] for d in builder.devs
                               if d is not None))
@@ -484,9 +485,8 @@ swift-ring-builder <builder_file>
                              if dev is not None])
             try:
                 balance = builder.get_balance()
-            except Exception as e:
-                print(e)
-                exit(EXIT_ERROR)
+            except exceptions.EmptyRingError as e:
+                ring_empty_error = str(e)
         dispersion_trailer = '' if builder.dispersion is None else (
             ', %.02f dispersion' % (builder.dispersion))
         print('%d partitions, %.6f replicas, %d regions, %d zones, '
@@ -518,7 +518,10 @@ swift-ring-builder <builder_file>
                 else:
                     print('Ring file %s is obsolete' % ring_file)
 
-        if builder.devs:
+        if ring_empty_error:
+            print(ring_empty_error)
+            exit(EXIT_ERROR)
+        else:
             balance_per_dev = builder._build_balance_per_dev()
             header_line, print_dev_f = _make_display_device_table(builder)
             print(header_line)
