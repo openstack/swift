@@ -541,15 +541,6 @@ class ContainerSharder(ContainerReplicator):
                         self._find_shrinks(broker, node, part)
                 else:
                     # let the root know about this shard's sharded shard ranges
-                    # TODO: why did I think this was necessary? as it is, this
-                    # is not a good thing to do - when we cleaved this shard to
-                    # it's acceptor we set it's object count to the actual
-                    # content of the new cleave broker, which is only the
-                    # objects being merged form the donor, so is gauranteed to
-                    # be less than the new total for the acceptor shard!
-                    # Update: we now update root container with shard
-                    # container's shard ranges during find_ranges, so a
-                    # sharding shard updates root with the new shards there
                     # TODO: these shard ranges may have existed for some time
                     # and already be updating the root with their usage e.g.
                     # multiple cycles before we finished cleaving, or process
@@ -559,9 +550,9 @@ class ContainerSharder(ContainerReplicator):
                     # the meta_timestamp should prevent these updates undoing
                     # any newer updates at the root from the actual shards.
                     # *It would be good to have a test to verify that.*
-                    # self._update_shard_ranges(
-                    #     broker.root_account, broker.root_container, 'PUT',
-                    #     broker.get_shard_ranges())
+                    self._update_shard_ranges(
+                        broker.root_account, broker.root_container, 'PUT',
+                        broker.get_shard_ranges())
                     own_shard_range = broker.get_own_shard_range()
                     now = Timestamp.now().internal
                     own_shard_range.timestamp = now
@@ -1036,6 +1027,7 @@ class ContainerSharder(ContainerReplicator):
                              broker.account, broker.container)
             return True
 
+        own_shard_range = broker.get_own_shard_range()
         ranges_done = []
         policy_index = broker.storage_policy_index
         for shard_range in ranges_todo[:self.shard_batch_size]:
@@ -1070,15 +1062,21 @@ class ContainerSharder(ContainerReplicator):
             with new_broker.sharding_lock():
                 self._add_items(broker, new_broker, query)
 
-            # TODO: when shrinking, the cleaved shard db does NOT have all
-            # objects so do not use it to update the shard_range, otherwise we
-            # risk sending bad object stats to the root. Whether shrinking or
-            # sharding the root will eventually be updated by the shard
-            # container which does have correct view of object stats
-            info = new_broker.get_info()
-            shard_range.object_count = info['object_count']
-            shard_range.bytes_used = info['bytes_used']
-            shard_range.meta_timestamp = Timestamp.now()
+            if (broker.is_root_container() or
+                    own_shard_range.includes(shard_range)):
+                # TODO: unit test scenario when this condition is not met
+                # The shard range object stats may have changed since the shard
+                # range was found, so update with stats of objects actually
+                # copied to the shard broker. Only do this if the source
+                # namespace includes the entire shard range; when shrinking,
+                # the source namespace is smaller than the existing acceptor
+                # shard range to which we are cleaving and the source stats are
+                # therefore incomplete.
+                info = new_broker.get_info()
+                shard_range.object_count = info['object_count']
+                shard_range.bytes_used = info['bytes_used']
+                shard_range.meta_timestamp = Timestamp.now()
+
             if not hasattr(shard_range, 'dont_save'):
                 ranges_done.append(shard_range)
 
