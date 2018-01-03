@@ -16,6 +16,7 @@
 from __future__ import print_function
 import logging
 
+from collections import defaultdict
 from errno import EEXIST
 from itertools import islice
 from operator import itemgetter
@@ -471,22 +472,18 @@ swift-ring-builder <builder_file>
             builder_id = "(not assigned)"
         print('%s, build version %d, id %s' %
               (builder_file, builder.version, builder_id))
-        regions = 0
-        zones = 0
         balance = 0
-        dev_count = 0
         ring_empty_error = None
-        if builder.devs:
-            regions = len(set(d['region'] for d in builder.devs
-                              if d is not None))
-            zones = len(set((d['region'], d['zone']) for d in builder.devs
-                            if d is not None))
-            dev_count = len([dev for dev in builder.devs
-                             if dev is not None])
-            try:
-                balance = builder.get_balance()
-            except exceptions.EmptyRingError as e:
-                ring_empty_error = str(e)
+        regions = len(set(d['region'] for d in builder.devs
+                          if d is not None))
+        zones = len(set((d['region'], d['zone']) for d in builder.devs
+                        if d is not None))
+        dev_count = len([dev for dev in builder.devs
+                         if dev is not None])
+        try:
+            balance = builder.get_balance()
+        except exceptions.EmptyRingError as e:
+            ring_empty_error = str(e)
         dispersion_trailer = '' if builder.dispersion is None else (
             ', %.02f dispersion' % (builder.dispersion))
         print('%d partitions, %.6f replicas, %d regions, %d zones, '
@@ -519,18 +516,17 @@ swift-ring-builder <builder_file>
                     print('Ring file %s is obsolete' % ring_file)
 
         if ring_empty_error:
-            print(ring_empty_error)
-            exit(EXIT_ERROR)
+            balance_per_dev = defaultdict(int)
         else:
             balance_per_dev = builder._build_balance_per_dev()
-            header_line, print_dev_f = _make_display_device_table(builder)
-            print(header_line)
-            for dev in sorted(
-                builder._iter_devs(),
-                key=lambda x: (x['region'], x['zone'], x['ip'], x['device'])
-            ):
-                flags = 'DEL' if dev in builder._remove_devs else ''
-                print_dev_f(dev, balance_per_dev[dev['id']], flags)
+        header_line, print_dev_f = _make_display_device_table(builder)
+        print(header_line)
+        for dev in sorted(
+            builder._iter_devs(),
+            key=lambda x: (x['region'], x['zone'], x['ip'], x['device'])
+        ):
+            flags = 'DEL' if dev in builder._remove_devs else ''
+            print_dev_f(dev, balance_per_dev[dev['id']], flags)
 
         # Print some helpful info if partition power increase in progress
         if (builder.next_part_power and
@@ -549,7 +545,11 @@ swift-ring-builder <builder_file>
             print('Run "swift-object-relinker cleanup" on all nodes before '
                   'moving on to finish_increase_partition_power.')
 
-        exit(EXIT_SUCCESS)
+        if ring_empty_error:
+            print(ring_empty_error)
+            exit(EXIT_ERROR)
+        else:
+            exit(EXIT_SUCCESS)
 
     @staticmethod
     def search():
