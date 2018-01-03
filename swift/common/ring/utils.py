@@ -606,8 +606,9 @@ def build_dev_from_opts(opts):
             'replication_port': replication_port, 'weight': opts.weight}
 
 
-def dispersion_report(builder, search_filter=None, verbose=False):
-    if not builder._dispersion_graph:
+def dispersion_report(builder, search_filter=None,
+                      verbose=False, recalculate=False):
+    if recalculate or not builder._dispersion_graph:
         builder._build_dispersion_graph()
     max_allowed_replicas = builder._build_max_replicas_by_tier()
     worst_tier = None

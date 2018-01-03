@@ -555,7 +555,6 @@ class RingBuilder(object):
                 {'status': finish_status, 'count': gather_count + 1})
 
         self.devs_changed = False
-        self.version += 1
         changed_parts = self._build_dispersion_graph(old_replica2part2dev)
 
         # clean up the cache
@@ -639,6 +638,7 @@ class RingBuilder(object):
             parts_at_risk += max(part_risk_depth.values())
         self._dispersion_graph = dispersion_graph
         self.dispersion = 100.0 * parts_at_risk / (self.parts * self.replicas)
+        self.version += 1
         return changed_parts
 
     def validate(self, stats=False):
