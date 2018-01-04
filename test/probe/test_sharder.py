@@ -43,6 +43,7 @@ class TestContainerSharding(ReplProbeTest):
             self.fail('No [container-sharder] section found in '
                       'container-server configs!')
 
+        skip_reasons = []
         if cont_configs:
             self.max_shard_size = max(
                 int(c.get('shard_container_size', '1000000'))
@@ -51,8 +52,20 @@ class TestContainerSharding(ReplProbeTest):
             self.max_shard_size = 1000000
 
         if self.max_shard_size > MAX_SHARD_CONTAINER_SIZE:
-            raise SkipTest('shard_container_size is too big! %d > %d' %
-                           (self.max_shard_size, MAX_SHARD_CONTAINER_SIZE))
+            skip_reasons.append(
+                'shard_container_size is too big! %d > %d' %
+                (self.max_shard_size, MAX_SHARD_CONTAINER_SIZE))
+
+        def skip_check(reason_list, option, required):
+            values = set([int(c.get(option, required)) for c in cont_configs])
+            if values != {required}:
+                reason_list.append('%s must be %s' % (option, required))
+
+        skip_check(skip_reasons, 'shard_scanner_batch_size', 10)
+        skip_check(skip_reasons, 'shard_batch_size', 2)
+
+        if skip_reasons:
+            raise SkipTest(', '.join(skip_reasons))
 
         _, self.admin_token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
