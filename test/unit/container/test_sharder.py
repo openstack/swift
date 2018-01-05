@@ -567,29 +567,33 @@ class TestSharder(unittest.TestCase):
         updated_shard_ranges = broker.get_shard_ranges()
         self.assertEqual(3, len(updated_shard_ranges))
 
-        # third shard range should be unchanged - not yet cleaved
-        self.assertEqual(dict(initial_shard_ranges[2]),
-                         dict(updated_shard_ranges[2]))
-
         def check_shard_range(expected, actual):
             expected_dict = dict(expected)
             actual_dict = dict(actual)
             self.assertGreater(actual_dict.pop('meta_timestamp'),
                                expected_dict.pop('meta_timestamp'))
+            self.assertGreater(actual_dict.pop('state_timestamp'),
+                               expected_dict.pop('state_timestamp'))
             self.assertEqual(expected_dict, actual_dict)
 
         # first 2 shard ranges should have updated object count, bytes used and
         # meta_timestamp
         initial_shard_ranges[0].bytes_used = 20
         initial_shard_ranges[0].object_count = 2
+        initial_shard_ranges[0].state = ShardRange.ACTIVE
         check_shard_range(initial_shard_ranges[0], updated_shard_ranges[0])
         initial_shard_ranges[1].bytes_used = 6
         initial_shard_ranges[1].object_count = 3
+        initial_shard_ranges[1].state = ShardRange.ACTIVE
         check_shard_range(initial_shard_ranges[1], updated_shard_ranges[1])
         self._check_objects(objects[:2], expected_shard_dbs[0])
         self._check_objects(objects[2:5], expected_shard_dbs[1])
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
         self.assertFalse(os.path.exists(expected_shard_dbs[3]))
+
+        # third shard range should be unchanged - not yet cleaved
+        self.assertEqual(dict(initial_shard_ranges[2]),
+                         dict(updated_shard_ranges[2]))
 
         metadata = broker.metadata
         self.assertIn('X-Container-Sysmeta-Shard-Last-1', metadata)
@@ -610,6 +614,7 @@ class TestSharder(unittest.TestCase):
         # third shard range should now have update object count, bytes used
         initial_shard_ranges[2].bytes_used = 100
         initial_shard_ranges[2].object_count = 1
+        initial_shard_ranges[2].state = ShardRange.ACTIVE
         check_shard_range(initial_shard_ranges[2], updated_shard_ranges[2])
         self._check_objects(objects[5:6], expected_shard_dbs[2])
         self.assertFalse(os.path.exists(expected_shard_dbs[3]))
@@ -644,6 +649,7 @@ class TestSharder(unittest.TestCase):
         # NB only the undeleted object contributes to these
         initial_shard_ranges[3].bytes_used = 1000
         initial_shard_ranges[3].object_count = 1
+        initial_shard_ranges[3].state = ShardRange.ACTIVE
         check_shard_range(initial_shard_ranges[3], updated_shard_ranges[3])
         # all objects in their shards
         self._check_objects(objects[:2], expected_shard_dbs[0])
