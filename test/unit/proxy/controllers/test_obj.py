@@ -45,7 +45,7 @@ from swift.common.storage_policy import POLICIES, ECDriverError, \
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies, SlowBody, FakeStatus, \
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub, \
-    fake_ec_node_response, StubResponse
+    fake_ec_node_response, StubResponse, mocked_http_conn
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -1579,6 +1579,52 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
+
+    def test_x_timestamp_not_overridden(self):
+        def do_test(method, base_headers, resp_code):
+            # no given x-timestamp
+            req = swob.Request.blank(
+                '/v1/a/c/o', method=method, headers=base_headers)
+            codes = [resp_code] * self.replicas()
+            with mocked_http_conn(*codes) as fake_conn:
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, resp_code)
+            self.assertEqual(self.replicas(), len(fake_conn.requests))
+            for req in fake_conn.requests:
+                self.assertIn('X-Timestamp', req['headers'])
+                # check value can be parsed as valid timestamp
+                Timestamp(req['headers']['X-Timestamp'])
+
+            # given x-timestamp is retained
+            def do_check(ts):
+                headers = dict(base_headers)
+                headers['X-Timestamp'] = ts.internal
+                req = swob.Request.blank(
+                    '/v1/a/c/o', method=method, headers=headers)
+                codes = [resp_code] * self.replicas()
+                with mocked_http_conn(*codes) as fake_conn:
+                    resp = req.get_response(self.app)
+                self.assertEqual(resp.status_int, resp_code)
+                self.assertEqual(self.replicas(), len(fake_conn.requests))
+                for req in fake_conn.requests:
+                    self.assertEqual(ts.internal,
+                                     req['headers']['X-Timestamp'])
+
+            do_check(Timestamp.now())
+            do_check(Timestamp.now(offset=123))
+
+            # given x-timestamp gets sanity checked
+            headers = dict(base_headers)
+            headers['X-Timestamp'] = 'bad timestamp'
+            req = swob.Request.blank(
+                '/v1/a/c/o', method=method, headers=headers)
+            with mocked_http_conn() as fake_conn:
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 400)
+            self.assertIn('X-Timestamp should be a UNIX timestamp ', resp.body)
+
+        do_test('PUT', {'Content-Length': 0}, 200)
+        do_test('DELETE', {}, 204)
 
 
 @patch_policies(
