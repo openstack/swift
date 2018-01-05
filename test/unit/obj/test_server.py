@@ -5773,16 +5773,16 @@ class TestObjectController(unittest.TestCase):
                 given_args[5], 'sda1', policy])
 
     def test_GET_but_expired(self):
+        # Start off with an existing object that will expire
         now = time()
-        test_time = now + 10000
-        delete_at_timestamp = int(test_time + 100)
+        delete_at_timestamp = int(now + 100)
         delete_at_container = str(
             delete_at_timestamp /
             self.object_controller.expiring_objects_container_divisor *
             self.object_controller.expiring_objects_container_divisor)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
+            headers={'X-Timestamp': normalize_timestamp(now),
                      'X-Delete-At': str(delete_at_timestamp),
                      'X-Delete-At-Container': delete_at_container,
                      'Content-Length': '4',
@@ -5791,50 +5791,29 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
+        # It expires in the future, so it's accessible via GET
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': normalize_timestamp(test_time)})
-        resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.status_int, 200)
-
-        delete_at_timestamp = int(now + 1)
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.object_controller.expiring_objects_container_divisor *
-            self.object_controller.expiring_objects_container_divisor)
-        put_timestamp = normalize_timestamp(test_time - 1000)
-        req = Request.blank(
-            '/sda1/p/a/c/o',
-            environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': put_timestamp,
-                     'X-Delete-At': str(delete_at_timestamp),
-                     'X-Delete-At-Container': delete_at_container,
-                     'Content-Length': '4',
-                     'Content-Type': 'application/octet-stream'})
-        req.body = 'TEST'
-
-        # fix server time to now: delete-at is in future, verify GET is ok
+            headers={'X-Timestamp': normalize_timestamp(now)})
         with mock.patch('swift.obj.server.time.time', return_value=now):
             resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 200)
 
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Timestamp': normalize_timestamp(test_time)})
+        # It expires in the past, so it's not accessible via GET...
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': normalize_timestamp(
+                delete_at_timestamp + 1)})
+        with mock.patch('swift.obj.server.time.time',
+                        return_value=delete_at_timestamp + 1):
             resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         utils.Timestamp(now))
 
-        # fix server time to now + 2: delete-at is in past, verify GET fails...
-        with mock.patch('swift.obj.server.time.time', return_value=now + 2):
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'GET'},
-                headers={'X-Timestamp': normalize_timestamp(now + 2)})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 404)
-            self.assertEqual(resp.headers['X-Backend-Timestamp'],
-                             utils.Timestamp(put_timestamp))
+        with mock.patch('swift.obj.server.time.time',
+                        return_value=delete_at_timestamp + 1):
             # ...unless X-Backend-Replication is sent
             expected = {
                 'GET': 'TEST',
@@ -5843,22 +5822,24 @@ class TestObjectController(unittest.TestCase):
             for meth, expected_body in expected.items():
                 req = Request.blank(
                     '/sda1/p/a/c/o', method=meth,
-                    headers={'X-Timestamp': normalize_timestamp(now + 2),
+                    headers={'X-Timestamp':
+                             normalize_timestamp(delete_at_timestamp + 1),
                              'X-Backend-Replication': 'True'})
                 resp = req.get_response(self.object_controller)
                 self.assertEqual(resp.status_int, 200)
                 self.assertEqual(expected_body, resp.body)
 
     def test_HEAD_but_expired(self):
-        test_time = time() + 10000
-        delete_at_timestamp = int(test_time + 100)
+        # We have an object that expires in the future
+        now = time()
+        delete_at_timestamp = int(now + 100)
         delete_at_container = str(
             delete_at_timestamp /
             self.object_controller.expiring_objects_container_divisor *
             self.object_controller.expiring_objects_container_divisor)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
+            headers={'X-Timestamp': normalize_timestamp(now),
                      'X-Delete-At': str(delete_at_timestamp),
                      'X-Delete-At-Container': delete_at_container,
                      'Content-Length': '4',
@@ -5867,26 +5848,43 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
+        # It's accessible since it expires in the future
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
-            headers={'X-Timestamp': normalize_timestamp(test_time)})
-        resp = req.get_response(self.object_controller)
+            headers={'X-Timestamp': normalize_timestamp(now)})
+        with mock.patch('swift.obj.server.time.time', return_value=now):
+            resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
 
-        # fix server time to now: delete-at is in future, verify GET is ok
+        # It's not accessible now since it expires in the past
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'X-Timestamp': normalize_timestamp(
+                delete_at_timestamp + 1)})
+        with mock.patch('swift.obj.server.time.time',
+                        return_value=delete_at_timestamp + 1):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         utils.Timestamp(now))
+
+    def test_POST_but_expired(self):
         now = time()
-        with mock.patch('swift.obj.server.time.time', return_value=now):
-            delete_at_timestamp = int(now + 1)
-            delete_at_container = str(
-                delete_at_timestamp /
-                self.object_controller.expiring_objects_container_divisor *
-                self.object_controller.expiring_objects_container_divisor)
-            put_timestamp = normalize_timestamp(test_time - 1000)
+        delete_at_timestamp = int(now + 100)
+        delete_at_container = str(
+            delete_at_timestamp /
+            self.object_controller.expiring_objects_container_divisor *
+            self.object_controller.expiring_objects_container_divisor)
+
+        # We recreate the test object every time to ensure a clean test; a
+        # POST may change attributes of the object, so it's not safe to
+        # re-use.
+        def recreate_test_object(when):
             req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': put_timestamp,
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Timestamp': normalize_timestamp(when),
                          'X-Delete-At': str(delete_at_timestamp),
                          'X-Delete-At-Container': delete_at_container,
                          'Content-Length': '4',
@@ -5894,76 +5892,29 @@ class TestObjectController(unittest.TestCase):
             req.body = 'TEST'
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 201)
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'HEAD'},
-                headers={'X-Timestamp': normalize_timestamp(test_time)})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 200)
 
-        with mock.patch('swift.obj.server.time.time', return_value=now + 2):
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'HEAD'},
-                headers={'X-Timestamp': normalize_timestamp(now + 2)})
-            resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 404)
-            self.assertEqual(resp.headers['X-Backend-Timestamp'],
-                             utils.Timestamp(put_timestamp))
-
-    def test_POST_but_expired(self):
-        test_time = time() + 10000
-        delete_at_timestamp = int(test_time + 100)
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.object_controller.expiring_objects_container_divisor *
-            self.object_controller.expiring_objects_container_divisor)
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 2000),
-                     'X-Delete-At': str(delete_at_timestamp),
-                     'X-Delete-At-Container': delete_at_container,
-                     'Content-Length': '4',
-                     'Content-Type': 'application/octet-stream'})
-        req.body = 'TEST'
-        resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.status_int, 201)
-
+        # You can POST to a not-yet-expired object
+        recreate_test_object(now)
+        the_time = now + 1
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 1500)})
-        resp = req.get_response(self.object_controller)
+            headers={'X-Timestamp': normalize_timestamp(the_time)})
+        with mock.patch('swift.obj.server.time.time', return_value=the_time):
+            resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
-        delete_at_timestamp = int(time() + 2)
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.object_controller.expiring_objects_container_divisor *
-            self.object_controller.expiring_objects_container_divisor)
+        # You cannot POST to an expired object
+        now += 2
+        recreate_test_object(now)
+        the_time = delete_at_timestamp + 1
         req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 1000),
-                     'X-Delete-At': str(delete_at_timestamp),
-                     'X-Delete-At-Container': delete_at_container,
-                     'Content-Length': '4',
-                     'Content-Type': 'application/octet-stream'})
-        req.body = 'TEST'
-        resp = req.get_response(self.object_controller)
-        self.assertEqual(resp.status_int, 201)
-
-        orig_time = object_server.time.time
-        try:
-            t = time() + 3
-            object_server.time.time = lambda: t
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'POST'},
-                headers={'X-Timestamp': normalize_timestamp(time())})
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(the_time)})
+        with mock.patch('swift.obj.server.time.time', return_value=the_time):
             resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 404)
-        finally:
-            object_server.time.time = orig_time
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_but_expired(self):
         test_time = time() + 10000

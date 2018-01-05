@@ -16,7 +16,6 @@
 import functools
 import os
 from os.path import isdir  # tighter scoped import for mocking
-import time
 
 import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
@@ -312,6 +311,7 @@ def check_delete_headers(request):
     :returns: HTTPBadRequest in case of invalid values
               or None if values are ok
     """
+    now = float(valid_timestamp(request))
     if 'x-delete-after' in request.headers:
         try:
             x_delete_after = int(request.headers['x-delete-after'])
@@ -319,13 +319,14 @@ def check_delete_headers(request):
             raise HTTPBadRequest(request=request,
                                  content_type='text/plain',
                                  body='Non-integer X-Delete-After')
-        actual_del_time = time.time() + x_delete_after
-        if actual_del_time < time.time():
+        actual_del_time = now + x_delete_after
+        if actual_del_time < now:
             raise HTTPBadRequest(request=request,
                                  content_type='text/plain',
                                  body='X-Delete-After in past')
         request.headers['x-delete-at'] = utils.normalize_delete_at_timestamp(
             actual_del_time)
+        del request.headers['x-delete-after']
 
     if 'x-delete-at' in request.headers:
         try:
@@ -335,7 +336,7 @@ def check_delete_headers(request):
             raise HTTPBadRequest(request=request, content_type='text/plain',
                                  body='Non-integer X-Delete-At')
 
-        if x_delete_at < time.time() and not utils.config_true_value(
+        if x_delete_at < now and not utils.config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
             raise HTTPBadRequest(request=request, content_type='text/plain',
                                  body='X-Delete-At in past')
