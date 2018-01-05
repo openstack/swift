@@ -130,7 +130,7 @@ Response Parameters
    - X-Object-Meta-name: X-Object-Meta-name_resp
    - Content-Disposition: Content-Disposition_resp
    - Content-Encoding: Content-Encoding_resp
-   - X-Delete-At: X-Delete-At
+   - X-Delete-At: X-Delete-At_resp
    - Accept-Ranges: Accept-Ranges
    - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
@@ -602,7 +602,7 @@ Response Parameters
    - X-Object-Meta-name: X-Object-Meta-name
    - Content-Disposition: Content-Disposition_resp
    - Content-Encoding: Content-Encoding_resp
-   - X-Delete-At: X-Delete-At
+   - X-Delete-At: X-Delete-At_resp
    - X-Object-Manifest: X-Object-Manifest_resp
    - Last-Modified: Last-Modified
    - ETag: ETag_obj_resp
@@ -752,9 +752,9 @@ Request
    - X-Service-Token: X-Service-Token
    - X-Object-Meta-name: X-Object-Meta-name
    - X-Delete-At: X-Delete-At
+   - X-Delete-After: X-Delete-After
    - Content-Disposition: Content-Disposition
    - Content-Encoding: Content-Encoding
-   - X-Delete-After: X-Delete-After
    - Content-Type: Content-Type_obj_cu_req
    - X-Trans-Id-Extra: X-Trans-Id-Extra
 
