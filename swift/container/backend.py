@@ -49,6 +49,11 @@ DB_STATE = [
     'sharding',
     'sharded']
 
+# attribute names in order used when transforming shard ranges from dicts to
+# tuples and vice-versa
+SHARD_RANGE_KEYS = ('name', 'created_at', 'lower', 'upper', 'object_count',
+                    'bytes_used', 'meta_timestamp', 'deleted')
+
 POLICY_STAT_TABLE_CREATE = '''
     CREATE TABLE policy_stat (
         storage_policy_index INTEGER PRIMARY KEY,
@@ -480,21 +485,11 @@ class ContainerBroker(DatabaseBroker):
 
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
-        data = pickle.loads(entry.decode('base64'))
-        record_type = data[9] if len(data) > 9 else RECORD_TYPE_OBJECT
+        data = list(pickle.loads(entry.decode('base64')))
+        record_type = data.pop(9) if len(data) > 9 else RECORD_TYPE_OBJECT
         if record_type == RECORD_TYPE_SHARD_NODE:
-            (name, timestamp, lower, upper, object_count, bytes_used,
-             meta_timestamp, deleted) = data[:8]
-            item = {
-                'name': name,
-                'created_at': timestamp,
-                'lower': lower,
-                'upper': upper,
-                'object_count': object_count,
-                'bytes_used': bytes_used,
-                'meta_timestamp': meta_timestamp,
-                'deleted': deleted,
-                'record_type': record_type}
+            item = dict(zip(SHARD_RANGE_KEYS, data))
+            item['record_type'] = record_type
         else:
             (name, timestamp, size, content_type, etag, deleted) = data[:6]
             storage_policy_index = data[6] if len(data) > 6 else 0
@@ -550,12 +545,16 @@ class ContainerBroker(DatabaseBroker):
                         deleted=1, storage_policy_index=storage_policy_index)
 
     def make_tuple_for_pickle(self, record):
-        if record['record_type'] == RECORD_TYPE_SHARD_NODE:
-            # NB: there's some padding since record_type *MUST* be at index 9
-            return (record['name'], record['created_at'], record['lower'],
-                    record['upper'], record['object_count'],
-                    record['bytes_used'], record['meta_timestamp'],
-                    record['deleted'], 0, record['record_type'])
+        record_type = record['record_type']
+        if record_type == RECORD_TYPE_SHARD_NODE:
+            # TODO: this is so brittle, could we use dicts for shard ranges and
+            # try/except when reading back in _commit_puts_load?
+            values = [record[key] for key in SHARD_RANGE_KEYS]
+            while len(values) < 9:
+                # pad as required since record_type *MUST* be at index 9
+                values.insert(8, 0)
+            values.insert(9, record_type)
+            return tuple(values)
         return (record['name'], record['created_at'], record['size'],
                 record['content_type'], record['etag'], record['deleted'],
                 record['storage_policy_index'],
@@ -1159,9 +1158,6 @@ class ContainerBroker(DatabaseBroker):
             curs = conn.cursor()
             curs.execute('BEGIN IMMEDIATE')
 
-            keys = ('name', 'created_at', 'lower', 'upper', 'object_count',
-                    'bytes_used', 'meta_timestamp', 'deleted')
-
             # Get rows for items that already exist.
             # We must chunk it up to avoid sqlite's limit of 999 args.
             records = {}
@@ -1172,7 +1168,8 @@ class ContainerBroker(DatabaseBroker):
                     (rec[0], rec) for rec in curs.execute(
                         'SELECT %s FROM shard_ranges '
                         'WHERE deleted IN (0, 1) AND name IN (%s)' %
-                        (', '.join(keys), ','.join('?' * len(chunk))), chunk))
+                        (', '.join(SHARD_RANGE_KEYS),
+                         ','.join('?' * len(chunk))), chunk))
 
             # Sort item_list into things that need adding and deleting, based
             # on results of created_at query.
@@ -1182,7 +1179,7 @@ class ContainerBroker(DatabaseBroker):
                 item_ident = item['name']
                 existing = records.get(item_ident)
                 if existing:
-                    existing = dict(zip(keys, existing))
+                    existing = dict(zip(SHARD_RANGE_KEYS, existing))
                 if merge_shards(item, existing):
                     # exists with older timestamp
                     if item_ident in records:
@@ -1198,10 +1195,12 @@ class ContainerBroker(DatabaseBroker):
                     'AND name = ?',
                     ((item['name'],) for item in to_delete.values()))
             if to_add:
-                vals = ','.join('?' * len(keys))
+                vals = ','.join('?' * len(SHARD_RANGE_KEYS))
                 curs.executemany(
-                    'INSERT INTO shard_ranges %s VALUES (%s)' % (keys, vals),
-                    tuple([item[k] for k in keys] for item in to_add.values()))
+                    'INSERT INTO shard_ranges (%s) VALUES (%s)' %
+                    (','.join(SHARD_RANGE_KEYS), vals),
+                    tuple([item[k] for k in SHARD_RANGE_KEYS]
+                          for item in to_add.values()))
             conn.commit()
 
         with self.get() as conn:
@@ -1398,11 +1397,10 @@ class ContainerBroker(DatabaseBroker):
             try:
                 condition = '' if include_deleted else ' WHERE deleted=0 '
                 sql = '''
-                SELECT name, created_at, lower, upper, object_count,
-                    bytes_used, meta_timestamp, deleted
+                SELECT %s
                 FROM shard_ranges%s
                 ORDER BY lower, upper;
-                ''' % condition
+                ''' % (', '.join(SHARD_RANGE_KEYS), condition)
                 data = conn.execute(sql)
                 data.row_factory = None
                 return [row for row in data]
