@@ -692,18 +692,31 @@ X-Copy-From-Account:
   type: string
 X-Delete-After:
   description: |
-    The number of seconds after which the system
-    removes the object. Internally, the Object Storage system stores
-    this value in the ``X-Delete-At`` metadata item.
+    The number of seconds after which the system removes the object. The value
+    should be a positive integer. Internally, the Object Storage system uses
+    this value to generate an ``X-Delete-At`` metadata item. If both
+    ``X-Delete-After`` and ``X-Delete-At`` are set then ``X-Delete-After``
+    takes precedence.
   in: header
   required: false
   type: integer
 X-Delete-At:
   description: |
-    The date and time in `UNIX Epoch time stamp
-    format <https://en.wikipedia.org/wiki/Unix_time>`_ when the system
-    removes the object.  For example, ``1440619048`` is equivalent to
-    ``Mon, Wed, 26 Aug 2015 19:57:28 GMT``.
+    The date and time in `UNIX Epoch time stamp format
+    <https://en.wikipedia.org/wiki/Unix_time>`_ when the system removes the
+    object.  For example, ``1440619048`` is equivalent to ``Mon, Wed, 26 Aug
+    2015 19:57:28 GMT``.  The value should be a positive integer corresponding
+    to a time in the future. If both ``X-Delete-After`` and ``X-Delete-At`` are
+    set then ``X-Delete-After`` takes precedence.
+  in: header
+  required: false
+  type: integer
+X-Delete-At_resp:
+  description: |
+    If present, specifies date and time in `UNIX Epoch time stamp format
+    <https://en.wikipedia.org/wiki/Unix_time>`_ when the system removes the
+    object.  For example, ``1440619048`` is equivalent to ``Mon, Wed, 26 Aug
+    2015 19:57:28 GMT``.
   in: header
   required: false
   type: integer
