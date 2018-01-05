@@ -6964,6 +6964,18 @@ class TestShardRange(unittest.TestCase):
             "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s>" %
             (ts.internal, meta_ts.internal), str(sr))
 
+    def test_copy(self):
+        sr = utils.ShardRange('a/c', next(self.ts_iter), 'x', 'y', 99, 99000,
+                              meta_timestamp=next(self.ts_iter))
+        new = sr.copy()
+        self.assertEqual(dict(sr), dict(new))
+
+        new_timestamp = next(self.ts_iter)
+        new = sr.copy(timestamp=new_timestamp)
+        self.assertEqual(dict(sr, created_at=new_timestamp.internal,
+                              meta_timestamp=new_timestamp.internal),
+                         dict(new))
+
 
 if __name__ == '__main__':
     unittest.main()

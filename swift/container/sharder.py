@@ -793,13 +793,13 @@ class ContainerSharder(ContainerReplicator):
         # the PUTs succeed (e.g. morph deleted filed to a state field)...or
         # just accept that initially some redirected updates may fail and
         # eventually come back to the root
-        persisted_ranges = [dict(sr, created_at=Timestamp.now().internal)
+        persisted_ranges = [sr.copy(timestamp=Timestamp.now())
                             for sr in found_ranges]
-        broker.merge_shard_ranges(persisted_ranges)
+        broker.merge_shard_ranges([dict(sr) for sr in persisted_ranges])
         if not broker.is_root_container():
             self._update_shard_ranges(
                 broker.root_account, broker.root_container, 'PUT',
-                [ShardRange.from_dict(sr) for sr in persisted_ranges])
+                persisted_ranges)
         # Second, create shard containers ready to receive redirected object
         # updates. Do this now so that redirection can begin immediately
         # without waiting for cleaving to complete.
