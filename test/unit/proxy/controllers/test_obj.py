@@ -676,20 +676,26 @@ class BaseObjectControllerMixin(object):
                     req, self.replicas(policy), 1, containers)
 
                 # how many of the backend headers have a container update
-                container_updates = len(
+                n_container_updates = len(
                     [headers for headers in backend_headers
                      if 'X-Container-Partition' in headers])
 
-                if num_containers <= self.quorum(policy):
-                    # filling case
-                    expected = min(self.quorum(policy) + 1,
-                                   self.replicas(policy))
-                else:
-                    # container updates >= object replicas
-                    expected = min(num_containers,
-                                   self.replicas(policy))
+                # how many object-server PUTs can fail and still let the
+                # client PUT succeed
+                n_can_fail = self.replicas(policy) - self.quorum(policy)
+                n_expected_updates = (
+                    n_can_fail + utils.quorum_size(num_containers))
 
-                self.assertEqual(container_updates, expected)
+                # you get at least one update per container no matter what
+                n_expected_updates = max(
+                    n_expected_updates, num_containers)
+
+                # you can't have more object requests with updates than you
+                # have object requests (the container stuff gets doubled up,
+                # but that's not important for purposes of durability)
+                n_expected_updates = min(
+                    n_expected_updates, self.replicas(policy))
+                self.assertEqual(n_expected_updates, n_container_updates)
 
     def _check_write_affinity(
             self, conf, policy_conf, policy, affinity_regions, affinity_count):
@@ -4503,6 +4509,38 @@ class TestECDuplicationObjController(
         self._test_determine_chunk_destinations_prioritize(0, 1)
         # drop node_index 1, 15 and 0 should work, too
         self._test_determine_chunk_destinations_prioritize(1, 0)
+
+
+class TestNumContainerUpdates(unittest.TestCase):
+    def test_it(self):
+        test_cases = [
+            # (container replicas, object replicas, object quorum, expected)
+            (3, 17, 13, 6),  # EC 12+5
+            (3, 9, 4, 7),    # EC 3+6
+            (3, 14, 11, 5),  # EC 10+4
+            (5, 14, 11, 6),  # EC 10+4, 5 container replicas
+            (7, 14, 11, 7),  # EC 10+4, 7 container replicas
+            (3, 19, 16, 5),  # EC 15+4
+            (5, 19, 16, 6),  # EC 15+4, 5 container replicas
+            (3, 28, 22, 8),  # EC (10+4)x2
+            (5, 28, 22, 9),  # EC (10+4)x2, 5 container replicas
+            (3, 1, 1, 3),    # 1 object replica
+            (3, 2, 1, 3),    # 2 object replicas
+            (3, 3, 2, 3),    # 3 object replicas
+            (3, 4, 2, 4),    # 4 object replicas
+            (3, 5, 3, 4),    # 5 object replicas
+            (3, 6, 3, 5),    # 6 object replicas
+            (3, 7, 4, 5),    # 7 object replicas
+        ]
+
+        for c_replica, o_replica, o_quorum, exp in test_cases:
+            c_quorum = utils.quorum_size(c_replica)
+            got = obj.num_container_updates(c_replica, c_quorum,
+                                            o_replica, o_quorum)
+            self.assertEqual(
+                exp, got,
+                "Failed for c_replica=%d, o_replica=%d, o_quorum=%d" % (
+                    c_replica, o_replica, o_quorum))
 
 
 if __name__ == '__main__':
