@@ -247,7 +247,11 @@ class RingBuilder(object):
             self.version = builder.version
             self._replica2part2dev = builder._replica2part2dev
             self._last_part_moves_epoch = builder._last_part_moves_epoch
-            self._last_part_moves = builder._last_part_moves
+            if builder._last_part_moves is None:
+                self._last_part_moves = array(
+                    'B', itertools.repeat(0, self.parts))
+            else:
+                self._last_part_moves = builder._last_part_moves
             self._last_part_gather_start = builder._last_part_gather_start
             self._remove_devs = builder._remove_devs
             self._id = getattr(builder, '_id', None)
@@ -263,7 +267,11 @@ class RingBuilder(object):
             self.version = builder['version']
             self._replica2part2dev = builder['_replica2part2dev']
             self._last_part_moves_epoch = builder['_last_part_moves_epoch']
-            self._last_part_moves = builder['_last_part_moves']
+            if builder['_last_part_moves'] is None:
+                self._last_part_moves = array(
+                    'B', itertools.repeat(0, self.parts))
+            else:
+                self._last_part_moves = builder['_last_part_moves']
             self._last_part_gather_start = builder['_last_part_gather_start']
             self._dispersion_graph = builder.get('_dispersion_graph', {})
             self.dispersion = builder.get('dispersion')

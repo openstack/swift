@@ -2202,6 +2202,14 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", backup_file, "write_builder", "24"]
         self.assertIsNone(ringbuilder.main(argv))
 
+        rb = RingBuilder.load(self.tmpfile + '.builder')
+        self.assertIsNotNone(rb._last_part_moves)
+        rb._last_part_moves = None
+        rb.save(self.tmpfile)
+
+        argv = ["", self.tmpfile + '.builder', "rebalance"]
+        self.assertSystemExit(EXIT_WARNING, ringbuilder.main, argv)
+
     def test_warn_at_risk(self):
         # check that warning is generated when rebalance does not achieve
         # satisfactory balance
