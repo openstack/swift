@@ -302,9 +302,9 @@ def valid_timestamp(request):
 
 def check_delete_headers(request):
     """
-    Validate if 'x-delete' headers are have correct values
-    values should be positive integers and correspond to
-    a time in the future.
+    Check that 'x-delete-after' and 'x-delete-at' headers have valid values.
+    Values should be positive integers and correspond to a time greater than or
+    equal to the request timestamp.
 
     :param request: the swob request object
 
@@ -319,13 +319,13 @@ def check_delete_headers(request):
             raise HTTPBadRequest(request=request,
                                  content_type='text/plain',
                                  body='Non-integer X-Delete-After')
-        actual_del_time = now + x_delete_after
-        if actual_del_time < now:
+        actual_del_time = utils.normalize_delete_at_timestamp(
+            now + x_delete_after)
+        if int(actual_del_time) < now:
             raise HTTPBadRequest(request=request,
                                  content_type='text/plain',
                                  body='X-Delete-After in past')
-        request.headers['x-delete-at'] = utils.normalize_delete_at_timestamp(
-            actual_del_time)
+        request.headers['x-delete-at'] = actual_del_time
         del request.headers['x-delete-after']
 
     if 'x-delete-at' in request.headers:

@@ -283,6 +283,14 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
         self.assertIn('X-Delete-After in past', cm.exception.body)
 
+        headers = {'X-Delete-After': '0',
+                   'X-Timestamp': str(time.time())}
+        with self.assertRaises(HTTPException) as cm:
+            constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
+        self.assertIn('X-Delete-After in past', cm.exception.body)
+
         # X-Delete-At
         delete_at = str(int(ts + 100))
         headers = {'X-Delete-At': delete_at,
