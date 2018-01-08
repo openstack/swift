@@ -1080,9 +1080,10 @@ class TestFuncs(unittest.TestCase):
 
         self.assertEqual(3, len(captured))
         for call in captured:
-            self.assertEqual('/a/c/1_test', call[0][-1])
+            self.assertEqual('/a/c', call[0][-1])
             params = sorted(call[1].get('query_string').split('&'))
-            self.assertEqual(['format=json', 'items=shard'], params)
+            self.assertEqual(
+                ['format=json', 'includes=1_test', 'items=shard'], params)
         self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
@@ -1106,5 +1107,5 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual([], actual)
         error_lines = self.app.logger.get_lines_for_level('error')
         self.assertIn('Problem decoding shard ranges', error_lines[0])
-        self.assertIn('/a/c/1_test', error_lines[0])
+        self.assertIn('/a/c', error_lines[0])
         self.assertFalse(error_lines[1:])
