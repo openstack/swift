@@ -245,11 +245,11 @@ class TestConstraints(unittest.TestCase):
     def test_check_delete_headers(self):
         # x-delete-at value should be relative to the request timestamp rather
         # than time.time() so separate the two to ensure the checks are robust
-        ts = time.time() + 100
+        ts = utils.Timestamp(time.time() + 100)
 
         # X-Delete-After
         headers = {'X-Delete-After': '600',
-                   'X-Timestamp': str(ts)}
+                   'X-Timestamp': ts.internal}
         req = constraints.check_delete_headers(
             Request.blank('/', headers=headers))
         self.assertIsInstance(req, Request)
@@ -259,7 +259,7 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(req.headers.get('X-Delete-At'), expected_delete_at)
 
         headers = {'X-Delete-After': 'abc',
-                   'X-Timestamp': str(time.time())}
+                   'X-Timestamp': ts.internal}
 
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
@@ -268,7 +268,7 @@ class TestConstraints(unittest.TestCase):
         self.assertIn('Non-integer X-Delete-After', cm.exception.body)
 
         headers = {'X-Delete-After': '60.1',
-                   'X-Timestamp': str(time.time())}
+                   'X-Timestamp': ts.internal}
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
@@ -276,7 +276,7 @@ class TestConstraints(unittest.TestCase):
         self.assertIn('Non-integer X-Delete-After', cm.exception.body)
 
         headers = {'X-Delete-After': '-1',
-                   'X-Timestamp': str(time.time())}
+                   'X-Timestamp': ts.internal}
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
@@ -284,7 +284,7 @@ class TestConstraints(unittest.TestCase):
         self.assertIn('X-Delete-After in past', cm.exception.body)
 
         headers = {'X-Delete-After': '0',
-                   'X-Timestamp': str(time.time())}
+                   'X-Timestamp': ts.internal}
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
@@ -292,9 +292,9 @@ class TestConstraints(unittest.TestCase):
         self.assertIn('X-Delete-After in past', cm.exception.body)
 
         # X-Delete-At
-        delete_at = str(int(ts + 100))
+        delete_at = str(int(ts) + 100)
         headers = {'X-Delete-At': delete_at,
-                   'X-Timestamp': str(ts)}
+                   'X-Timestamp': ts.internal}
         req = constraints.check_delete_headers(
             Request.blank('/', headers=headers))
         self.assertIsInstance(req, Request)
@@ -302,25 +302,25 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(req.headers.get('X-Delete-At'), delete_at)
 
         headers = {'X-Delete-At': 'abc',
-                   'X-Timestamp': str(ts)}
+                   'X-Timestamp': ts.internal}
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
         self.assertIn('Non-integer X-Delete-At', cm.exception.body)
 
-        delete_at = str(int(ts + 100)) + '.1'
+        delete_at = str(int(ts) + 100) + '.1'
         headers = {'X-Delete-At': delete_at,
-                   'X-Timestamp': str(ts)}
+                   'X-Timestamp': ts.internal}
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         self.assertEqual(cm.exception.status_int, HTTP_BAD_REQUEST)
         self.assertIn('Non-integer X-Delete-At', cm.exception.body)
 
-        delete_at = str(int(ts - 1))
+        delete_at = str(int(ts) - 1)
         headers = {'X-Delete-At': delete_at,
-                   'X-Timestamp': str(ts)}
+                   'X-Timestamp': ts.internal}
         with self.assertRaises(HTTPException) as cm:
             constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
