@@ -136,19 +136,23 @@ class SetMetadataInternalClient(internal_client.InternalClient):
 
 class IterInternalClient(internal_client.InternalClient):
     def __init__(
-            self, test, path, marker, end_marker, acceptable_statuses, items):
+            self, test, path, marker, end_marker, prefix, acceptable_statuses,
+            items):
         self.test = test
         self.path = path
         self.marker = marker
         self.end_marker = end_marker
+        self.prefix = prefix
         self.acceptable_statuses = acceptable_statuses
         self.items = items
 
     def _iter_items(
-            self, path, marker='', end_marker='', acceptable_statuses=None):
+            self, path, marker='', end_marker='', prefix='',
+            acceptable_statuses=None):
         self.test.assertEqual(self.path, path)
         self.test.assertEqual(self.marker, marker)
         self.test.assertEqual(self.end_marker, end_marker)
+        self.test.assertEqual(self.prefix, prefix)
         self.test.assertEqual(self.acceptable_statuses, acceptable_statuses)
         for item in self.items:
             yield item
@@ -667,9 +671,9 @@ class TestInternalClient(unittest.TestCase):
                 return self.responses.pop(0)
 
         paths = [
-            '/?format=json&marker=start&end_marker=end',
-            '/?format=json&marker=one%C3%A9&end_marker=end',
-            '/?format=json&marker=two&end_marker=end',
+            '/?format=json&marker=start&end_marker=end&prefix=',
+            '/?format=json&marker=one%C3%A9&end_marker=end&prefix=',
+            '/?format=json&marker=two&end_marker=end&prefix=',
         ]
 
         responses = [
@@ -684,6 +688,49 @@ class TestInternalClient(unittest.TestCase):
             items.append(item['name'].encode('utf8'))
 
         self.assertEqual('one\xc3\xa9 two'.split(), items)
+
+    def test_iter_items_with_markers_and_prefix(self):
+        class Response(object):
+            def __init__(self, status_int, body):
+                self.status_int = status_int
+                self.body = body
+
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test, paths, responses):
+                self.test = test
+                self.paths = paths
+                self.responses = responses
+
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
+                exp_path = self.paths.pop(0)
+                self.test.assertEqual(exp_path, path)
+                return self.responses.pop(0)
+
+        paths = [
+            '/?format=json&marker=prefixed_start&end_marker=prefixed_end'
+            '&prefix=prefixed_',
+            '/?format=json&marker=prefixed_one%C3%A9&end_marker=prefixed_end'
+            '&prefix=prefixed_',
+            '/?format=json&marker=prefixed_two&end_marker=prefixed_end'
+            '&prefix=prefixed_',
+        ]
+
+        responses = [
+            Response(200, json.dumps([{'name': 'prefixed_one\xc3\xa9'}, ])),
+            Response(200, json.dumps([{'name': 'prefixed_two'}, ])),
+            Response(204, ''),
+        ]
+
+        items = []
+        client = InternalClient(self, paths, responses)
+        for item in client._iter_items('/', marker='prefixed_start',
+                                       end_marker='prefixed_end',
+                                       prefix='prefixed_'):
+            items.append(item['name'].encode('utf8'))
+
+        self.assertEqual('prefixed_one\xc3\xa9 prefixed_two'.split(), items)
 
     def test_iter_item_read_response_if_status_is_acceptable(self):
         class Response(object):
@@ -779,12 +826,13 @@ class TestInternalClient(unittest.TestCase):
         items = '0 1 2'.split()
         marker = 'some_marker'
         end_marker = 'some_end_marker'
+        prefix = 'some_prefix'
         acceptable_statuses = 'some_status_list'
         client = IterInternalClient(
-            self, path, marker, end_marker, acceptable_statuses, items)
+            self, path, marker, end_marker, prefix, acceptable_statuses, items)
         ret_items = []
         for container in client.iter_containers(
-                account, marker, end_marker,
+                account, marker, end_marker, prefix,
                 acceptable_statuses=acceptable_statuses):
             ret_items.append(container)
         self.assertEqual(items, ret_items)
@@ -987,13 +1035,15 @@ class TestInternalClient(unittest.TestCase):
         path = make_path(account, container)
         marker = 'some_maker'
         end_marker = 'some_end_marker'
+        prefix = 'some_prefix'
         acceptable_statuses = 'some_status_list'
         items = '0 1 2'.split()
         client = IterInternalClient(
-            self, path, marker, end_marker, acceptable_statuses, items)
+            self, path, marker, end_marker, prefix, acceptable_statuses, items)
         ret_items = []
         for obj in client.iter_objects(
-                account, container, marker, end_marker, acceptable_statuses):
+                account, container, marker, end_marker, prefix,
+                acceptable_statuses):
             ret_items.append(obj)
         self.assertEqual(items, ret_items)
 

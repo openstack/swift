@@ -241,7 +241,7 @@ class InternalClient(object):
         return metadata
 
     def _iter_items(
-            self, path, marker='', end_marker='',
+            self, path, marker='', end_marker='', prefix='',
             acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """
         Returns an iterator of items from a json listing.  Assumes listing has
@@ -251,6 +251,7 @@ class InternalClient(object):
         :param marker: Prefix of first desired item, defaults to ''.
         :param end_marker: Last item returned will be 'less' than this,
                            defaults to ''.
+        :param prefix: Prefix of items
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2, HTTP_NOT_FOUND).
 
@@ -262,8 +263,8 @@ class InternalClient(object):
 
         while True:
             resp = self.make_request(
-                'GET', '%s?format=json&marker=%s&end_marker=%s' %
-                (path, quote(marker), quote(end_marker)),
+                'GET', '%s?format=json&marker=%s&end_marker=%s&prefix=%s' %
+                (path, quote(marker), quote(end_marker), quote(prefix)),
                 {}, acceptable_statuses)
             if not resp.status_int == 200:
                 if resp.status_int >= HTTP_MULTIPLE_CHOICES:
@@ -331,7 +332,7 @@ class InternalClient(object):
     # account methods
 
     def iter_containers(
-            self, account, marker='', end_marker='',
+            self, account, marker='', end_marker='', prefix='',
             acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """
         Returns an iterator of containers dicts from an account.
@@ -340,6 +341,7 @@ class InternalClient(object):
         :param marker: Prefix of first desired item, defaults to ''.
         :param end_marker: Last item returned will be 'less' than this,
                            defaults to ''.
+        :param prefix: Prefix of containers
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2, HTTP_NOT_FOUND).
 
@@ -350,7 +352,8 @@ class InternalClient(object):
         """
 
         path = self.make_path(account)
-        return self._iter_items(path, marker, end_marker, acceptable_statuses)
+        return self._iter_items(path, marker, end_marker, prefix,
+                                acceptable_statuses)
 
     def get_account_info(
             self, account, acceptable_statuses=(2, HTTP_NOT_FOUND)):
@@ -508,7 +511,7 @@ class InternalClient(object):
         return self._get_metadata(path, metadata_prefix, acceptable_statuses)
 
     def iter_objects(
-            self, account, container, marker='', end_marker='',
+            self, account, container, marker='', end_marker='', prefix='',
             acceptable_statuses=(2, HTTP_NOT_FOUND)):
         """
         Returns an iterator of object dicts from a container.
@@ -518,6 +521,7 @@ class InternalClient(object):
         :param marker: Prefix of first desired item, defaults to ''.
         :param end_marker: Last item returned will be 'less' than this,
                            defaults to ''.
+        :param prefix: Prefix of objects
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2, HTTP_NOT_FOUND).
 
@@ -528,7 +532,8 @@ class InternalClient(object):
         """
 
         path = self.make_path(account, container)
-        return self._iter_items(path, marker, end_marker, acceptable_statuses)
+        return self._iter_items(path, marker, end_marker, prefix,
+                                acceptable_statuses)
 
     def set_container_metadata(
             self, account, container, metadata, metadata_prefix='',
