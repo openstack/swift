@@ -233,7 +233,8 @@ class BaseObjectController(Controller):
         if db_state in (DB_STATE_SHARDED, DB_STATE_SHARDING):
             # find the sharded container to which we'll send the update.
             shard_ranges = self._get_shard_ranges(
-                req, self.account_name, self.container_name, self.object_name)
+                req, self.account_name, self.container_name,
+                includes=self.object_name)
             if shard_ranges:
                 partition, nodes = self.app.container_ring.get_nodes(
                     shard_ranges[0].account, shard_ranges[0].container)

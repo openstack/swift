@@ -3327,12 +3327,14 @@ class TestReplicatedObjectController(
         StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
         StoragePolicy(1, 'one', object_ring=FakeRing()),
     ])
-    def test_POST_backend_headers_update_shard(self):
+    def test_backend_headers_update_shard_container(self):
+        # verify that when container is sharded the backend container update is
+        # directed to the shard container
         # reset the router post patch_policies
         self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
 
-        def do_test(sharding_state):
+        def do_test(method, sharding_state):
             self.app.memcache.store = {}
             backend_requests = []
 
@@ -3340,7 +3342,7 @@ class TestReplicatedObjectController(
                                  *args, **kwargs):
                 backend_requests.append((method, path, headers, params))
 
-            req = Request.blank('/v1/a/c/o', {}, method='POST',
+            req = Request.blank('/v1/a/c/o', {}, method=method, body='',
                                 headers={'Content-Type': 'text/plain'})
 
             # we want the container_info response to say policy index of 1 and
@@ -3402,12 +3404,12 @@ class TestReplicatedObjectController(
                 device = req_headers['x-container-device']
                 container_headers[device] = req_headers['x-container-host']
                 expectations = {
-                    'method': 'POST',
+                    'method': method,
                     'path': '/0/a/c/o',
                     'headers': {
                         'X-Container-Partition': '0',
                         'Host': 'localhost:80',
-                        'Referer': 'POST http://localhost/v1/a/c/o',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
                         'X-Backend-Storage-Policy-Index': '1',
                         'X-Backend-Container-Path': '.sharded_a/c_shard'
                     },
@@ -3419,8 +3421,12 @@ class TestReplicatedObjectController(
                 expected[device] = '10.0.0.%d:100%d' % (i, i)
             self.assertEqual(container_headers, expected)
 
-        do_test(DB_STATE_SHARDING)
-        do_test(DB_STATE_SHARDED)
+        do_test('POST', DB_STATE_SHARDING)
+        do_test('POST', DB_STATE_SHARDED)
+        do_test('DELETE', DB_STATE_SHARDING)
+        do_test('DELETE', DB_STATE_SHARDED)
+        do_test('PUT', DB_STATE_SHARDING)
+        do_test('PUT', DB_STATE_SHARDED)
 
     def test_DELETE(self):
         with save_globals():

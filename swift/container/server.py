@@ -602,7 +602,7 @@ class ContainerController(BaseStorageServer):
         path = get_param(req, 'path')
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
-        items = get_param(req, 'items')
+        items = get_param(req, 'items', '').lower()
         includes = get_param(req, 'includes')
         if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
             # delimiters can be made more flexible later
@@ -630,7 +630,7 @@ class ContainerController(BaseStorageServer):
         if is_deleted:
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
-        if items and items.lower() == "shard":
+        if items == 'shard':
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse)
         elif info.get('db_state') == DB_STATE_SHARDING:
@@ -640,8 +640,7 @@ class ContainerController(BaseStorageServer):
             resp_headers, container_list = self._check_local_brokers(
                 req, broker, resp_headers, marker, end_marker, prefix, limit)
         else:
-            if items and items.lower() == 'all':
-                include_deleted = True
+            include_deleted = items == 'all'
             container_list = broker.list_objects_iter(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=info['storage_policy_index'],

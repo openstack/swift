@@ -1984,17 +1984,17 @@ class Controller(object):
 
         return resp
 
-    def _get_shard_ranges(self, req, account, container, obj=None):
+    def _get_shard_ranges(self, req, account, container, includes=None):
         """
-        Fetch shard ranges from given `account/container`. If `obj` is given
-        then the shard range for that object name is requested, otherwise all
-        shard ranges are requested.
+        Fetch shard ranges from given `account/container`. If `includes` is
+        given then the shard range for that object name is requested, otherwise
+        all shard ranges are requested.
 
         :param req: original Request instance.
         :param account: account from which shard ranges should be fetched.
         :param container: container from which shard ranges should be fetched.
-        :param obj: (optional) the object name for which a shard range should
-            be fetched.
+        :param includes: (optional) restricts the list of fetched shard ranges
+            to those which include the given name.
         :return: a list of instances of :class:`swift.common.utils.ShardRange`
         """
         part, nodes = self.app.container_ring.get_nodes(account, container)
@@ -2003,8 +2003,8 @@ class Controller(object):
         params = req.params.copy()
         params.update({'items': 'shard',
                        'format': 'json'})
-        if obj:
-            params.update({'includes': obj})
+        if includes:
+            params.update({'includes': includes})
 
         headers_list = [self.generate_request_headers(req, transfer=True)
                         for _node in nodes]
