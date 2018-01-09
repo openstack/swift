@@ -413,6 +413,11 @@ class ObjectController(BaseStorageServer):
             headers_out['x-content-type'] = 'text/plain'
             headers_out['x-etag'] = 'd41d8cd98f00b204e9800998ecf8427e'
         else:
+            if not config_true_value(
+                request.headers.get(
+                    'X-Backend-Clean-Expiring-Object-Queue', 't')):
+                return
+
             # DELETEs of old expiration data have no way of knowing what the
             # old X-Delete-At-Container was at the time of the initial setting
             # of the data, so a best guess is made here.
