@@ -35,6 +35,9 @@ MAX_SHARD_CONTAINER_SIZE = 100
 
 class TestContainerSharding(ReplProbeTest):
     def setUp(self):
+        client.logger.setLevel(client.logging.WARNING)
+        client.requests.logging.getLogger().setLevel(
+            client.requests.logging.WARNING)
         super(TestContainerSharding, self).setUp()
         try:
             cont_configs = [utils.readconf(p, 'container-sharder')
@@ -63,7 +66,6 @@ class TestContainerSharding(ReplProbeTest):
 
         self.sharders = Manager(['container-sharder'])
         self.internal_client = self.make_internal_client()
-        client.logger.setLevel(client.logging.WARNING)
 
     def get_container_shard_ranges(self, account=None, container=None):
         account = account if account else self.account
