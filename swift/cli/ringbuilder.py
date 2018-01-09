@@ -945,7 +945,8 @@ swift-ring-builder <builder_file> rebalance [options]
             balance_changed = (
                 abs(last_balance - balance) >= 1 or
                 (last_balance == MAX_BALANCE and balance == MAX_BALANCE))
-            dispersion_changed = abs(last_dispersion - dispersion) >= 1
+            dispersion_changed = last_dispersion is None or (
+                abs(last_dispersion - dispersion) >= 1)
             if balance_changed or dispersion_changed:
                 be_cowardly = False
 
