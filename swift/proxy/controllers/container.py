@@ -118,9 +118,7 @@ class ContainerController(Controller):
                 sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
             # TODO: think about whether this actually does what we want for
             # items=all -- and whether we should even support that here
-            new_resp = self._get_sharded(req, resp, sharding_state)
-            if new_resp:
-                resp = new_resp
+            resp = self._get_sharded(req, resp, sharding_state)
 
         # Cache this. We just made a request to a storage node and got
         # up-to-date information for the container.
@@ -150,28 +148,16 @@ class ContainerController(Controller):
         return resp
 
     def _get_sharded(self, req, resp, sharding_state):
-        # if sharding, we need to visit all the shards before the upto and
-        # merge with this response.
-        # TODO: this results in a more up to date listing but currently
-        # use staler data
-        # upto = None
-        # if sharding_state == DB_STATE_SHARDING:
-        #     def filter_key(x):
-        #         x[0].startswith('X-Container-Sysmeta-Shard-Last-')
-        #
-        #     uptos = filter(filter_key, req.headers.items())
-        #     if uptos:
-        #         upto = max(uptos, key=lambda x: x[-1])[0]
         limit = req.params.get('limit', CONTAINER_LISTING_LIMIT)
-        # In whatever case we need the list of ShardRanges that contain this
-        # range
+        # get the list of ShardRanges that contain the requested listing range
+        # by using original request params
         ranges = self._get_shard_ranges(
             req, self.account_name, self.container_name,
             state=ShardRange.STATES[ShardRange.ACTIVE])
         if not ranges:
             # can't find ranges or there was a problem getting the ranges. So
             # return what we have.
-            return None
+            return resp
 
         def get_objects(account, container, parameters):
             path = '/%s/%s' % (account, container)
@@ -189,50 +175,6 @@ class ContainerController(Controller):
                 except ValueError:
                     pass
             return None, None, response
-
-        def merge_old_new(shard_range, params):
-            if shard_range is None:
-                return get_objects(self.account_name, self.container_name,
-                                   params)
-            try:
-                params['items'] = 'all'
-                # need some extra limit because we are getting deleted objects
-                params['limit'] = min(limit * 2, CONTAINER_LISTING_LIMIT)
-
-                hdrs, objs, tmp_resp = get_objects(
-                    shard_range.account, shard_range.container, params)
-                if hdrs is None and tmp_resp:
-                    return tmp_resp
-            finally:
-                params.pop('items', None)
-                params['limit'] = limit
-
-            # now get the headers from the old db + holding (shard range) db.
-            old_hdrs, old_objs, old_resp = \
-                get_objects(self.account_name, self.container_name, params)
-
-            if not is_success(old_resp.status_int):
-                # just use the new response
-                result_objs = [r for r in objs if r['deleted'] == 0]
-                result_hdrs = hdrs
-            else:
-                items = dict([(r['name'], r) for r in old_objs])
-                for item in objs:
-                    if item.get('deleted', 0) == 1:
-                        if item['name'] in items:
-                            del items[item['name']]
-                            continue
-                    items[item['name']] = item
-                result_objs = sorted([r for r in items.values()],
-                                     key=lambda i: i['name'])
-                if config_true_value(params.get('reverse')):
-                    result_objs.reverse()
-
-                result_hdrs = old_hdrs
-            if len(result_objs) > params['limit']:
-                result_objs = result_objs[:params['limit']]
-
-            return result_hdrs, result_objs, old_resp
 
         headers = resp.headers.copy()
         # Expose sharding state in reseller requests
@@ -293,11 +235,13 @@ class ContainerController(Controller):
                         params['end_marker'] += '\x00'
 
             # now we have all those params set up. Let's get some objects
-            if sharding:
-                hdrs, objs, tmp_resp = merge_old_new(shard_range, params)
+            if shard_range:
+                account = shard_range.account
+                container = shard_range.container
             else:
-                hdrs, objs, tmp_resp = get_objects(
-                    shard_range.account, shard_range.container, params)
+                account = self.account_name
+                container = self.container_name
+            hdrs, objs, tmp_resp = get_objects(account, container, params)
 
             if hdrs is None and tmp_resp:
                 return tmp_resp
