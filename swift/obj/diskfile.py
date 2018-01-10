@@ -2203,7 +2203,7 @@ class BaseDiskFile(object):
         return cls(mgr, device_path, None, partition, _datadir=hash_dir_path,
                    policy=policy)
 
-    def open(self, modernize=False):
+    def open(self, modernize=False, current_time=None):
         """
         Open the object.
 
@@ -2214,6 +2214,9 @@ class BaseDiskFile(object):
         :param modernize: if set, update this diskfile to the latest format.
              Currently, this means adding metadata checksums if none are
              present.
+
+        :param current_time: Unix time used in checking expiration. If not
+             present, the current time will be used.
 
         .. note::
 
@@ -2254,7 +2257,7 @@ class BaseDiskFile(object):
         if not self._data_file:
             raise self._construct_exception_from_ts_file(**file_info)
         self._fp = self._construct_from_data_file(
-            modernize=modernize, **file_info)
+            current_time=current_time, modernize=modernize, **file_info)
         # This method must populate the internal _metadata attribute.
         self._metadata = self._metadata or {}
         return self
@@ -2353,7 +2356,7 @@ class BaseDiskFile(object):
                 data_file,
                 "Hash of name in metadata does not match directory name")
 
-    def _verify_data_file(self, data_file, fp):
+    def _verify_data_file(self, data_file, fp, current_time):
         """
         Verify the metadata's name value matches what we think the object is
         named.
@@ -2362,6 +2365,7 @@ class BaseDiskFile(object):
                           occur
         :param fp: open file pointer so that we can `fstat()` the file to
                    verify the on-disk size with Content-Length metadata value
+        :param current_time: Unix time used in checking expiration
         :raises DiskFileCollision: if the metadata stored name does not match
                                    the referenced name of the file
         :raises DiskFileExpired: if the object has expired
@@ -2392,7 +2396,9 @@ class BaseDiskFile(object):
                 data_file, "bad metadata x-delete-at value %s" % (
                     self._metadata['X-Delete-At']))
         else:
-            if x_delete_at <= time.time() and not self._open_expired:
+            if current_time is None:
+                current_time = time.time()
+            if x_delete_at <= current_time and not self._open_expired:
                 raise DiskFileExpired(metadata=self._metadata)
         try:
             metadata_size = int(self._metadata['Content-Length'])
@@ -2466,7 +2472,7 @@ class BaseDiskFile(object):
                 ctypefile_metadata.get('Content-Type-Timestamp')
 
     def _construct_from_data_file(self, data_file, meta_file, ctype_file,
-                                  modernize=False,
+                                  current_time, modernize=False,
                                   **kwargs):
         """
         Open the `.data` file to fetch its metadata, and fetch the metadata
@@ -2477,6 +2483,7 @@ class BaseDiskFile(object):
         :param meta_file: on-disk fast-POST `.meta` file being considered
         :param ctype_file: on-disk fast-POST `.meta` file being considered that
                            contains content-type and content-type timestamp
+        :param current_time: Unix time used in checking expiration
         :param modernize: whether to update the on-disk files to the newest
                           format
         :returns: an opened data file pointer
@@ -2524,7 +2531,7 @@ class BaseDiskFile(object):
             # to us
             self._name = self._metadata['name']
             self._verify_name_matches_hash(data_file)
-        self._verify_data_file(data_file, fp)
+        self._verify_data_file(data_file, fp, current_time)
         return fp
 
     def get_metafile_metadata(self):
@@ -2571,16 +2578,18 @@ class BaseDiskFile(object):
             raise DiskFileNotOpen()
         return self._metadata
 
-    def read_metadata(self):
+    def read_metadata(self, current_time=None):
         """
         Return the metadata for an object without requiring the caller to open
         the object first.
 
+        :param current_time: Unix time used in checking expiration. If not
+             present, the current time will be used.
         :returns: metadata dictionary for an object
         :raises DiskFileError: this implementation will raise the same
                             errors as the `open()` method.
         """
-        with self.open():
+        with self.open(current_time=current_time):
             return self.get_metadata()
 
     def reader(self, keep_cache=False,

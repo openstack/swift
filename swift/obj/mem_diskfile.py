@@ -273,11 +273,14 @@ class DiskFile(object):
         self._filesystem = fs
         self.fragments = None
 
-    def open(self, modernize=False):
+    def open(self, modernize=False, current_time=None):
         """
         Open the file and read the metadata.
 
         This method must populate the _metadata attribute.
+
+        :param current_time: Unix time used in checking expiration. If not
+             present, the current time will be used.
         :raises DiskFileCollision: on name mis-match with metadata
         :raises DiskFileDeleted: if it does not exist, or a tombstone is
                                  present
@@ -287,7 +290,7 @@ class DiskFile(object):
         fp, self._metadata = self._filesystem.get_object(self._name)
         if fp is None:
             raise DiskFileDeleted()
-        self._fp = self._verify_data_file(fp)
+        self._fp = self._verify_data_file(fp, current_time)
         self._metadata = self._metadata or {}
         return self
 
@@ -313,7 +316,7 @@ class DiskFile(object):
         self._filesystem.del_object(name)
         return DiskFileQuarantined(msg)
 
-    def _verify_data_file(self, fp):
+    def _verify_data_file(self, fp, current_time):
         """
         Verify the metadata's name value matches what we think the object is
         named.
@@ -344,7 +347,9 @@ class DiskFile(object):
                 self._name, "bad metadata x-delete-at value %s" % (
                     self._metadata['X-Delete-At']))
         else:
-            if x_delete_at <= time.time():
+            if current_time is None:
+                current_time = time.time()
+            if x_delete_at <= current_time:
                 raise DiskFileNotExist('Expired')
         try:
             metadata_size = int(self._metadata['Content-Length'])
@@ -381,13 +386,15 @@ class DiskFile(object):
             raise DiskFileNotOpen()
         return self._metadata
 
-    def read_metadata(self):
+    def read_metadata(self, current_time=None):
         """
         Return the metadata for an object.
 
+        :param current_time: Unix time used in checking expiration. If not
+             present, the current time will be used.
         :returns: metadata dictionary for an object
         """
-        with self.open():
+        with self.open(current_time=current_time):
             return self.get_metadata()
 
     def reader(self, keep_cache=False):
