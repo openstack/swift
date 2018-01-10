@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import base64
-import unittest
+import unittest2
 import os
 import boto
 
@@ -25,23 +25,32 @@ from distutils.version import StrictVersion
 from hashlib import md5
 from itertools import izip, izip_longest
 
+import test.functional as tf
 from swift.common.middleware.s3api.cfg import CONF
-from swift.common.middleware.s3api.test.functional.utils import \
-    get_error_code, get_error_msg
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
-from swift.common.middleware.s3api.test.functional import \
-    Swift3FunctionalTestCase
 from swift.common.middleware.s3api.utils import mktime
-from swift.common.middleware.s3api.test.functional.s3_test_client import \
-    Connection
+
+from test.functional.s3api import S3ApiBase
+from test.functional.s3api.s3_test_client import Connection
+from test.functional.s3api.utils import get_error_code, get_error_msg
 
 MIN_SEGMENT_SIZE = CONF.min_segment_size
 
 
-class TestSwift3MultiUpload(Swift3FunctionalTestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestS3ApiMultiUpload(S3ApiBase):
     def setUp(self):
-        super(TestSwift3MultiUpload, self).setUp()
+        super(TestS3ApiMultiUpload, self).setUp()
+        if not tf.cluster_info['s3api'].get('allow_multipart_uploads', False):
+            raise tf.SkipTest('multipart upload is not enebled')
 
     def _gen_comp_xml(self, etags):
         elem = Element('CompleteMultipartUpload')
@@ -212,6 +221,7 @@ class TestSwift3MultiUpload(Swift3FunctionalTestCase):
         status, headers, body = \
             self.conn.make_request('GET', bucket, key, query=query)
 
+        self.assertEqual(200, status)
         elem = fromstring(body, 'ListPartsResult')
 
         # FIXME: COPY result drops milli/microseconds but GET doesn't
@@ -296,8 +306,10 @@ class TestSwift3MultiUpload(Swift3FunctionalTestCase):
         self.assertTrue('content-length' in headers)
         self.assertEqual(headers['content-length'], str(len(body)))
         elem = fromstring(body, 'CompleteMultipartUploadResult')
-        self.assertEqual('http://localhost:8080/bucket/obj1',
-                         elem.find('Location').text)
+        # TODO: use tf.config value
+        self.assertEqual(
+            'http://%s:%s/bucket/obj1' % (self.conn.host, self.conn.port),
+            elem.find('Location').text)
         self.assertEqual(elem.find('Bucket').text, bucket)
         self.assertEqual(elem.find('Key').text, key)
         # TODO: confirm completed etag value
@@ -761,9 +773,7 @@ class TestSwift3MultiUpload(Swift3FunctionalTestCase):
         self.assertEqual(headers['content-length'], '0')
 
 
-@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
-                 'v4 is supported only in keystone')
-class TestSwift3MultiUploadSigV4(TestSwift3MultiUpload):
+class TestS3ApiMultiUploadSigV4(TestS3ApiMultiUpload):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -771,6 +781,9 @@ class TestSwift3MultiUploadSigV4(TestSwift3MultiUpload):
     @classmethod
     def tearDownClass(cls):
         del os.environ['S3_USE_SIGV4']
+
+    def setUp(self):
+        super(TestS3ApiMultiUploadSigV4, self).setUp()
 
     def test_object_multi_upload_part_copy_range(self):
         if StrictVersion(boto.__version__) < StrictVersion('3.0'):
@@ -832,4 +845,4 @@ class TestSwift3MultiUploadSigV4(TestSwift3MultiUpload):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

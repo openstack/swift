@@ -17,6 +17,7 @@ from functools import partial
 
 from swift.common.utils import json
 
+from swift.common.middleware.s3api.etree import tostring
 from swift.common.middleware.s3api.response import InvalidArgument, \
     MalformedACLError, S3NotImplemented, InvalidRequest, AccessDenied
 from swift.common.middleware.s3api.etree import Element, SubElement
@@ -43,8 +44,7 @@ Each bucket or object has its own acl consists of Owner and
 AcessControlList. AccessControlList can contain some Grants.
 By default, AccessControlList has only one Grant to allow FULL
 CONTROLL to owner. Each Grant includes single pair with Grantee,
-Permission. Grantee is the user (or user group) allowed the given
-permission.
+Permission. Grantee is the user (or user group) allowed the given permission.
 
 If you wanna get more information about S3's ACL model in detail,
 please see official documentation here,
@@ -403,6 +403,9 @@ class ACL(object):
         """
         self.owner = owner
         self.grants = grants
+
+    def __repr__(self):
+        return tostring(self.elem())
 
     @classmethod
     def from_elem(cls, elem):

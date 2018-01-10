@@ -118,6 +118,10 @@ class BaseAclHandler(object):
         resource = 'object' if obj else 'container'
         headers = self.headers if headers is None else headers
 
+        self.logger.debug(
+            'checking permission: %s %s %s %s' %
+            (container, obj, sw_method, dict(headers)))
+
         if not container:
             return
 
@@ -141,7 +145,13 @@ class BaseAclHandler(object):
                                              container, '')
             acl = resp.bucket_acl
 
-        acl.check_permission(self.user_id, permission)
+        try:
+            acl.check_permission(self.user_id, permission)
+        except Exception as e:
+            self.logger.debug(acl)
+            self.logger.debug('permission denined: %s %s %s' %
+                              (e, self.user_id, permission))
+            raise
 
         if sw_method == 'HEAD':
             return resp
@@ -358,13 +368,19 @@ class UploadsAclHandler(MultiUploadAclHandler):
     """
     UploadsAclHandler: Handler for UploadsController
     """
+    def handle_acl(self, app, method, *args, **kwargs):
+        method = method or self.method
+        if hasattr(self, method):
+            return getattr(self, method)(app)
+        else:
+            pass
+
     def GET(self, app):
         # List Multipart Upload
         self._handle_acl(app, 'GET', self.container, '')
 
     def PUT(self, app):
         if not self.acl_checked:
-            # Initiate Multipart Uploads
             resp = self._handle_acl(app, 'HEAD', obj='')
             req_acl = ACL.from_headers(self.req.headers,
                                        resp.bucket_acl.owner,
@@ -379,6 +395,13 @@ class UploadAclHandler(MultiUploadAclHandler):
     """
     UploadAclHandler: Handler for UploadController
     """
+    def handle_acl(self, app, method, *args, **kwargs):
+        method = method or self.method
+        if hasattr(self, method):
+            return getattr(self, method)(app)
+        else:
+            pass
+
     def HEAD(self, app):
         # FIXME: GET HEAD case conflicts with GET service
         method = 'GET' if self.method == 'GET' else 'HEAD'

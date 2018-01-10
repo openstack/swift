@@ -93,6 +93,20 @@
     parent: swift-tox-func-ec
     nodeset: centos-7
 
+- job:
+    name: swift-tox-func-s3api
+    parent: swift-tox-base
+    description: |
+      Run functional tests for swift under cPython version 2.7.
+
+      Uses tox with the ``func-s3api`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-s3api
+
+# TODO: add experimental env for s3api
+
 - project:
     check:
       jobs:
@@ -101,6 +115,7 @@
         - swift-tox-func
         - swift-tox-func-encryption
         - swift-tox-func-ec
+        - swift-tox-func-s3api
     gate:
       jobs:
         - swift-tox-py27
@@ -108,6 +123,7 @@
         - swift-tox-func
         - swift-tox-func-encryption
         - swift-tox-func-ec
+        - swift-tox-func-s3api
     experimental:
       jobs:
         - swift-tox-py27-centos-7

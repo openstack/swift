@@ -14,20 +14,28 @@
 # limitations under the License.
 
 import os
+import test.functional as tf
 from boto.s3.connection import S3Connection, OrdinaryCallingFormat, \
     BotoClientError, S3ResponseError
 
 RETRY_COUNT = 3
 
 
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
 class Connection(object):
     """
     Connection class used for S3 functional testing.
     """
-    def __init__(self, aws_access_key=os.environ.get('TESTER_ACCESS_KEY'),
-                 aws_secret_key=os.environ.get('TESTER_SECRET_KEY'),
-                 user_id='%s:%s' % (os.environ.get('TESTER_TENANT'),
-                                    os.environ.get('TESTER_USER'))):
+    def __init__(self, aws_access_key='test:tester',
+                 aws_secret_key='testing',
+                 user_id='test:tester'):
         """
         Initialize method.
 
@@ -44,9 +52,9 @@ class Connection(object):
         self.aws_access_key = aws_access_key
         self.aws_secret_key = aws_secret_key
         self.user_id = user_id
-        swift_host = os.environ.get('SWIFT_HOST').split(':')
-        self.host = swift_host[0]
-        self.port = int(swift_host[1]) if len(swift_host) == 2 else 80
+        # NOTE: auth_host and auth_port can be different from storage location
+        self.host = tf.config['auth_host']
+        self.port = int(tf.config['auth_port'])
         self.conn = \
             S3Connection(aws_access_key, aws_secret_key, is_secure=False,
                          host=self.host, port=self.port,
@@ -119,25 +127,13 @@ class Connection(object):
         return url, {}
 
 
+# TODO: make sure where this function is used
 def get_admin_connection():
     """
     Return tester connection behaves as:
     user_test_admin = admin .admin
     """
-    aws_access_key = os.environ.get('ADMIN_ACCESS_KEY')
-    aws_secret_key = os.environ.get('ADMIN_SECRET_KEY')
-    user_id = os.environ.get('ADMIN_TENANT') + ':' + \
-        os.environ.get('ADMIN_USER')
-    return Connection(aws_access_key, aws_secret_key, user_id)
-
-
-def get_tester2_connection():
-    """
-    Return tester2 connection behaves as:
-    user_test_tester2 = testing2
-    """
-    aws_access_key = os.environ.get('TESTER2_ACCESS_KEY')
-    aws_secret_key = os.environ.get('TESTER2_SECRET_KEY')
-    user_id = os.environ.get('TESTER2_TENANT') + ':' + \
-        os.environ.get('TESTER2_USER')
+    aws_access_key = tf.config['s3_access_key']
+    aws_secret_key = tf.config['s3_secret_key']
+    user_id = tf.config['s3_access_key']
     return Connection(aws_access_key, aws_secret_key, user_id)

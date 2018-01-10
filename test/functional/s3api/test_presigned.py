@@ -14,19 +14,27 @@
 # limitations under the License.
 
 import os
-import unittest
 
 import requests
 
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.cfg import CONF
-from swift.common.middleware.s3api.test.functional import \
-    Swift3FunctionalTestCase
-from swift.common.middleware.s3api.test.functional.utils import \
-    get_error_code, get_error_msg
+
+import test.functional as tf
+
+from test.functional.s3api import S3ApiBase
+from test.functional.s3api.utils import get_error_code, get_error_msg
 
 
-class TestSwift3PresignedUrls(Swift3FunctionalTestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestSwift3PresignedUrls(S3ApiBase):
     def test_bucket(self):
         bucket = 'test-bucket'
         req_objects = ('object', 'object2')
@@ -215,8 +223,6 @@ class TestSwift3PresignedUrls(Swift3FunctionalTestCase):
         self.assertEqual(status, 204)
 
 
-@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
-                 'v4 is supported only in keystone')
 class TestSwift3PresignedUrlsSigV4(TestSwift3PresignedUrls):
     @classmethod
     def setUpClass(cls):
@@ -225,3 +231,6 @@ class TestSwift3PresignedUrlsSigV4(TestSwift3PresignedUrls):
     @classmethod
     def tearDownClass(cls):
         del os.environ['S3_USE_SIGV4']
+
+    def setUp(self):
+        super(TestSwift3PresignedUrlsSigV4, self).setUp()

@@ -13,18 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+import unittest2
 import traceback
-from swift.common.middleware.s3api.test.functional.s3_test_client import \
-    Connection
+import test.functional as tf
+from test.functional.s3api.s3_test_client import Connection
 
 
-class Swift3FunctionalTestCase(unittest.TestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class S3ApiBase(unittest2.TestCase):
     def __init__(self, method_name):
-        super(Swift3FunctionalTestCase, self).__init__(method_name)
+        super(S3ApiBase, self).__init__(method_name)
         self.method_name = method_name
 
     def setUp(self):
+        if 's3api' not in tf.cluster_info:
+            raise tf.SkipTest('s3api middleware is not enabled')
         try:
             self.conn = Connection()
             self.conn.reset()

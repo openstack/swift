@@ -191,7 +191,7 @@ class TestS3ApiService(S3ApiTestCase):
         self.assertEqual(len(list(buckets)), 0)
 
     @s3acl(s3acl_only=True)
-    def test_service_GET_bucekt_list(self):
+    def test_service_GET_bucket_list(self):
         bucket_list = []
         for var in range(0, 10):
             if var % 3 == 0:

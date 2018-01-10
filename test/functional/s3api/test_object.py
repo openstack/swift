@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+import unittest2
 import os
 import boto
 
@@ -24,22 +24,29 @@ from distutils.version import StrictVersion
 import email.parser
 from email.utils import formatdate, parsedate
 from time import mktime
-
 from hashlib import md5
 from urllib import quote
 
-from swift.common.middleware.s3api.test.functional.s3_test_client import \
-    Connection
-from swift.common.middleware.s3api.test.functional.utils import \
-    get_error_code, calculate_md5
-from swift.common.middleware.s3api.test.functional import \
-    Swift3FunctionalTestCase
+import test.functional as tf
+
 from swift.common.middleware.s3api.etree import fromstring
+
+from test.functional.s3api import S3ApiBase
+from test.functional.s3api.s3_test_client import Connection
+from test.functional.s3api.utils import get_error_code, calculate_md5
 
 DAY = 86400.0  # 60 * 60 * 24 (sec)
 
 
-class TestSwift3Object(Swift3FunctionalTestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestSwift3Object(S3ApiBase):
     def setUp(self):
         super(TestSwift3Object, self).setUp()
         self.bucket = 'bucket'
@@ -820,8 +827,6 @@ class TestSwift3Object(Swift3FunctionalTestCase):
         self.assertCommonResponseHeaders(headers)
 
 
-@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
-                 'v4 is supported only in keystone')
 class TestSwift3ObjectSigV4(TestSwift3Object):
     @classmethod
     def setUpClass(cls):
@@ -831,35 +836,38 @@ class TestSwift3ObjectSigV4(TestSwift3Object):
     def tearDownClass(cls):
         del os.environ['S3_USE_SIGV4']
 
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
+    def setUp(self):
+        super(TestSwift3ObjectSigV4, self).setUp()
+
+    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                      'This stuff got the signing issue of boto<=2.x')
     def test_put_object_metadata(self):
         super(TestSwift3ObjectSigV4, self).test_put_object_metadata()
 
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
+    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                      'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_modified_since(self):
         super(TestSwift3ObjectSigV4, self).\
             test_put_object_copy_source_if_modified_since()
 
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
+    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                      'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_unmodified_since(self):
         super(TestSwift3ObjectSigV4, self).\
             test_put_object_copy_source_if_unmodified_since()
 
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
+    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                      'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_match(self):
         super(TestSwift3ObjectSigV4,
               self).test_put_object_copy_source_if_match()
 
-    @unittest.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
-                     'This stuff got the signing issue of boto<=2.x')
+    @unittest2.skipIf(StrictVersion(boto.__version__) < StrictVersion('3.0'),
+                      'This stuff got the signing issue of boto<=2.x')
     def test_put_object_copy_source_if_none_match(self):
         super(TestSwift3ObjectSigV4,
               self).test_put_object_copy_source_if_none_match()
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

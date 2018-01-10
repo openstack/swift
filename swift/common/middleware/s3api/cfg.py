@@ -61,6 +61,7 @@ CONF = Config({
     'max_bucket_listing': 1000,
     'max_parts_listing': 1000,
     'max_multi_delete_objects': 1000,
+    # TODO: consider if we can decide s3_acl is true in default
     's3_acl': False,
     'storage_domain': '',
     'auth_pipeline_check': True,

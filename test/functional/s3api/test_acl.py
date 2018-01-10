@@ -13,24 +13,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+import unittest2
 import os
-
-from swift.common.middleware.s3api.test.functional import \
-    Swift3FunctionalTestCase
-from swift.common.middleware.s3api.test.functional.s3_test_client import \
-    Connection, get_tester2_connection
-from swift.common.middleware.s3api.test.functional.utils import get_error_code
+import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring
+from test.functional.s3api import S3ApiBase
+from test.functional.s3api.s3_test_client import Connection
+from test.functional.s3api.utils import get_error_code
 
 
-class TestSwift3Acl(Swift3FunctionalTestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestS3Acl(S3ApiBase):
     def setUp(self):
-        super(TestSwift3Acl, self).setUp()
+        super(TestS3Acl, self).setUp()
         self.bucket = 'bucket'
         self.obj = 'object'
+        if 's3_access_key2' not in tf.config or \
+                's3_secret_key2' not in tf.config:
+            raise tf.SkipTest(
+                'TestS3Acl requires s3_access_key2 and s3_secret_key2 setting')
         self.conn.make_request('PUT', self.bucket)
-        self.conn2 = get_tester2_connection()
+        access_key2 = tf.config['s3_access_key2']
+        secret_key2 = tf.config['s3_secret_key2']
+        self.conn2 = Connection(access_key2, secret_key2, access_key2)
 
     def test_acl(self):
         self.conn.make_request('PUT', self.bucket, self.obj)
@@ -127,9 +139,7 @@ class TestSwift3Acl(Swift3FunctionalTestCase):
         self.assertEqual(get_error_code(body), 'AccessDenied')
 
 
-@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
-                 'v4 is supported only in keystone')
-class TestSwift3AclSigV4(TestSwift3Acl):
+class TestS3AclSigV4(TestS3Acl):
     @classmethod
     def setUpClass(cls):
         os.environ['S3_USE_SIGV4'] = "True"
@@ -138,6 +148,9 @@ class TestSwift3AclSigV4(TestSwift3Acl):
     def tearDownClass(cls):
         del os.environ['S3_USE_SIGV4']
 
+    def setUp(self):
+        super(TestS3AclSigV4, self).setUp()
+
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

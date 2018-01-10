@@ -13,18 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+import unittest2
 import os
 
-from swift.common.middleware.s3api.test.functional.s3_test_client import \
-    Connection
-from swift.common.middleware.s3api.test.functional.utils import get_error_code
+import test.functional as tf
+
 from swift.common.middleware.s3api.etree import fromstring
-from swift.common.middleware.s3api.test.functional import \
-    Swift3FunctionalTestCase
+
+from test.functional.s3api import S3ApiBase
+from test.functional.s3api.s3_test_client import Connection
+from test.functional.s3api.utils import get_error_code
 
 
-class TestSwift3Service(Swift3FunctionalTestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestSwift3Service(S3ApiBase):
     def setUp(self):
         super(TestSwift3Service, self).setUp()
 
@@ -75,8 +84,6 @@ class TestSwift3Service(Swift3FunctionalTestCase):
                       'or x-amz-date header', body)
 
 
-@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
-                 'v4 is supported only in keystone')
 class TestSwift3ServiceSigV4(TestSwift3Service):
     @classmethod
     def setUpClass(cls):
@@ -86,6 +93,8 @@ class TestSwift3ServiceSigV4(TestSwift3Service):
     def tearDownClass(cls):
         del os.environ['S3_USE_SIGV4']
 
+    def setUp(self):
+        super(TestSwift3ServiceSigV4, self).setUp()
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()

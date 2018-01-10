@@ -13,22 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+import unittest2
 import os
-
-from swift.common.middleware.s3api.test.functional.utils import calculate_md5, \
-    get_error_code
+import test.functional as tf
 from swift.common.middleware.s3api.etree import fromstring, tostring, Element, \
     SubElement
 from swift.common.middleware.s3api.controllers.multi_delete import \
     MAX_MULTI_DELETE_BODY_SIZE
-from swift.common.middleware.s3api.test.functional import \
-    Swift3FunctionalTestCase
-from swift.common.middleware.s3api.test.functional.s3_test_client import \
-    Connection
+
+from test.functional.s3api import S3ApiBase
+from test.functional.s3api.s3_test_client import Connection
+from test.functional.s3api.utils import get_error_code, calculate_md5
 
 
-class TestSwift3MultiDelete(Swift3FunctionalTestCase):
+def setUpModule():
+    tf.setup_package()
+
+
+def tearDownModule():
+    tf.teardown_package()
+
+
+class TestSwift3MultiDelete(S3ApiBase):
     def setUp(self):
         super(TestSwift3MultiDelete, self).setUp()
 
@@ -225,8 +231,6 @@ class TestSwift3MultiDelete(Swift3FunctionalTestCase):
         self.assertEqual(len(resp_objects), 1)
 
 
-@unittest.skipIf(os.environ['AUTH'] == 'tempauth',
-                 'v4 is supported only in keystone')
 class TestSwift3MultiDeleteSigV4(TestSwift3MultiDelete):
     @classmethod
     def setUpClass(cls):
@@ -236,6 +240,9 @@ class TestSwift3MultiDeleteSigV4(TestSwift3MultiDelete):
     def tearDownClass(cls):
         del os.environ['S3_USE_SIGV4']
 
+    def setUp(self):
+        super(TestSwift3MultiDeleteSigV4, self).setUp()
+
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest2.main()
