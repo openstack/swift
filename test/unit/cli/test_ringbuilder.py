@@ -133,7 +133,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                     msg += '%3d: %s\n' % (i, line)
                 self.fail(msg)
 
-    def create_sample_ring(self, part_power=6, overload=None):
+    def create_sample_ring(self, part_power=6, overload=None, empty=False):
         """
         Create a sample ring with four devices
 
@@ -152,35 +152,36 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring = RingBuilder(part_power, 3, 1)
         if overload is not None:
             ring.set_overload(overload)
-        ring.add_dev({'weight': 100.0,
-                      'region': 0,
-                      'zone': 0,
-                      'ip': '127.0.0.1',
-                      'port': 6200,
-                      'device': 'sda1',
-                      'meta': 'some meta data',
-                      })
-        ring.add_dev({'weight': 100.0,
-                      'region': 1,
-                      'zone': 1,
-                      'ip': '127.0.0.2',
-                      'port': 6201,
-                      'device': 'sda2'
-                      })
-        ring.add_dev({'weight': 100.0,
-                      'region': 2,
-                      'zone': 2,
-                      'ip': '127.0.0.3',
-                      'port': 6202,
-                      'device': 'sdc3'
-                      })
-        ring.add_dev({'weight': 100.0,
-                      'region': 3,
-                      'zone': 3,
-                      'ip': '127.0.0.4',
-                      'port': 6203,
-                      'device': 'sdd4'
-                      })
+        if not empty:
+            ring.add_dev({'weight': 100.0,
+                          'region': 0,
+                          'zone': 0,
+                          'ip': '127.0.0.1',
+                          'port': 6200,
+                          'device': 'sda1',
+                          'meta': 'some meta data',
+                          })
+            ring.add_dev({'weight': 100.0,
+                          'region': 1,
+                          'zone': 1,
+                          'ip': '127.0.0.2',
+                          'port': 6201,
+                          'device': 'sda2'
+                          })
+            ring.add_dev({'weight': 100.0,
+                          'region': 2,
+                          'zone': 2,
+                          'ip': '127.0.0.3',
+                          'port': 6202,
+                          'device': 'sdc3'
+                          })
+            ring.add_dev({'weight': 100.0,
+                          'region': 3,
+                          'zone': 3,
+                          'ip': '127.0.0.4',
+                          'port': 6203,
+                          'device': 'sdd4'
+                          })
         ring.save(self.tmpfile)
         return ring
 
@@ -1903,10 +1904,36 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
                 self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+        deleted_dev_list = (
+            "            0      0    0  127.0.0.1:6200      127.0.0.1:6200  "
+            "sda1   0.00          0    0.00   DEL some meta data\n"
+            "            1      1    1  127.0.0.2:6201      127.0.0.2:6201  "
+            "sda2   0.00          0    0.00   DEL \n"
+            "            2      2    2  127.0.0.3:6202      127.0.0.3:6202  "
+            "sdc3   0.00          0    0.00   DEL \n"
+            "            3      3    3  127.0.0.4:6203      127.0.0.4:6203  "
+            "sdd4   0.00          0    0.00   DEL \n")
 
         output = mock_stdout.getvalue()
         self.assertIn("64 partitions", output)
         self.assertIn("all devices have been deleted", output)
+        self.assertIn("all devices have been deleted", output)
+        self.assertIn(deleted_dev_list, output)
+
+    def test_empty_ring(self):
+        self.create_sample_ring(empty=True)
+
+        # default ring file without exception
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+        argv = ["", self.tmpfile, "default"]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("64 partitions", output)
+        self.assertIn("There are no devices in this ring", output)
 
     def test_pretend_min_part_hours_passed(self):
         self.run_srb("create", 8, 3, 1)
