@@ -1903,7 +1903,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "default"]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
-                self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+                self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
         deleted_dev_list = (
             "            0      0    0  127.0.0.1:6200      127.0.0.1:6200  "
             "sda1   0.00          0    0.00   DEL some meta data\n"
@@ -1929,7 +1929,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile, "default"]
         with mock.patch("sys.stdout", mock_stdout):
             with mock.patch("sys.stderr", mock_stderr):
-                self.assertSystemExit(EXIT_ERROR, ringbuilder.main, argv)
+                self.assertSystemExit(EXIT_SUCCESS, ringbuilder.main, argv)
 
         output = mock_stdout.getvalue()
         self.assertIn("64 partitions", output)

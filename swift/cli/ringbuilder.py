@@ -547,9 +547,7 @@ swift-ring-builder <builder_file>
 
         if ring_empty_error:
             print(ring_empty_error)
-            exit(EXIT_ERROR)
-        else:
-            exit(EXIT_SUCCESS)
+        exit(EXIT_SUCCESS)
 
     @staticmethod
     def search():
