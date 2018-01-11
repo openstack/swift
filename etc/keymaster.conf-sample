@@ -51,11 +51,10 @@
 # Instead of the project name, the project id may also be used.
 # project_id = changeme
 
-# The Keystone URL to authenticate to. The value of auth_url may be
+# The Keystone URL to authenticate to. The value of auth_endpoint may be
 # set according to the value of auth_uri in [filter:authtoken] in
-# proxy-server.conf. Currently, the only supported version of the Identity API
-# is v3, which requires that the url end in "/v3".
-# auth_endpoint = http://keystonehost:5000/v3
+# proxy-server.conf.
+# auth_endpoint = http://keystonehost/identity
 
 # The project and user domain names may optionally be specified. If they are
 # not specified, the default values of 'Default' (for *_domain_name) and

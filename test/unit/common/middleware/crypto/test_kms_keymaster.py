@@ -78,15 +78,16 @@ def mock_config_opts_side_effect(*args, **kwargs):
     return dict()
 
 
-def mock_keystone_password_side_effect(username, password, project_name,
-                                       user_domain_name, project_domain_name,
-                                       user_id, user_domain_id, trust_id,
+def mock_keystone_password_side_effect(auth_url, username, password,
+                                       project_name, user_domain_name,
+                                       project_domain_name, user_id,
+                                       user_domain_id, trust_id,
                                        domain_id, domain_name, project_id,
                                        project_domain_id, reauthenticate):
-    return MockPassword(username, password, project_name, user_domain_name,
-                        project_domain_name, user_id, user_domain_id, trust_id,
-                        domain_id, domain_name, project_id, project_domain_id,
-                        reauthenticate)
+    return MockPassword(auth_url, username, password, project_name,
+                        user_domain_name, project_domain_name, user_id,
+                        user_domain_id, trust_id, domain_id, domain_name,
+                        project_id, project_domain_id, reauthenticate)
 
 ERR_MESSAGE_SECRET_INCORRECTLY_SPECIFIED = 'Secret incorrectly specified.'
 ERR_MESSAGE_KEY_UUID_NOT_FOUND = 'Key not found, uuid: '
@@ -154,10 +155,11 @@ class MockBarbicanKey(object):
 
 
 class MockPassword(object):
-    def __init__(self, username, password, project_name, user_domain_name,
-                 project_domain_name, user_id, user_domain_id, trust_id,
-                 domain_id, domain_name, project_id, project_domain_id,
-                 reauthenticate):
+    def __init__(self, auth_url, username, password, project_name,
+                 user_domain_name, project_domain_name, user_id,
+                 user_domain_id, trust_id, domain_id, domain_name, project_id,
+                 project_domain_id, reauthenticate):
+        self.auth_url = auth_url
         self.password = password
         self.username = username
         self.user_domain_name = user_domain_name
