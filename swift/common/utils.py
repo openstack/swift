@@ -4280,7 +4280,38 @@ class ShardRange(object):
               SHRUNK: 'shrunk'}
     STATES_BY_NAME = dict((v, k) for k, v in STATES.items())
 
-    def __init__(self, name, created_at, lower='', upper='',
+    class OuterBound(object):
+        def __eq__(self, other):
+            return isinstance(other, type(self)) or other is ''
+
+        def __ne__(self, other):
+            return not self.__eq__(other)
+
+        def __str__(self):
+            return ''
+
+        def __repr__(self):
+            return "''"
+
+        def __bool__(self):
+            return False
+
+        __nonzero__ = __bool__
+
+    @functools.total_ordering
+    class MaxBound(OuterBound):
+        def __ge__(self, other):
+            return True
+
+    @functools.total_ordering
+    class MinBound(OuterBound):
+        def __le__(self, other):
+            return True
+
+    MIN = MinBound()
+    MAX = MaxBound()
+
+    def __init__(self, name, created_at, lower=MIN, upper=MAX,
                  object_count=0, bytes_used=0, meta_timestamp=None,
                  deleted=0, state=None, state_timestamp=None, **kwargs):
         """
@@ -4306,14 +4337,9 @@ class ShardRange(object):
         """
         self.account, self.container = self.validate_name(name)
         self.name = name
+        self._lower = ShardRange.MIN
+        self._upper = ShardRange.MAX
         self.lower = lower
-        if not isinstance(lower, string_types):
-            raise TypeError('lower must be a string')
-        if not isinstance(upper, string_types):
-            raise TypeError('upper must be a string')
-        if upper and upper < lower:
-            raise ValueError('upper (%r) must be bigger than lower (%r)' %
-                             (upper, lower or ''))
         self.upper = upper
         self.timestamp = created_at
         self._meta_timestamp = None
@@ -4376,6 +4402,38 @@ class ShardRange(object):
         self._meta_timestamp = self._to_timestamp(ts)
 
     @property
+    def lower(self):
+        return self._lower
+
+    @lower.setter
+    def lower(self, value):
+        if not value and value is not ShardRange.MAX:
+            value = ShardRange.MIN
+        if not isinstance(value, (string_types, ShardRange.OuterBound)):
+            raise TypeError('lower must be a string')
+        if value > self._upper:
+            raise ValueError(
+                'lower (%r) must be less than or equal to upper (%r)' %
+                (value, self.upper))
+        self._lower = value
+
+    @property
+    def upper(self):
+        return self._upper
+
+    @upper.setter
+    def upper(self, value):
+        if not value and value is not ShardRange.MIN:
+            value = ShardRange.MAX
+        if not isinstance(value, (string_types, ShardRange.OuterBound)):
+            raise TypeError('upper must be a string')
+        if value < self._lower:
+            raise ValueError(
+                'upper (%r) must be greater than or equal to lower (%r)' %
+                (value, self.lower))
+        self._upper = value
+
+    @property
     def object_count(self):
         return self._count
 
@@ -4425,34 +4483,31 @@ class ShardRange(object):
         self._state_timestamp = self._to_timestamp(ts)
 
     def __contains__(self, item):
-        if not self.lower and not self.upper:
+        if self.lower == ShardRange.MIN and self.upper == ShardRange.MAX:
             # No limits so must match
             return True
-        elif not self.lower:
+        elif self.lower == ShardRange.MIN:
             return item <= self.upper
-        elif not self.upper:
+        elif self.upper == ShardRange.MAX:
             return self.lower < item
         else:
             return self.lower < item <= self.upper
 
     def __lt__(self, other):
-        if not self.upper:
+        if self.upper == ShardRange.MAX:
             return False
         if isinstance(other, ShardRange):
-            if not other.lower:
-                return False
-            lower = self.lower or ''
-            return self.upper < other.lower or lower < other.lower
+            return self.lower < other.lower
         elif other is None:
             return True
         else:
             return self.upper < other
 
     def __gt__(self, other):
-        if not self.lower:
+        if self.lower == ShardRange.MIN:
             return False
         if isinstance(other, ShardRange):
-            if not other.upper:
+            if other.upper == ShardRange.MAX:
                 return False
             upper = self.upper or other.upper + '\x00'
             return self.lower >= other.upper or upper > other.upper
@@ -4479,24 +4534,25 @@ class ShardRange(object):
             self.state_timestamp.internal)
 
     def entire_namespace(self):
-        return self.lower == self.upper == ''
+        return (self.lower == ShardRange.MIN and
+                self.upper == ShardRange.MAX)
 
     def overlaps(self, other):
         if not isinstance(other, ShardRange):
             return False
-        if self.lower == other.lower == '':
+        if self.lower == other.lower == ShardRange.MIN:
             return True
-        elif self.upper == other.upper == '':
+        elif self.upper == other.upper == ShardRange.MAX:
             return True
         elif self.entire_namespace() or other.entire_namespace():
             return True
-        elif not self.upper:
+        elif self.upper == ShardRange.MAX:
             return other.upper > self.lower
-        elif not other.upper:
+        elif other.upper == ShardRange.MAX:
             return self.upper > other.lower
-        elif not self.lower:
+        elif self.lower == ShardRange.MIN:
             return other.lower < self.upper
-        elif not other.lower:
+        elif other.lower == ShardRange.MIN:
             return self.lower < other.upper
         return other.upper > self.upper > other.lower or \
             other.upper > self.lower > other.lower or \
@@ -4513,8 +4569,9 @@ class ShardRange(object):
         if self.entire_namespace():
             return True
         includes_lower = self.lower == other.lower or other.lower in self
-        includes_upper = (self.upper == other.upper or
-                          other.upper and other.upper in self)
+        includes_upper = (
+            self.upper == other.upper or
+            other.upper != ShardRange.MAX and other.upper in self)
         return includes_lower and includes_upper
 
     def newer(self, other):
@@ -4526,8 +4583,8 @@ class ShardRange(object):
     def __iter__(self):
         yield 'name', self.name
         yield 'created_at', self.timestamp.internal
-        yield 'lower', self.lower
-        yield 'upper', self.upper
+        yield 'lower', str(self.lower)
+        yield 'upper', str(self.upper)
         yield 'object_count', self.object_count
         yield 'bytes_used', self.bytes_used
         yield 'meta_timestamp', self.meta_timestamp.internal

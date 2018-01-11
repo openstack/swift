@@ -224,8 +224,8 @@ class ContainerSharder(ContainerReplicator):
             update_sharding_info(
                 broker,
                 {'Root': root_path,
-                 'Lower': shard_range.lower,
-                 'Upper': shard_range.upper,
+                 'Lower': str(shard_range.lower),
+                 'Upper': str(shard_range.upper),
                  'Timestamp': shard_range.timestamp.internal,
                  'Meta-Timestamp': shard_range.meta_timestamp.internal})
             broker.update_metadata({
@@ -337,8 +337,9 @@ class ContainerSharder(ContainerReplicator):
             # misplaced items in source, but do not mark them as deleted, and
             # leave for next cycle to try again
             for shard_range in shard_to_obj:
-                broker.remove_objects(shard_range.lower, shard_range.upper,
-                                      policy_index)
+                broker.remove_objects(
+                    str(shard_range.lower), str(shard_range.upper),
+                    policy_index)
 
             # There could be more, so recurse my pretty
             if len(objs) == CONTAINER_LISTING_LIMIT:
@@ -729,8 +730,8 @@ class ContainerSharder(ContainerReplicator):
             'X-Container-Sysmeta-Shard-Root':
                 '%s' % broker.root_path,
             'X-Container-Sysmeta-Sharding': True,
-            'X-Container-Sysmeta-Shard-Lower': shard_range.lower,
-            'X-Container-Sysmeta-Shard-Upper': shard_range.upper,
+            'X-Container-Sysmeta-Shard-Lower': str(shard_range.lower),
+            'X-Container-Sysmeta-Shard-Upper': str(shard_range.upper),
             'X-Container-Sysmeta-Shard-Timestamp':
                 shard_range.timestamp.internal,
             'X-Container-Sysmeta-Shard-Meta-Timestamp':
@@ -1045,7 +1046,7 @@ class ContainerSharder(ContainerReplicator):
                 new_broker, broker.root_path, shard_range, force=True)
 
             query = {
-                'marker': shard_range.lower,
+                'marker': str(shard_range.lower),
                 'end_marker': '',
                 'prefix': '',
                 'delimiter': '',
@@ -1095,7 +1096,8 @@ class ContainerSharder(ContainerReplicator):
 
         if ranges_done:
             broker.merge_shard_ranges([dict(sr) for sr in ranges_done])
-            update_sharding_info(broker, {'Last': ranges_done[-1].upper}, node)
+            update_sharding_info(
+                broker, {'Last': str(ranges_done[-1].upper)}, node)
         else:
             self.logger.warning('No progress made in _cleave()!')
 
@@ -1184,16 +1186,16 @@ class RangeAnalyser(object):
         upto = {'': self.path}
         for r in ranges:
             rl = RangeLink(r)
-            if r.lower not in upto:
+            if str(r.lower) not in upto:
                 self.gaps.append(rl)
             else:
-                upto[r.lower].append(rl)
+                upto[str(r.lower)].append(rl)
 
             if r.upper:
-                if r.upper in upto:
-                    rl.upper = upto[r.upper]
+                if str(r.upper) in upto:
+                    rl.upper = upto[str(r.upper)]
                 else:
-                    upto[r.upper] = rl.upper
+                    upto[str(r.upper)] = rl.upper
 
     def _post_result(self, newest, complete, result):
         idx = None

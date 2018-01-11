@@ -1757,7 +1757,7 @@ class ContainerBroker(DatabaseBroker):
             args = []
             if last_upper:
                 sql += "AND name > ? "
-                args.append(last_upper)
+                args.append(str(last_upper))
             sql += "ORDER BY name LIMIT 1 OFFSET %d" % (shard_size - 1)
             row = connection.execute(sql, args).fetchone()
             return row['name'] if row else None

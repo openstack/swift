@@ -6602,6 +6602,57 @@ class TestShardRange(unittest.TestCase):
     def setUp(self):
         self.ts_iter = make_timestamp_iter()
 
+    def test_min_max_bounds(self):
+        # max
+        self.assertEqual('', utils.ShardRange.MAX)
+        self.assertEqual(utils.ShardRange.MAX, utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX > '')
+        self.assertFalse('' > utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX > utils.ShardRange.MAX)
+
+        self.assertFalse(utils.ShardRange.MAX == 'z')
+        self.assertFalse('z' > utils.ShardRange.MAX)
+        self.assertTrue('z' < utils.ShardRange.MAX)
+        self.assertTrue(utils.ShardRange.MAX > 'z')
+        self.assertFalse(utils.ShardRange.MAX < 'z')
+
+        self.assertEqual('', str(utils.ShardRange.MAX))
+        self.assertFalse(utils.ShardRange.MAX)
+        self.assertTrue(utils.ShardRange.MAX == utils.ShardRange.MAX)
+        self.assertFalse(utils.ShardRange.MAX != utils.ShardRange.MAX)
+        self.assertTrue(
+            utils.ShardRange.MaxBound() == utils.ShardRange.MaxBound())
+        self.assertFalse(
+            utils.ShardRange.MaxBound() != utils.ShardRange.MaxBound())
+
+        # min
+        self.assertEqual('', utils.ShardRange.MIN)
+        self.assertEqual(utils.ShardRange.MIN, utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN > '')
+        self.assertFalse('' > utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN > utils.ShardRange.MIN)
+
+        self.assertFalse(utils.ShardRange.MIN == 'z')
+        self.assertFalse('z' < utils.ShardRange.MIN)
+        self.assertTrue('z' > utils.ShardRange.MIN)
+        self.assertTrue(utils.ShardRange.MIN < 'z')
+        self.assertFalse(utils.ShardRange.MIN > 'z')
+        self.assertFalse(utils.ShardRange.MIN)
+
+        self.assertEqual('', str(utils.ShardRange.MIN))
+        self.assertFalse(utils.ShardRange.MIN)
+        self.assertTrue(utils.ShardRange.MIN == utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN != utils.ShardRange.MIN)
+        self.assertTrue(
+            utils.ShardRange.MinBound() == utils.ShardRange.MinBound())
+        self.assertFalse(
+            utils.ShardRange.MinBound() != utils.ShardRange.MinBound())
+
+        self.assertFalse(utils.ShardRange.MAX == utils.ShardRange.MIN)
+        self.assertFalse(utils.ShardRange.MIN == utils.ShardRange.MAX)
+        self.assertTrue(utils.ShardRange.MAX != utils.ShardRange.MIN)
+        self.assertTrue(utils.ShardRange.MIN != utils.ShardRange.MAX)
+
     def test_shard_range_initialisation(self):
         def assert_initialisation_ok(params, expected):
             pr = utils.ShardRange(**params)
@@ -6629,18 +6680,13 @@ class TestShardRange(unittest.TestCase):
                                          created_at=ts_1))
         assert_initialisation_fails(dict(empty_run, name='/c',
                                          created_at=ts_1))
-        # lower, upper must be strings
-        assert_initialisation_fails(dict(empty_run, name='a/c',
-                                         created_at=ts_1),
-                                    TypeError)
-        assert_initialisation_fails(dict(empty_run, name='a/c',
-                                         created_at=ts_1, lower=''),
-                                    TypeError)
-
+        # lower, upper can be None
         expect = dict(name='a/c', created_at=ts_1.internal, lower='',
                       upper='', object_count=0, bytes_used=0,
                       meta_timestamp=ts_1.internal, deleted=0,
                       state=0, state_timestamp=ts_1.internal)
+        assert_initialisation_ok(dict(empty_run, name='a/c', created_at=ts_1),
+                                 expect)
         assert_initialisation_ok(dict(name='a/c', created_at=ts_1), expect)
 
         good_run = dict(name='a/c', created_at=ts_1, lower='l',
@@ -6734,19 +6780,21 @@ class TestShardRange(unittest.TestCase):
                         state=1, state_timestamp=ts2.internal)
         self.assertEqual(expected, dict(sr))
 
-    def test_to_from_dict(self):
+    def _check_to_from_dict(self, lower, upper):
         ts_1 = next(self.ts_iter)
         ts_2 = next(self.ts_iter)
         ts_3 = next(self.ts_iter)
-        pr = utils.ShardRange('a/test', ts_1, 'l', 'u', 10, 100, ts_2,
+        pr = utils.ShardRange('a/test', ts_1, lower, upper, 10, 100, ts_2,
                               state=1, state_timestamp=ts_3)
         pr_dict = dict(pr)
         expected = {
-            'name': 'a/test', 'created_at': ts_1.internal, 'lower': 'l',
-            'upper': 'u', 'object_count': 10, 'bytes_used': 100,
+            'name': 'a/test', 'created_at': ts_1.internal, 'lower': lower,
+            'upper': upper, 'object_count': 10, 'bytes_used': 100,
             'meta_timestamp': ts_2.internal, 'deleted': 0,
             'state': 1, 'state_timestamp': ts_3.internal}
         self.assertEqual(expected, pr_dict)
+        self.assertIsInstance(pr_dict['lower'], six.string_types)
+        self.assertIsInstance(pr_dict['upper'], six.string_types)
         pr_new = utils.ShardRange.from_dict(pr_dict)
         self.assertEqual(pr, pr_new)
         self.assertEqual(pr_dict, dict(pr_new))
@@ -6766,6 +6814,10 @@ class TestShardRange(unittest.TestCase):
             else:
                 with self.assertRaises(TypeError):
                     utils.ShardRange(**bad_dict)
+
+    def test_to_from_dict(self):
+        self._check_to_from_dict('l', 'u')
+        self._check_to_from_dict('', '')
 
     def test_timestamp_setter(self):
         ts_1 = next(self.ts_iter)
@@ -6824,6 +6876,89 @@ class TestShardRange(unittest.TestCase):
                 sr.state = bad_state
             self.assertIn('Invalid state', str(cm.exception))
 
+    def test_lower_setter(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', '')
+        # sanity checks
+        self.assertEqual('b', sr.lower)
+        self.assertEqual(sr.MAX, sr.upper)
+
+        def do_test(good_value, expected):
+            sr.lower = good_value
+            self.assertEqual(expected, sr.lower)
+            self.assertEqual(sr.MAX, sr.upper)
+
+        do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
+        do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
+        do_test('', utils.ShardRange.MIN)
+        do_test(u'', utils.ShardRange.MIN)
+        do_test(None, utils.ShardRange.MIN)
+        do_test('a', 'a')
+        do_test('y', 'y')
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        sr.lower = ''
+        self.assertEqual(sr.MIN, sr.lower)
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        with self.assertRaises(ValueError) as cm:
+            sr.lower = 'z'
+        self.assertIn("lower ('z') must be less than or equal to upper ('y')",
+                      str(cm.exception))
+        self.assertEqual('b', sr.lower)
+        self.assertEqual('y', sr.upper)
+
+        def do_test(bad_value):
+            with self.assertRaises(TypeError) as cm:
+                sr.lower = bad_value
+            self.assertIn("lower must be a string", str(cm.exception))
+            self.assertEqual('b', sr.lower)
+            self.assertEqual('y', sr.upper)
+
+        do_test(1)
+        do_test(1.234)
+
+    def test_upper_setter(self):
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), '', 'y')
+        # sanity checks
+        self.assertEqual(sr.MIN, sr.lower)
+        self.assertEqual('y', sr.upper)
+
+        def do_test(good_value, expected):
+            sr.upper = good_value
+            self.assertEqual(expected, sr.upper)
+            self.assertEqual(sr.MIN, sr.lower)
+
+        do_test(utils.ShardRange.MIN, utils.ShardRange.MIN)
+        do_test(utils.ShardRange.MAX, utils.ShardRange.MAX)
+        do_test('', utils.ShardRange.MAX)
+        do_test(u'', utils.ShardRange.MAX)
+        do_test(None, utils.ShardRange.MAX)
+        do_test('z', 'z')
+        do_test('b', 'b')
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        sr.upper = ''
+        self.assertEqual(sr.MAX, sr.upper)
+
+        sr = utils.ShardRange('a/c', utils.Timestamp.now(), 'b', 'y')
+        with self.assertRaises(ValueError) as cm:
+            sr.upper = 'a'
+        self.assertIn(
+            "upper ('a') must be greater than or equal to lower ('b')",
+            str(cm.exception))
+        self.assertEqual('b', sr.lower)
+        self.assertEqual('y', sr.upper)
+
+        def do_test(bad_value):
+            with self.assertRaises(TypeError) as cm:
+                sr.upper = bad_value
+            self.assertIn("upper must be a string", str(cm.exception))
+            self.assertEqual('b', sr.lower)
+            self.assertEqual('y', sr.upper)
+
+        do_test(1)
+        do_test(1.234)
+
     def test_entire_namespace(self):
         # test infinite range (no boundaries)
         inf_sr = utils.ShardRange('a/test', utils.Timestamp.now())
@@ -6837,7 +6972,7 @@ class TestShardRange(unittest.TestCase):
             self.assertTrue(chr(x) in inf_sr)
 
         for x in ('a', 'z', 'zzzz', '124fsdf', '', 1234):
-            self.assertTrue(x in inf_sr)
+            self.assertTrue(x in inf_sr, '%r should be in %r' % (x, inf_sr))
 
         inf_sr.lower = 'a'
         self.assertIs(False, inf_sr.entire_namespace())
@@ -6876,23 +7011,43 @@ class TestShardRange(unittest.TestCase):
         self.assertTrue(ltor > ftol)
         self.assertFalse(ltor > rtoz)
 
+        # wholly within
         self.assertFalse(btoc < atof)
         self.assertFalse(btoc > atof)
         self.assertTrue(atof < btoc)
         self.assertTrue(atof > btoc)
 
+        self.assertTrue(atof < dtof)
+        self.assertFalse(dtof > atof)
+        self.assertFalse(atof > dtof)
+        self.assertFalse(dtof < atof)
+
         self.assertFalse(dtof < dtom)
         self.assertFalse(dtof > dtom)
+        self.assertTrue(dtom > dtof)
+        self.assertFalse(dtom < dtof)
+
+        # overlaps
         self.assertTrue(atof < dtom)
         self.assertFalse(atof > dtom)
         self.assertTrue(ltor > dtom)
+
+        # ranges including min/max bounds
+        self.assertTrue(upper > lower)
+        self.assertTrue(lower < upper)
+        self.assertFalse(upper < lower)
+        self.assertFalse(lower > upper)
 
         self.assertFalse(lower < entire)
         self.assertFalse(entire > lower)
         self.assertFalse(lower > entire)
         self.assertFalse(entire < lower)
+
         self.assertFalse(upper < entire)
+        self.assertFalse(entire > upper)
         self.assertFalse(upper > entire)
+        self.assertFalse(entire < upper)
+
         self.assertFalse(entire < entire)
         self.assertFalse(entire > entire)
 
@@ -6965,6 +7120,14 @@ class TestShardRange(unittest.TestCase):
         self.assertTrue('x' in upper)
         self.assertFalse('' in upper)
 
+        self.assertIn(utils.ShardRange.MAX, entire)
+        self.assertNotIn(utils.ShardRange.MAX, lower)
+        self.assertIn(utils.ShardRange.MAX, upper)
+
+        self.assertIn(utils.ShardRange.MIN, entire)
+        self.assertNotIn(utils.ShardRange.MIN, upper)
+        self.assertIn(utils.ShardRange.MIN, lower)
+
     def test_includes(self):
         ts = utils.Timestamp.now().internal
         _to_h = utils.ShardRange('a/-h', ts, '', 'h')
@@ -7011,6 +7174,17 @@ class TestShardRange(unittest.TestCase):
                               state_timestamp=state_ts)
         self.assertEqual(
             "ShardRange<'l' to 'u' as of %s, (100, 1000) as of %s, "
+            "active as of %s>"
+            % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
+
+        ts.offset = 0
+        meta_ts.offset = 2
+        state_ts.offset = 3
+        sr = utils.ShardRange('a/c', ts, '', '', 100, 1000,
+                              meta_timestamp=meta_ts, state=1,
+                              state_timestamp=state_ts)
+        self.assertEqual(
+            "ShardRange<'' to '' as of %s, (100, 1000) as of %s, "
             "active as of %s>"
             % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
 
