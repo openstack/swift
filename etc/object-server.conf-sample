@@ -372,6 +372,12 @@ use = egg:swift#recon
 # objects_per_second instead.
 # slowdown = 0.01
 #
+# Log stats (at INFO level) every report_interval seconds. This
+# logging is per-process, so with concurrency > 1, the logs will
+# contain one stats log per worker process every report_interval
+# seconds.
+# report_interval = 300
+#
 # recon_cache_path = /var/cache/swift
 #
 # You can set scheduling priority of processes. Niceness values range from -20
