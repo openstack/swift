@@ -84,6 +84,46 @@ def check_content_type(req):
     return None
 
 
+def num_container_updates(container_replicas, container_quorum,
+                          object_replicas, object_quorum):
+    """
+    We need to send container updates via enough object servers such
+    that, if the object PUT succeeds, then the container update is
+    durable (either it's synchronously updated or written to async
+    pendings).
+
+    Define:
+      Qc = the quorum size for the container ring
+      Qo = the quorum size for the object ring
+      Rc = the replica count for the container ring
+      Ro = the replica count (or EC N+K) for the object ring
+
+    A durable container update is one that's made it to at least Qc
+    nodes. To always be durable, we have to send enough container
+    updates so that, if only Qo object PUTs succeed, and all the
+    failed object PUTs had container updates, at least Qc updates
+    remain. Since (Ro - Qo) object PUTs may fail, we must have at
+    least Qc + Ro - Qo container updates to ensure that Qc of them
+    remain.
+
+    Also, each container replica is named in at least one object PUT
+    request so that, when all requests succeed, no work is generated
+    for the container replicator. Thus, at least Rc updates are
+    necessary.
+
+    :param container_replicas: replica count for the container ring (Rc)
+    :param container_quorum: quorum size for the container ring (Qc)
+    :param object_replicas: replica count for the object ring (Ro)
+    :param object_quorum: quorum size for the object ring (Qo)
+
+    """
+    return max(
+        # Qc + Ro - Qo
+        container_quorum + object_replicas - object_quorum,
+        # Rc
+        container_replicas)
+
+
 class ObjectControllerRouter(object):
 
     policy_type_to_controller_map = {}
@@ -285,18 +325,15 @@ class BaseObjectController(Controller):
                 headers[index].get('X-Container-Device'),
                 container['device'])
 
-        for i, container in enumerate(containers):
-            i = i % len(headers)
-            set_container_update(i, container)
+        n_updates_needed = num_container_updates(
+            len(containers), quorum_size(len(containers)),
+            n_outgoing, policy.quorum)
 
-        # if # of container_updates is not enough against # of replicas
-        # (or fragments). Fill them like as pigeon hole problem.
-        # TODO?: apply these to X-Delete-At-Container?
-        n_updates_needed = min(policy.quorum + 1, n_outgoing)
         container_iter = itertools.cycle(containers)
-        existing_updates = len(containers)
+        existing_updates = 0
         while existing_updates < n_updates_needed:
-            set_container_update(existing_updates, next(container_iter))
+            set_container_update(existing_updates % n_outgoing,
+                                 next(container_iter))
             existing_updates += 1
 
         for i, node in enumerate(delete_at_nodes or []):
