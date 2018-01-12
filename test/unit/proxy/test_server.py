@@ -50,7 +50,7 @@ from eventlet.green import httplib
 from six import BytesIO
 from six import StringIO
 from six.moves import range
-from six.moves.urllib.parse import quote
+from six.moves.urllib.parse import quote, parse_qsl
 
 from test import listen_zero
 from test.unit import (
@@ -3336,9 +3336,9 @@ class TestReplicatedObjectController(
             self.app.memcache.store = {}
             backend_requests = []
 
-            def capture_requests(ip, port, method, path, headers, *args,
-                                 **kwargs):
-                backend_requests.append((method, path, headers))
+            def capture_requests(ip, port, method, path, headers, params,
+                                 *args, **kwargs):
+                backend_requests.append((method, path, headers, params))
 
             req = Request.blank('/v1/a/c/o', {}, method='POST',
                                 headers={'Content-Type': 'text/plain'})
@@ -3361,8 +3361,8 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
             self.assertEqual(len(backend_requests), 8)
 
-            def check_request(req, method, path, headers=None):
-                req_method, req_path, req_headers = req
+            def check_request(req, method, path, headers=None, params=None):
+                req_method, req_path, req_headers, req_params = req
                 self.assertEqual(method, req_method)
                 # caller can ignore leading path parts
                 self.assertTrue(req_path.endswith(path),
@@ -3374,6 +3374,12 @@ class TestReplicatedObjectController(
                     self.assertEqual(req_headers[k], v,
                                      'Expected %s but got %s for key %s' %
                                      (v, req_headers[k], k))
+                params = params or {}
+                req_params = dict(parse_qsl(req_params)) if req_params else {}
+                for k, v in params.items():
+                    self.assertEqual(req_params[k], v,
+                                     'Expected %s but got %s for key %s' %
+                                     (v, req_params[k], k))
 
             account_request = backend_requests.pop(0)
             check_request(account_request, method='HEAD', path='/sda/0/a')
@@ -3381,7 +3387,8 @@ class TestReplicatedObjectController(
             check_request(container_request, method='HEAD', path='/sda/0/a/c')
             container_request_shard = backend_requests.pop(0)
             check_request(
-                container_request_shard, method='GET', path='/sda/0/a/c/o')
+                container_request_shard, method='GET', path='/sda/0/a/c',
+                params={'includes': 'o'})
             # TODO: why do we have these extra req's for shards? just one would
             # suffice...
             backend_requests.pop(0)

@@ -2127,12 +2127,13 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(shard_ranges, 'a/c')
         check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
         # specific object
-        check_shard_GET(shard_ranges[:1], 'a/c/cheese')
-        check_shard_GET(shard_ranges[:1], 'a/c/ham')
-        check_shard_GET(shard_ranges[1:2], 'a/c/pickle')
-        check_shard_GET(shard_ranges[1:2], 'a/c/salami')
-        check_shard_GET(shard_ranges[2:], 'a/c/walnut')
-        check_shard_GET(shard_ranges[2:], 'a/c/walnut', params='&reverse=true')
+        check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=cheese')
+        check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=ham')
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=pickle')
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=salami')
+        check_shard_GET(shard_ranges[2:], 'a/c', params='&includes=walnut')
+        check_shard_GET(shard_ranges[2:], 'a/c',
+                        params='&includes=walnut&reverse=true')
         # with marker
         check_shard_GET(shard_ranges, 'a/c', params='&marker=cheese')
         check_shard_GET(shard_ranges[:1], 'a/c',
@@ -2214,11 +2215,11 @@ class TestContainerController(unittest.TestCase):
                                      broker.get_shard_ranges())
 
         check_shard_GET(shard_ranges[1:], 'a/c')
-        check_shard_GET(shard_ranges[1:2], 'a/c/jam')
+        check_shard_GET(shard_ranges[1:2], 'a/c', params='&includes=jam')
         # specify obj, marker or end_marker not in any shard range
-        check_shard_GET([], 'a/c/cheese')
-        check_shard_GET([], 'a/c/cheese', params='&reverse=true')
-        check_shard_GET([], 'a/c/ham')
+        check_shard_GET([], 'a/c', params='&includes=cheese')
+        check_shard_GET([], 'a/c', params='&includes=cheese&reverse=true')
+        check_shard_GET([], 'a/c', params='&includes=ham')
         check_shard_GET(shard_ranges[1:], 'a/c/', params='&marker=cheese')
         check_shard_GET([], 'a/c/', params='&marker=cheese&reverse=true')
         check_shard_GET([], 'a/c/', params='&end_marker=cheese')

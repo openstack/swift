@@ -2000,11 +2000,11 @@ class Controller(object):
         part, nodes = self.app.container_ring.get_nodes(account, container)
 
         path = "/%s/%s" % (account, container)
-        if obj:
-            path = "%s/%s" % (path, obj)
         params = req.params.copy()
         params.update({'items': 'shard',
                        'format': 'json'})
+        if obj:
+            params.update({'includes': obj})
 
         headers_list = [self.generate_request_headers(req, transfer=True)
                         for _node in nodes]
