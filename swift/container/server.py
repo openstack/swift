@@ -593,7 +593,6 @@ class ContainerController(BaseStorageServer):
         prefix = get_param(req, 'prefix')
         delimiter = get_param(req, 'delimiter')
         items = get_param(req, 'items', '').lower()
-        includes = get_param(req, 'includes')
         if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
             # delimiters can be made more flexible later
             return HTTPPreconditionFailed(body='Bad delimiter')
@@ -621,6 +620,7 @@ class ContainerController(BaseStorageServer):
             return HTTPNotFound(request=req, headers=resp_headers)
         include_deleted = False
         if items == 'shard':
+            includes = get_param(req, 'includes')
             state = get_param(req, 'state') or None
             if state:
                 try:
@@ -629,6 +629,32 @@ class ContainerController(BaseStorageServer):
                     return HTTPBadRequest(request=req, body='Bad state')
             container_list = broker.get_shard_ranges(
                 marker, end_marker, includes, reverse, state=state)
+            if state == ShardRange.ACTIVE:
+                # we might not get all required shard ranges if the container
+                # is part way through sharding, in which case add a filler
+                # shard range for the remainder of the container namespace
+                # TODO: consider making the broker supply this extra shard
+                # range when necessary to better separate implementation
+                # details and ensure the filler is always equal to the
+                # uncleaved namespace
+                last_upper = ShardRange.MIN
+                if reverse:
+                    if container_list:
+                        last_upper = container_list[0].upper
+                    required_upper = marker or ShardRange.MAX
+                    filler_index = 0
+                else:
+                    if container_list:
+                        last_upper = container_list[-1].upper
+                    required_upper = end_marker or ShardRange.MAX
+                    filler_index = len(container_list)
+                if required_upper > last_upper:
+                    filler_sr = ShardRange(
+                        '%s/%s' % (account, container), Timestamp.now(),
+                        str(last_upper), ShardRange.MAX,
+                        state=ShardRange.ACTIVE)
+                    container_list.insert(filler_index, filler_sr)
+
         elif info.get('db_state') == DB_STATE_SHARDING:
             # Container is sharding, so we need to look at both brokers
             # TODO: will we ever want items=all to be supported in this case?

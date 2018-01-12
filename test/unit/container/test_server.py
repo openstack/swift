@@ -2072,6 +2072,7 @@ class TestContainerController(unittest.TestCase):
     def test_PUT_GET_shard_ranges(self):
         # make a container
         ts_iter = make_timestamp_iter()
+        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
         headers = {'X-Timestamp': next(ts_iter).normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
@@ -2089,14 +2090,15 @@ class TestContainerController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(201, resp.status_int)
         # PUT some shard ranges
-        shard_bounds = [('', 'ham'), ('ham', 'salami'), ('salami', '')]
+        shard_bounds = [('', 'ham', ShardRange.ACTIVE),
+                        ('ham', 'salami', ShardRange.ACTIVE),
+                        ('salami', '', ShardRange.CREATED)]
         shard_ranges = [
             ShardRange('.sharded_a/_%s' % upper, next(ts_iter),
                        lower, upper,
                        i * 100, i * 1000, meta_timestamp=next(ts_iter),
-                       state=random.choice(ShardRange.STATES.keys()),
-                       state_timestamp=next(ts_iter))
-            for i, (lower, upper) in enumerate(shard_bounds)]
+                       state=state, state_timestamp=next(ts_iter))
+            for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
 
@@ -2123,7 +2125,9 @@ class TestContainerController(unittest.TestCase):
         def check_shard_GET(expected_shard_ranges, path, params=''):
             req = Request.blank('/sda1/p/%s?items=shard&format=json%s' %
                                 (path, params), method='GET')
-            resp = req.get_response(self.controller)
+            with mock.patch('swift.common.utils.Timestamp.now',
+                            classmethod(lambda ts_cls: ts_now)):
+                resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
             expected = [dict(p, last_modified=Timestamp(p.timestamp).isoformat)
@@ -2134,11 +2138,32 @@ class TestContainerController(unittest.TestCase):
         check_shard_GET(shard_ranges, 'a/c')
         check_shard_GET(reversed(shard_ranges), 'a/c', params='&reverse=true')
         # only active shards
-        # TODO: test combinations of active plus marker, limit etc
-        expected = [sr for sr in shard_ranges if sr.state == ShardRange.ACTIVE]
+        check_shard_GET(shard_ranges[:2], 'a/c',
+                        params='&state=active&end_marker=pickle')
+        check_shard_GET(reversed(shard_ranges[:2]), 'a/c',
+                        params='&state=active&reverse=true&marker=pickle')
+        # active shards don't cover entire namespace so expect an extra filler
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, shard_ranges[1].upper, ShardRange.MAX,
+            state=ShardRange.ACTIVE)
+        expected = shard_ranges[:2] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&state=active')
         check_shard_GET(reversed(expected), 'a/c',
                         params='&state=active&reverse=true')
+        expected = [shard_ranges[1], extra_shard_range]
+        check_shard_GET(expected, 'a/c', params='&state=active&marker=pickle')
+        check_shard_GET(reversed(expected), 'a/c',
+                        params='&state=active&reverse=true&end_marker=pickle')
+        # when no active shard ranges cover the requested namespace range then
+        # filler is for entire namespace (this might change to be just the
+        # uncleaved namespace)
+        extra_shard_range = ShardRange(
+            'a/c', ts_now, ShardRange.MIN, ShardRange.MAX,
+            state=ShardRange.ACTIVE)
+        expected = [extra_shard_range]
+        check_shard_GET(expected, 'a/c', params='&state=active&marker=walnut')
+        check_shard_GET(reversed(expected), 'a/c',
+                        params='&state=active&reverse=true&end_marker=walnut')
         # specific object
         check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=cheese')
         check_shard_GET(shard_ranges[:1], 'a/c', params='&includes=ham')

@@ -222,6 +222,106 @@ class TestContainerSharding(ReplProbeTest):
             x['name'].encode('utf-8') for x in actual_listing])
         return headers, actual_listing
 
+    def test_sharding_listing(self):
+        # verify parameterised listing of a container during sharding
+        all_obj_names = ['obj%03d' % x for x in range(4 * self.max_shard_size)]
+        obj_names = all_obj_names[::2]
+        for obj in obj_names:
+            client.put_object(self.url, self.token, self.container_name, obj)
+        # choose some names approx in middle of each expected shard range
+        markers = [
+            obj_names[i] for i in range(self.max_shard_size / 4,
+                                        2 * self.max_shard_size,
+                                        self.max_shard_size / 2)]
+
+        def check_listing(objects, **params):
+            qs = '&'.join(['%s=%s' % param for param in params.items()])
+            headers, listing = client.get_container(
+                self.url, self.token, self.container_name, query_string=qs)
+            listing = [x['name'].encode('utf-8') for x in listing]
+            if params.get('reverse'):
+                marker = params.get('marker', ShardRange.MAX)
+                end_marker = params.get('end_marker', ShardRange.MIN)
+                expected = [o for o in objects if end_marker < o < marker]
+                expected.reverse()
+            else:
+                marker = params.get('marker', ShardRange.MIN)
+                end_marker = params.get('end_marker', ShardRange.MAX)
+                expected = [o for o in objects if marker < o < end_marker]
+            if 'limit' in params:
+                expected = expected[:params['limit']]
+            self.assertEqual(expected, listing)
+
+        def do_listing_checks(objects):
+            check_listing(objects)
+            check_listing(objects, marker=markers[0], end_marker=markers[1])
+            check_listing(objects, marker=markers[0], end_marker=markers[2])
+            check_listing(objects, marker=markers[1], end_marker=markers[3])
+            check_listing(objects, marker=markers[1], end_marker=markers[3],
+                          limit=self.max_shard_size / 4)
+            check_listing(objects, marker=markers[1], end_marker=markers[3],
+                          limit=self.max_shard_size / 4)
+            check_listing(objects, marker=markers[1], end_marker=markers[2],
+                          limit=self.max_shard_size / 2)
+            check_listing(objects, marker=markers[1], end_marker=markers[1])
+            check_listing(objects, reverse=True)
+            check_listing(objects, reverse=True, end_marker=markers[1])
+            check_listing(objects, reverse=True, marker=markers[3],
+                          end_marker=markers[1], limit=self.max_shard_size / 4)
+            check_listing(objects, reverse=True, marker=markers[3],
+                          end_marker=markers[1], limit=0)
+
+        # sanity checks
+        do_listing_checks(obj_names)
+
+        # Shard the container
+        client.post_container(self.url, self.admin_token, self.container_name,
+                              headers={'X-Container-Sharding': 'on'})
+        # First run the 'leader' in charge of scanning, which finds all shard
+        # ranges and cleaves first two
+        self.sharders.once(number=self.brain.node_numbers[0])
+        # Then run sharder on other nodes which will also cleave first two
+        # shard ranges
+        for n in self.brain.node_numbers[1:]:
+            self.sharders.once(number=n)
+
+        # sanity check shard range states
+        shard_ranges = self.get_container_shard_ranges()
+        shard_ranges = [ShardRange.from_dict(d) for d in shard_ranges]
+        for shard_range in shard_ranges[:2]:
+            self.assertEqual(ShardRange.ACTIVE, shard_range.state)
+        for shard_range in shard_ranges[2:]:
+            self.assertEqual(ShardRange.CREATED, shard_range.state)
+        self.assertFalse(shard_ranges[4:])
+
+        do_listing_checks(obj_names)
+
+        # put some new objects spread through entire namespace
+        new_obj_names = all_obj_names[1::4]
+        for obj in new_obj_names:
+            client.put_object(self.url, self.token, self.container_name, obj)
+
+        # new objects that fell into the first two cleaved shard ranges are
+        # reported in listing, new objects in the yet-to-be-cleaved shard
+        # ranges are not yet included in listing
+        exp_obj_names = [o for o in obj_names + new_obj_names
+                         if o <= shard_ranges[1].upper]
+        exp_obj_names += [o for o in obj_names
+                          if o > shard_ranges[1].upper]
+        exp_obj_names.sort()
+        do_listing_checks(exp_obj_names)
+
+        # run all the sharders again and the last two shard ranges get cleaved
+        self.sharders.once()
+        shard_ranges = self.get_container_shard_ranges()
+        shard_ranges = [ShardRange.from_dict(d) for d in shard_ranges]
+        for shard_range in shard_ranges:
+            self.assertEqual(ShardRange.ACTIVE, shard_range.state)
+
+        exp_obj_names = obj_names + new_obj_names
+        exp_obj_names.sort()
+        do_listing_checks(exp_obj_names)
+
     def _test_sharded_listing(self, run_replicators=False):
         obj_names = ['obj%03d' % x for x in range(self.max_shard_size)]
 

@@ -118,7 +118,7 @@ class ContainerController(Controller):
                 sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
             # TODO: think about whether this actually does what we want for
             # items=all -- and whether we should even support that here
-            resp = self._get_sharded(req, resp, sharding_state)
+            resp = self._get_from_shards(req, resp)
 
         # Cache this. We just made a request to a storage node and got
         # up-to-date information for the container.
@@ -147,8 +147,8 @@ class ContainerController(Controller):
                                  'False'))
         return resp
 
-    def _get_sharded(self, req, resp, sharding_state):
-        limit = req.params.get('limit', CONTAINER_LISTING_LIMIT)
+    def _get_from_shards(self, req, resp):
+        limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
         # get the list of ShardRanges that contain the requested listing range
         # by using original request params
         ranges = self._get_shard_ranges(
@@ -176,72 +176,37 @@ class ContainerController(Controller):
                     pass
             return None, None, response
 
-        headers = resp.headers.copy()
-        # Expose sharding state in reseller requests
-        if req.environ.get('reseller_request', False):
-            headers['X-Container-Sharding'] = config_true_value(
-                headers.get(get_sys_meta_prefix('container') + 'Sharding',
-                            'False'))
         objects = []
         params = req.params.copy()
         reverse = config_true_value(params.get('reverse'))
         marker = params.get('marker')
         end_marker = params.get('end_marker')
-        sharding = sharding_state == DB_STATE_SHARDING
         params['format'] = 'json'
-        num_ranges = len(ranges)
-        shard_range = None
-        for i in range(num_ranges + 1):
-            if sharding and reverse and i == 0:
-                # special case if we are still sharding as data may exist in
-                # the old DB after where we're up to (because reverse).
-                if marker and (marker < ranges[0] or marker in ranges[0]):
-                    continue
-                if end_marker > ranges[0]:
-                    params['end_marker'] = end_marker
-                elif ranges[0].upper:
-                    params['end_marker'] = ranges[0].upper + '\x00'
-            elif sharding and not reverse and i == num_ranges:
-                # we are in another edge case where the we need to check more
-                # in the old DB
-                if (end_marker and shard_range and
-                        (end_marker < shard_range.upper or
-                         end_marker in shard_range)):
-                    continue
-                params['end_marker'] = end_marker or ''
-                params['marker'] = shard_range.upper
-                shard_range = None
+
+        for shard_range in ranges:
+            params['limit'] = limit
+            # always set marker and end_marker to ensure that misplaced objects
+            # outside of the expected shard range are not fetched
+            # TODO: perhaps check that we have not strayed beyond end_marker
+            # before getting objects from another shard?
+            if marker and marker in shard_range:
+                params['marker'] = marker
             else:
-                try:
-                    # TODO: how big can this be? pop(0) is quadratic...
-                    shard_range = ranges.pop(0)
-                except IndexError:
-                    break
+                params['marker'] = shard_range.upper if reverse \
+                    else shard_range.lower
+                if params['marker'] and reverse:
+                    params['marker'] += '\x00'
 
-                if marker and marker in shard_range:
-                    params['marker'] = marker
-                else:
-                    params['marker'] = shard_range.upper or '' if reverse \
-                        else shard_range.lower or ''
-                    if params['marker'] and reverse:
-                        params['marker'] += '\x00'
-
-                if end_marker and end_marker in shard_range:
-                    params['end_marker'] = end_marker
-                else:
-                    params['end_marker'] = shard_range.lower or '' if reverse \
-                        else shard_range.upper or ''
-                    if params['end_marker'] and not reverse:
-                        params['end_marker'] += '\x00'
-
-            # now we have all those params set up. Let's get some objects
-            if shard_range:
-                account = shard_range.account
-                container = shard_range.container
+            if end_marker and end_marker in shard_range:
+                params['end_marker'] = end_marker
             else:
-                account = self.account_name
-                container = self.container_name
-            hdrs, objs, tmp_resp = get_objects(account, container, params)
+                params['end_marker'] = shard_range.lower if reverse \
+                    else shard_range.upper
+                if params['end_marker'] and not reverse:
+                    params['end_marker'] += '\x00'
+
+            hdrs, objs, tmp_resp = get_objects(
+                shard_range.account, shard_range.container, params)
 
             if hdrs is None and tmp_resp:
                 return tmp_resp
@@ -254,6 +219,7 @@ class ContainerController(Controller):
             limit -= len(objs)
             params['limit'] = limit
 
+            # TODO: do we need these checks?
             if limit <= 0:
                 break
             elif end_marker and reverse and end_marker >= objects[-1]['name']:
