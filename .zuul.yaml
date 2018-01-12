@@ -309,6 +309,17 @@
     vars:
       bindep_profile: test py36
 
+- job:
+    name: swift-func-cors
+    parent: swift-probetests-centos-7
+    description: |
+      Setup a SAIO dev environment and run Swift's CORS functional tests
+    timeout: 1200
+    pre-run:
+      - tools/playbooks/cors/install_selenium.yaml
+    run: tools/playbooks/cors/run.yaml
+    post-run: tools/playbooks/cors/post.yaml
+
 - nodeset:
     name: swift-five-nodes
     nodes:
@@ -515,7 +526,7 @@
         - swift-tox-py27:
             irrelevant-files: &unittest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/(functional|probe)/.*$
+              - ^test/(cors|functional|probe)/.*$
         - swift-tox-py36:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py37:
@@ -529,7 +540,7 @@
         - swift-tox-func-py27:
             irrelevant-files: &functest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
-              - ^test/probe/.*$
+              - ^test/(cors|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-tox-func-encryption-py27:
             irrelevant-files: *functest-irrelevant-files
@@ -545,20 +556,27 @@
             irrelevant-files: *functest-irrelevant-files
 
         # Other tests
+        - swift-func-cors:
+            irrelevant-files:
+              - ^(api-ref|releasenotes)/.*$
+              # Keep doc/saio -- we use those sample configs in the saio playbooks
+              - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
+              - ^test/(unit|functional|probe)/.*$
+              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
         - swift-tox-func-s3api-ceph-s3tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               # Also keep doc/s3api -- it holds known failures for these tests
               - ^doc/(requirements.txt|(manpages|source)/.*)$
-              - ^test/(unit|probe)/.*$
+              - ^test/(cors|unit|probe)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-probetests-centos-7:
             irrelevant-files: &probetest-irrelevant-files
               - ^(api-ref|releasenotes)/.*$
               # Keep doc/saio -- we use those sample configs in the saio playbooks
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
-              - ^test/(unit|functional)/.*$
+              - ^test/(cors|unit|functional)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-probetests-centos-8:
             irrelevant-files: *probetest-irrelevant-files
@@ -606,6 +624,7 @@
         - swift-tox-func-py37
         - swift-tox-func-encryption-py37
         - swift-tox-func-ec-py37
+        - swift-func-cors
         - swift-probetests-centos-7:
             irrelevant-files: *probetest-irrelevant-files
         - swift-probetests-centos-8:

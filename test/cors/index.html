@@ -1,0 +1,42 @@
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>CORS Tests</title>
+        <style type="text/css">
+tr:nth-child(2n) { background: lightgrey; }
+.pass { background: green; }
+.fail { background: red; }
+.skip { background: orange; }
+td:nth-child(1) {
+    padding: .1em;
+    width: 8em;
+    text-align: center;
+}
+td:nth-child(2) {
+    width: 50%;
+}
+        </style>
+        <script type="text/javascript">
+            const PARAMS = !window.location.hash ? {} : window.location.hash.substr(1)
+                .split('&')
+                .map(v => v.split('='))
+                .reduce( (acc, [key, val]) => ({ ...acc, [unescape(key)]: unescape(val) }), {})
+            console.log(PARAMS)
+        </script>
+        <script type="module" src="test-info.js"></script>
+        <script type="module" src="test-account.js"></script>
+        <script type="module" src="test-container.js"></script>
+        <script type="module" src="test-object.js"></script>
+        <script type="module" src="test-large-objects.js"></script>
+        <script type="module" src="test-symlink.js"></script>
+    </head>
+    <body>
+        <h2>CORS Tests</h2>
+        <div id="status">Loading...</div>
+        <table>
+            <thead><th>Result</th><th>Name</th><th>Details</th></thead>
+            <tbody id="results"></tbody>
+        </table>
+        <pre id="dumper"></pre>
+    </body>
+</html>

@@ -1,0 +1,15 @@
+- hosts: all
+  tasks:
+    - name: Shutdown main swift services
+      shell: "swift-init stop main"
+      ignore_errors: true
+
+    - name: Start main swift services
+      shell: "swift-init start main"
+
+    - name: Run CORS tests
+      shell: >
+        xvfb-run python
+        {{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/test/cors/main.py
+        --output {{ ansible_env.HOME }}/cors-test-results.txt
+        all
