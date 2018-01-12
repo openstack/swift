@@ -876,8 +876,6 @@ class SloGetContext(WSGIContext):
                             headers=response_headers,
                             conditional_response=True,
                             app_iter=segmented_iter)
-        if req.range:
-            response.headers.pop('Etag')
         return response
 
 

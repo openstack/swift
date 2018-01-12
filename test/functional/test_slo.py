@@ -219,9 +219,21 @@ class TestSlo(Base):
                 "Expected slo_enabled to be True/False, got %r" %
                 (self.env.slo_enabled,))
 
+        manifest_abcde_hash = hashlib.md5()
+        manifest_abcde_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('c' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('d' * 1024 * 1024).hexdigest())
+        manifest_abcde_hash.update(hashlib.md5('e').hexdigest())
+        self.manifest_abcde_etag = manifest_abcde_hash.hexdigest()
+
     def test_slo_get_simple_manifest(self):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read()
+        self.assertEqual(file_item.conn.response.status, 200)
+        headers = dict(file_item.conn.response.getheaders())
+        self.assertIn('etag', headers)
+        self.assertEqual(headers['etag'], '"%s"' % self.manifest_abcde_etag)
         self.assertEqual(4 * 1024 * 1024 + 1, len(file_contents))
         self.assertEqual('a', file_contents[0])
         self.assertEqual('a', file_contents[1024 * 1024 - 1])
@@ -348,6 +360,10 @@ class TestSlo(Base):
         file_item = self.env.container.file('manifest-abcde')
         file_contents = file_item.read(size=1024 * 1024 + 2,
                                        offset=1024 * 1024 - 1)
+        self.assertEqual(file_item.conn.response.status, 206)
+        headers = dict(file_item.conn.response.getheaders())
+        self.assertIn('etag', headers)
+        self.assertEqual(headers['etag'], '"%s"' % self.manifest_abcde_etag)
         self.assertEqual('a', file_contents[0])
         self.assertEqual('b', file_contents[1])
         self.assertEqual('b', file_contents[-2])
@@ -418,16 +434,10 @@ class TestSlo(Base):
         self.assertEqual('d', file_contents[-1])
 
     def test_slo_etag_is_hash_of_etags(self):
-        expected_hash = hashlib.md5()
-        expected_hash.update(hashlib.md5('a' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('b' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('c' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('d' * 1024 * 1024).hexdigest())
-        expected_hash.update(hashlib.md5('e').hexdigest())
-        expected_etag = expected_hash.hexdigest()
-
+        # we have this check in test_slo_get_simple_manifest, too,
+        # but verify that it holds for HEAD requests
         file_item = self.env.container.file('manifest-abcde')
-        self.assertEqual(expected_etag, file_item.info()['etag'])
+        self.assertEqual(self.manifest_abcde_etag, file_item.info()['etag'])
 
     def test_slo_etag_is_hash_of_etags_submanifests(self):
 
