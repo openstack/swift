@@ -60,6 +60,9 @@ class SloTestCase(unittest.TestCase):
         slo_conf = {'rate_limit_under_size': '0'}
         self.slo = slo.filter_factory(slo_conf)(self.app)
         self.slo.logger = self.app.logger
+        self.manifest_abcd_etag = md5hex(
+            md5hex("a" * 5) + md5hex(md5hex("b" * 10) + md5hex("c" * 15)) +
+            md5hex("d" * 20))
 
     def call_app(self, req, app=None, expect_exception=False):
         if app is None:
@@ -1473,10 +1476,6 @@ class TestSloGetManifest(SloTestCase):
                 'Etag': md5hex(_abcdefghijkl_manifest_json)},
             _abcdefghijkl_manifest_json)
 
-        self.manifest_abcd_etag = md5hex(
-            md5hex("a" * 5) + md5hex(md5hex("b" * 10) + md5hex("c" * 15)) +
-            md5hex("d" * 20))
-
         _bc_ranges_manifest_json = json.dumps(
             [{'name': '/gettest/b_10', 'hash': md5hex('b' * 10),
               'content_type': 'text/plain', 'bytes': '10',
@@ -1776,7 +1775,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '15')
-        self.assertNotIn('Etag', headers)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, 'aabbbbbbbbbbccc')
 
         self.assertEqual(
@@ -2021,7 +2020,7 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '25')
-        self.assertNotIn('Etag', headers)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, 'bbbbbbbbbbccccccccccccccc')
 
         self.assertEqual(
@@ -2224,7 +2223,7 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(status, '206 Partial Content')
         self.assertEqual(headers['Content-Length'], '20')
         self.assertEqual(headers['Content-Type'], 'application/json')
-        self.assertNotIn('Etag', headers)
+        self.assertIn('Etag', headers)
         self.assertEqual(body, 'accccccccbbbbbbbbddd')
 
         self.assertEqual(
@@ -3001,9 +3000,7 @@ class TestSloConditionalGetOldManifest(SloTestCase):
 
         self.assertEqual(status, '206 Partial Content')
         self.assertIn(('Content-Length', '4'), headers)
-        # We intentionally drop Etag for ranged requests.
-        # Presumably because of broken clients?
-        self.assertNotIn('etag', [h.lower() for h, v in headers])
+        self.assertIn(('Etag', '"%s"' % self.manifest_abcd_etag), headers)
         self.assertEqual(body, 'aabb')
 
         expected_app_calls = [
