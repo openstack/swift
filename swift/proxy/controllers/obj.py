@@ -517,7 +517,9 @@ class BaseObjectController(Controller):
                 req.headers.pop('x-detect-content-type')
 
     def _update_x_timestamp(self, req):
-        # Used by container sync feature
+        # The container sync feature includes an x-timestamp header with
+        # requests. If present this is checked and preserved, otherwise a fresh
+        # timestamp is added.
         if 'x-timestamp' in req.headers:
             try:
                 req_timestamp = Timestamp(req.headers['X-Timestamp'])
@@ -830,18 +832,8 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-        # Used by container sync feature
-        if 'x-timestamp' in req.headers:
-            try:
-                req_timestamp = Timestamp(req.headers['X-Timestamp'])
-            except ValueError:
-                return HTTPBadRequest(
-                    request=req, content_type='text/plain',
-                    body='X-Timestamp should be a UNIX timestamp float value; '
-                         'was %r' % req.headers['x-timestamp'])
-            req.headers['X-Timestamp'] = req_timestamp.internal
-        else:
-            req.headers['X-Timestamp'] = Timestamp.now().internal
+
+        self._update_x_timestamp(req)
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)
