@@ -1839,9 +1839,11 @@ class Controller(object):
         if is_success(resp.status_int):
             self.app.logger.info(_('autocreate account %r'), path)
             clear_info_cache(self.app, req.environ, account)
+            return True
         else:
             self.app.logger.warning(_('Could not autocreate account %r'),
                                     path)
+            return False
 
     def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
                        concurrency=1, client_chunk_size=None):

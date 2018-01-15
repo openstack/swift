@@ -24,7 +24,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, set_info_cache, clear_info_cache
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
-    HTTPNotFound
+    HTTPNotFound, HTTPServerError
 
 
 class ContainerController(Controller):
@@ -160,7 +160,8 @@ class ContainerController(Controller):
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts and self.app.account_autocreate:
-            self.autocreate_account(req, self.account_name)
+            if not self.autocreate_account(req, self.account_name):
+                return HTTPServerError(request=req)
             account_partition, accounts, container_count = \
                 self.account_info(self.account_name, req)
         if not accounts:
