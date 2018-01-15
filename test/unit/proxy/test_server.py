@@ -3336,71 +3336,58 @@ class TestReplicatedObjectController(
 
         def do_test(method, sharding_state):
             self.app.memcache.store = {}
-            backend_requests = []
-
-            def capture_requests(ip, port, method, path, headers, params,
-                                 *args, **kwargs):
-                backend_requests.append((method, path, headers, params))
-
             req = Request.blank('/v1/a/c/o', {}, method=method, body='',
                                 headers={'Content-Type': 'text/plain'})
 
             # we want the container_info response to say policy index of 1 and
             # sharding state
-            # acc HEAD, cont HEAD, cont shard GETs, obj POSTs
-            status_codes = (200, 200, 200, 200, 200, 202, 202, 202)
+            # acc HEAD, cont HEAD, cont shard GET, obj POSTs
+            status_codes = (200, 200, 200, 202, 202, 202)
             resp_headers = {'X-Backend-Storage-Policy-Index': 1,
                             'x-backend-sharding-state': sharding_state}
             shard_range = utils.ShardRange(
                 '.sharded_a/c_shard', utils.Timestamp.now(), 'l', 'u')
             body = json.dumps([dict(shard_range)])
             with mocked_http_conn(*status_codes, headers=resp_headers,
-                                  give_connect=capture_requests, body=body) \
-                    as fake_conn:
+                                  body=body) as fake_conn:
                 resp = req.get_response(self.app)
-                self.assertRaises(StopIteration, fake_conn.code_iter.next)
 
             self.assertEqual(resp.status_int, 202)
-            self.assertEqual(len(backend_requests), 8)
+            backend_requests = fake_conn.requests
 
             def check_request(req, method, path, headers=None, params=None):
-                req_method, req_path, req_headers, req_params = req
-                self.assertEqual(method, req_method)
+                self.assertEqual(method, req['method'])
                 # caller can ignore leading path parts
-                self.assertTrue(req_path.endswith(path),
+                self.assertTrue(req['path'].endswith(path),
                                 'expected path to end with %s, it was %s' % (
-                                    path, req_path))
+                                    path, req['path']))
                 headers = headers or {}
                 # caller can ignore some headers
                 for k, v in headers.items():
-                    self.assertEqual(req_headers[k], v,
+                    self.assertEqual(req['headers'][k], v,
                                      'Expected %s but got %s for key %s' %
-                                     (v, req_headers[k], k))
+                                     (v, req['headers'][k], k))
                 params = params or {}
-                req_params = dict(parse_qsl(req_params)) if req_params else {}
+                req_params = dict(parse_qsl(req['qs'])) if req['qs'] else {}
                 for k, v in params.items():
                     self.assertEqual(req_params[k], v,
                                      'Expected %s but got %s for key %s' %
                                      (v, req_params[k], k))
 
-            account_request = backend_requests.pop(0)
+            account_request = backend_requests[0]
             check_request(account_request, method='HEAD', path='/sda/0/a')
-            container_request = backend_requests.pop(0)
+            container_request = backend_requests[1]
             check_request(container_request, method='HEAD', path='/sda/0/a/c')
-            container_request_shard = backend_requests.pop(0)
+            container_request_shard = backend_requests[2]
             check_request(
                 container_request_shard, method='GET', path='/sda/0/a/c',
                 params={'includes': 'o'})
-            # TODO: why do we have these extra req's for shards? just one would
-            # suffice...
-            backend_requests.pop(0)
-            backend_requests.pop(0)
 
             # make sure backend requests included expected container headers
             container_headers = {}
 
-            for request in backend_requests:
-                req_headers = request[2]
+            for request in backend_requests[3:]:
+                req_headers = request['headers']
                 device = req_headers['x-container-device']
                 container_headers[device] = req_headers['x-container-host']
                 expectations = {

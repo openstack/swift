@@ -24,7 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
-from six.moves.urllib.parse import quote, urlencode
+from six.moves.urllib.parse import quote
 
 import os
 import time
@@ -41,7 +41,7 @@ from eventlet import sleep
 from eventlet.timeout import Timeout
 import six
 
-from swift.common.wsgi import make_pre_authed_env
+from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     GreenAsyncPile, quorum_size, parse_content_type, \
@@ -1984,6 +1984,41 @@ class Controller(object):
 
         return resp
 
+    def _get_container_listing(self, req, account, container, params=None):
+        """
+        Fetch container listing from given `account/container`.
+
+        :param req: original Request instance.
+        :param account: account in which `container` is stored.
+        :param container: container from listing should be fetched.
+        :param params: query string parameters to be used.
+        :return: deserialized json data structure
+        """
+        params = params or {}
+        version, _a, _c, _other = req.split_path(3, 4, True)
+        path = '/'.join(['', version, account, container])
+
+        # TODO: consider adding user agent and swift source to subreq
+        subreq = make_pre_authed_request(
+            req.environ, method='GET', path=quote(path), headers=req.headers)
+        subreq.params = params
+        self.app.logger.debug('Get listing from %s' % subreq.path_qs)
+        response = self.app.handle_request(subreq)
+
+        if not is_success(response.status_int):
+            self.app.logger.warning(
+                'Failed to get container listing from %s: %s',
+                subreq.path_qs, response.status_int)
+            return None, response
+
+        try:
+            return json.loads(response.body), response
+        except ValueError as err:
+            self.app.logger.warning(
+                'Problem with listing response from %s: %s',
+                subreq.path_qs, err)
+            return None, response
+
     def _get_shard_ranges(self, req, account, container, includes=None,
                           state=None):
         """
@@ -1997,43 +2032,26 @@ class Controller(object):
         :param includes: (optional) restricts the list of fetched shard ranges
             to those which include the given name.
         :param state: (optional) the state of shard ranges to be fetched.
-        :return: a list of instances of :class:`swift.common.utils.ShardRange`
+        :return: a list of instances of :class:`swift.common.utils.ShardRange`,
+            or None if there was a problem fetching the shard ranges
         """
-        part, nodes = self.app.container_ring.get_nodes(account, container)
-
-        path = "/%s/%s" % (account, container)
         params = req.params.copy()
-        params.update({'items': 'shard',
-                       'format': 'json'})
+        params.update({'items': 'shard', 'format': 'json'})
         if includes:
             params['includes'] = includes
         if state:
             params['state'] = state
 
-        headers_list = [self.generate_request_headers(req, transfer=True)
-                        for _node in nodes]
-        # TODO: why are we using make_requests (plural) when we only use one
-        # response?
-        # TODO: should this be a subrequest? - as it is we're sending all the
-        # original object request headers to the container server
-        response = self.make_requests(req, self.app.container_ring,
-                                      part, "GET", path, headers_list,
-                                      urlencode(params))
-
-        if not is_success(response.status_int):
-            self.app.logger.debug(
-                "Failed to fetch shard ranges from %s; status=%s." %
-                (path, response.status_int))
-            # TODO: return [] or None to indicate failure?
-            return []
+        listing, response = self._get_container_listing(
+            req, account, container, params=params)
+        if listing is None:
+            return None
 
         try:
-            shard_ranges = json.loads(response.body)
             return [ShardRange.from_dict(shard_range)
-                    for shard_range in shard_ranges]
+                    for shard_range in listing]
         except (ValueError, TypeError, KeyError) as err:
             self.app.logger.exception(
                 "Problem decoding shard ranges in response from %s: %s",
-                path, err)
-            # TODO: return [] or None to indicate failure? or raise exception?
-            return []
+                response.request.path_qs, err)
+            return None

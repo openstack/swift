@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from six.moves.urllib.parse import unquote, urlencode
+from six.moves.urllib.parse import unquote
 from swift import gettext_ as _
 import json
 
@@ -108,16 +108,17 @@ class ContainerController(Controller):
         params = req.params
         params['format'] = 'json'
         req.params = params
+        # TODO: if cached container info tells us container is sharded then
+        # skip straight to _get_sharded
         resp = self.GETorHEAD_base(
             req, _('Container'), node_iter, part,
             req.swift_entity_path, concurrency)
         sharding_state = \
             int(resp.headers.get('X-Backend-Sharding-State',
                                  DB_STATE_UNSHARDED))
-        if req.method == "GET" and params.get('items') != 'shard' and \
-                sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED):
-            # TODO: think about whether this actually does what we want for
-            # items=all -- and whether we should even support that here
+        if (req.method == "GET" and params.get('items') != 'shard' and
+                params.get('scope') != 'root' and
+                sharding_state in (DB_STATE_SHARDING, DB_STATE_SHARDED)):
             resp = self._get_from_shards(req, resp)
 
         # Cache this. We just made a request to a storage node and got
@@ -148,7 +149,6 @@ class ContainerController(Controller):
         return resp
 
     def _get_from_shards(self, req, resp):
-        limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
         # get the list of ShardRanges that contain the requested listing range
         # by using original request params
         ranges = self._get_shard_ranges(
@@ -159,29 +159,14 @@ class ContainerController(Controller):
             # return what we have.
             return resp
 
-        def get_objects(account, container, parameters):
-            path = '/%s/%s' % (account, container)
-            part, nodes = self.app.container_ring.get_nodes(account, container)
-            req_headers = [self.generate_request_headers(req, transfer=True)
-                           for _junk in range(len(nodes))]
-            response = self.make_requests(req, self.app.container_ring,
-                                          part, "GET", path, req_headers,
-                                          urlencode(parameters))
-
-            if is_success(response.status_int):
-                try:
-                    return (response.headers, json.loads(response.body),
-                            response)
-                except ValueError:
-                    pass
-            return None, None, response
-
         objects = []
+        limit = int(req.params.get('limit', CONTAINER_LISTING_LIMIT))
         params = req.params.copy()
         reverse = config_true_value(params.get('reverse'))
         marker = params.get('marker')
         end_marker = params.get('end_marker')
         params['format'] = 'json'
+        params['scope'] = 'root'  # avoid fetching shards again
 
         for shard_range in ranges:
             params['limit'] = limit
@@ -205,11 +190,12 @@ class ContainerController(Controller):
                 if params['end_marker'] and not reverse:
                     params['end_marker'] += '\x00'
 
-            hdrs, objs, tmp_resp = get_objects(
-                shard_range.account, shard_range.container, params)
+            objs, shard_resp = self._get_container_listing(
+                req, shard_range.account, shard_range.container, params=params)
 
-            if hdrs is None and tmp_resp:
-                return tmp_resp
+            if objs is None:
+                # TODO: unit tests failed shard GET scenario
+                return shard_resp
 
             if not objs:
                 # TODO: Can we be more aggressive here, and break instead?
@@ -217,7 +203,6 @@ class ContainerController(Controller):
 
             objects.extend(objs)
             limit -= len(objs)
-            params['limit'] = limit
 
             # TODO: do we need these checks?
             if limit <= 0:

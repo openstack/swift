@@ -30,8 +30,8 @@ from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, FakeLogger,
-    make_timestamp_iter
-)
+    make_timestamp_iter,
+    mocked_http_conn)
 from swift.proxy import server as proxy_server
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
@@ -1036,7 +1036,7 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(bytes_to_skip(11, 7), 4)
         self.assertEqual(bytes_to_skip(97, 7873823), 55)
 
-    def test_get_shard_ranges(self):
+    def test_get_shard_ranges_for_container_get(self):
         ts_iter = make_timestamp_iter()
         shard_ranges = [dict(ShardRange(
             '.sharded_a/sr%d' % i, next(ts_iter), '%d_lower' % i,
@@ -1044,67 +1044,68 @@ class TestFuncs(unittest.TestCase):
             meta_timestamp=next(ts_iter)))
             for i in range(3)]
         base = Controller(self.app)
-        base.account_name = 'a'
-        base.container_name = 'c'
-        req = Request.blank('/v1/a/c/o', method='PUT')
-        captured = []
-
-        def on_connect(*args, **kwargs):
-            captured.append((args, kwargs))
-
-        # get ranges
-        with mock.patch(
-                'swift.proxy.controllers.base.http_connect',
-                fake_http_connect(200, 200, 200,
-                                  body=json.dumps(shard_ranges),
-                                  give_connect=on_connect)):
+        req = Request.blank('/v1/a/c', method='GET')
+        with mocked_http_conn(
+            200, 200, body_iter=iter(['', json.dumps(shard_ranges)])
+        ) as fake_conn:
             actual = base._get_shard_ranges(req, 'a', 'c')
 
-        self.assertEqual(3, len(captured))
-        for call in captured:
-            self.assertEqual('GET', call[0][-2])
-            self.assertEqual('/a/c', call[0][-1])
-            params = sorted(call[1].get('query_string').split('&'))
-            self.assertEqual(['format=json', 'items=shard'], params)
+        # account info
+        captured = fake_conn.requests
+        self.assertEqual('HEAD', captured[0]['method'])
+        self.assertEqual('a', captured[0]['path'][7:])
+        # container GET
+        self.assertEqual('GET', captured[1]['method'])
+        self.assertEqual('a/c', captured[1]['path'][7:])
+        params = sorted(captured[1]['qs'].split('&'))
+        self.assertEqual(['format=json', 'items=shard'], params)
         self.assertEqual(shard_ranges, [dict(pr) for pr in actual])
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
-        # get range for object
-        captured = []
-        with mock.patch(
-                'swift.proxy.controllers.base.http_connect',
-                fake_http_connect(200, 200, 200,
-                                  body=json.dumps(shard_ranges[1:2]),
-                                  give_connect=on_connect)):
+    def test_get_shard_ranges_for_object_put(self):
+        ts_iter = make_timestamp_iter()
+        shard_ranges = [dict(ShardRange(
+            '.sharded_a/sr%d' % i, next(ts_iter), '%d_lower' % i,
+            '%d_upper' % i, object_count=i, bytes_used=1024 * i,
+            meta_timestamp=next(ts_iter)))
+            for i in range(3)]
+        base = Controller(self.app)
+        req = Request.blank('/v1/a/c/o', method='PUT')
+        with mocked_http_conn(
+            200, 200, body_iter=iter(['', json.dumps(shard_ranges[1:2])])
+        ) as fake_conn:
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
 
-        self.assertEqual(3, len(captured))
-        for call in captured:
-            self.assertEqual('/a/c', call[0][-1])
-            params = sorted(call[1].get('query_string').split('&'))
-            self.assertEqual(
-                ['format=json', 'includes=1_test', 'items=shard'], params)
+        # account info
+        captured = fake_conn.requests
+        self.assertEqual('HEAD', captured[0]['method'])
+        self.assertEqual('a', captured[0]['path'][7:])
+        # container GET
+        self.assertEqual('GET', captured[1]['method'])
+        self.assertEqual('a/c', captured[1]['path'][7:])
+        params = sorted(captured[1]['qs'].split('&'))
+        self.assertEqual(
+            ['format=json', 'includes=1_test', 'items=shard'], params)
         self.assertEqual(shard_ranges[1:2], [dict(pr) for pr in actual])
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
+    def test_get_shard_ranges_empty_response(self):
+        base = Controller(self.app)
+        req = Request.blank('/v1/a/c/o', method='PUT')
         # empty response
-        with mock.patch(
-                'swift.proxy.controllers.base.http_connect',
-                fake_http_connect(200, 200, 200,
-                                  body=json.dumps({}),
-                                  give_connect=on_connect)):
+        with mocked_http_conn(200, 200, body_iter=iter(['', json.dumps({})])):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
         self.assertEqual([], actual)
 
+    def test_get_shard_ranges_invalid_response(self):
+        base = Controller(self.app)
+        req = Request.blank('/v1/a/c/o', method='PUT')
         # invalid response
         invalid_range = {'created_at': Timestamp.now().internal}
-        with mock.patch(
-                'swift.proxy.controllers.base.http_connect',
-                fake_http_connect(200, 200, 200,
-                                  body=json.dumps([invalid_range]),
-                                  give_connect=on_connect)):
+        with mocked_http_conn(
+                200, 200, body_iter=iter(['', json.dumps([invalid_range])])):
             actual = base._get_shard_ranges(req, 'a', 'c', '1_test')
-        self.assertEqual([], actual)
+        self.assertIsNone(actual)
         error_lines = self.app.logger.get_lines_for_level('error')
         self.assertIn('Problem decoding shard ranges', error_lines[0])
         self.assertIn('/a/c', error_lines[0])
