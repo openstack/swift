@@ -763,7 +763,7 @@ class ContainerSharder(ContainerReplicator):
                          broker.account, broker.container)
 
         found_ranges, last_found = broker.find_shard_ranges(
-            self.shard_container_size // 2)
+            self.shard_container_size // 2, limit=self.scanner_batch_size)
 
         if not found_ranges:
             if last_found:
