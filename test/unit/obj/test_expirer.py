@@ -741,30 +741,30 @@ class TestObjectExpirer(TestCase):
                          got_env[0]['HTTP_X_IF_DELETE_AT'])
         self.assertEqual(got_env[0]['PATH_INFO'], '/v1/path/to/object name')
 
-    def test_delete_actual_object_raises_404(self):
+    def test_delete_actual_object_returns_expected_error(self):
+        def do_test(test_status):
+            calls = [0]
 
-        def fake_app(env, start_response):
-            start_response('404 Not Found', [('Content-Length', '0')])
-            return []
+            def fake_app(env, start_response):
+                calls[0] += 1
+                start_response(test_status, [('Content-Length', '0')])
+                return []
 
-        internal_client.loadapp = lambda *a, **kw: fake_app
+            internal_client.loadapp = lambda *a, **kw: fake_app
 
-        x = expirer.ObjectExpirer({})
-        self.assertRaises(internal_client.UnexpectedResponse,
-                          x.delete_actual_object, '/path/to/object', '1234')
+            x = expirer.ObjectExpirer({})
+            self.assertRaises(internal_client.UnexpectedResponse,
+                              x.delete_actual_object, '/path/to/object',
+                              '1234')
+            self.assertEqual(calls[0], 1)
 
-    def test_delete_actual_object_raises_412(self):
-
-        def fake_app(env, start_response):
-            start_response('412 Precondition Failed',
-                           [('Content-Length', '0')])
-            return []
-
-        internal_client.loadapp = lambda *a, **kw: fake_app
-
-        x = expirer.ObjectExpirer({})
-        self.assertRaises(internal_client.UnexpectedResponse,
-                          x.delete_actual_object, '/path/to/object', '1234')
+        # object was deleted and tombstone reaped
+        do_test('404 Not Found')
+        # object was overwritten *after* the original expiration, or
+        # object was deleted but tombstone still exists, or
+        # object was overwritten ahead of the original expiration, or
+        # object was POSTed to with a new (or no) expiration, or ...
+        do_test('412 Precondition Failed')
 
     def test_delete_actual_object_does_not_handle_odd_stuff(self):
 
@@ -790,7 +790,8 @@ class TestObjectExpirer(TestCase):
         name = 'this name should get quoted'
         timestamp = '1366063156.863045'
         x = expirer.ObjectExpirer({})
-        x.swift.make_request = mock.MagicMock()
+        x.swift.make_request = mock.Mock()
+        x.swift.make_request.return_value.status_int = 204
         x.delete_actual_object(name, timestamp)
         self.assertEqual(x.swift.make_request.call_count, 1)
         self.assertEqual(x.swift.make_request.call_args[0][1],
