@@ -487,8 +487,11 @@ class ProbeTest(unittest.TestCase):
     def annotate_failure(self, msg):
         try:
             yield
-        except AssertionError as err:
-            self.fail('%s Failed with %s' % (msg, err))
+        except AssertionError:
+            err_typ, err_val, err_tb = sys.exc_info()
+            msg = '%s Failed with %s' % (msg, err_val.args[0])
+            err_val.args = (msg, ) + err_val.args[1:]
+            raise err_typ, err_val, err_tb
 
 
 class ReplProbeTest(ProbeTest):
