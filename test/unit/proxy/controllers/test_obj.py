@@ -34,7 +34,7 @@ from six.moves import range
 import swift
 from swift.common import utils, swob, exceptions
 from swift.common.exceptions import ChunkWriteTimeout
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, list_from_csv
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import \
@@ -786,6 +786,111 @@ class BaseObjectControllerMixin(object):
                 n_expected_updates = min(
                     n_expected_updates, self.replicas(policy))
                 self.assertEqual(n_expected_updates, n_container_updates)
+
+    def test_delete_at_backend_requests(self):
+        t = str(int(time.time() + 100))
+        for policy in POLICIES:
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0',
+                         'X-Backend-Storage-Policy-Index': int(policy),
+                         'X-Delete-At': t})
+            controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+            for num_del_at_nodes in range(1, 16):
+                containers = [
+                    {'ip': '2.0.0.%s' % i, 'port': '70%s' % str(i).zfill(2),
+                     'device': 'sdc'} for i in range(num_del_at_nodes)]
+                del_at_nodes = [
+                    {'ip': '1.0.0.%s' % i, 'port': '60%s' % str(i).zfill(2),
+                     'device': 'sdb'} for i in range(num_del_at_nodes)]
+
+                backend_headers = controller._backend_requests(
+                    req, self.replicas(policy), 1, containers,
+                    delete_at_container='dac', delete_at_partition=2,
+                    delete_at_nodes=del_at_nodes)
+
+                devices = []
+                hosts = []
+                part = ctr = 0
+                for given_headers in backend_headers:
+                    self.assertEqual(given_headers.get('X-Delete-At'), t)
+                    if 'X-Delete-At-Partition' in given_headers:
+                        self.assertEqual(
+                            given_headers.get('X-Delete-At-Partition'), '2')
+                        part += 1
+                    if 'X-Delete-At-Container' in given_headers:
+                        self.assertEqual(
+                            given_headers.get('X-Delete-At-Container'), 'dac')
+                        ctr += 1
+                    devices += (
+                        list_from_csv(given_headers.get('X-Delete-At-Device')))
+                    hosts += (
+                        list_from_csv(given_headers.get('X-Delete-At-Host')))
+
+                # same as in test_container_update_backend_requests
+                n_can_fail = self.replicas(policy) - self.quorum(policy)
+                n_expected_updates = (
+                    n_can_fail + utils.quorum_size(num_del_at_nodes))
+
+                n_expected_hosts = max(
+                    n_expected_updates, num_del_at_nodes)
+
+                self.assertEqual(len(hosts), n_expected_hosts)
+                self.assertEqual(len(devices), n_expected_hosts)
+
+                # parts don't get doubled up, maximum is count of obj requests
+                n_expected_parts = min(
+                    n_expected_hosts, self.replicas(policy))
+                self.assertEqual(part, n_expected_parts)
+                self.assertEqual(ctr, n_expected_parts)
+
+                # check that hosts are correct
+                self.assertEqual(
+                    set(hosts),
+                    set('%s:%s' % (h['ip'], h['port']) for h in del_at_nodes))
+                self.assertEqual(set(devices), set(('sdb',)))
+
+    def test_smooth_distributed_backend_requests(self):
+        t = str(int(time.time() + 100))
+        for policy in POLICIES:
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0',
+                         'X-Backend-Storage-Policy-Index': int(policy),
+                         'X-Delete-At': t})
+            controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+            for num_containers in range(1, 16):
+                containers = [
+                    {'ip': '2.0.0.%s' % i, 'port': '70%s' % str(i).zfill(2),
+                     'device': 'sdc'} for i in range(num_containers)]
+                del_at_nodes = [
+                    {'ip': '1.0.0.%s' % i, 'port': '60%s' % str(i).zfill(2),
+                     'device': 'sdb'} for i in range(num_containers)]
+
+                backend_headers = controller._backend_requests(
+                    req, self.replicas(policy), 1, containers,
+                    delete_at_container='dac', delete_at_partition=2,
+                    delete_at_nodes=del_at_nodes)
+
+                # caculate no of expected updates, see
+                # test_container_update_backend_requests for explanation
+                n_expected_updates = min(max(
+                    self.replicas(policy) - self.quorum(policy) +
+                    utils.quorum_size(num_containers), num_containers),
+                    self.replicas(policy))
+
+                # the first n_expected_updates servers should have received
+                # a container update
+                self.assertTrue(
+                    all([h.get('X-Container-Partition')
+                         for h in backend_headers[:n_expected_updates]]))
+                # the last n_expected_updates servers should have received
+                # the x-delete-at* headers
+                self.assertTrue(
+                    all([h.get('X-Delete-At-Container')
+                         for h in backend_headers[-n_expected_updates:]]))
 
     def _check_write_affinity(
             self, conf, policy_conf, policy, affinity_regions, affinity_count):

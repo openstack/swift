@@ -325,15 +325,30 @@ class BaseObjectController(Controller):
                 headers[index].get('X-Container-Device'),
                 container['device'])
 
+        def set_delete_at_headers(index, delete_at_node):
+            headers[index]['X-Delete-At-Container'] = delete_at_container
+            headers[index]['X-Delete-At-Partition'] = delete_at_partition
+            headers[index]['X-Delete-At-Host'] = csv_append(
+                headers[index].get('X-Delete-At-Host'),
+                '%(ip)s:%(port)s' % delete_at_node)
+            headers[index]['X-Delete-At-Device'] = csv_append(
+                headers[index].get('X-Delete-At-Device'),
+                delete_at_node['device'])
+
         n_updates_needed = num_container_updates(
             len(containers), quorum_size(len(containers)),
             n_outgoing, policy.quorum)
 
         container_iter = itertools.cycle(containers)
+        dan_iter = itertools.cycle(delete_at_nodes or [])
         existing_updates = 0
         while existing_updates < n_updates_needed:
-            set_container_update(existing_updates % n_outgoing,
-                                 next(container_iter))
+            index = existing_updates % n_outgoing
+            set_container_update(index, next(container_iter))
+            if delete_at_nodes:
+                # We reverse the index in order to distribute the updates
+                # across all nodes.
+                set_delete_at_headers(n_outgoing - 1 - index, next(dan_iter))
             existing_updates += 1
 
         # Keep the number of expirer-queue deletes to a reasonable number.
@@ -359,18 +374,6 @@ class BaseObjectController(Controller):
         for i in range(len(headers)):
             headers[i]['X-Backend-Clean-Expiring-Object-Queue'] = (
                 't' if i < n_desired_queue_updates else 'f')
-
-        for i, node in enumerate(delete_at_nodes or []):
-            i = i % len(headers)
-
-            headers[i]['X-Delete-At-Container'] = delete_at_container
-            headers[i]['X-Delete-At-Partition'] = delete_at_partition
-            headers[i]['X-Delete-At-Host'] = csv_append(
-                headers[i].get('X-Delete-At-Host'),
-                '%(ip)s:%(port)s' % node)
-            headers[i]['X-Delete-At-Device'] = csv_append(
-                headers[i].get('X-Delete-At-Device'),
-                node['device'])
 
         return headers
 

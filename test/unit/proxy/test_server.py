@@ -5486,9 +5486,9 @@ class TestReplicatedObjectController(
              'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sdb'},
             {'X-Delete-At-Host': None,
-             'X-Delete-At-Container': None,
              'X-Delete-At-Partition': None,
-             'X-Delete-At-Device': None}
+             'X-Delete-At-Container': None,
+             'X-Delete-At-Device': None},
         ])
 
     @mock.patch('time.time', new=lambda: STATIC_TIME)
