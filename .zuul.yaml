@@ -59,23 +59,6 @@
     nodeset: centos-7
 
 - job:
-    name: swift-tox-func-post-as-copy
-    parent: swift-tox-base
-    description: |
-      Run functional tests for swift under cPython version 2.7.
-
-      Uses tox with the ``func-post-as-copy`` environment.
-      It sets TMPDIR to an XFS mount point created via
-      tools/test-setup.sh.
-    vars:
-      tox_envlist: func-post-as-copy
-
-- job:
-    name: swift-tox-func-post-as-copy-centos-7
-    parent: swift-tox-func-post-as-copy
-    nodeset: centos-7
-
-- job:
     name: swift-tox-func-encryption
     parent: swift-tox-base
     description: |
@@ -117,7 +100,6 @@
         - swift-tox-py27
         - swift-tox-py35
         - swift-tox-func
-        - swift-tox-func-post-as-copy
         - swift-tox-func-encryption
         - swift-tox-func-ec
     gate:
@@ -125,13 +107,11 @@
         - swift-tox-py27
         - swift-tox-py35
         - swift-tox-func
-        - swift-tox-func-post-as-copy
         - swift-tox-func-encryption
         - swift-tox-func-ec
     experimental:
       jobs:
         - swift-tox-py27-centos-7
         - swift-tox-func-centos-7
-        - swift-tox-func-post-as-copy-centos-7
         - swift-tox-func-encryption-centos-7
         - swift-tox-func-ec-centos-7
